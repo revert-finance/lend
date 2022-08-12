@@ -2,5 +2,6 @@
 pragma solidity ^0.8.0;
 
 interface ISwapRouter {
-    function swap(bytes calldata desc) external returns (uint amountOut);
+    // uses approved tokens - swaps as instructed in desc - returns how much was recieved
+    function swap(bytes calldata desc) external payable returns (uint amountOut);
 }
