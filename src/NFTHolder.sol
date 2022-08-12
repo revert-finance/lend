@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-                             
+
+import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
+import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "./external/compound/ComptrollerInterface.sol";
+import "./external/compound/CToken.sol";
+
+import "./ISwapRouter.sol";
+
 contract NFTHolder {
 
     uint32 constant public MAX_TOKENS_PER_ADDRESS = 100;
@@ -72,8 +80,8 @@ contract NFTHolder {
 
         configToken(tokenId, isAutoCompoundable, isCollateralizable, isLendable);
 
-        // special case: change range and withdraw
-        // special case: autocompound and withdraw
+        // TODO special case: change range and withdraw
+        // TODO special case: autocompound and withdraw
     }
 
     // sets tokens config flags - changes state when needed
@@ -118,12 +126,11 @@ contract NFTHolder {
     ) external override nonReentrant {
         require(to != address(this), "to==this");
 
-        Token storage position = tokens[tokenId];
+        Token storage token = tokens[tokenId];
+        require(token.owner == msg.sender, "!owner");
 
-        require(position.owner == msg.sender, "!owner");
-
-        if (position.cTokenAmount > 0) {
-            unlend();
+        if (token.cTokenAmount > 0) {
+            unlend(token);
         }
 
         _removeToken(tokenId, msg.sender);
@@ -143,30 +150,120 @@ contract NFTHolder {
         return tokens[tokenId].owner;
     }
 
-    function mintAndSwap(bytes data) external {
+    function mint(address token0, address token1, int24 fee, int24 lowerTick, int24 upperTick, uint amount0, uint amount1, bool add, bool borrow, bool isAutoCompoundable, bool isCollateralizable, bool isLendable, bool swap0For1, uint swapAmount, bytes calldata swapData) external {
+
+        if (!borrow) {
+            _prepareAdd(token0, token1, amount0, amount1);
+            if (swapAmount > 0) {
+                uint swappedAmount = _swap(swap0For1 ? token0 : token1, swap0For1 ? token1 : token0, swapAmount, swapData);
+                if (swap0For1) {
+                    amount0 -= swapAmount;
+                    amount1 += swappedAmount;
+                } else {
+                    amount1 -= swapAmount;
+                    amount0 += swappedAmount;
+                }
+            }
+        } else {
+            address poolAddress = factory.getPool(token0, token1, fee);
+            PoolConfig storage poolConfig = poolConfigs[poolAddress];
+            if (amount0 > 0) {
+                CToken(poolConfig.cToken0).borrow(amount0);
+            }
+            if (amount1 > 0) {
+                CToken(poolConfig.cToken1).borrow(amount1);
+            }
+        }
+
+        if (amount0 > 0) {
+            IERC20(token0).approve(address(nonfungiblePositionManager), amount0);
+        }
+        if (amount1 > 0) {
+            IERC20(token1).approve(address(nonfungiblePositionManager), amount1);
+        }
+
+        INonfungiblePositionManager.MintParams memory mintParams = 
+            INonfungiblePositionManager.MintParams(
+                params.token0, 
+                params.token1, 
+                params.fee, 
+                params.tickLower, 
+                params.tickUpper,
+                amount0, 
+                amount1, 
+                0,
+                0,
+                address(this),
+                block.timestamp
+            );
+
+        (uint tokenId,,uint addedAmount0, uint addedAmount1) = nonfungiblePositionManager.mint(mintParams);
+
+        // add 
+        if (addedAmount0 < amount0) {
+            _increaseBalance(msg.sender, token0, amount0 - addedAmount0);
+        }
+        if (addedAmount1 < amount1) {
+            _increaseBalance(msg.sender, token1, amount1 - addedAmount1);
+        }
+
         // get tokens from msg.sender - like in the old compounder
         // swap provided tokens with given instructions in data
         // create position
         // return leftovers - or add to account balances
-        // return position - or add to contract
+        
+        if (add) {
+            _addToken(tokenId, msg.sender);
+            configToken(tokenId, isAutoCompoundable, isCollateralizable, isLendable);
+        } else {
+            _withdrawFullBalances(token0, token1, msg.sender);
+            nonfungibleTokenManager.safeTransferFrom(address(this), msg.sender, tokenId, "0x");
+        }
+
+        if (borrow) {
+            comptroller.checkCollateral();
+        }
     }
 
-    function increaseAndSwap(uint tokenId, bytes data) external {
+    function increase(uint tokenId, uint amount0, uint amount1, bool returnLeftovers, bytes swapData) external {
+
+        _prepareAdd(token0, token1, amount0, amount1);
+
         // get tokens from msg.sender - like in the old compounder
         // swap provided tokens with given instructions in data
         // add liquidity
         // return leftovers - or add to account balances
+
+        if (returnLeftovers) {
+            _withdrawFullBalances(token0, token1, msg.sender);
+        } else {
+
+        }
     }
 
-    function changeRange(uint tokenId, uint lower, uint upper, bytes data) external {
-        // if lent out - unlend()
-        
-        // remove all liquidity & fees
-        // remove position from contract
+    function changeRange(uint tokenId, uint lower, uint upper, bytes swapData) external {
 
-        // mintAndSwap() - adding position to contract
+        Token storage token = tokens[tokenId];
+        require(token.owner == msg.sender, "!owner");
 
-        // if (isCollateralizable) comptroller.checkCollateral()
+        if (token.cTokenAmount > 0) {
+            unlend();
+        }
+
+        (,,,,,,,uint128  liquidity,,,) = nonfungiblePositionManager.positions(tokenId);
+
+        _decreaseLiquidity(tokenId, liquidity);
+        (uint amount0, uint amount1) = _collectFees(tokenId);
+
+        _removeToken(tokenId, msg.sender);
+
+        uint newTokenId = _mintAndSwap(amount0, amount1, swapData); // TODO create internal function - add all parameters needed
+
+        _addToken(newTokenId, msg.sender);
+
+        if (token.isCollateralizable) {
+            comptroller.checkCollateral();
+        }
     }
 
     function decreaseLiquidityAndCollect(uint tokenId, bool repay) external {
@@ -239,15 +336,15 @@ contract NFTHolder {
         // comptroller.checkCollateral()
     }
 
-    function autocompound() external {
-        // check if isAutoCompoundable
+    function autoCompound(uint tokenId) external {
+        
         
         // do autocompounding (optional with swap config - check swapped amounts to be min 99?% of swap amounts - check min added amount to position to be 80?%)
 
         // comptroller.checkCollateral()
     }
 
-    function lend(Token storage position) internal {
+    function lend(Token storage token) internal {
         
         // must be out of range / must not have ctoken balance
 
@@ -258,7 +355,7 @@ contract NFTHolder {
         // comptroller.checkCollateral()
     }
 
-    function unlend(Token storage position) internal {
+    function unlend(Token storage token) internal {
 
         // must be out of range / must have ctoken balance
 
@@ -270,7 +367,7 @@ contract NFTHolder {
         // comptroller.checkCollateral()
     }
 
-    function unlendWithSwap(uint tokenId, bytes data) internal {
+    function unlendWithSwap(Token storage token, bytes data) internal {
 
         // must have ctoken balance
         // if !isProtected && in force zone - anyone can call this
@@ -289,10 +386,14 @@ contract NFTHolder {
     }
 
 
+
+
+
+
+
     function _supportsLending(uint256 tokenId) internal {
         // check pool configs
     }
-
 
     function _addToken(uint256 tokenId, address account) internal {
 
@@ -332,6 +433,57 @@ contract NFTHolder {
         delete tokens[tokenId];
     }
 
+    // collect all available fees
+    function _collectFees(uint tokenId) external returns (uint256 amount0, uint256 amount1) {
+        (amount0, amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
+        );
+    }
+
+    // decrease liquidity
+    function _decreaseLiquidity(uint tokenId, uint128 liquidity) 
+        override 
+        external   
+        returns (uint256 amount0, uint256 amount1) 
+    {
+        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams(
+                tokenId, 
+                liquidity, 
+                0, 
+                0,
+                block.timestamp
+            )
+        );
+
+        INonfungiblePositionManager.CollectParams memory collectParams = 
+            INonfungiblePositionManager.CollectParams(
+                tokenId, 
+                address(this), 
+                type(uint128).max, 
+                type(uint128).max
+            );
+
+        nonfungiblePositionManager.collect(collectParams);
+    }
+
+    function _increaseBalance(address account, address token, uint256 amount) internal {
+        accountBalances[account][token] = accountBalances[account][token] + amount;
+        emit BalanceAdded(account, token, amount);
+    }
+
+    function _setBalance(address account, address token, uint256 amount) internal {
+        uint currentBalance = accountBalances[account][token];
+        
+        if (amount > currentBalance) {
+            accountBalances[account][token] = amount;
+            emit BalanceAdded(account, token, amount - currentBalance);
+        } else if (amount < currentBalance) {
+            accountBalances[account][token] = amount;
+            emit BalanceRemoved(account, token, currentBalance - amount);
+        }
+    }
+
     function _withdrawFullBalances(address token0, address token1, address to) internal {
         uint256 balance0 = accountBalances[msg.sender][token0];
         if (balance0 > 0) {
@@ -345,17 +497,56 @@ contract NFTHolder {
 
     function _withdrawBalanceInternal(address token, address to, uint256 balance, uint256 amount) internal {
         require(amount <= balance, "amount>balance");
-        accountBalances[msg.sender][token] = accountBalances[msg.sender][token].sub(amount);
+        accountBalances[msg.sender][token] -= amount;
         emit BalanceRemoved(msg.sender, token, amount);
         SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit BalanceWithdrawn(msg.sender, token, to, amount);
     }
 
-    function _swap(address tokenIn, address tokenOut, uint256 amount, bytes data) internal returns (uint256 amountOut) {
+    // prepares adding specified amounts, handles weth wrapping, reverts when more than necessary is added
+    function _prepareAdd(address token0, address token1, uint amount0, uint amount1) internal returns (uint amountAdded0, uint amountAdded1)
+    {
+        // wrap ether sent
+        if (msg.value > 0) {
+            (bool success,) = payable(weth).call{ value: msg.value }("");
+            require(success, "eth wrap fail");
+
+            if (weth == token0) {
+                amountAdded0 = msg.value;
+                require(amountAdded0 <= amount0, "msg.value>amount0");
+            } else if (weth == token1) {
+                amountAdded1 = msg.value;
+                require(amountAdded1 <= amount1, "msg.value>amount1");
+            } else {
+                revert("no weth token");
+            }
+        }
+
+        // get missing tokens (fails if not enough provided)
+        if (amount0 > amountAdded0) {
+            uint balanceBefore = IERC20(token0).balanceOf(address(this));
+            IERC20(token0).transferFrom(msg.sender, address(this), amount0 - amountAdded0);
+            uint balanceAfter = IERC20(token0).balanceOf(address(this));
+            require(balanceAfter - balanceBefore == amount0 - amountAdded0, "transfer error"); // catches any problems with deflationary or fee tokens
+            amountAdded0 = amount0;
+        }
+        if (amount1 > amountAdded1) {
+            uint balanceBefore = IERC20(token1).balanceOf(address(this));
+            IERC20(token1).transferFrom(msg.sender, address(this), amount1 - amountAdded1);
+            uint balanceAfter = IERC20(token1).balanceOf(address(this));
+            require(balanceAfter - balanceBefore == amount1 - amountAdded1, "transfer error"); // catches any problems with deflationary or fee tokens
+            amountAdded1 = amount1;
+        }
+    }
+
+    // general swap function which uses external router with off-chain calculated swap instrucctions
+    function _swap(address tokenIn, address tokenOut, uint256 amountIn, bytes calldata swapData) internal returns (uint256 amountOut) {
         if (amount > 0) {
-            //approve exact amount
-            IERC20(token).approve(address(swapRouter), amount);
-            uint amountOut = swapRouter.swap(data);
+            uint balanceBefore = IERC20(tokenOut).balanceOf(address(this));
+            IERC20(tokenIn).approve(address(swapRouter), amountIn);
+            amountOut = swapRouter.swap(swapData);
+            uint balanceAfter = IERC20(tokenOut).balanceOf(address(this));
+            require(balanceAfter - balanceBefore == amountOut, "swap error"); // catches any problems with deflationary or fee tokens
         }
     }
 }
