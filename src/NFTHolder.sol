@@ -9,7 +9,7 @@ import "./external/compound/CToken.sol";
 
 import "./ISwapRouter.sol";
 
-contract NFTHolder {
+contract NFTHolder is Ownable {
 
     uint32 constant public MAX_TOKENS_PER_ADDRESS = 100;
 
@@ -105,7 +105,7 @@ contract NFTHolder {
                 // comptroller.checkCollateral()
             }
         }
-        
+
         if (position.isLendable != isLendable) {
             position.isLendable = isLendable;
             bool isProtected;
@@ -115,7 +115,7 @@ contract NFTHolder {
                 isProtected = unlend(position);
             }
             position.isProtected = isProtected; // set flag depending on when
-        }   
+        }
     }
 
     function withdrawToken(
@@ -165,6 +165,8 @@ contract NFTHolder {
                 }
             }
         } else {
+            // TODO better way to calculate pool address
+            // https://github.com/Uniswap/v3-staker/blob/main/contracts/libraries/NFTPositionInfo.sol
             address poolAddress = factory.getPool(token0, token1, fee);
             PoolConfig storage poolConfig = poolConfigs[poolAddress];
             if (amount0 > 0) {
@@ -387,7 +389,9 @@ contract NFTHolder {
 
 
 
-
+    function setSwapRouter(uint256 tokenId) external isOwner {
+        // check pool configs
+    }
 
 
 
