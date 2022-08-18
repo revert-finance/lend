@@ -14,6 +14,8 @@ contract V3Utils {
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     ISwapRouter immutable public swapRouter; // ISwapRouter maybe Uniswap or 1Inch or something else
 
+    // TODO implement fee logic
+
     constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         weth = _weth;
         factory = _factory;
