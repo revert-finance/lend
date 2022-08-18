@@ -275,7 +275,7 @@ contract V3Utils {
     }
 
     // general swap function which uses external router with off-chain calculated swap instrucctions
-    // returns new token amounts after swap (TODO check both token balances)
+    // returns new token amounts after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
