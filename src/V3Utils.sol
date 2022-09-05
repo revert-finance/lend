@@ -6,25 +6,29 @@ import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.s
 
 import "./external/openzeppelin/token/ERC20/utils/SafeERC20.sol";
 
-import "./ISwapRouter.sol";
+import "./external/1inch/interfaces/IAggregationRouterV4.sol";
 
-contract V3Utils {
+contract V3Utils is IAggregationExecutor {
+
+    uint256 private constant BASE = 1e18;
+
     IERC20 immutable public weth;
     IUniswapV3Factory immutable public factory;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
-    ISwapRouter immutable public swapRouter; // ISwapRouter maybe Uniswap or 1Inch or something else
+    IAggregationRouterV4 immutable public swapRouter;
+    uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
+    address immutable public beneficiary; // address recieving the protocol fee
 
-    // TODO implement fee logic
-
-    constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
+    constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, IAggregationRouterV4 _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
+        protocolFeeMantissa = _protocolFeeMantissa;
+        beneficiary = _beneficiary;
     }
 
     enum WhatToDo {
-        NOTHING,
         CHANGE_RANGE,
         WITHDRAW_AND_SWAP,            
         COLLECT_AND_SWAP
@@ -48,7 +52,7 @@ contract V3Utils {
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
-        bool burnOrReturn;
+        bool burnNoReturn;
         
         // for liquidity operations
         uint deadline;
@@ -72,12 +76,6 @@ contract V3Utils {
                 _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, instructions.swapData0, true, instructions.amountIn0));
             } else {
                 revert("invalid target");
-            }
-
-            if (instructions.burnOrReturn) {
-                _burn(tokenId);
-            } else {
-                nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
             }
         } else if (instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP || instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
             if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
@@ -104,12 +102,22 @@ contract V3Utils {
                 targetAmount += fees1; 
             }
 
+            targetAmount = _payProtocolFee(IERC20(instructions.target), targetAmount, _keepProtocolFee(targetAmount));
             SafeERC20.safeTransfer(IERC20(instructions.target), from, targetAmount);
-            nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
         } else {
-            // in any other case just return token again
+            revert("not supported whatToDo");
+        }
+        
+        if (instructions.burnNoReturn) {
+            _burn(tokenId); // if token is not in burnable state - this will revert
+        } else {
             nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
-        }        
+        }
+    }
+
+    // callback for 1inch router swaps
+    function callBytes(address msgSender, bytes calldata data) override external payable {
+        
     }
 
     struct SwapAndMintParams {
@@ -191,6 +199,18 @@ contract V3Utils {
         nonfungiblePositionManager.burn(tokenId);
     }
 
+    function _keepProtocolFee(uint amount) internal view returns (uint available) {
+        available = amount - amount * protocolFeeMantissa / BASE;
+    }
+
+    function _payProtocolFee(IERC20 token, uint amount, uint added) internal returns (uint left) {
+        uint fee = added * protocolFeeMantissa / BASE;
+        if (fee > 0) {
+            SafeERC20.safeTransfer(token, beneficiary, fee); // TODO keep in contract or return directly?
+        }
+        left = amount - added - fee;
+    }
+
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
 
         uint amount0 = params.amount0;
@@ -205,6 +225,9 @@ contract V3Utils {
             amount1 -= amountInDelta;
             amount0 += amountOutDelta;
         }
+
+        amount0 = _keepProtocolFee(amount0);
+        amount1 = _keepProtocolFee(amount1);
 
         params.token0.approve(address(nonfungiblePositionManager), amount0);
         params.token1.approve(address(nonfungiblePositionManager), amount1);
@@ -226,12 +249,15 @@ contract V3Utils {
 
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
 
+        amount0 = _payProtocolFee(params.token0, amount0, added0);
+        amount1 = _payProtocolFee(params.token1, amount1, added1);
+
         // return leftovers
-        if (added0 < amount0) {
-            SafeERC20.safeTransfer(params.token0, params.recipient, amount0 - added0);
+        if (amount0 > 0) {
+            SafeERC20.safeTransfer(params.token0, msg.sender, amount0);
         }
-        if (added1 < amount1) {
-            SafeERC20.safeTransfer(params.token1, params.recipient, amount1 - added1);
+        if (amount1 > 0) {
+            SafeERC20.safeTransfer(params.token1, msg.sender, amount1);
         }
     }
 
@@ -250,6 +276,9 @@ contract V3Utils {
             amount0 += amountOutDelta;
         }
 
+        amount0 = _keepProtocolFee(amount0);
+        amount1 = _keepProtocolFee(amount1);
+
         token0.approve(address(nonfungiblePositionManager), amount0);
         token1.approve(address(nonfungiblePositionManager), amount1);
         
@@ -265,12 +294,15 @@ contract V3Utils {
 
         (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
+        amount0 = _payProtocolFee(token0, amount0, added0);
+        amount1 = _payProtocolFee(token1, amount1, added1);
+
         // return leftovers
-        if (added0 < amount0) {
-            SafeERC20.safeTransfer(token0, msg.sender, amount0 - added0);
+        if (amount0 > 0) {
+            SafeERC20.safeTransfer(token0, msg.sender, amount0);
         }
-        if (added1 < amount1) {
-            SafeERC20.safeTransfer(token1, msg.sender, amount1 - added1);
+        if (amount1 > 0) {
+            SafeERC20.safeTransfer(token1, msg.sender, amount1);
         }
     }
 
@@ -280,8 +312,19 @@ contract V3Utils {
         if (amountIn > 0) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
+
+            // approve needed amount
             tokenIn.approve(address(swapRouter), amountIn);
-            amountOutDelta = swapRouter.swap(swapData);
+
+            // decode swap data
+            IAggregationRouterV4.SwapDescription memory desc = abi.decode(swapData, (IAggregationRouterV4.SwapDescription));
+
+            // execute swap
+            (amountOutDelta,,) = swapRouter.swap(this, desc, "0x");
+
+            // TODO need to reset approval ???? 
+            // tokenIn.approve(address(swapRouter), 0);
+
             uint balanceInAfter = tokenIn.balanceOf(address(this));
             uint balanceOutAfter = tokenOut.balanceOf(address(this));
             amountInDelta = balanceInBefore - balanceInAfter;
