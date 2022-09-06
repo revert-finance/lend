@@ -5,10 +5,11 @@ import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./external/openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
 
 import "./external/1inch/interfaces/IAggregationRouterV4.sol";
 
-contract V3Utils is IAggregationExecutor {
+contract V3Utils is IERC721Receiver {
 
     uint256 private constant BASE = 1e18;
 
@@ -29,6 +30,7 @@ contract V3Utils is IAggregationExecutor {
     }
 
     enum WhatToDo {
+        NOTHING,
         CHANGE_RANGE,
         WITHDRAW_AND_SWAP,
         COLLECT_AND_SWAP
@@ -61,7 +63,7 @@ contract V3Utils is IAggregationExecutor {
         bytes returnData;
     }
 
-    function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external  {
+    function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         Instructions memory instructions = abi.decode(data, (Instructions));
 
@@ -105,6 +107,8 @@ contract V3Utils is IAggregationExecutor {
             uint toSend = _removeProtocolFee(targetAmount);
             targetAmount = _payProtocolFee(IERC20(instructions.swapTarget), targetAmount, toSend);
             SafeERC20.safeTransfer(IERC20(instructions.swapTarget), from, toSend + targetAmount);
+        } else if (instructions.whatToDo == WhatToDo.NOTHING) {
+
         } else {
             revert("not supported whatToDo");
         }
@@ -114,11 +118,8 @@ contract V3Utils is IAggregationExecutor {
         } else {
             nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
         }
-    }
 
-    // callback for 1inch router swaps
-    function callBytes(address msgSender, bytes calldata data) override external payable {
-        
+        return IERC721Receiver.onERC721Received.selector;
     }
 
     struct SwapAndMintParams {
@@ -298,10 +299,11 @@ contract V3Utils is IAggregationExecutor {
             tokenIn.approve(address(swapRouter), amountIn);
 
             // decode swap data
-            IAggregationRouterV4.SwapDescription memory desc = abi.decode(swapData, (IAggregationRouterV4.SwapDescription));
+            (IAggregationExecutor ex, IAggregationRouterV4.SwapDescription memory desc, bytes memory data) = 
+                abi.decode(swapData, (IAggregationExecutor, IAggregationRouterV4.SwapDescription, bytes));
 
             // execute swap
-            (amountOutDelta,,) = swapRouter.swap(this, desc, "0x");
+            (amountOutDelta,,) = swapRouter.swap(ex, desc, data);
 
             // reset approval
             tokenIn.approve(address(swapRouter), 0);
