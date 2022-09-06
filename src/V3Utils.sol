@@ -17,7 +17,7 @@ contract V3Utils is IAggregationExecutor {
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     IAggregationRouterV4 immutable public swapRouter;
     uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
-    address immutable public beneficiary; // address recieving the protocol fee
+    address immutable public protocolFeeBeneficiary; // address recieving the protocol fee
 
     constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, IAggregationRouterV4 _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
@@ -25,12 +25,12 @@ contract V3Utils is IAggregationExecutor {
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
         protocolFeeMantissa = _protocolFeeMantissa;
-        beneficiary = _beneficiary;
+        protocolFeeBeneficiary = _beneficiary;
     }
 
     enum WhatToDo {
         CHANGE_RANGE,
-        WITHDRAW_AND_SWAP,            
+        WITHDRAW_AND_SWAP,
         COLLECT_AND_SWAP
     }
 
@@ -38,7 +38,7 @@ contract V3Utils is IAggregationExecutor {
         WhatToDo whatToDo;
 
         // target token for swaps
-        address target;
+        address swapTarget;
 
         // if token0 needs to be swapped to target - set values
         uint amountIn0;
@@ -70,12 +70,12 @@ contract V3Utils is IAggregationExecutor {
         if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
             _decreaseAllLiquidity(tokenId, liquidity, instructions.deadline);
             (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
-            if (instructions.target == token0) {
+            if (instructions.swapTarget == token0) {
                 _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, instructions.swapData1, false, instructions.amountIn1));
-            } else if (instructions.target == token1) {
+            } else if (instructions.swapTarget == token1) {
                 _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, instructions.swapData0, true, instructions.amountIn0));
             } else {
-                revert("invalid target");
+                revert("invalid swap target");
             }
         } else if (instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP || instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
             if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
@@ -83,8 +83,8 @@ contract V3Utils is IAggregationExecutor {
             }
             (uint fees0, uint fees1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
             uint targetAmount;
-            if (token0 != instructions.target) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token0), IERC20(instructions.target), fees0, instructions.swapData0);
+            if (token0 != instructions.swapTarget) {
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token0), IERC20(instructions.swapTarget), fees0, instructions.swapData0);
                 if (amountInDelta < fees0) {
                     SafeERC20.safeTransfer(IERC20(token0), from, fees0 - amountInDelta);
                 }
@@ -92,8 +92,8 @@ contract V3Utils is IAggregationExecutor {
             } else {
                 targetAmount += fees0; 
             }
-            if (token1 != instructions.target) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token1), IERC20(instructions.target), fees1, instructions.swapData1);
+            if (token1 != instructions.swapTarget) {
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token1), IERC20(instructions.swapTarget), fees1, instructions.swapData1);
                 if (amountInDelta < fees1) {
                     SafeERC20.safeTransfer(IERC20(token1), from, fees1 - amountInDelta);
                 }
@@ -102,8 +102,9 @@ contract V3Utils is IAggregationExecutor {
                 targetAmount += fees1; 
             }
 
-            targetAmount = _payProtocolFee(IERC20(instructions.target), targetAmount, _keepProtocolFee(targetAmount));
-            SafeERC20.safeTransfer(IERC20(instructions.target), from, targetAmount);
+            uint toSend = _removeProtocolFee(targetAmount);
+            targetAmount = _payProtocolFee(IERC20(instructions.swapTarget), targetAmount, toSend);
+            SafeERC20.safeTransfer(IERC20(instructions.swapTarget), from, toSend + targetAmount);
         } else {
             revert("not supported whatToDo");
         }
@@ -151,7 +152,7 @@ contract V3Utils is IAggregationExecutor {
         uint amountIn;
     }
 
-    function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params) external payable returns ( uint128 liquidity, uint256 amount0, uint256 amount1) {
+    function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
         _prepareAdd(IERC20(token0), IERC20(token1), params.amount0, params.amount1);
         (liquidity, amount0, amount1) = _swapAndIncrease(params, IERC20(token0), IERC20(token1));
@@ -199,38 +200,21 @@ contract V3Utils is IAggregationExecutor {
         nonfungiblePositionManager.burn(tokenId);
     }
 
-    function _keepProtocolFee(uint amount) internal view returns (uint available) {
-        available = amount - amount * protocolFeeMantissa / BASE;
+    function _removeProtocolFee(uint amount) internal view returns (uint available) {
+        available = (amount * protocolFeeMantissa) / (BASE + protocolFeeMantissa);
     }
 
     function _payProtocolFee(IERC20 token, uint amount, uint added) internal returns (uint left) {
         uint fee = added * protocolFeeMantissa / BASE;
         if (fee > 0) {
-            SafeERC20.safeTransfer(token, beneficiary, fee); // TODO keep in contract or return directly?
+            SafeERC20.safeTransfer(token, protocolFeeBeneficiary, fee); // TODO keep in contract or return directly?
         }
         left = amount - added - fee;
     }
 
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
 
-        uint amount0 = params.amount0;
-        uint amount1 = params.amount1;
-
-        if (params.swap0For1) { 
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(params.token0, params.token1, params.amountIn, params.swapData);
-            amount0 -= amountInDelta;
-            amount1 += amountOutDelta;
-        } else {
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(params.token1, params.token0, params.amountIn, params.swapData);
-            amount1 -= amountInDelta;
-            amount0 += amountOutDelta;
-        }
-
-        amount0 = _keepProtocolFee(amount0);
-        amount1 = _keepProtocolFee(amount1);
-
-        params.token0.approve(address(nonfungiblePositionManager), amount0);
-        params.token1.approve(address(nonfungiblePositionManager), amount1);
+        (uint total0, uint total1, uint available0, uint available1) = _swapAndPrepareAmounts(params.token0, params.token1, params.amount0, params.amount1, params.swap0For1, params.amountIn, params.swapData);
 
         INonfungiblePositionManager.MintParams memory mintParams = 
             INonfungiblePositionManager.MintParams(
@@ -239,8 +223,8 @@ contract V3Utils is IAggregationExecutor {
                 params.fee, 
                 params.tickLower, 
                 params.tickUpper,
-                amount0,
-                amount1, 
+                available0,
+                available1, 
                 0,
                 0,
                 params.recipient,
@@ -249,44 +233,18 @@ contract V3Utils is IAggregationExecutor {
 
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
 
-        amount0 = _payProtocolFee(params.token0, amount0, added0);
-        amount1 = _payProtocolFee(params.token1, amount1, added1);
-
-        // return leftovers
-        if (amount0 > 0) {
-            SafeERC20.safeTransfer(params.token0, msg.sender, amount0);
-        }
-        if (amount1 > 0) {
-            SafeERC20.safeTransfer(params.token1, msg.sender, amount1);
-        }
+        _payProtocolFeeAndReturnLeftovers(params.token0, params.token1, total0, total1, added0, added1);
     }
 
     function _swapAndIncrease(SwapAndIncreaseLiquidityParams memory params, IERC20 token0, IERC20 token1) internal returns (uint128 liquidity, uint added0, uint added1) {
 
-        uint amount0 = params.amount0;
-        uint amount1 = params.amount1;
-
-        if (params.swap0For1) { 
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(token0, token1, params.amountIn, params.swapData);
-            amount0 -= amountInDelta;
-            amount1 += amountOutDelta;
-        } else {
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(token1, token0, params.amountIn, params.swapData);
-            amount1 -= amountInDelta;
-            amount0 += amountOutDelta;
-        }
-
-        amount0 = _keepProtocolFee(amount0);
-        amount1 = _keepProtocolFee(amount1);
-
-        token0.approve(address(nonfungiblePositionManager), amount0);
-        token1.approve(address(nonfungiblePositionManager), amount1);
+        (uint total0, uint total1, uint available0, uint available1) = _swapAndPrepareAmounts(token0, token1, params.amount0, params.amount1, params.swap0For1, params.amountIn, params.swapData);
         
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(
                 params.tokenId, 
-                amount0, 
-                amount1, 
+                available0, 
+                available1, 
                 0, 
                 0, 
                 params.deadline
@@ -294,19 +252,42 @@ contract V3Utils is IAggregationExecutor {
 
         (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
-        amount0 = _payProtocolFee(token0, amount0, added0);
-        amount1 = _payProtocolFee(token1, amount1, added1);
+        _payProtocolFeeAndReturnLeftovers(token0, token1, total0, total1, added0, added1);
+    }
+
+    // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
+    function _swapAndPrepareAmounts(IERC20 token0, IERC20 token1, uint amount0, uint amount1, bool swap0For1, uint amountIn, bytes memory swapData) internal returns (uint total0, uint total1, uint available0, uint available1) {
+         if (swap0For1) { 
+            (uint amountInDelta, uint256 amountOutDelta) = _swap(token0, token1, amountIn, swapData);
+            total0 = amount0 - amountInDelta;
+            total1 = amount1 - amountOutDelta;
+        } else {
+            (uint amountInDelta, uint256 amountOutDelta) = _swap(token1, token0, amountIn, swapData);
+            total1 = amount1 - amountInDelta;
+            total0 = amount0 - amountOutDelta;
+        }
+        available0 = _removeProtocolFee(total0);
+        available1 = _removeProtocolFee(total1);
+
+        token0.approve(address(nonfungiblePositionManager), available0);
+        token1.approve(address(nonfungiblePositionManager), available1);
+    }
+
+    // pays protocol fees assuming enough tokens are available
+    function _payProtocolFeeAndReturnLeftovers(IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
+        uint left0 = _payProtocolFee(token0, total0, added0);
+        uint left1 = _payProtocolFee(token1, total1, added1);
 
         // return leftovers
-        if (amount0 > 0) {
-            SafeERC20.safeTransfer(token0, msg.sender, amount0);
+        if (left0 > 0) {
+            SafeERC20.safeTransfer(token0, msg.sender, left0);
         }
-        if (amount1 > 0) {
-            SafeERC20.safeTransfer(token1, msg.sender, amount1);
+        if (left1 > 0) {
+            SafeERC20.safeTransfer(token1, msg.sender, left1);
         }
     }
 
-    // general swap function which uses external router with off-chain calculated swap instrucctions
+    // general swap function which uses external router with off-chain calculated swap instructions
     // returns new token amounts after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0) {
@@ -322,13 +303,13 @@ contract V3Utils is IAggregationExecutor {
             // execute swap
             (amountOutDelta,,) = swapRouter.swap(this, desc, "0x");
 
-            // TODO need to reset approval ???? 
-            // tokenIn.approve(address(swapRouter), 0);
+            // reset approval
+            tokenIn.approve(address(swapRouter), 0);
 
             uint balanceInAfter = tokenIn.balanceOf(address(this));
             uint balanceOutAfter = tokenOut.balanceOf(address(this));
             amountInDelta = balanceInBefore - balanceInAfter;
-            require(balanceOutAfter - balanceOutBefore == amountOutDelta, "swap error"); // catches any problems with deflationary or fee tokens
+            require(balanceOutAfter - balanceOutBefore == amountOutDelta, "swap error"); // catches any problems with fee-on-transfer tokens
         }
     }
 
@@ -352,7 +333,7 @@ contract V3Utils is IAggregationExecutor {
         );
         uint balanceAfter0 = token0.balanceOf(address(this));
         uint balanceAfter1 = token1.balanceOf(address(this));
-        require(balanceAfter0 - balanceBefore0 == amount0, "collect error token 0"); // catches any problems with deflationary or fee tokens
-        require(balanceAfter1 - balanceBefore1 == amount1, "collect error token 1"); // catches any problems with deflationary or fee tokens
+        require(balanceAfter0 - balanceBefore0 == amount0, "collect error token 0"); // catches any problems fee-on-transfer tokens
+        require(balanceAfter1 - balanceBefore1 == amount1, "collect error token 1"); // catches any problems fee-on-transfer tokens
     }
 }
