@@ -104,8 +104,8 @@ contract V3Utils is IERC721Receiver {
                 targetAmount += amount1; 
             }
 
-            uint toSend = _removeProtocolFee(targetAmount);
-            targetAmount = _payProtocolFee(IERC20(instructions.swapTargetToken), targetAmount, toSend);
+            uint toSend = _removeMaxProtocolFee(targetAmount);
+            targetAmount = _removeProtocolFee(targetAmount, toSend);
             SafeERC20.safeTransfer(IERC20(instructions.swapTargetToken), from, toSend + targetAmount);
         } else if (instructions.whatToDo == WhatToDo.NOTHING) {
 
@@ -159,6 +159,13 @@ contract V3Utils is IERC721Receiver {
         (liquidity, amount0, amount1) = _swapAndIncrease(params, IERC20(token0), IERC20(token1));
     }
 
+    // beneficiary may withdraw any token
+    function withdrawProtocolFee(IERC20 token) external returns (uint balance) {
+        require(msg.sender == protocolFeeBeneficiary, "!beneficiary");
+        balance = token.balanceOf(address(this));
+        token.transfer(protocolFeeBeneficiary, balance);
+    }
+
     // checks if required amounts are provided and are exact - wraps any provided ETH as WETH
     // if less or more provided reverts
     function _prepareAdd(IERC20 token0, IERC20 token1, uint amount0, uint amount1) internal
@@ -201,16 +208,13 @@ contract V3Utils is IERC721Receiver {
         nonfungiblePositionManager.burn(tokenId);
     }
 
-    function _removeProtocolFee(uint amount) internal view returns (uint) {
+    function _removeMaxProtocolFee(uint amount) internal view returns (uint) {
         uint maxFee = (amount * protocolFeeMantissa) / (BASE + protocolFeeMantissa);
         return amount - maxFee > 0 ? amount - maxFee - 1 : 0; // fee is rounded down - so need to remove 1 more
     }
 
-    function _payProtocolFee(IERC20 token, uint amount, uint added) internal returns (uint left) {
+    function _removeProtocolFee(uint amount, uint added) internal view returns (uint left) {
         uint fee = added * protocolFeeMantissa / BASE;
-        if (fee > 0) {
-            SafeERC20.safeTransfer(token, protocolFeeBeneficiary, fee); // TODO keep in contract or return directly?
-        }
         left = amount - added - fee;
     }
 
@@ -281,8 +285,8 @@ contract V3Utils is IERC721Receiver {
             total0 = amount0 + amountOutDelta;
         }
 
-        available0 = _removeProtocolFee(total0);
-        available1 = _removeProtocolFee(total1);
+        available0 = _removeMaxProtocolFee(total0);
+        available1 = _removeMaxProtocolFee(total1);
 
         token0.approve(address(nonfungiblePositionManager), available0);
         token1.approve(address(nonfungiblePositionManager), available1);
@@ -290,8 +294,8 @@ contract V3Utils is IERC721Receiver {
 
     // pays protocol fees assuming enough tokens are available
     function _payProtocolFeeAndReturnLeftovers(IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
-        uint left0 = _payProtocolFee(token0, total0, added0);
-        uint left1 = _payProtocolFee(token1, total1, added1);
+        uint left0 = _removeProtocolFee(total0, added0);
+        uint left1 = _removeProtocolFee(total1, added1);
 
         // return leftovers
         if (left0 > 0) {
@@ -321,8 +325,7 @@ contract V3Utils is IERC721Receiver {
             (bool success,) = to.call(data);
             require(success, 'SWAP_CALL_FAILED');
 
-            // TODO reset approval needed?
-            // tokenIn.approve(allowanceTarget, 0);
+            tokenIn.approve(allowanceTarget, 0);
 
             uint balanceInAfter = tokenIn.balanceOf(address(this));
             uint balanceOutAfter = tokenOut.balanceOf(address(this));

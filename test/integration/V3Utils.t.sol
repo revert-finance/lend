@@ -13,12 +13,15 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     uint256 mainnetFork;
 
     address constant TEST_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
+    address constant BENEFICIARY_ACCOUNT = 0xA53858bd4a9490a4063C5abF55bf88b4D35ECaf2;
+
     uint constant TEST_NFT_ID = 24181; // DAI/USCD 0.05%
 
     function setUp() public {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
-        c = new V3Utils(WETH, FACTORY, NPM, 10 ** 16, msg.sender);
+        c = new V3Utils(WETH, FACTORY, NPM, 10 ** 16, BENEFICIARY_ACCOUNT);
+        vm.deal(BENEFICIARY_ACCOUNT, 1000000000000000000);
     }
 
     function testFailUnathorizedTransfer() public {
@@ -179,10 +182,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0 // no swap
         );
 
-        address beneficiary = c.protocolFeeBeneficiary();
-
         uint balanceBefore = DAI.balanceOf(TEST_ACCOUNT);
-        uint beneficiaryBefore = DAI.balanceOf(beneficiary);
 
         vm.startPrank(TEST_ACCOUNT);
         DAI.approve(address(c), 1000000000000000000);
@@ -190,13 +190,15 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.stopPrank();
 
         uint balanceAfter = DAI.balanceOf(TEST_ACCOUNT);
-        uint beneficiaryAfter = DAI.balanceOf(beneficiary);
+
+        vm.prank(BENEFICIARY_ACCOUNT);
+        uint fees = c.withdrawProtocolFee(DAI);
 
         assertEq(liquidity, 1981190916003322);
         assertEq(amount0, 990099009900989845); // amount minus fee
         assertEq(amount1, 0); // only added on one side     
 
-        assertEq(balanceBefore - balanceAfter, amount0 + (beneficiaryAfter - beneficiaryBefore));
+        assertEq(balanceBefore - balanceAfter, amount0 + fees);
     }
 
     function _get1USDCToDAISwapData() internal view returns (bytes memory) {
