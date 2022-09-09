@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./external/openzeppelin/token/ERC20/utils/SafeERC20.sol";
@@ -10,17 +9,15 @@ import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
 contract V3Utils is IERC721Receiver {
 
     uint256 constant private BASE = 1e18;
-
-    IERC20 immutable public weth;
-    IUniswapV3Factory immutable public factory;
-    INonfungiblePositionManager immutable public nonfungiblePositionManager;
-    address swapRouter;
+ 
+    IERC20 immutable public weth; // wrapped native token address
+    INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
+    address swapRouter; // the trusted contract which is allowed to do arbitrary (swap) calls - 0x for now
     uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
     address immutable public protocolFeeBeneficiary; // address recieving the protocol fee
 
-    constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
+    constructor(IERC20 _weth, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
-        factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
         protocolFeeMantissa = _protocolFeeMantissa;
@@ -242,7 +239,7 @@ contract V3Utils is IERC721Receiver {
 
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
 
-        _payProtocolFeeAndReturnLeftovers(params.token0, params.token1, total0, total1, added0, added1);
+        _returnLeftovers(params.token0, params.token1, total0, total1, added0, added1);
     }
 
     struct SwapAndIncreaseState  {
@@ -271,7 +268,7 @@ contract V3Utils is IERC721Receiver {
 
         (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
-        _payProtocolFeeAndReturnLeftovers(token0, token1, state.total0, state.total1, added0, added1);
+        _returnLeftovers(token0, token1, state.total0, state.total1, added0, added1);
     }
 
     // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
@@ -295,8 +292,11 @@ contract V3Utils is IERC721Receiver {
         params.token1.approve(address(nonfungiblePositionManager), available1);
     }
 
-    // pays protocol fees assuming enough tokens are available
-    function _payProtocolFeeAndReturnLeftovers(IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
+    // returns leftover balances
+    function _returnLeftovers(IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
+
+        // remove protocol fee from left balances - these fees will stay in the contract balance
+        // and can be withdrawn at a later time from the beneficiary account
         uint left0 = _removeProtocolFee(total0, added0);
         uint left1 = _removeProtocolFee(total1, added1);
 
