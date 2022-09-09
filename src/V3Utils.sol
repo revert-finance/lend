@@ -14,13 +14,15 @@ contract V3Utils is IERC721Receiver {
     IERC20 immutable public weth;
     IUniswapV3Factory immutable public factory;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
+    address swapRouter;
     uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
     address immutable public protocolFeeBeneficiary; // address recieving the protocol fee
 
-    constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, uint256 _protocolFeeMantissa, address _beneficiary) {
+    constructor(IERC20 _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
+        swapRouter = _swapRouter;
         protocolFeeMantissa = _protocolFeeMantissa;
         protocolFeeBeneficiary = _beneficiary;
     }
@@ -28,8 +30,7 @@ contract V3Utils is IERC721Receiver {
     enum WhatToDo {
         NOTHING,
         CHANGE_RANGE,
-        WITHDRAW_AND_SWAP,
-        COLLECT_AND_SWAP
+        WITHDRAW_COLLECT_AND_SWAP
     }
 
     struct Instructions {
@@ -40,10 +41,12 @@ contract V3Utils is IERC721Receiver {
 
         // if token0 needs to be swapped to target - set values
         uint amountIn0;
+        uint amountOut1Min;
         bytes swapData0;
 
         // if token1 needs to be swapped to target - set values
         uint amountIn1;
+        uint amountOut0Min;
         bytes swapData1;
 
         // for creating new positions
@@ -70,23 +73,21 @@ contract V3Utils is IERC721Receiver {
             _decreaseLiquidity(tokenId, liquidity, instructions.deadline);
             (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
             if (instructions.swapTargetToken == token0) {
-                require(amount1 >= instructions.amountIn1, "missing amount1 for swap");
-                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, instructions.swapData1, false, instructions.amountIn1));
+                require(amount1 >= instructions.amountIn1, "amountIn1>amount1");
+                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, false, instructions.amountIn1, instructions.amountOut0Min, instructions.swapData1));
             } else if (instructions.swapTargetToken == token1) {
-                require(amount0 >= instructions.amountIn0, "missing amount0 for swap");
-                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, instructions.swapData0, true, instructions.amountIn0));
+                require(amount0 >= instructions.amountIn0, "amountIn0>amount0");
+                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, true, instructions.amountIn0, instructions.amountOut1Min, instructions.swapData0));
             } else {
                 revert("invalid swap target");
             }
-        } else if (instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP || instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
-            if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
-                require(liquidity >= instructions.liquidity, ">liquidity");
-                _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline);
-            }
+        } else if (instructions.whatToDo == WhatToDo.WITHDRAW_COLLECT_AND_SWAP) {
+            require(liquidity >= instructions.liquidity, ">liquidity");
+            _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline);
             (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
             uint targetAmount;
             if (token0 != instructions.swapTargetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token0), IERC20(instructions.swapTargetToken), amount0, instructions.swapData0);
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token0), IERC20(instructions.swapTargetToken), amount0, instructions.amountOut1Min, instructions.swapData0);
                 if (amountInDelta < amount0) {
                     SafeERC20.safeTransfer(IERC20(token0), from, amount0 - amountInDelta);
                 }
@@ -95,7 +96,7 @@ contract V3Utils is IERC721Receiver {
                 targetAmount += amount0; 
             }
             if (token1 != instructions.swapTargetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token1), IERC20(instructions.swapTargetToken), amount1, instructions.swapData1);
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token1), IERC20(instructions.swapTargetToken), amount1, instructions.amountOut0Min, instructions.swapData1);
                 if (amountInDelta < amount1) {
                     SafeERC20.safeTransfer(IERC20(token1), from, amount1 - amountInDelta);
                 }
@@ -108,13 +109,13 @@ contract V3Utils is IERC721Receiver {
             targetAmount = _removeProtocolFee(targetAmount, toSend);
             SafeERC20.safeTransfer(IERC20(instructions.swapTargetToken), from, toSend + targetAmount);
         } else if (instructions.whatToDo == WhatToDo.NOTHING) {
-
+            // do nothing
         } else {
             revert("not supported whatToDo");
         }
         
         if (instructions.burnNoReturn) {
-            _burn(tokenId); // if token has liquidity this will revert
+            _burn(tokenId); // if token still has liquidity this will revert
         } else {
             nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
         }
@@ -132,9 +133,10 @@ contract V3Utils is IERC721Receiver {
         uint256 amount1;
         address recipient;
         uint256 deadline;
-        bytes swapData;
         bool swap0For1;
         uint amountIn;
+        uint amountOutMin;
+        bytes swapData;
     }
 
     function swapAndMint(SwapAndMintParams calldata params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) {
@@ -148,9 +150,10 @@ contract V3Utils is IERC721Receiver {
         uint256 amount0;
         uint256 amount1;
         uint256 deadline;
-        bytes swapData;
         bool swap0For1;
         uint amountIn;
+        uint amountOutMin;
+        bytes swapData;
     }
 
     function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
@@ -220,7 +223,7 @@ contract V3Utils is IERC721Receiver {
 
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
 
-        (uint total0, uint total1, uint available0, uint available1) = _swapAndPrepareAmounts(params.token0, params.token1, params.amount0, params.amount1, params.swap0For1, params.amountIn, params.swapData);
+        (uint total0, uint total1, uint available0, uint available1) = _swapAndPrepareAmounts(params);
 
         INonfungiblePositionManager.MintParams memory mintParams = 
             INonfungiblePositionManager.MintParams(
@@ -253,7 +256,8 @@ contract V3Utils is IERC721Receiver {
 
         SwapAndIncreaseState memory state;
 
-        (state.total0, state.total1, state.available0, state.available1) = _swapAndPrepareAmounts(token0, token1, params.amount0, params.amount1, params.swap0For1, params.amountIn, params.swapData);
+        (state.total0, state.total1, state.available0, state.available1) = _swapAndPrepareAmounts(
+            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, msg.sender, params.deadline, params.swap0For1, params.amountIn, params.amountOutMin, params.swapData));
         
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -271,25 +275,24 @@ contract V3Utils is IERC721Receiver {
     }
 
     // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
-    function _swapAndPrepareAmounts(IERC20 token0, IERC20 token1, uint amount0, uint amount1, bool swap0For1, uint amountIn, bytes memory swapData) internal returns (uint total0, uint total1, uint available0, uint available1) {
-        
-        if (swap0For1) { 
-            require(amount0 >= amountIn, "amount0 < amountIn");
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(token0, token1, amountIn, swapData);
-            total0 = amount0 - amountInDelta;
-            total1 = amount1 + amountOutDelta;
+    function _swapAndPrepareAmounts(SwapAndMintParams memory params) internal returns (uint total0, uint total1, uint available0, uint available1) {
+        if (params.swap0For1) { 
+            require(params.amount0 >= params.amountIn, "amount0 < amountIn");
+            (uint amountInDelta, uint256 amountOutDelta) = _swap(params.token0, params.token1, params.amountIn, params.amountOutMin, params.swapData);
+            total0 = params.amount0 - amountInDelta;
+            total1 = params.amount1 + amountOutDelta;
         } else {
-            require(amount1 >= amountIn, "amount0 < amountIn");
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(token1, token0, amountIn, swapData);
-            total1 = amount1 - amountInDelta;
-            total0 = amount0 + amountOutDelta;
+            require(params.amount1 >= params.amountIn, "amount1 < amountIn");
+            (uint amountInDelta, uint256 amountOutDelta) = _swap(params.token1, params.token0, params.amountIn, params.amountOutMin, params.swapData);
+            total1 = params.amount1 - amountInDelta;
+            total0 = params.amount0 + amountOutDelta;
         }
 
         available0 = _removeMaxProtocolFee(total0);
         available1 = _removeMaxProtocolFee(total1);
 
-        token0.approve(address(nonfungiblePositionManager), available0);
-        token1.approve(address(nonfungiblePositionManager), available1);
+        params.token0.approve(address(nonfungiblePositionManager), available0);
+        params.token1.approve(address(nonfungiblePositionManager), available1);
     }
 
     // pays protocol fees assuming enough tokens are available
@@ -308,43 +311,47 @@ contract V3Utils is IERC721Receiver {
 
     // general swap function which uses external router with off-chain calculated swap instructions
     // returns new token amounts after swap
-    function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
+    function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
 
-            // get 0x specific swap data
-            (address to, address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, address, bytes));
+            // get router specific swap data
+            bytes memory data = abi.decode(swapData, (bytes));
 
             // approve needed amount
-            if (allowanceTarget != address(0)) {
-                tokenIn.approve(allowanceTarget, amountIn);
-            }
+            tokenIn.approve(swapRouter, amountIn);
 
             // execute swap
-            (bool success,) = to.call(data);
-            require(success, 'SWAP_CALL_FAILED');
+            (bool success,) = swapRouter.call(data);
+            require(success, 'swap failed');
 
-            tokenIn.approve(allowanceTarget, 0);
+            // remove any remaining allowance
+            tokenIn.approve(swapRouter, 0);
 
             uint balanceInAfter = tokenIn.balanceOf(address(this));
             uint balanceOutAfter = tokenOut.balanceOf(address(this));
 
             amountInDelta = balanceInBefore - balanceInAfter;
             amountOutDelta = balanceOutAfter - balanceOutBefore;
+
+            // amountMin slippage check
+            require(amountOutDelta >= amountOutMin, "<amountOutMin");
         }
     }
 
     function _decreaseLiquidity(uint tokenId, uint128 liquidity, uint deadline) internal {
-       nonfungiblePositionManager.decreaseLiquidity(
-            INonfungiblePositionManager.DecreaseLiquidityParams(
-                tokenId, 
-                liquidity, 
-                0, 
-                0,
-                deadline
-            )
-        );
+        if (liquidity > 0) {
+            nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    tokenId, 
+                    liquidity, 
+                    0, 
+                    0,
+                    deadline
+                )
+            );
+        }
     }
 
     function _collectAllFees(uint tokenId, IERC20 token0, IERC20 token1) internal returns (uint256 amount0, uint256 amount1) {
