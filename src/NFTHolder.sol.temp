@@ -7,9 +7,9 @@ import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.s
 import "./external/compound/ComptrollerInterface.sol";
 import "./external/compound/CToken.sol";
 
-import "./ISwapRouter.sol";
+import "./V3Utils.sol";
 
-contract NFTHolder is Ownable {
+contract NFTHolder is Ownable, IERC721Receiver  {
 
     uint32 constant public MAX_TOKENS_PER_ADDRESS = 100;
 
@@ -19,19 +19,17 @@ contract NFTHolder is Ownable {
     IUniswapV3Factory immutable public factory;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
 
-    // generic router interface - exchangable by owner
-    ISwapRouter public swapRouter;
-
     // compound components
     ComptrollerInterface immutable public comptroller;
 
+    V3Utils immutable public v3Utils;
 
     // ISwapRouter maybe Uniswap or 1Inch or something else
-    constructor(address _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter, ComptrollerInterface _comptroller) {
+    constructor(address _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, V3Utils _v3Utils, ComptrollerInterface _comptroller) {
         weth = _weth;
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
-        swapRouter = _swapRouter;
+        v3Utils = _v3Utils;
         comptroller = _comptroller;
     }
 
@@ -82,6 +80,8 @@ contract NFTHolder is Ownable {
 
         // TODO special case: change range and withdraw
         // TODO special case: autocompound and withdraw
+
+        return IERC721Receiver.onERC721Received.selector;
     }
 
     // sets tokens config flags - changes state when needed
@@ -407,7 +407,6 @@ contract NFTHolder is Ownable {
         (, , address token0, address token1, uint24 fee, , , uint128 liquidity , , , , ) = nonfungibleTokenManager.tokens(tokenId);
 
         address pool = factory.getPool(token0, token1, fee);
-
 
         _checkApprovals(IERC20(token0), IERC20(token1));
 

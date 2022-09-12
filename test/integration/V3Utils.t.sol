@@ -146,10 +146,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     function testFailEmptySwapAndIncreaseLiquidity() external {
 
         V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils.SwapAndIncreaseLiquidityParams(
-            TEST_NFT_ID, 0, 0, block.timestamp, false, 0, 0, "");
+            TEST_NFT_ID, 0, 0, block.timestamp, IERC20(address(0)), 0, 0, "", 0, 0, "");
 
         vm.prank(TEST_ACCOUNT);
-        (uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndIncreaseLiquidity(params);
+        c.swapAndIncreaseLiquidity(params);
     }
 
     function testSwapAndIncreaseLiquidity() external {
@@ -159,10 +159,13 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             1000000,
             block.timestamp,
-            false,
+            USDC,
             1000000,
             900000000000000000,
-            _get1USDCToDAISwapData()
+            _get1USDCToDAISwapData(),
+            0,
+            0,
+            ""
         );
 
         vm.prank(TEST_ACCOUNT);
@@ -183,10 +186,13 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             2000000,
             block.timestamp,
-            false,
+            USDC,
             1000000,
             900000000000000000,
-            _get1USDCToDAISwapData()
+            _get1USDCToDAISwapData(),
+            0,
+            0,
+            ""
         );
 
         vm.prank(TEST_ACCOUNT);
@@ -213,10 +219,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
 
     function testFailEmptySwapAndMint() external {
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
-            DAI, USDC, 500, MIN_TICK_500, -MIN_TICK_500, 0, 0, TEST_ACCOUNT, block.timestamp, false, 0, 0, "");
+            DAI, USDC, 500, MIN_TICK_500, -MIN_TICK_500, 0, 0, TEST_ACCOUNT, block.timestamp, IERC20(address(0)), 0, 0, "", 0, 0, "");
 
         vm.prank(TEST_ACCOUNT);
-        (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndMint(params);
+        c.swapAndMint(params);
     }
 
     function testSwapAndMint() external {
@@ -240,10 +246,13 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             2000000,
             TEST_ACCOUNT,
             block.timestamp,
-            false,
+            USDC,
             1000000,
             900000000000000000,
-            _get1USDCToDAISwapData()
+            _get1USDCToDAISwapData(),
+            0,
+            0,
+            ""
         );
 
         vm.prank(TEST_ACCOUNT);
@@ -258,6 +267,35 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertEq(amount1, aAmount1);
     }
 
+    function testSwapAndMintWithETH() public {
+        V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
+            DAI,
+            USDC,
+            500,
+            MIN_TICK_500,
+            -MIN_TICK_500,
+            0,
+            0,
+            TEST_ACCOUNT,
+            block.timestamp,
+            WETH,
+            500000000000000000, // 0.5ETH
+            759195948032664079460,
+            _get05ETHToDAISwapData(),
+            500000000000000000, // 0.5ETH
+            757406864,
+            _get05ETHToUSDCSwapData()
+        );
+
+        vm.prank(TEST_ACCOUNT);
+        (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndMint{value: 1 ether}(params);
+
+        assertGt(tokenId, 0);
+        assertEq(liquidity, 749939243373435);
+        assertEq(amount0, 749970702066413447600);
+        assertEq(amount1, 749907786);
+    }
+
     function testWithdrawProtocolFeeUnauthorized() external {
         vm.expectRevert(abi.encodePacked("!beneficiary"));
         c.withdrawProtocolFee(DAI);
@@ -269,7 +307,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             1000000000000000000,
             0,
             block.timestamp,
-            false,
+            IERC20(address(0)),
+            0, // no swap
+            0,
+            "",
             0, // no swap
             0,
             ""
@@ -323,4 +364,15 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         // https://api.0x.org/swap/v1/quote?sellToken=DAI&buyToken=USDC&sellAmount=990099009900989844
         return abi.encode(hex"d9627aa400000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000dbd89cdc19d4d9400000000000000000000000000000000000000000000000000000000000eeaad000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000006b175474e89094c44da98b954eedeac495271d0f000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48869584cd00000000000000000000000010000000000000000000000000000000000000110000000000000000000000000000000000000000000000c39d5c33d36318aa04");
     }
+
+    function _get05ETHToDAISwapData() internal pure returns (bytes memory) {
+        // https://api.0x.org/swap/v1/quote?sellToken=WETH&buyToken=DAI&sellAmount=500000000000000000&slippagePercentage=0.5
+        return abi.encode(hex"6af479b2000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000006f05b59d3b20000000000000000000000000000000000000000000000000017b96004de16f5ba880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002bc02aaa39b223fe8d0a0e5c4f27ead9083c756cc20001f46b175474e89094c44da98b954eedeac495271d0f000000000000000000000000000000000000000000869584cd00000000000000000000000010000000000000000000000000000000000000110000000000000000000000000000000000000000000000788bf52b4e631f3b4a");
+    }
+
+    function _get05ETHToUSDCSwapData() internal pure returns (bytes memory) {
+        // https://api.0x.org/swap/v1/quote?sellToken=WETH&buyToken=USDC&sellAmount=500000000000000000&slippagePercentage=0.5
+        return abi.encode(hex"d9627aa4000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000006f05b59d3b20000000000000000000000000000000000000000000000000000000000001a1ec65a00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48869584cd00000000000000000000000010000000000000000000000000000000000000110000000000000000000000000000000000000000000000f7f7a41bab631f3b5e");
+    }
+
 }
