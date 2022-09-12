@@ -16,5 +16,5 @@ abstract contract TestBase {
 
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
 
-    address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange contract
+    address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
 }

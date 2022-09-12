@@ -13,9 +13,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     uint256 mainnetFork;
 
     address constant TEST_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
-    address constant BENEFICIARY_ACCOUNT = 0xA53858bd4a9490a4063C5abF55bf88b4D35ECaf2;
 
-    uint constant TEST_NFT_ID = 24181; // DAI/USCD 0.05%
+    uint constant TEST_NFT_ID = 24181; // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326
+    uint constant TEST_NFT_ID_IN_RANGE = 23901; // DAI/USCD 0.05% - two sided
+
+    address constant BENEFICIARY_ACCOUNT = 0xA53858bd4a9490a4063C5abF55bf88b4D35ECaf2;
 
     function setUp() external {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
@@ -51,10 +53,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
     }
 
-    function testFailTransferWithNoActionBurn() external {
+    function testTransferWithNoActionBurnFail() external {
         V3Utils.Instructions memory inst = V3Utils.Instructions(V3Utils.WhatToDo.NOTHING,address(0),0,0,"",0,0,"", 0, 0, 0, true, 0, 0, "");
         _increaseLiquidity();
         vm.prank(TEST_ACCOUNT);
+        vm.expectRevert(abi.encodePacked("Not cleared"));
         NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
     }
 
@@ -140,6 +143,15 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         }
     }
 
+    function testFailEmptySwapAndIncreaseLiquidity() external {
+
+        V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils.SwapAndIncreaseLiquidityParams(
+            TEST_NFT_ID, 0, 0, block.timestamp, false, 0, 0, "");
+
+        vm.prank(TEST_ACCOUNT);
+        (uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndIncreaseLiquidity(params);
+    }
+
     function testSwapAndIncreaseLiquidity() external {
 
         V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils.SwapAndIncreaseLiquidityParams(
@@ -164,13 +176,66 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertEq(amount1, 0); // one sided adding
     }
 
+    function testSwapAndIncreaseLiquiditBothSides() external {
+
+        V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils.SwapAndIncreaseLiquidityParams(
+            TEST_NFT_ID_IN_RANGE,
+            0,
+            2000000,
+            block.timestamp,
+            false,
+            1000000,
+            900000000000000000,
+            _get1USDCToDAISwapData()
+        );
+
+        vm.prank(TEST_ACCOUNT);
+        USDC.approve(address(c), 2000000);
+
+        uint usdcBefore = USDC.balanceOf(TEST_ACCOUNT);
+        uint daiBefore = DAI.balanceOf(TEST_ACCOUNT);
+
+        vm.prank(TEST_ACCOUNT);
+        (uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndIncreaseLiquidity(params);
+
+        uint usdcAfter = USDC.balanceOf(TEST_ACCOUNT);
+        uint daiAfter = DAI.balanceOf(TEST_ACCOUNT);
+
+        assertEq(liquidity, 19268403984395);
+        assertEq(amount0, 898315437527657511);
+        assertEq(amount1, 990099);
+
+        // aaaalmost all usdc spent
+        assertEq(usdcBefore - usdcAfter, 1999999);
+        //some dai returned - because not 100% correct swap ratio
+        assertEq(daiAfter - daiBefore, 92788710970366114);
+    }
+
+    function testFailEmptySwapAndMint() external {
+        V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
+            DAI, USDC, 500, MIN_TICK_500, -MIN_TICK_500, 0, 0, TEST_ACCOUNT, block.timestamp, false, 0, 0, "");
+
+        vm.prank(TEST_ACCOUNT);
+        (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndMint(params);
+    }
+
     function testSwapAndMint() external {
+        _testSwapAndMint(MIN_TICK_500, -MIN_TICK_500, 990140532991, 990182067725057610, 990099);
+    }
+    function testSwapAndMintOneSided0() external {
+        _testSwapAndMint(MIN_TICK_500, MIN_TICK_500 + 200000, 829527205383200265829, 0, 990099);
+    }
+    function testSwapAndMintOneSided1() external {
+        _testSwapAndMint(-MIN_TICK_500-200000, -MIN_TICK_500, 829599633787704127364982047010492, 990185448389406138, 0);
+    }
+
+    function _testSwapAndMint(int24 lower, int24 upper, uint eLiquidity, uint eAmount0, uint aAmount1) internal {
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
             DAI,
             USDC,
             500,
-            MIN_TICK_500,
-            -MIN_TICK_500,
+            lower,
+            upper,
             0,
             2000000,
             TEST_ACCOUNT,
@@ -188,11 +253,9 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndMint(params);
 
         assertGt(tokenId, 0);
-        assertEq(liquidity, 990140532991);
-
-        // big range so both sided - DAI only from swap
-        assertEq(amount0, 990182067725057610);
-        assertEq(amount1, 990099);
+        assertEq(liquidity, eLiquidity);
+        assertEq(amount0, eAmount0);
+        assertEq(amount1, aAmount1);
     }
 
     function testWithdrawProtocolFeeUnauthorized() external {
@@ -233,6 +296,12 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertEq(fees2, 0); // already withdrawn
 
         assertEq(balanceBefore - balanceAfter, amount0 + fees);
+
+        uint balanceDAI = DAI.balanceOf(address(c));
+        uint balanceUSDC = USDC.balanceOf(address(c));
+
+        assertEq(balanceDAI, 0);
+        assertEq(balanceUSDC, 0);
     }
 
     function _get1USDCToDAISwapData() internal pure returns (bytes memory) {
