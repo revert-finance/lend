@@ -29,7 +29,8 @@ contract V3Utils is IERC721Receiver {
     enum WhatToDo {
         NOTHING,
         CHANGE_RANGE,
-        WITHDRAW_COLLECT_AND_SWAP
+        WITHDRAW_COLLECT_AND_SWAP,
+        COMPOUND_FEES
     }
 
     struct Instructions {
@@ -68,11 +69,21 @@ contract V3Utils is IERC721Receiver {
 
         (,,address token0,address token1,,,,uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
-        if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
-            _decreaseLiquidity(tokenId, liquidity, instructions.deadline);
+        if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
             (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
 
-            
+            if (instructions.swapTargetToken == token0) {
+                require(amount1 >= instructions.amountIn1, "amountIn1>amount1");
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, amount0, amount1, from, instructions.deadline, IERC20(token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""), IERC20(token0), IERC20(token1));
+            } else if (instructions.swapTargetToken == token1) {
+                require(amount0 >= instructions.amountIn0, "amountIn0>amount0");
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, amount0, amount1, from, instructions.deadline, IERC20(token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0), IERC20(token0), IERC20(token1));
+            } else {
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, amount0, amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, ""), IERC20(token0), IERC20(token1));
+            }
+        } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
+            _decreaseLiquidity(tokenId, liquidity, instructions.deadline);
+            (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
 
             if (instructions.swapTargetToken == token0) {
                 require(amount1 >= instructions.amountIn1, "amountIn1>amount1");
@@ -81,7 +92,7 @@ contract V3Utils is IERC721Receiver {
                 require(amount0 >= instructions.amountIn0, "amountIn0>amount0");
                 _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, IERC20(token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0));
             } else {
-                revert("invalid swap target");
+                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, IERC20(token0), 0, 0, "", 0, 0, ""));
             }
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_COLLECT_AND_SWAP) {
             require(liquidity >= instructions.liquidity, ">liquidity");
@@ -134,7 +145,7 @@ contract V3Utils is IERC721Receiver {
         int24 tickUpper;
         uint256 amount0;
         uint256 amount1;
-        address recipient;
+        address recipient; // recipient of nft and leftover tokens
         uint256 deadline;
 
         // source token for swaps (maybe either token0, token1 or another token)
@@ -161,17 +172,18 @@ contract V3Utils is IERC721Receiver {
         uint256 tokenId;
         uint256 amount0;
         uint256 amount1;
+        address recipient; // recipient of nft and leftover tokens
         uint256 deadline;
         
         // target token for swaps (maybe either token0, token1 or another token)
         IERC20 swapSourceToken;
 
-        // if token0 needs to be swapped to target - set values
+        // if swapSourceToken needs to be swapped to token0 - set values
         uint amountIn0;
         uint amountOut0Min;
         bytes swapData0;
 
-        // if token1 needs to be swapped to target - set values
+        // if swapSourceToken needs to be swapped to token1 - set values
         uint amountIn1;
         uint amountOut1Min;
         bytes swapData1;
@@ -273,7 +285,7 @@ contract V3Utils is IERC721Receiver {
 
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
 
-        _returnLeftovers(params.token0, params.token1, total0, total1, added0, added1);
+        _returnLeftovers(params.recipient, params.token0, params.token1, total0, total1, added0, added1);
     }
 
     struct SwapAndIncreaseState  {
@@ -302,7 +314,7 @@ contract V3Utils is IERC721Receiver {
 
         (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
-        _returnLeftovers(token0, token1, state.total0, state.total1, added0, added1);
+        _returnLeftovers(params.recipient, token0, token1, state.total0, state.total1, added0, added1);
     }
 
     // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
@@ -343,7 +355,7 @@ contract V3Utils is IERC721Receiver {
     }
 
     // returns leftover balances
-    function _returnLeftovers(IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
+    function _returnLeftovers(address to, IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
 
         // remove protocol fee from left balances - these fees will stay in the contract balance
         // and can be withdrawn at a later time from the beneficiary account
@@ -352,10 +364,10 @@ contract V3Utils is IERC721Receiver {
 
         // return leftovers
         if (left0 > 0) {
-            SafeERC20.safeTransfer(token0, msg.sender, left0);
+            SafeERC20.safeTransfer(token0, to, left0);
         }
         if (left1 > 0) {
-            SafeERC20.safeTransfer(token1, msg.sender, left1);
+            SafeERC20.safeTransfer(token1, to, left1);
         }
     }
 

@@ -67,7 +67,7 @@ contract NFTHolder is Ownable, IERC721Receiver  {
     mapping(address => uint256[]) public override accountTokens;
     mapping(address => mapping(address => uint256)) public override accountBalances;
 
-    function onERC721Received(address operator, address from, uint256 tokenId, bytes data) external  {
+    function onERC721Received(address, address from, uint256 tokenId, bytes data) external  {
 
         _addToken(tokenId, from);
 
@@ -78,9 +78,6 @@ contract NFTHolder is Ownable, IERC721Receiver  {
 
         configToken(tokenId, isAutoCompoundable, isCollateralizable, isLendable);
 
-        // TODO special case: change range and withdraw
-        // TODO special case: autocompound and withdraw
-
         return IERC721Receiver.onERC721Received.selector;
     }
 
@@ -89,7 +86,7 @@ contract NFTHolder is Ownable, IERC721Receiver  {
 
         Token storage position = tokens[tokenId];
 
-        require(position.owner != address(0), "!found");
+        require(position.owner == msg.sender, "!owned");
 
         PoolConfig storage poolConfig = poolConfigs[position.pool];
 
@@ -102,7 +99,7 @@ contract NFTHolder is Ownable, IERC721Receiver  {
 
             // if its removed from collateral - check if enough left
             if (!isCollateralizable) {
-                // comptroller.checkCollateral()
+                // (Error err, uint liquidity, uint shortfall) = comptroller.getAccountLiquidity()
             }
         }
 
@@ -114,7 +111,7 @@ contract NFTHolder is Ownable, IERC721Receiver  {
             } else {
                 isProtected = unlend(position);
             }
-            position.isProtected = isProtected; // set flag depending on when
+            position.isProtected = isProtected; // set flag depending in which position it was in
         }
     }
 
@@ -408,10 +405,23 @@ contract NFTHolder is Ownable, IERC721Receiver  {
 
         address pool = factory.getPool(token0, token1, fee);
 
+        // check approvals for the tokens
         _checkApprovals(IERC20(token0), IERC20(token1));
 
         accountTokens[account].push(tokenId);
         tokens[tokenId] = new Token(account, liquidity, pool, false, false, false, false, 0, false);
+    }
+
+    function _checkApprovals(IERC20 token0, IERC20 token1) internal {
+        // approve tokens once if not yet approved
+        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance0 == 0) {
+            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+        }
+        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance1 == 0) {
+            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
+        }
     }
 
     function _removeToken(uint256 tokenId, address account) internal {

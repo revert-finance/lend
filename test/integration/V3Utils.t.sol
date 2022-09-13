@@ -13,9 +13,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     uint256 mainnetFork;
 
     address constant TEST_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
-
     uint constant TEST_NFT_ID = 24181; // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326
     uint constant TEST_NFT_ID_IN_RANGE = 23901; // DAI/USCD 0.05% - two sided
+
+    address constant TEST_NFT_WITH_FEES_ACCOUNT = 0xa3eF006a7da5BcD1144d8BB86EfF1734f46A0c1E;
+    uint constant TEST_NFT_WITH_FEES = 4660;
 
     address constant BENEFICIARY_ACCOUNT = 0xA53858bd4a9490a4063C5abF55bf88b4D35ECaf2;
 
@@ -93,6 +95,60 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertGt(countAfter, countBefore);
     }
 
+    function testTransferWithCompoundNoSwap() external {
+
+        V3Utils.Instructions memory inst = V3Utils.Instructions(V3Utils.WhatToDo.COMPOUND_FEES,address(0),0,0,"",0,0,"", 0, 0, 0, false, 0, block.timestamp, "");
+
+        uint daiBefore = DAI.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        uint usdcBefore = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        (,,,,,,,uint128 liquidityBefore,,,,) = NPM.positions(TEST_NFT_WITH_FEES);
+
+        assertEq(daiBefore, 14382879654257202832190);
+        assertEq(usdcBefore, 754563026);
+        assertEq(liquidityBefore, 12922419498089422291);
+
+        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_WITH_FEES_ACCOUNT, address(c), TEST_NFT_WITH_FEES, abi.encode(inst));
+
+        uint daiAfter = DAI.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        uint usdcAfter = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        (,,,,,,,uint128 liquidityAfter,,,,) = NPM.positions(TEST_NFT_WITH_FEES);
+
+        assertEq(daiAfter, 14382879654257202837726);
+        assertEq(usdcAfter, 806331572);
+        assertEq(liquidityAfter, 13033419710865069719);
+
+    }
+
+    function testTransferWithCompoundSwap() external {
+
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.COMPOUND_FEES,
+            address(USDC),
+            500000000000000000,
+            400000,
+            _get05DAIToUSDCSwapData(),0,0,"", 0, 0, 0, false, 0, block.timestamp, "");
+
+        uint daiBefore = DAI.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        uint usdcBefore = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        (,,,,,,,uint128 liquidityBefore,,,,) = NPM.positions(TEST_NFT_WITH_FEES);
+
+        assertEq(daiBefore, 14382879654257202832190);
+        assertEq(usdcBefore, 754563026);
+        assertEq(liquidityBefore, 12922419498089422291);
+
+        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_WITH_FEES_ACCOUNT, address(c), TEST_NFT_WITH_FEES, abi.encode(inst));
+
+        uint daiAfter = DAI.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        uint usdcAfter = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        (,,,,,,,uint128 liquidityAfter,,,,) = NPM.positions(TEST_NFT_WITH_FEES);
+
+        assertEq(daiAfter, 14382879654257202838028);
+        assertEq(usdcAfter, 807254902);
+        assertEq(liquidityAfter, 13033266823054851759);
+    }
+
     function testTransferWithdrawAndSwap() external {
         _testTransferWithWithdrawAndSwap(true, false);
     }
@@ -146,7 +202,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     function testFailEmptySwapAndIncreaseLiquidity() external {
 
         V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils.SwapAndIncreaseLiquidityParams(
-            TEST_NFT_ID, 0, 0, block.timestamp, IERC20(address(0)), 0, 0, "", 0, 0, "");
+            TEST_NFT_ID, 0, 0, TEST_ACCOUNT, block.timestamp, IERC20(address(0)), 0, 0, "", 0, 0, "");
 
         vm.prank(TEST_ACCOUNT);
         c.swapAndIncreaseLiquidity(params);
@@ -158,6 +214,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             TEST_NFT_ID,
             0,
             1000000,
+            TEST_ACCOUNT,
             block.timestamp,
             USDC,
             1000000,
@@ -185,6 +242,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             TEST_NFT_ID_IN_RANGE,
             0,
             2000000,
+            TEST_ACCOUNT,
             block.timestamp,
             USDC,
             1000000,
@@ -306,6 +364,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             TEST_NFT_ID,
             1000000000000000000,
             0,
+            TEST_ACCOUNT,
             block.timestamp,
             IERC20(address(0)),
             0, // no swap
