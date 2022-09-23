@@ -22,6 +22,7 @@ contract NFTHolder is Ownable, IERC721Receiver  {
     // compound components
     ComptrollerInterface immutable public comptroller;
 
+    // TODO switchable?
     V3Utils immutable public v3Utils;
 
     // ISwapRouter maybe Uniswap or 1Inch or something else
@@ -54,6 +55,7 @@ contract NFTHolder is Ownable, IERC721Receiver  {
         bool isAutoCompoundable;
         bool isCollateralizable;
         bool isLendable;
+        bool isStopLoss;
 
         // if not enough capital available for unlend() or if position was changed by owner in buffer zone
         bool isProtected;
@@ -74,15 +76,17 @@ contract NFTHolder is Ownable, IERC721Receiver  {
         bool isAutoCompoundable; 
         bool isCollateralizable;
         bool isLendable;
-        (isAutoCompoundable, isCollateralizable, isLendable) = abi.decode(data, (bool, bool, bool));
+        bool isStopLoss;
 
-        configToken(tokenId, isAutoCompoundable, isCollateralizable, isLendable);
+        (isAutoCompoundable, isCollateralizable, isLendable, isStopLoss) = abi.decode(data, (bool, bool, bool, bool));
+
+        configToken(tokenId, isAutoCompoundable, isCollateralizable, isLendable, isStopLoss);
 
         return IERC721Receiver.onERC721Received.selector;
     }
 
     // sets tokens config flags - changes state when needed
-    function configToken(uint tokenId, bool isAutoCompoundable, bool isCollateralizable, bool isLendable) public {
+    function configToken(uint tokenId, bool isAutoCompoundable, bool isCollateralizable, bool isLendable, bool isStopLoss) public {
 
         Token storage position = tokens[tokenId];
 
@@ -113,6 +117,11 @@ contract NFTHolder is Ownable, IERC721Receiver  {
             }
             position.isProtected = isProtected; // set flag depending in which position it was in
         }
+
+        if (isStopLoss) {
+            require(!isCollateralizable && !isLendable, "invalid stoploss config");
+        }
+        position.isStopLoss = isStopLoss;
     }
 
     function withdrawToken(
@@ -336,11 +345,29 @@ contract NFTHolder is Ownable, IERC721Receiver  {
     }
 
     function autoCompound(uint tokenId) external {
-        
-        
+
+        // require autocompounding is active
+
         // do autocompounding (optional with swap config - check swapped amounts to be min 99?% of swap amounts - check min added amount to position to be 80?%)
 
+        // check if recieved tokens are enough using external oracle and check if big enough percentage was added to position
+
+        // return part of protocol fees to caller
+
         // comptroller.checkCollateral()
+    }
+
+    function stopLoss(uint tokenId) external {
+        
+        // require stoploss is active
+
+        // require position out of range
+
+        // do stop loss - do collect and swap - and add tokens to internal balance
+
+        // check if recieved tokens are enough using external oracle
+
+        // return part of protocol fees to caller
     }
 
     function lend(Token storage token) internal {
@@ -383,14 +410,6 @@ contract NFTHolder is Ownable, IERC721Receiver  {
 
         // comptroller.checkCollateral()
     }
-
-
-
-    function setSwapRouter(uint256 tokenId) external isOwner {
-        // check pool configs
-    }
-
-
 
     function _supportsLending(uint256 tokenId) internal {
         // check pool configs

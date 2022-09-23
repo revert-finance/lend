@@ -39,12 +39,12 @@ contract V3Utils is IERC721Receiver {
         // target token for swaps
         address swapTargetToken;
 
-        // if token0 needs to be swapped to target - set values
+        // if token0 needs to be swapped to target - set values - if input amount can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
         uint amountIn0;
         uint amountOut0Min;
         bytes swapData0;
 
-        // if token1 needs to be swapped to target - set values
+        // if token1 needs to be swapped to target - set values - if input amount can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
         uint amountIn1;
         uint amountOut1Min;
         bytes swapData1;
@@ -172,7 +172,7 @@ contract V3Utils is IERC721Receiver {
         uint256 tokenId;
         uint256 amount0;
         uint256 amount1;
-        address recipient; // recipient of nft and leftover tokens
+        address recipient; // recipient of leftover tokens
         uint256 deadline;
         
         // target token for swaps (maybe either token0, token1 or another token)
@@ -300,7 +300,7 @@ contract V3Utils is IERC721Receiver {
         SwapAndIncreaseState memory state;
 
         (state.total0, state.total1, state.available0, state.available1) = _swapAndPrepareAmounts(
-            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, msg.sender, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1));
+            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1));
 
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -340,7 +340,7 @@ contract V3Utils is IERC721Receiver {
             uint leftOver = params.amountIn0 + params.amountIn1 - amountInDelta0 - amountInDelta1;
 
             if (leftOver > 0) {
-                SafeERC20.safeTransfer(params.swapSourceToken, msg.sender, leftOver);
+                SafeERC20.safeTransfer(params.swapSourceToken, params.recipient, leftOver);
             }
         } else {
             total0 = params.amount0;
