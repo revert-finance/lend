@@ -6,19 +6,23 @@ import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.s
 import "./external/openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
 
-import "forge-std/console.sol"; // TODO remove
+import "./external/polygon/IRootChainManager.sol";
+import "./external/optimism/IL1StandardBridge.sol";
+
+import "./external/IWETH.sol";
 
 contract V3Utils is IERC721Receiver {
 
     uint256 constant private BASE = 1e18;
  
-    IERC20 immutable public weth; // wrapped native token address
+    IWETH immutable public weth; // wrapped native token address
     INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
     address swapRouter; // the trusted contract which is allowed to do arbitrary (swap) calls - 0x for now
+
     uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
     address immutable public protocolFeeBeneficiary; // address recieving the protocol fee
 
-    constructor(IERC20 _weth, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
+    constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
@@ -27,10 +31,11 @@ contract V3Utils is IERC721Receiver {
     }
 
     enum WhatToDo {
-        NOTHING,
         CHANGE_RANGE,
         WITHDRAW_COLLECT_AND_SWAP,
-        COMPOUND_FEES
+        COMPOUND_FEES,
+        BRIDGE_TO_POLYGON,
+        BRIDGE_TO_OPTIMISM
     }
 
     struct Instructions {
@@ -59,71 +64,106 @@ contract V3Utils is IERC721Receiver {
         uint128 liquidity;
         uint deadline;
 
+        // for polygon - address bridge
+        // for optimism - address bridge0, address token0, address bridge1, address token1
+        bytes bridgeData; 
+
         // data sent when token returned (optional)
         bytes returnData;
+    }
+
+    struct ERC721ReceivedState {
+        address token0;
+        address token1;
+        uint128 liquidity;
+        uint amount0;
+        uint amount1;
     }
 
     function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         Instructions memory instructions = abi.decode(data, (Instructions));
+        ERC721ReceivedState memory state;
 
-        (,,address token0,address token1,,,,uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
+        (,,state.token0,state.token1,,,,state.liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
-            (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
+            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
-            if (instructions.swapTargetToken == token0) {
-                require(amount1 >= instructions.amountIn1, "amountIn1>amount1");
-                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, amount0, amount1, from, instructions.deadline, IERC20(token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""), IERC20(token0), IERC20(token1));
-            } else if (instructions.swapTargetToken == token1) {
-                require(amount0 >= instructions.amountIn0, "amountIn0>amount0");
-                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, amount0, amount1, from, instructions.deadline, IERC20(token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0), IERC20(token0), IERC20(token1));
+            if (instructions.swapTargetToken == state.token0) {
+                require(state.amount1 >= instructions.amountIn1, "amountIn1>amount1");
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
+            } else if (instructions.swapTargetToken == state.token1) {
+                require(state.amount0 >= instructions.amountIn0, "amountIn0>amount0");
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0), IERC20(state.token0), IERC20(state.token1));
             } else {
-                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, amount0, amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, ""), IERC20(token0), IERC20(token1));
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
             }
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
-            _decreaseLiquidity(tokenId, liquidity, instructions.deadline);
-            (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
+            _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline);
+            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
-            if (instructions.swapTargetToken == token0) {
-                require(amount1 >= instructions.amountIn1, "amountIn1>amount1");
-                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, IERC20(token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""));
-            } else if (instructions.swapTargetToken == token1) {
-                require(amount0 >= instructions.amountIn0, "amountIn0>amount0");
-                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, IERC20(token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0));
+            if (instructions.swapTargetToken == state.token0) {
+                require(state.amount1 >= instructions.amountIn1, "amountIn1>amount1");
+                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""));
+            } else if (instructions.swapTargetToken == state.token1) {
+                require(state.amount0 >= instructions.amountIn0, "amountIn0>amount0");
+                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0));
             } else {
-                _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, from, instructions.deadline, IERC20(token0), 0, 0, "", 0, 0, ""));
+                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, ""));
             }
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_COLLECT_AND_SWAP) {
-            require(liquidity >= instructions.liquidity, ">liquidity");
+            require(state.liquidity >= instructions.liquidity, ">liquidity");
             _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline);
-            (uint amount0, uint amount1) = _collectAllFees(tokenId, IERC20(token0), IERC20(token1));
+            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
             uint targetAmount;
-            if (token0 != instructions.swapTargetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token0), IERC20(instructions.swapTargetToken), amount0, instructions.amountOut0Min, instructions.swapData0);
-                if (amountInDelta < amount0) {
-                    SafeERC20.safeTransfer(IERC20(token0), from, amount0 - amountInDelta);
+            if (state.token0 != instructions.swapTargetToken) {
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.swapTargetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
+                if (amountInDelta < state.amount0) {
+                    SafeERC20.safeTransfer(IERC20(state.token0), from, state.amount0 - amountInDelta);
                 }
                 targetAmount += amountOutDelta;
             } else {
-                targetAmount += amount0; 
+                targetAmount += state.amount0; 
             }
-            if (token1 != instructions.swapTargetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token1), IERC20(instructions.swapTargetToken), amount1, instructions.amountOut1Min, instructions.swapData1);
-                if (amountInDelta < amount1) {
-                    SafeERC20.safeTransfer(IERC20(token1), from, amount1 - amountInDelta);
+            if (state.token1 != instructions.swapTargetToken) {
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token1), IERC20(instructions.swapTargetToken), state.amount1, instructions.amountOut1Min, instructions.swapData1);
+                if (amountInDelta < state.amount1) {
+                    SafeERC20.safeTransfer(IERC20(state.token1), from, state.amount1 - amountInDelta);
                 }
                 targetAmount += amountOutDelta;
             } else {
-                targetAmount += amount1; 
+                targetAmount += state.amount1; 
             }
 
             uint toSend = _removeMaxProtocolFee(targetAmount);
-            targetAmount = _removeProtocolFee(targetAmount, toSend);
-            SafeERC20.safeTransfer(IERC20(instructions.swapTargetToken), from, toSend + targetAmount);
-        } else if (instructions.whatToDo == WhatToDo.NOTHING) {
-            // do nothing
+
+            // calculate amount left
+            uint left = _removeProtocolFee(targetAmount, toSend);
+
+            SafeERC20.safeTransfer(IERC20(instructions.swapTargetToken), from, toSend + left);
+        } else if (instructions.whatToDo == WhatToDo.BRIDGE_TO_OPTIMISM || instructions.whatToDo == WhatToDo.BRIDGE_TO_POLYGON) {
+            _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline);
+            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
+
+            if (instructions.whatToDo == WhatToDo.BRIDGE_TO_OPTIMISM) {
+                (address bridge0, address token0L2, address bridge1, address token1L2) = abi.decode(instructions.bridgeData, (address, address, address, address));
+                if (state.amount0 > 0) {
+                    _bridgeToOptimism(bridge0, from, state.token0, token0L2, state.amount0);
+                }
+                if (state.amount1 > 0) {
+                    _bridgeToOptimism(bridge1, from, state.token1, token1L2, state.amount1);
+                }
+            } else {
+                address bridge = abi.decode(instructions.bridgeData, (address));
+                if (state.amount0 > 0) {
+                    _bridgeToPolygon(bridge, from, state.token0, state.amount0);
+                }
+                if (state.amount1 > 0) {
+                    _bridgeToPolygon(bridge, from, state.token1, state.amount1);
+                }
+            }
         } else {
             revert("not supported whatToDo");
         }
@@ -215,13 +255,13 @@ contract V3Utils is IERC721Receiver {
             (bool success,) = payable(address(weth)).call{ value: msg.value }("");
             require(success, "eth wrap fail");
 
-            if (weth == token0) {
+            if (address(weth) == address(token0)) {
                 amountAdded0 = msg.value;
                 require(amountAdded0 <= amount0, "msg.value>amount0");
-            } else if (weth == token1) {
+            } else if (address(weth) == address(token1)) {
                 amountAdded1 = msg.value;
                 require(amountAdded1 <= amount1, "msg.value>amount1");
-            } else if (weth == otherToken) {
+            } else if (address(weth) == address(otherToken)) {
                 amountAddedOther = msg.value;
                 require(amountAddedOther <= amountOther, "msg.value>amountOther");
             } else {
@@ -262,6 +302,49 @@ contract V3Utils is IERC721Receiver {
     function _removeProtocolFee(uint amount, uint added) internal view returns (uint left) {
         uint fee = added * protocolFeeMantissa / BASE;
         left = amount - added - fee;
+    }
+
+    function _bridgeToPolygon(address bridge, address to, address tokenL1, uint amount) internal {
+        if (bridge != address(0)) {
+            IRootChainManager manager = IRootChainManager(bridge);
+            uint bridgeAmount = _removeMaxProtocolFee(amount);
+            if (tokenL1 == address(weth)) {
+                weth.withdraw(bridgeAmount);
+                manager.depositEtherFor{value: bridgeAmount}(to);
+            } else {
+                bytes32 t = manager.tokenToType(tokenL1);
+                address predicate = manager.typeToPredicate(t);
+                
+                if (predicate != address(0)) {
+                    IERC20(tokenL1).approve(predicate, bridgeAmount);
+                    IRootChainManager(bridge).depositFor(to, tokenL1, abi.encode(bridgeAmount));
+                } else {
+                    revert("missing bridge token");
+                } 
+            }
+        } else {
+            revert("missing bridge data");
+        }
+    }
+
+    // must check token list for bridging parameters https://github.com/ethereum-optimism/ethereum-optimism.github.io/blob/master/optimism.tokenlist.json
+    function _bridgeToOptimism(address bridge, address to, address tokenL1, address tokenL2, uint amount) internal {
+        if (bridge != address(0)) {
+            uint bridgeAmount = _removeMaxProtocolFee(amount);
+            if (tokenL1 == address(weth)) {
+                weth.withdraw(bridgeAmount);
+                IL1StandardBridge(bridge).depositETHTo{value: bridgeAmount}(to, 200_000, ""); // free gas: until 1.92 million - more than enough
+            } else {
+                if (tokenL2 != address(0)) {
+                    IERC20(tokenL1).approve(bridge, bridgeAmount);
+                    IL1StandardBridge(bridge).depositERC20To(address(tokenL1), tokenL2, to, bridgeAmount, 200_000, ""); // free gas: until 1.92 million - more than enough
+                } else {
+                    revert("missing bridge token");
+                }
+            }
+        } else {
+            revert("missing bridge data");
+        }
     }
 
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
@@ -427,4 +510,7 @@ contract V3Utils is IERC721Receiver {
         require(balanceAfter0 - balanceBefore0 == amount0, "collect error token 0"); // reverts for fee-on-transfer tokens
         require(balanceAfter1 - balanceBefore1 == amount1, "collect error token 1"); // reverts for fee-on-transfer tokens
     }
+
+    // for WETH unwrapping
+    receive() external payable {}
 }
