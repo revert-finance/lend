@@ -305,6 +305,9 @@ contract V3Utils is IERC721Receiver {
     }
 
     function _bridgeToPolygon(address bridge, address to, address tokenL1, uint amount) internal {
+
+        require(block.chainid == 1, "!mainnet");
+
         if (bridge != address(0)) {
             IRootChainManager manager = IRootChainManager(bridge);
             uint bridgeAmount = _removeMaxProtocolFee(amount);
@@ -329,6 +332,9 @@ contract V3Utils is IERC721Receiver {
 
     // must check token list for bridging parameters https://github.com/ethereum-optimism/ethereum-optimism.github.io/blob/master/optimism.tokenlist.json
     function _bridgeToOptimism(address bridge, address to, address tokenL1, address tokenL2, uint amount) internal {
+
+        require(block.chainid == 1, "!mainnet");
+
         if (bridge != address(0)) {
             uint bridgeAmount = _removeMaxProtocolFee(amount);
             if (tokenL1 == address(weth)) {

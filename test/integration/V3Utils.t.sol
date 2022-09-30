@@ -101,6 +101,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             "");
 
         vm.prank(TEST_ACCOUNT);
+        vm.chainId(1);
         NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
     }
 
@@ -131,6 +132,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             "");
 
         vm.prank(TEST_ACCOUNT);
+        vm.chainId(1);
         NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
     }
 
