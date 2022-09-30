@@ -11,6 +11,22 @@ import "./external/optimism/IL1StandardBridge.sol";
 
 import "./external/IWETH.sol";
 
+
+error Unauthorized();
+error WrongChain();
+error SameToken();
+error MissingBridge();
+error MissingBridgeToken();
+error SwapFailed();
+error AmountError();
+error SlippageError();
+error CollectError();
+error TransferError();
+error EtherWrapFailed();
+error TooMuchEtherSent();
+error NoEtherToken();
+error NotEnoughLiquidity();
+
 contract V3Utils is IERC721Receiver {
 
     uint256 constant private BASE = 1e18;
@@ -91,10 +107,14 @@ contract V3Utils is IERC721Receiver {
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
             if (instructions.swapTargetToken == state.token0) {
-                require(state.amount1 >= instructions.amountIn1, "amountIn1>amount1");
+                if (state.amount1 < instructions.amountIn1) {
+                    revert AmountError();
+                }
                 _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
             } else if (instructions.swapTargetToken == state.token1) {
-                require(state.amount0 >= instructions.amountIn0, "amountIn0>amount0");
+                if (state.amount0 < instructions.amountIn0) {
+                    revert AmountError();
+                }
                 _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0), IERC20(state.token0), IERC20(state.token1));
             } else {
                 _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
@@ -104,16 +124,22 @@ contract V3Utils is IERC721Receiver {
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
             if (instructions.swapTargetToken == state.token0) {
-                require(state.amount1 >= instructions.amountIn1, "amountIn1>amount1");
+                if (state.amount1 < instructions.amountIn1) {
+                    revert AmountError();
+                }
                 _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""));
             } else if (instructions.swapTargetToken == state.token1) {
-                require(state.amount0 >= instructions.amountIn0, "amountIn0>amount0");
+                if (state.amount0 < instructions.amountIn0) {
+                    revert AmountError();
+                }
                 _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0));
             } else {
                 _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, ""));
             }
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_COLLECT_AND_SWAP) {
-            require(state.liquidity >= instructions.liquidity, ">liquidity");
+            if (state.liquidity < instructions.liquidity) {
+                revert NotEnoughLiquidity();
+            }
             _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline);
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
@@ -203,7 +229,10 @@ contract V3Utils is IERC721Receiver {
     }
 
     function swapAndMint(SwapAndMintParams calldata params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) {
-        require(params.token0 != params.token1, "token0==token1");
+        if (params.token0 == params.token1) {
+            revert SameToken();
+        }
+
         _prepareAdd(params.token0, params.token1, params.swapSourceToken, params.amount0, params.amount1, params.amountIn0 + params.amountIn1);
         (tokenId, liquidity, amount0, amount1) = _swapAndMint(params);
     }
@@ -237,7 +266,9 @@ contract V3Utils is IERC721Receiver {
 
     // beneficiary may withdraw any token
     function withdrawProtocolFee(IERC20 token) external returns (uint balance) {
-        require(msg.sender == protocolFeeBeneficiary, "!beneficiary");
+        if (msg.sender != protocolFeeBeneficiary) {
+            revert Unauthorized();
+        }
         balance = token.balanceOf(address(this));
         token.transfer(protocolFeeBeneficiary, balance);
     }
@@ -253,19 +284,27 @@ contract V3Utils is IERC721Receiver {
         // wrap ether sent
         if (msg.value > 0) {
             (bool success,) = payable(address(weth)).call{ value: msg.value }("");
-            require(success, "eth wrap fail");
+            if (!success) {
+                revert EtherWrapFailed();
+            }
 
             if (address(weth) == address(token0)) {
                 amountAdded0 = msg.value;
-                require(amountAdded0 <= amount0, "msg.value>amount0");
+                if (amountAdded0 > amount0) {
+                    revert TooMuchEtherSent();
+                }
             } else if (address(weth) == address(token1)) {
                 amountAdded1 = msg.value;
-                require(amountAdded1 <= amount1, "msg.value>amount1");
+                if (amountAdded1 > amount1) {
+                    revert TooMuchEtherSent();
+                }
             } else if (address(weth) == address(otherToken)) {
                 amountAddedOther = msg.value;
-                require(amountAddedOther <= amountOther, "msg.value>amountOther");
+                if (amountAddedOther > amountOther) {
+                    revert TooMuchEtherSent();
+                }
             } else {
-                revert("no weth token");
+                revert NoEtherToken();
             }
         }
 
@@ -274,19 +313,25 @@ contract V3Utils is IERC721Receiver {
             uint balanceBefore = token0.balanceOf(address(this));
             token0.transferFrom(msg.sender, address(this), amount0 - amountAdded0);
             uint balanceAfter = token0.balanceOf(address(this));
-            require(balanceAfter - balanceBefore == amount0 - amountAdded0, "transfer error"); // reverts for fee-on-transfer tokens
+            if (balanceAfter - balanceBefore != amount0 - amountAdded0) {
+                revert TransferError(); // reverts for fee-on-transfer tokens
+            }
         }
         if (amount1 > amountAdded1) {
             uint balanceBefore = token1.balanceOf(address(this));
             token1.transferFrom(msg.sender, address(this), amount1 - amountAdded1);
             uint balanceAfter = token1.balanceOf(address(this));
-            require(balanceAfter - balanceBefore == amount1 - amountAdded1, "transfer error"); // reverts for fee-on-transfer tokens
+            if (balanceAfter - balanceBefore != amount1 - amountAdded1) {
+                revert TransferError(); // reverts for fee-on-transfer tokens
+            }
         }
         if (token0 != otherToken && token1 != otherToken && address(otherToken) != address(0) && amountOther > amountAddedOther) {
             uint balanceBefore = otherToken.balanceOf(address(this));
             otherToken.transferFrom(msg.sender, address(this), amountOther - amountAddedOther);
             uint balanceAfter = otherToken.balanceOf(address(this));
-            require(balanceAfter - balanceBefore == amountOther - amountAddedOther, "transfer error"); // reverts for fee-on-transfer tokens
+            if (balanceAfter - balanceBefore != amountOther - amountAddedOther) {
+                revert TransferError(); // reverts for fee-on-transfer tokens
+            }
         }
     }
 
@@ -306,7 +351,9 @@ contract V3Utils is IERC721Receiver {
 
     function _bridgeToPolygon(address bridge, address to, address tokenL1, uint amount) internal {
 
-        require(block.chainid == 1, "!mainnet");
+        if (block.chainid != 1) {
+            revert WrongChain();
+        }
 
         if (bridge != address(0)) {
             IRootChainManager manager = IRootChainManager(bridge);
@@ -322,18 +369,20 @@ contract V3Utils is IERC721Receiver {
                     IERC20(tokenL1).approve(predicate, bridgeAmount);
                     IRootChainManager(bridge).depositFor(to, tokenL1, abi.encode(bridgeAmount));
                 } else {
-                    revert("missing bridge token");
+                    revert MissingBridgeToken();
                 } 
             }
         } else {
-            revert("missing bridge data");
+            revert MissingBridge();
         }
     }
 
     // must check token list for bridging parameters https://github.com/ethereum-optimism/ethereum-optimism.github.io/blob/master/optimism.tokenlist.json
     function _bridgeToOptimism(address bridge, address to, address tokenL1, address tokenL2, uint amount) internal {
 
-        require(block.chainid == 1, "!mainnet");
+        if (block.chainid != 1) {
+            revert WrongChain();
+        }
 
         if (bridge != address(0)) {
             uint bridgeAmount = _removeMaxProtocolFee(amount);
@@ -345,11 +394,11 @@ contract V3Utils is IERC721Receiver {
                     IERC20(tokenL1).approve(bridge, bridgeAmount);
                     IL1StandardBridge(bridge).depositERC20To(address(tokenL1), tokenL2, to, bridgeAmount, 200_000, ""); // free gas: until 1.92 million - more than enough
                 } else {
-                    revert("missing bridge token");
+                    revert MissingBridgeToken();
                 }
             }
         } else {
-            revert("missing bridge data");
+            revert MissingBridge();
         }
     }
 
@@ -409,12 +458,16 @@ contract V3Utils is IERC721Receiver {
     // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
     function _swapAndPrepareAmounts(SwapAndMintParams memory params) internal returns (uint total0, uint total1, uint available0, uint available1) {
         if (params.swapSourceToken == params.token0) { 
-            require(params.amount0 >= params.amountIn1, "amount0 < amountIn");
+            if (params.amount0 < params.amountIn1) {
+                revert AmountError();
+            }
             (uint amountInDelta, uint256 amountOutDelta) = _swap(params.token0, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1);
             total0 = params.amount0 - amountInDelta;
             total1 = params.amount1 + amountOutDelta;
         } else if (params.swapSourceToken == params.token1) { 
-            require(params.amount1 >= params.amountIn0, "amount1 < amountIn");
+            if (params.amount1 < params.amountIn0) {
+                revert AmountError();
+            }
             (uint amountInDelta, uint256 amountOutDelta) = _swap(params.token1, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0);
             total1 = params.amount1 - amountInDelta;
             total0 = params.amount0 + amountOutDelta;
@@ -475,7 +528,9 @@ contract V3Utils is IERC721Receiver {
 
             // execute swap
             (bool success,) = swapRouter.call(data);
-            require(success, 'swap failed');
+            if (!success) {
+                revert SwapFailed();
+            }
 
             // remove any remaining allowance
             tokenIn.approve(swapRouter, 0);
@@ -487,7 +542,9 @@ contract V3Utils is IERC721Receiver {
             amountOutDelta = balanceOutAfter - balanceOutBefore;
 
             // amountMin slippage check
-            require(amountOutDelta >= amountOutMin, "<amountOutMin");
+            if (amountOutDelta < amountOutMin) {
+                revert SlippageError();
+            }
         }
     }
 
@@ -513,8 +570,14 @@ contract V3Utils is IERC721Receiver {
         );
         uint balanceAfter0 = token0.balanceOf(address(this));
         uint balanceAfter1 = token1.balanceOf(address(this));
-        require(balanceAfter0 - balanceBefore0 == amount0, "collect error token 0"); // reverts for fee-on-transfer tokens
-        require(balanceAfter1 - balanceBefore1 == amount1, "collect error token 1"); // reverts for fee-on-transfer tokens
+
+        // reverts for fee-on-transfer tokens
+        if (balanceAfter0 - balanceBefore0 != amount0) {
+            revert CollectError();
+        }
+        if (balanceAfter1 - balanceBefore1 != amount1) {
+            revert CollectError();
+        }
     }
 
     // for WETH unwrapping

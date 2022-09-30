@@ -397,7 +397,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     }
 
     function testWithdrawProtocolFeeUnauthorized() external {
-        vm.expectRevert(abi.encodePacked("!beneficiary"));
+        vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
         c.withdrawProtocolFee(DAI);
     }
 
