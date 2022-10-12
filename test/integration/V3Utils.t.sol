@@ -24,7 +24,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     function setUp() external {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
-        c = new V3Utils(WETH, NPM, EX0x, 10 ** 16, BENEFICIARY_ACCOUNT);
+        c = new V3Utils(WETH, NPM, EX0x, 1 ether / 100, BENEFICIARY_ACCOUNT);
         vm.deal(BENEFICIARY_ACCOUNT, 1 ether);
     }
 
@@ -396,6 +396,101 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertEq(amount1, 749907786);
     }
 
+    function testSwapETHUSDC() public {
+        V3Utils.SwapParams memory params = V3Utils.SwapParams(
+            WETH_ERC20,
+            USDC,
+            500000000000000000, // 0.5ETH
+            757406864,
+            TEST_ACCOUNT,
+            _get05ETHToUSDCSwapData(),
+            false
+        );
+
+        vm.prank(TEST_ACCOUNT);
+        (uint256 amountOut) = c.swap{value: (1 ether) / 2}(params);
+
+        // fee in output token
+        uint inputTokenBalance = WETH_ERC20.balanceOf(address(c));
+        uint feeBalance = USDC.balanceOf(address(c));
+
+        // swapped to USDC - fee
+        assertEq(amountOut, 749907786);
+
+        // input token no leftovers allowed
+        assertEq(inputTokenBalance, 0);
+
+        // fee must be kept
+        assertLe(feeBalance, amountOut / 100 + 1);
+        assertGe(feeBalance, amountOut / 100 - 1);
+    }
+
+    function testSwapUSDCDAI() public {
+        V3Utils.SwapParams memory params = V3Utils.SwapParams(
+            USDC,
+            DAI,
+            1000000, // 1 USDC
+            9 ether / 10,
+            TEST_ACCOUNT,
+            _get1USDCToDAISwapData(),
+            false
+        );
+
+        vm.startPrank(TEST_ACCOUNT);
+        USDC.approve(address(c), 1000000);
+        (uint256 amountOut) = c.swap(params);
+        vm.stopPrank();
+
+        uint inputTokenBalance = USDC.balanceOf(address(c));
+        // fee in output token
+        uint feeBalance = DAI.balanceOf(address(c));
+
+        // swapped to DAI - fee
+        assertEq(amountOut, 990185448389406138);
+        
+        // input token no leftovers allowed
+        assertEq(inputTokenBalance, 0);
+
+        // fee must be kept
+        assertLe(feeBalance, amountOut / 100 + 1);
+        assertGe(feeBalance, amountOut / 100 - 1);
+    }
+
+    function testSwapUSDCETH() public {
+        V3Utils.SwapParams memory params = V3Utils.SwapParams(
+            USDC,
+            WETH_ERC20,
+            1000000, // 1 USDC
+            1 ether / 2000,
+            TEST_ACCOUNT,
+            _get1USDCToWETHSwapData(),
+            true // unwrap to real ETH
+        );
+
+        uint balanceBefore = TEST_ACCOUNT.balance;
+
+        vm.startPrank(TEST_ACCOUNT);
+        USDC.approve(address(c), 1000000);
+        (uint256 amountOut) = c.swap(params);
+        vm.stopPrank();
+
+        uint inputTokenBalance = USDC.balanceOf(address(c));
+        // fee in output token
+        uint feeBalance = WETH_ERC20.balanceOf(address(c));
+        uint balanceAfter = TEST_ACCOUNT.balance;
+
+        // swapped to ETH - fee
+        assertEq(amountOut, 649674947029654);
+        assertEq(amountOut, balanceAfter - balanceBefore);
+        
+        // input token no leftovers allowed
+        assertEq(inputTokenBalance, 0);
+
+        // fee will be kept as WETH
+        assertLe(feeBalance, amountOut / 100 + 1);
+        assertGe(feeBalance, amountOut / 100 - 1);
+    }
+
     function testWithdrawProtocolFeeUnauthorized() external {
         vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
         c.withdrawProtocolFee(DAI);
@@ -449,6 +544,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     function _get1USDCToDAISwapData() internal pure returns (bytes memory) {
         // https://api.0x.org/swap/v1/quote?sellToken=USDC&buyToken=DAI&sellAmount=1000000
         return abi.encode(hex"d9627aa4000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000f42400000000000000000000000000000000000000000000000000dbd77a86ff7cebd00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000006b175474e89094c44da98b954eedeac495271d0f869584cd000000000000000000000000100000000000000000000000000000000000001100000000000000000000000000000000000000000000003ad56e32f663185fa5");
+    }
+
+    function _get1USDCToWETHSwapData() internal pure returns (bytes memory) {
+        // https://api.0x.org/swap/v1/quote?sellToken=USDC&buyToken=WETH&sellAmount=1000000
+        return abi.encode(hex"d9627aa4000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000015d71cfe366e000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2869584cd00000000000000000000000010000000000000000000000000000000000000110000000000000000000000000000000000000000000000eb67e2376163472ec0");
     }
 
     function _get1DAIToUSDSwapData() internal pure returns (bytes memory) {

@@ -22,7 +22,7 @@ error AmountError();
 error SlippageError();
 error CollectError();
 error TransferError();
-error EtherWrapFailed();
+error EtherSendFailed();
 error TooMuchEtherSent();
 error NoEtherToken();
 error NotEnoughLiquidity();
@@ -203,6 +203,52 @@ contract V3Utils is IERC721Receiver {
         return IERC721Receiver.onERC721Received.selector;
     }
 
+    struct SwapParams {
+        IERC20 tokenIn;
+        IERC20 tokenOut;
+        uint256 amountIn;
+        uint256 minAmountOut;
+        address recipient; // recipient of tokenOut and leftover tokenIn
+        bytes swapData;
+        bool unwrap; // if tokenIn or tokenOut is WETH - unwrap
+    }
+
+    function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
+
+        _prepareAdd(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
+
+        (uint amountInDelta, uint256 amountOutDelta) = _swap(params.tokenIn, params.tokenOut, params.amountIn, params.minAmountOut, params.swapData);
+
+        amountOut = _removeMaxProtocolFee(amountOutDelta);
+
+        // send swapped amount minus fees of tokenOut
+        if (amountOut > 0) {
+            if (address(params.tokenOut) == address(weth) && params.unwrap) {
+                weth.withdraw(amountOut);
+                (bool sent, ) = params.recipient.call{value: amountOut}("");
+                if (!sent) {
+                    revert EtherSendFailed();
+                }
+            } else {
+                SafeERC20.safeTransfer(params.tokenOut, params.recipient, amountOut);
+            }
+        }
+
+        // if not all was swapped - return leftovers of tokenIn
+        uint leftOver = params.amountIn - amountInDelta;
+        if (leftOver > 0) {
+            if (address(params.tokenIn) == address(weth) && params.unwrap) { 
+                weth.withdraw(leftOver);
+                (bool sent, ) = params.recipient.call{value: leftOver}("");
+                if (!sent) {
+                    revert EtherSendFailed();
+                }
+            } else {
+                SafeERC20.safeTransfer(params.tokenIn, params.recipient, leftOver);
+            }
+        }
+    }
+
     struct SwapAndMintParams {
         IERC20 token0;
         IERC20 token1;
@@ -283,10 +329,7 @@ contract V3Utils is IERC721Receiver {
 
         // wrap ether sent
         if (msg.value > 0) {
-            (bool success,) = payable(address(weth)).call{ value: msg.value }("");
-            if (!success) {
-                revert EtherWrapFailed();
-            }
+            weth.deposit{ value: msg.value }();
 
             if (address(weth) == address(token0)) {
                 amountAdded0 = msg.value;
