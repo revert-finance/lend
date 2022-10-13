@@ -564,10 +564,10 @@ contract V3Utils is IERC721Receiver {
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
 
             // get router specific swap data
-            bytes memory data = abi.decode(swapData, (bytes));
+            (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
 
             // approve needed amount
-            tokenIn.approve(swapRouter, amountIn);
+            tokenIn.approve(allowanceTarget, amountIn);
 
             // execute swap
             (bool success,) = swapRouter.call(data);
