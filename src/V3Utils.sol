@@ -11,32 +11,18 @@ import "./external/optimism/IL1StandardBridge.sol";
 
 import "./external/IWETH.sol";
 
-
-error Unauthorized();
-error WrongChain();
-error SameToken();
-error MissingBridge();
-error MissingBridgeToken();
-error SwapFailed();
-error AmountError();
-error SlippageError();
-error CollectError();
-error TransferError();
-error EtherSendFailed();
-error TooMuchEtherSent();
-error NoEtherToken();
-error NotEnoughLiquidity();
-
 contract V3Utils is IERC721Receiver {
+
+    using SafeERC20 for IERC20;
 
     uint256 constant private BASE = 1e18;
  
     IWETH immutable public weth; // wrapped native token address
     INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
-    address swapRouter; // the trusted contract which is allowed to do arbitrary (swap) calls - 0x for now
+    address immutable swapRouter; // the trusted contract which is allowed to do arbitrary (swap) calls - 0x for now
 
     uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
-    address immutable public protocolFeeBeneficiary; // address recieving the protocol fee
+    address immutable public protocolFeeBeneficiary; // address being able to withdraw accumulated protocol fee
 
     constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
@@ -58,14 +44,16 @@ contract V3Utils is IERC721Receiver {
         WhatToDo whatToDo;
 
         // target token for swaps
-        address swapTargetToken;
+        address targetToken;
 
-        // if token0 needs to be swapped to target - set values - if input amount can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
+        // if token0 needs to be swapped to targetToken - set values
+        // if amountIn0 can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
         uint amountIn0;
         uint amountOut0Min;
         bytes swapData0;
 
-        // if token1 needs to be swapped to target - set values - if input amount can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
+        // if token1 needs to be swapped to targetToken - set values
+        // if amountIn1 can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
         uint amountIn1;
         uint amountOut1Min;
         bytes swapData1;
@@ -74,7 +62,6 @@ contract V3Utils is IERC721Receiver {
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
-        bool burnNoReturn;
         
         // for liquidity operations
         uint128 liquidity;
@@ -106,12 +93,12 @@ contract V3Utils is IERC721Receiver {
         if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
-            if (instructions.swapTargetToken == state.token0) {
+            if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
                 _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
-            } else if (instructions.swapTargetToken == state.token1) {
+            } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
@@ -123,12 +110,12 @@ contract V3Utils is IERC721Receiver {
             _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline);
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
-            if (instructions.swapTargetToken == state.token0) {
+            if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
                 _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""));
-            } else if (instructions.swapTargetToken == state.token1) {
+            } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
@@ -144,19 +131,19 @@ contract V3Utils is IERC721Receiver {
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
 
             uint targetAmount;
-            if (state.token0 != instructions.swapTargetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.swapTargetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
+            if (state.token0 != instructions.targetToken) {
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.targetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
                 if (amountInDelta < state.amount0) {
-                    SafeERC20.safeTransfer(IERC20(state.token0), from, state.amount0 - amountInDelta);
+                    IERC20(state.token0).safeTransfer(from, state.amount0 - amountInDelta);
                 }
                 targetAmount += amountOutDelta;
             } else {
                 targetAmount += state.amount0; 
             }
-            if (state.token1 != instructions.swapTargetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token1), IERC20(instructions.swapTargetToken), state.amount1, instructions.amountOut1Min, instructions.swapData1);
+            if (state.token1 != instructions.targetToken) {
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token1), IERC20(instructions.targetToken), state.amount1, instructions.amountOut1Min, instructions.swapData1);
                 if (amountInDelta < state.amount1) {
-                    SafeERC20.safeTransfer(IERC20(state.token1), from, state.amount1 - amountInDelta);
+                    IERC20(state.token1).safeTransfer(from, state.amount1 - amountInDelta);
                 }
                 targetAmount += amountOutDelta;
             } else {
@@ -168,7 +155,7 @@ contract V3Utils is IERC721Receiver {
             // calculate amount left
             uint left = _removeProtocolFee(targetAmount, toSend);
 
-            SafeERC20.safeTransfer(IERC20(instructions.swapTargetToken), from, toSend + left);
+            IERC20(instructions.targetToken).safeTransfer(from, toSend + left);
         } else if (instructions.whatToDo == WhatToDo.BRIDGE_TO_OPTIMISM || instructions.whatToDo == WhatToDo.BRIDGE_TO_POLYGON) {
             _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline);
             (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
@@ -194,11 +181,8 @@ contract V3Utils is IERC721Receiver {
             revert("not supported whatToDo");
         }
         
-        if (instructions.burnNoReturn) {
-            _burn(tokenId); // if token still has liquidity this will revert
-        } else {
-            nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
-        }
+        // return token to owner
+        nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
 
         return IERC721Receiver.onERC721Received.selector;
     }
@@ -208,7 +192,7 @@ contract V3Utils is IERC721Receiver {
         IERC20 tokenOut;
         uint256 amountIn;
         uint256 minAmountOut;
-        address recipient; // recipient of tokenOut and leftover tokenIn
+        address recipient; // recipient of tokenOut and leftover tokenIn (if any leftover)
         bytes swapData;
         bool unwrap; // if tokenIn or tokenOut is WETH - unwrap
     }
@@ -230,7 +214,7 @@ contract V3Utils is IERC721Receiver {
                     revert EtherSendFailed();
                 }
             } else {
-                SafeERC20.safeTransfer(params.tokenOut, params.recipient, amountOut);
+                params.tokenOut.safeTransfer(params.recipient, amountOut);
             }
         }
 
@@ -244,7 +228,7 @@ contract V3Utils is IERC721Receiver {
                     revert EtherSendFailed();
                 }
             } else {
-                SafeERC20.safeTransfer(params.tokenIn, params.recipient, leftOver);
+                params.tokenIn.safeTransfer(params.recipient, leftOver);
             }
         }
     }
@@ -260,7 +244,7 @@ contract V3Utils is IERC721Receiver {
         address recipient; // recipient of nft and leftover tokens
         uint256 deadline;
 
-        // source token for swaps (maybe either token0, token1 or another token)
+        // source token for swaps (maybe either address(0), token0, token1 or another token)
         IERC20 swapSourceToken;
 
         // if swapSourceToken needs to be swapped to token0 - set values
@@ -290,7 +274,7 @@ contract V3Utils is IERC721Receiver {
         address recipient; // recipient of leftover tokens
         uint256 deadline;
         
-        // target token for swaps (maybe either token0, token1 or another token)
+        // source token for swaps (maybe either address(0), token0, token1 or another token)
         IERC20 swapSourceToken;
 
         // if swapSourceToken needs to be swapped to token0 - set values
@@ -316,7 +300,7 @@ contract V3Utils is IERC721Receiver {
             revert Unauthorized();
         }
         balance = token.balanceOf(address(this));
-        token.transfer(protocolFeeBeneficiary, balance);
+        token.safeTransfer(protocolFeeBeneficiary, balance);
     }
 
     // checks if required amounts are provided and are exact - wraps any provided ETH as WETH
@@ -354,7 +338,7 @@ contract V3Utils is IERC721Receiver {
         // get missing tokens (fails if not enough provided)
         if (amount0 > amountAdded0) {
             uint balanceBefore = token0.balanceOf(address(this));
-            token0.transferFrom(msg.sender, address(this), amount0 - amountAdded0);
+            token0.safeTransferFrom(msg.sender, address(this), amount0 - amountAdded0);
             uint balanceAfter = token0.balanceOf(address(this));
             if (balanceAfter - balanceBefore != amount0 - amountAdded0) {
                 revert TransferError(); // reverts for fee-on-transfer tokens
@@ -362,7 +346,7 @@ contract V3Utils is IERC721Receiver {
         }
         if (amount1 > amountAdded1) {
             uint balanceBefore = token1.balanceOf(address(this));
-            token1.transferFrom(msg.sender, address(this), amount1 - amountAdded1);
+            token1.safeTransferFrom(msg.sender, address(this), amount1 - amountAdded1);
             uint balanceAfter = token1.balanceOf(address(this));
             if (balanceAfter - balanceBefore != amount1 - amountAdded1) {
                 revert TransferError(); // reverts for fee-on-transfer tokens
@@ -370,7 +354,7 @@ contract V3Utils is IERC721Receiver {
         }
         if (token0 != otherToken && token1 != otherToken && address(otherToken) != address(0) && amountOther > amountAddedOther) {
             uint balanceBefore = otherToken.balanceOf(address(this));
-            otherToken.transferFrom(msg.sender, address(this), amountOther - amountAddedOther);
+            otherToken.safeTransferFrom(msg.sender, address(this), amountOther - amountAddedOther);
             uint balanceAfter = otherToken.balanceOf(address(this));
             if (balanceAfter - balanceBefore != amountOther - amountAddedOther) {
                 revert TransferError(); // reverts for fee-on-transfer tokens
@@ -525,7 +509,7 @@ contract V3Utils is IERC721Receiver {
             uint leftOver = params.amountIn0 + params.amountIn1 - amountInDelta0 - amountInDelta1;
 
             if (leftOver > 0) {
-                SafeERC20.safeTransfer(params.swapSourceToken, params.recipient, leftOver);
+                params.swapSourceToken.safeTransfer(params.recipient, leftOver);
             }
         } else {
             total0 = params.amount0;
@@ -535,8 +519,12 @@ contract V3Utils is IERC721Receiver {
         available0 = _removeMaxProtocolFee(total0);
         available1 = _removeMaxProtocolFee(total1);
 
-        params.token0.approve(address(nonfungiblePositionManager), available0);
-        params.token1.approve(address(nonfungiblePositionManager), available1);
+        if (available0 > 0) {
+            params.token0.approve(address(nonfungiblePositionManager), available0);
+        }
+        if (available1 > 0) {
+            params.token1.approve(address(nonfungiblePositionManager), available1);
+        }
     }
 
     // returns leftover balances
@@ -549,10 +537,10 @@ contract V3Utils is IERC721Receiver {
 
         // return leftovers
         if (left0 > 0) {
-            SafeERC20.safeTransfer(token0, to, left0);
+            token0.safeTransfer(to, left0);
         }
         if (left1 > 0) {
-            SafeERC20.safeTransfer(token1, to, left1);
+            token1.safeTransfer(to, left1);
         }
     }
 
@@ -576,7 +564,7 @@ contract V3Utils is IERC721Receiver {
             }
 
             // remove any remaining allowance
-            tokenIn.approve(swapRouter, 0);
+            tokenIn.approve(allowanceTarget, 0);
 
             uint balanceInAfter = tokenIn.balanceOf(address(this));
             uint balanceOutAfter = tokenOut.balanceOf(address(this));
@@ -626,3 +614,20 @@ contract V3Utils is IERC721Receiver {
     // for WETH unwrapping
     receive() external payable {}
 }
+
+
+// error types
+error Unauthorized();
+error WrongChain();
+error SameToken();
+error MissingBridge();
+error MissingBridgeToken();
+error SwapFailed();
+error AmountError();
+error SlippageError();
+error CollectError();
+error TransferError();
+error EtherSendFailed();
+error TooMuchEtherSent();
+error NoEtherToken();
+error NotEnoughLiquidity();
