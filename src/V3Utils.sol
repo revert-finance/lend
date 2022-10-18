@@ -41,6 +41,7 @@ contract V3Utils is IERC721Receiver {
     }
 
     struct Instructions {
+        // what action to perform on provided Uniswap v3 position
         WhatToDo whatToDo;
 
         // target token for swaps
@@ -58,7 +59,7 @@ contract V3Utils is IERC721Receiver {
         uint amountOut1Min;
         bytes swapData1;
 
-        // for creating new positions
+        // for creating new positions (change range)
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
@@ -83,7 +84,16 @@ contract V3Utils is IERC721Receiver {
         uint amount1;
     }
 
+    /**
+     * @dev Method which recieves Uniswap v3 NFT and does manipulation as configured in encoded Instructions parameter
+     * At the end the NFT and any leftover tokens are returned to sender.
+     */
     function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
+
+        // only Uniswap v3 NFTs allowed
+        if (msg.sender != address(nonfungiblePositionManager)) {
+            revert WrongContract();
+        }
 
         Instructions memory instructions = abi.decode(data, (Instructions));
         ERC721ReceivedState memory state;
@@ -178,10 +188,10 @@ contract V3Utils is IERC721Receiver {
                 }
             }
         } else {
-            revert("not supported whatToDo");
+            revert NotSupportedWhatToDo();
         }
         
-        // return token to owner
+        // return token to owner (this line guarantees that token is returned to rightful owner)
         nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
 
         return IERC721Receiver.onERC721Received.selector;
@@ -197,6 +207,11 @@ contract V3Utils is IERC721Receiver {
         bool unwrap; // if tokenIn or tokenOut is WETH - unwrap
     }
 
+    /**
+     * @dev Swaps amountIn of tokenIn for tokenOut - returning at least minAmountOut
+     * If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
+     * Optionally unwraps any wrapped native token and returns native token instead
+     */
     function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
 
         _prepareAdd(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
@@ -258,6 +273,10 @@ contract V3Utils is IERC721Receiver {
         bytes swapData1;
     }
 
+    /**
+     * @dev Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position.
+     * Sends newly minted position and any leftover tokens to recipient.
+     */
     function swapAndMint(SwapAndMintParams calldata params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) {
         if (params.token0 == params.token1) {
             revert SameToken();
@@ -288,13 +307,19 @@ contract V3Utils is IERC721Receiver {
         bytes swapData1;
     }
 
+    /**
+     * @dev Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner).
+     * Sends any leftover tokens to recipient.
+     */
     function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
         _prepareAdd(IERC20(token0), IERC20(token1), params.swapSourceToken, params.amount0, params.amount1, params.amountIn0 + params.amountIn1);
         (liquidity, amount0, amount1) = _swapAndIncrease(params, IERC20(token0), IERC20(token1));
     }
 
-    // beneficiary may withdraw any token
+    /**
+     * @dev Withdraw tokens left in contract (collected protocol fees) - only callable by protocolFeeBeneficiary
+     */
     function withdrawProtocolFee(IERC20 token) external returns (uint balance) {
         if (msg.sender != protocolFeeBeneficiary) {
             revert Unauthorized();
@@ -545,6 +570,7 @@ contract V3Utils is IERC721Receiver {
     }
 
     // general swap function which uses external router with off-chain calculated swap instructions
+    // does slippage check with amountOutMin param
     // returns new token amounts after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0) {
@@ -611,14 +637,15 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
-    // for WETH unwrapping
+    // needed for WETH unwrapping
     receive() external payable {}
 }
 
-
 // error types
 error Unauthorized();
+error WrongContract();
 error WrongChain();
+error NotSupportedWhatToDo();
 error SameToken();
 error MissingBridge();
 error MissingBridgeToken();
