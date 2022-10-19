@@ -30,7 +30,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
 
     function testUnauthorizedTransfer() external {
         vm.expectRevert(abi.encodePacked("ERC721: transfer caller is not owner nor approved"));
-        V3Utils.Instructions memory inst = V3Utils.Instructions(V3Utils.WhatToDo.CHANGE_RANGE,address(0),0,0,"",0,0,"", 0, 0, 0, 0, 0, "", "");
+        V3Utils.Instructions memory inst = V3Utils.Instructions(V3Utils.WhatToDo.CHANGE_RANGE,address(0),0,0,"",0,0,"", 0, 0, 0, 0, 0, "");
         NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
     }
 
@@ -63,7 +63,6 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             -MIN_TICK_100,
             0,
             block.timestamp,
-            "",
             "");
 
         vm.prank(TEST_ACCOUNT);
@@ -73,69 +72,9 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertGt(countAfter, countBefore);
     }
 
-    function testTransferWithBridgePolygon() external {
-
-        // add liquidity to existing (empty) position (add 1 DAI / 0 USDC)
-        _increaseLiquidity();
-
-        bytes memory bridgeData = abi.encode(POLYGON_BRIDGE);
-
-        // bridge to optimism
-        V3Utils.Instructions memory inst = V3Utils.Instructions(
-            V3Utils.WhatToDo.BRIDGE_TO_POLYGON,
-            address(0),
-            0,
-            0,
-            "",
-            0,
-            0,
-            "",
-            0,
-            0,
-            0,
-            0,
-            block.timestamp,
-            bridgeData,
-            "");
-
-        vm.prank(TEST_ACCOUNT);
-        vm.chainId(1);
-        NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
-    }
-
-    function testTransferWithBridgeOptimism() external {
-
-        // add liquidity to existing (empty) position (add 1 DAI / 0 USDC)
-        _increaseLiquidity();
-
-        bytes memory bridgeData = abi.encode(OPTIMISM_BRIDGE_DAI, OPTIMISM_DAI, OPTIMISM_BRIDGE_STANDARD, OPTIMISM_USDC);
-
-        // bridge to optimism
-        V3Utils.Instructions memory inst = V3Utils.Instructions(
-            V3Utils.WhatToDo.BRIDGE_TO_OPTIMISM,
-            address(0),
-            0,
-            0,
-            "",
-            0,
-            0,
-            "",
-            0,
-            0,
-            0,
-            0,
-            block.timestamp,
-            bridgeData,
-            "");
-
-        vm.prank(TEST_ACCOUNT);
-        vm.chainId(1);
-        NPM.safeTransferFrom(TEST_ACCOUNT, address(c), TEST_NFT_ID, abi.encode(inst));
-    }
-
     function testTransferWithCompoundNoSwap() external {
 
-        V3Utils.Instructions memory inst = V3Utils.Instructions(V3Utils.WhatToDo.COMPOUND_FEES,address(0),0,0,"",0,0,"", 0, 0, 0, 0, block.timestamp, "", "");
+        V3Utils.Instructions memory inst = V3Utils.Instructions(V3Utils.WhatToDo.COMPOUND_FEES,address(0),0,0,"",0,0,"", 0, 0, 0, 0, block.timestamp, "");
 
         uint daiBefore = DAI.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
         uint usdcBefore = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
@@ -165,7 +104,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             address(USDC),
             500000000000000000,
             400000,
-            _get05DAIToUSDCSwapData(),0,0,"", 0, 0, 0, 0, block.timestamp, "", "");
+            _get05DAIToUSDCSwapData(),0,0,"", 0, 0, 0, 0, block.timestamp, "");
 
         uint daiBefore = DAI.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
         uint usdcBefore = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
@@ -216,7 +155,6 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             withdrawLiquidity ? liquidity : 0,
             block.timestamp,
-            "",
             "");
 
         vm.prank(TEST_ACCOUNT);

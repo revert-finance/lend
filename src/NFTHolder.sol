@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import "./modules/IModule.sol";
 
-import "./external/openzeppelin/access/Ownable.sol";
-import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
-import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 contract NFTHolder is IERC721Receiver, Ownable  {
 
@@ -23,8 +23,8 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         bool checkAllowCollect; // to avoid calling contract when not needed
     }
 
-    uint public modulesCount;
-    mapping(uint256 => Module) public modules;
+    uint8 public modulesCount;
+    mapping(uint8 => Module) public modules;
     mapping(address => uint8) public modulesIndex;
     
     mapping(uint256 => address) public tokenOwners;
@@ -66,7 +66,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         require(tokenOwners[tokenId] == msg.sender, "!owner");
         require(tokenModules[tokenId] & 1 << module == 0, "already active");
 
-        modules[module].addToken(tokenId, msg.sender);
+        modules[module].implementation.addToken(tokenId, msg.sender);
         tokenModules[tokenId] = tokenModules[tokenId] | 1 << module;
     }
 
@@ -74,14 +74,14 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         require(tokenOwners[tokenId] == msg.sender, "!owner");
         require(tokenModules[tokenId] & 1 << module != 0, "not active");
 
-        modules[module].withdrawToken(tokenId, msg.sender);
+        modules[module].implementation.withdrawToken(tokenId, msg.sender);
         tokenModules[tokenId] = tokenModules[tokenId] | 1 << module;
     }
 
-    function registerModule(IModule module) external onlyOwner {
-        require(address(module) != address(0), "must be not 0");
-        modules[moduleCount] = module;
-        moduleCount++;
+    function registerModule(Module calldata module) external onlyOwner {
+        require(address(module.implementation) != address(0), "must be not 0");
+        modules[modulesCount] = module;
+        modulesCount++;
     }
 
     function _addToken(uint tokenId, address account, uint initialModules) internal {
@@ -93,13 +93,13 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         tokenModules[tokenId] = initialModules;
 
         uint maxIndex = modulesCount;
-        uint index = 0;
+        uint8 index = 0;
         while(initialModules > 0) {
             if (index >= maxIndex) {
                 revert("not existing module");
             }
             if (initialModules & 1 << index != 0) {
-                modules[index].addToken(tokenId, account);
+                modules[index].implementation.addToken(tokenId, account);
                 initialModules -= 1 << index;
             }
             index++;
@@ -111,13 +111,13 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         // withdraw from all active modules
         uint mod = tokenModules[tokenId];
         uint maxIndex = modulesCount;
-        uint index = 0;
+        uint8 index = 0;
         while(mod > 0) {
             if (index >= maxIndex) {
                 revert("not existing module");
             }
             if (mod & 1 << index != 0) {
-                modules[index].withdrawToken(tokenId, account);
+                modules[index].implementation.withdrawToken(tokenId, account);
                 mod -= 1 << index;
             }
             index++;

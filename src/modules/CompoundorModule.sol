@@ -28,4 +28,7 @@ contract CompoundorModule is IModule {
     function withdrawToken(uint256 tokenId, address owner) override external {
         // nothing to do
     }
+    function allowCollect(uint256, uint, uint) override external pure returns (bool) {
+        return true;
+    }
 }

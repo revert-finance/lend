@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-import "./external/openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
-
-import "./external/polygon/IRootChainManager.sol";
-import "./external/optimism/IL1StandardBridge.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 import "./external/IWETH.sol";
 
@@ -35,9 +32,7 @@ contract V3Utils is IERC721Receiver {
     enum WhatToDo {
         CHANGE_RANGE,
         WITHDRAW_COLLECT_AND_SWAP,
-        COMPOUND_FEES,
-        BRIDGE_TO_POLYGON,
-        BRIDGE_TO_OPTIMISM
+        COMPOUND_FEES
     }
 
     struct Instructions {
@@ -67,10 +62,6 @@ contract V3Utils is IERC721Receiver {
         // for liquidity operations
         uint128 liquidity;
         uint deadline;
-
-        // for polygon - address bridge
-        // for optimism - address bridge0, address token0, address bridge1, address token1
-        bytes bridgeData; 
 
         // data sent when token returned (optional)
         bytes returnData;
@@ -166,27 +157,6 @@ contract V3Utils is IERC721Receiver {
             uint left = _removeProtocolFee(targetAmount, toSend);
 
             IERC20(instructions.targetToken).safeTransfer(from, toSend + left);
-        } else if (instructions.whatToDo == WhatToDo.BRIDGE_TO_OPTIMISM || instructions.whatToDo == WhatToDo.BRIDGE_TO_POLYGON) {
-            _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline);
-            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
-
-            if (instructions.whatToDo == WhatToDo.BRIDGE_TO_OPTIMISM) {
-                (address bridge0, address token0L2, address bridge1, address token1L2) = abi.decode(instructions.bridgeData, (address, address, address, address));
-                if (state.amount0 > 0) {
-                    _bridgeToOptimism(bridge0, from, state.token0, token0L2, state.amount0);
-                }
-                if (state.amount1 > 0) {
-                    _bridgeToOptimism(bridge1, from, state.token1, token1L2, state.amount1);
-                }
-            } else {
-                address bridge = abi.decode(instructions.bridgeData, (address));
-                if (state.amount0 > 0) {
-                    _bridgeToPolygon(bridge, from, state.token0, state.amount0);
-                }
-                if (state.amount1 > 0) {
-                    _bridgeToPolygon(bridge, from, state.token1, state.amount1);
-                }
-            }
         } else {
             revert NotSupportedWhatToDo();
         }
@@ -401,59 +371,6 @@ contract V3Utils is IERC721Receiver {
         left = amount - added - fee;
     }
 
-    function _bridgeToPolygon(address bridge, address to, address tokenL1, uint amount) internal {
-
-        if (block.chainid != 1) {
-            revert WrongChain();
-        }
-
-        if (bridge != address(0)) {
-            IRootChainManager manager = IRootChainManager(bridge);
-            uint bridgeAmount = _removeMaxProtocolFee(amount);
-            if (tokenL1 == address(weth)) {
-                weth.withdraw(bridgeAmount);
-                manager.depositEtherFor{value: bridgeAmount}(to);
-            } else {
-                bytes32 t = manager.tokenToType(tokenL1);
-                address predicate = manager.typeToPredicate(t);
-                
-                if (predicate != address(0)) {
-                    IERC20(tokenL1).approve(predicate, bridgeAmount);
-                    IRootChainManager(bridge).depositFor(to, tokenL1, abi.encode(bridgeAmount));
-                } else {
-                    revert MissingBridgeToken();
-                } 
-            }
-        } else {
-            revert MissingBridge();
-        }
-    }
-
-    // must check token list for bridging parameters https://github.com/ethereum-optimism/ethereum-optimism.github.io/blob/master/optimism.tokenlist.json
-    function _bridgeToOptimism(address bridge, address to, address tokenL1, address tokenL2, uint amount) internal {
-
-        if (block.chainid != 1) {
-            revert WrongChain();
-        }
-
-        if (bridge != address(0)) {
-            uint bridgeAmount = _removeMaxProtocolFee(amount);
-            if (tokenL1 == address(weth)) {
-                weth.withdraw(bridgeAmount);
-                IL1StandardBridge(bridge).depositETHTo{value: bridgeAmount}(to, 200_000, ""); // free gas: until 1.92 million - more than enough
-            } else {
-                if (tokenL2 != address(0)) {
-                    IERC20(tokenL1).approve(bridge, bridgeAmount);
-                    IL1StandardBridge(bridge).depositERC20To(address(tokenL1), tokenL2, to, bridgeAmount, 200_000, ""); // free gas: until 1.92 million - more than enough
-                } else {
-                    revert MissingBridgeToken();
-                }
-            }
-        } else {
-            revert MissingBridge();
-        }
-    }
-
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
 
         (uint total0, uint total1, uint available0, uint available1) = _swapAndPrepareAmounts(params);
@@ -647,8 +564,6 @@ error WrongContract();
 error WrongChain();
 error NotSupportedWhatToDo();
 error SameToken();
-error MissingBridge();
-error MissingBridgeToken();
 error SwapFailed();
 error AmountError();
 error SlippageError();
