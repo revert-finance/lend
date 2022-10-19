@@ -148,11 +148,17 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         uint128 liquidity;
         uint256 amount0Min;
         uint256 amount1Min;
-        uint256 amount0;
-        uint256 amount1;
+        uint256 amountFees0;
+        uint256 amountFees1;
         uint256 deadline;
         address recipient;
     }
+
+    // access control functions
+
+    // empty position
+
+    // decrease liquidity and collect fees ()
 
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)  
         external
