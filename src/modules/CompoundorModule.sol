@@ -13,9 +13,10 @@ contract CompoundorModule is IModule {
     }
 
     function autoCompound(uint256 tokenId) external {
-        // holder.decreaseLiquidityAndCollect(params);
 
-        // autocompound
+        // (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(params);
+
+        // (optional swap) & autocompound
         
         // manage leftover balances 
 
@@ -28,7 +29,7 @@ contract CompoundorModule is IModule {
     function withdrawToken(uint256 tokenId, address owner) override external {
         // nothing to do
     }
-    function allowCollect(uint256, uint, uint) override external pure returns (bool) {
+    function checkOnCollect(uint256, address, uint, uint) override external pure returns (bool) {
         return true;
     }
 }

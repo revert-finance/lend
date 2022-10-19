@@ -9,7 +9,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 contract NFTHolder is IERC721Receiver, Ownable  {
 
-    uint32 constant public MAX_TOKENS_PER_ADDRESS = 100;
+    uint constant public MAX_TOKENS_PER_ADDRESS = 100;
 
     // uniswap v3 components
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
@@ -20,7 +20,8 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     
     struct Module {
         IModule implementation; // 160 bits
-        bool checkAllowCollect; // to avoid calling contract when not needed
+        bool active; // allows to add new positions
+        bool checkOnCollect; // this module needs to check if collect allowed by other modules / owner
     }
 
     uint8 public modulesCount;
@@ -38,21 +39,14 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     }
 
     function addToken(uint256 tokenId, uint256 initialModules) external {
-        // must be approved
-        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, "");
-         _addToken(tokenId, msg.sender, initialModules);
+        // must be approved beforehand
+        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(initialModules));
     }
 
-    function withdrawToken(
-        uint256 tokenId,
-        address to,
-        bytes memory data
-    ) external {
+    function withdrawToken(uint256 tokenId, address to, bytes memory data) external {
 
-        address owner = tokenOwners[tokenId];
-
+        require(tokenOwners[tokenId] == msg.sender, "!owner");
         require(to != address(this), "to==this");
-        require(owner == msg.sender, "!owner");
         
         _removeToken(tokenId, msg.sender);
         nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
@@ -79,9 +73,61 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     }
 
     function registerModule(Module calldata module) external onlyOwner {
-        require(address(module.implementation) != address(0), "must be not 0");
-        modules[modulesCount] = module;
+        require(address(module.implementation) != address(0), "implementation == 0");
+        require(modulesIndex[address(module.implementation)] == 0, "already registered");
+        require(modulesCount < type(uint8).max, "modules maxxed out");
+
         modulesCount++;
+        modules[modulesCount] = module;
+        modulesIndex[address(module.implementation)] = modulesCount;
+    }
+
+    function deprecateModule(uint8 module) external onlyOwner {
+        require(module > 0 && module <= modulesCount, "invalid module");
+        require(modules[module].active, "!active");
+        modules[module].active = false;
+    }
+
+    struct DecreaseLiquidityAndCollectParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        uint128 amountFees0Max;
+        uint128 amountFees1Max;
+        uint256 deadline;
+        address recipient;
+    }
+
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1) {
+
+        uint mod = tokenModules[params.tokenId];
+        uint8 moduleIndex = modulesIndex[msg.sender];
+        bool callFromActiveModule = moduleIndex > 0 && (mod & (1 << moduleIndex) != 0);
+        require(callFromActiveModule || tokenOwners[params.tokenId] == msg.sender, "!owner");
+
+        if (params.liquidity > 0) {
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    params.tokenId, 
+                    params.liquidity, 
+                    params.amount0Min, 
+                    params.amount1Min,
+                    params.deadline
+                )
+            );
+        }
+
+        (amount0, amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(
+                params.tokenId,
+                params.recipient,
+                params.amountFees0Max > amount0 ? params.amountFees0Max : _toUint128(amount0),
+                params.amountFees1Max > amount1 ? params.amountFees1Max : _toUint128(amount1)
+            )
+        );
+
+        //TODO check if each active modules allows collect
     }
 
     function _addToken(uint tokenId, address account, uint initialModules) internal {
@@ -143,31 +189,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         delete tokenModules[tokenId];
     }
 
-    struct DecreaseLiquidityAndCollectParams {
-        uint256 tokenId;
-        uint128 liquidity;
-        uint256 amount0Min;
-        uint256 amount1Min;
-        uint256 amountFees0;
-        uint256 amountFees1;
-        uint256 deadline;
-        address recipient;
-    }
-
-    // access control functions
-
-    // empty position
-
-    // decrease liquidity and collect fees ()
-
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)  
-        external
-        returns (uint256 amount0, uint256 amount1) 
-    {
-        // check if collect allowed by all modules of this position with checkAllowCollect
-
-        // check if user or module
-
-        // copy code
+    function _toUint128(uint256 x) private pure returns (uint128 y) {
+        require((y = uint128(x)) == x);
     }
 }
