@@ -10,10 +10,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 contract NFTHolder is IERC721Receiver, Ownable  {
 
     uint constant public MAX_TOKENS_PER_ADDRESS = 100;
-
-    // uniswap v3 components
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
-
     constructor(INonfungiblePositionManager _nonfungiblePositionManager) {
         nonfungiblePositionManager = _nonfungiblePositionManager;
     }

@@ -16,22 +16,21 @@ contract V3Utils is IERC721Receiver {
  
     IWETH immutable public weth; // wrapped native token address
     INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
-    address immutable swapRouter; // the trusted contract which is allowed to do arbitrary (swap) calls - 0x for now
 
     uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
     address immutable public protocolFeeBeneficiary; // address being able to withdraw accumulated protocol fee
 
-    constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter, uint256 _protocolFeeMantissa, address _beneficiary) {
+    constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager, uint256 _protocolFeeMantissa, address _beneficiary) {
         weth = _weth;
         nonfungiblePositionManager = _nonfungiblePositionManager;
-        swapRouter = _swapRouter;
         protocolFeeMantissa = _protocolFeeMantissa;
         protocolFeeBeneficiary = _beneficiary;
     }
 
     enum WhatToDo {
         CHANGE_RANGE,
-        WITHDRAW_COLLECT_AND_SWAP,
+        WITHDRAW_AND_SWAP,
+        COLLECT_AND_SWAP,
         COMPOUND_FEES
     }
 
@@ -42,15 +41,15 @@ contract V3Utils is IERC721Receiver {
         // target token for swaps
         address targetToken;
 
-        // if token0 needs to be swapped to targetToken - set values
-        // if amountIn0 can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
+        // amountIn0 is used for swap and also as minAmount0 for decreaseLiquidity 
         uint amountIn0;
+        // if token0 needs to be swapped to targetToken - set values
         uint amountOut0Min;
         bytes swapData0;
 
-        // if token1 needs to be swapped to targetToken - set values
-        // if amountIn1 can not be decided beforehand (for swaps which depend on decreaseLiquidity) - decrease this value by some percents to prevent reverts
+        // amountIn1 is used for swap and also as minAmount1 for decreaseLiquidity 
         uint amountIn1;
+        // if token1 needs to be swapped to targetToken - set values
         uint amountOut1Min;
         bytes swapData1;
 
@@ -61,6 +60,12 @@ contract V3Utils is IERC721Receiver {
         
         // for liquidity operations
         uint128 liquidity;
+
+        // for adding liquidity slippage
+        uint amountAddMin0;
+        uint amountAddMin1;
+
+        // for all uniswap deadlineable functions
         uint deadline;
 
         // data sent when token returned (optional)
@@ -92,45 +97,51 @@ contract V3Utils is IERC721Receiver {
         (,,state.token0,state.token1,,,,state.liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
-            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
+            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
 
             if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
-                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
             } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
-                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0), IERC20(state.token0), IERC20(state.token1));
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0), IERC20(state.token0), IERC20(state.token1));
             } else {
-                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, ""), IERC20(state.token0), IERC20(state.token1));
+                _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
             }
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
-            _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline);
-            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
+            _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
+            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
 
             if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
-                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, ""));
+                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0));
             } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
-                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0));
+                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0));
             } else {
-                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, ""));
+                _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0));
             }
-        } else if (instructions.whatToDo == WhatToDo.WITHDRAW_COLLECT_AND_SWAP) {
-            if (state.liquidity < instructions.liquidity) {
-                revert NotEnoughLiquidity();
-            }
-            _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline);
-            (state.amount0, state.amount1) = _collectAllFees(tokenId, IERC20(state.token0), IERC20(state.token1));
+        } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP || instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP) {
 
+            if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
+                if (state.liquidity < instructions.liquidity) {
+                    revert NotEnoughLiquidity();
+                }
+                // only collect fees for tokens which were removed from liquidity
+                (state.amount0, state.amount1) = _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
+                (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), _toUint128(state.amount0), _toUint128(state.amount1));
+            } else {
+                (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
+            }
+            
             uint targetAmount;
             if (state.token0 != instructions.targetToken) {
                 (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.targetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
@@ -241,6 +252,10 @@ contract V3Utils is IERC721Receiver {
         uint amountIn1;
         uint amountOut1Min;
         bytes swapData1;
+
+        // min amount to be added after swap
+        uint amountAddMin0;
+        uint amountAddMin1;
     }
 
     /**
@@ -275,6 +290,10 @@ contract V3Utils is IERC721Receiver {
         uint amountIn1;
         uint amountOut1Min;
         bytes swapData1;
+
+        // min amount to be added after swap
+        uint amountAddMin0;
+        uint amountAddMin1;
     }
 
     /**
@@ -384,8 +403,8 @@ contract V3Utils is IERC721Receiver {
                 params.tickUpper,
                 available0,
                 available1, 
-                0,
-                0,
+                params.amountAddMin0,
+                params.amountAddMin1,
                 params.recipient,
                 params.deadline
             );
@@ -407,15 +426,15 @@ contract V3Utils is IERC721Receiver {
         SwapAndIncreaseState memory state;
 
         (state.total0, state.total1, state.available0, state.available1) = _swapAndPrepareAmounts(
-            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1));
+            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1, params.amountAddMin0, params.amountAddMin1));
 
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(
                 params.tokenId, 
                 state.available0, 
                 state.available1, 
-                0, 
-                0, 
+                params.amountAddMin0,
+                params.amountAddMin1, 
                 params.deadline
             );
 
@@ -495,7 +514,7 @@ contract V3Utils is IERC721Receiver {
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
 
             // get router specific swap data
-            (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
+            (address swapRouter, address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, address, bytes));
 
             // approve needed amount
             tokenIn.approve(allowanceTarget, amountIn);
@@ -522,25 +541,25 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
-    function _decreaseLiquidity(uint tokenId, uint128 liquidity, uint deadline) internal {
+    function _decreaseLiquidity(uint tokenId, uint128 liquidity, uint deadline, uint token0Min, uint token1Min) internal returns (uint256 amount0, uint256 amount1) {
         if (liquidity > 0) {
-            nonfungiblePositionManager.decreaseLiquidity(
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
                 INonfungiblePositionManager.DecreaseLiquidityParams(
                     tokenId, 
                     liquidity, 
-                    0, 
-                    0,
+                    token0Min, 
+                    token1Min,
                     deadline
                 )
             );
         }
     }
 
-    function _collectAllFees(uint tokenId, IERC20 token0, IERC20 token1) internal returns (uint256 amount0, uint256 amount1) {
+    function _collectFees(uint tokenId, IERC20 token0, IERC20 token1, uint128 collectAmount0, uint128 collectAmount1) internal returns (uint256 amount0, uint256 amount1) {
         uint balanceBefore0 = token0.balanceOf(address(this));
         uint balanceBefore1 = token1.balanceOf(address(this));
         (amount0, amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
+            INonfungiblePositionManager.CollectParams(tokenId, address(this), collectAmount0, collectAmount1)
         );
         uint balanceAfter0 = token0.balanceOf(address(this));
         uint balanceAfter1 = token1.balanceOf(address(this));
@@ -552,6 +571,10 @@ contract V3Utils is IERC721Receiver {
         if (balanceAfter1 - balanceBefore1 != amount1) {
             revert CollectError();
         }
+    }
+
+    function _toUint128(uint256 x) private pure returns (uint128 y) {
+        require((y = uint128(x)) == x);
     }
 
     // needed for WETH unwrapping
