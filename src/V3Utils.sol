@@ -17,14 +17,9 @@ contract V3Utils is IERC721Receiver {
     IWETH immutable public weth; // wrapped native token address
     INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
 
-    uint256 immutable public protocolFeeMantissa; // the fee as a mantissa (scaled by BASE)
-    address immutable public protocolFeeBeneficiary; // address being able to withdraw accumulated protocol fee
-
-    constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager, uint256 _protocolFeeMantissa, address _beneficiary) {
+    constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager) {
         weth = _weth;
         nonfungiblePositionManager = _nonfungiblePositionManager;
-        protocolFeeMantissa = _protocolFeeMantissa;
-        protocolFeeBeneficiary = _beneficiary;
     }
 
     enum WhatToDo {
@@ -162,12 +157,8 @@ contract V3Utils is IERC721Receiver {
                 targetAmount += state.amount1; 
             }
 
-            uint toSend = _removeMaxProtocolFee(targetAmount);
-
-            // calculate amount left
-            uint left = _removeProtocolFee(targetAmount, toSend);
-
-            IERC20(instructions.targetToken).safeTransfer(from, toSend + left);
+            // send complete target amount
+            IERC20(instructions.targetToken).safeTransfer(from, targetAmount);
         } else {
             revert NotSupportedWhatToDo();
         }
@@ -197,11 +188,10 @@ contract V3Utils is IERC721Receiver {
 
         _prepareAdd(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
 
-        (uint amountInDelta, uint256 amountOutDelta) = _swap(params.tokenIn, params.tokenOut, params.amountIn, params.minAmountOut, params.swapData);
+        uint amountInDelta;
+        (amountInDelta, amountOut) = _swap(params.tokenIn, params.tokenOut, params.amountIn, params.minAmountOut, params.swapData);
 
-        amountOut = _removeMaxProtocolFee(amountOutDelta);
-
-        // send swapped amount minus fees of tokenOut
+        // send swapped amount of tokenOut
         if (amountOut > 0) {
             if (address(params.tokenOut) == address(weth) && params.unwrap) {
                 weth.withdraw(amountOut);
@@ -306,17 +296,6 @@ contract V3Utils is IERC721Receiver {
         (liquidity, amount0, amount1) = _swapAndIncrease(params, IERC20(token0), IERC20(token1));
     }
 
-    /**
-     * @dev Withdraw tokens left in contract (collected protocol fees) - only callable by protocolFeeBeneficiary
-     */
-    function withdrawProtocolFee(IERC20 token) external returns (uint balance) {
-        if (msg.sender != protocolFeeBeneficiary) {
-            revert Unauthorized();
-        }
-        balance = token.balanceOf(address(this));
-        token.safeTransfer(protocolFeeBeneficiary, balance);
-    }
-
     // checks if required amounts are provided and are exact - wraps any provided ETH as WETH
     // if less or more provided reverts
     function _prepareAdd(IERC20 token0, IERC20 token1, IERC20 otherToken, uint amount0, uint amount1, uint amountOther) internal
@@ -380,19 +359,9 @@ contract V3Utils is IERC721Receiver {
         nonfungiblePositionManager.burn(tokenId);
     }
 
-    function _removeMaxProtocolFee(uint amount) internal view returns (uint) {
-        uint maxFee = (amount * protocolFeeMantissa) / (BASE + protocolFeeMantissa);
-        return amount - maxFee > 0 ? amount - maxFee - 1 : 0; // fee is rounded down - so need to remove 1 more
-    }
-
-    function _removeProtocolFee(uint amount, uint added) internal view returns (uint left) {
-        uint fee = added * protocolFeeMantissa / BASE;
-        left = amount - added - fee;
-    }
-
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
 
-        (uint total0, uint total1, uint available0, uint available1) = _swapAndPrepareAmounts(params);
+        (uint total0, uint total1) = _swapAndPrepareAmounts(params);
 
         INonfungiblePositionManager.MintParams memory mintParams = 
             INonfungiblePositionManager.MintParams(
@@ -401,8 +370,8 @@ contract V3Utils is IERC721Receiver {
                 params.fee, 
                 params.tickLower, 
                 params.tickUpper,
-                available0,
-                available1, 
+                total0,
+                total1, 
                 params.amountAddMin0,
                 params.amountAddMin1,
                 params.recipient,
@@ -414,25 +383,16 @@ contract V3Utils is IERC721Receiver {
         _returnLeftovers(params.recipient, params.token0, params.token1, total0, total1, added0, added1);
     }
 
-    struct SwapAndIncreaseState  {
-        uint total0;
-        uint total1;
-        uint available0;
-        uint available1;
-    }
-
     function _swapAndIncrease(SwapAndIncreaseLiquidityParams memory params, IERC20 token0, IERC20 token1) internal returns (uint128 liquidity, uint added0, uint added1) {
 
-        SwapAndIncreaseState memory state;
-
-        (state.total0, state.total1, state.available0, state.available1) = _swapAndPrepareAmounts(
+        (uint total0, uint total1) = _swapAndPrepareAmounts(
             SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1, params.amountAddMin0, params.amountAddMin1));
 
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(
                 params.tokenId, 
-                state.available0, 
-                state.available1, 
+                total0, 
+                total1, 
                 params.amountAddMin0,
                 params.amountAddMin1, 
                 params.deadline
@@ -440,11 +400,11 @@ contract V3Utils is IERC721Receiver {
 
         (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
-        _returnLeftovers(params.recipient, token0, token1, state.total0, state.total1, added0, added1);
+        _returnLeftovers(params.recipient, token0, token1, total0, total1, added0, added1);
     }
 
     // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
-    function _swapAndPrepareAmounts(SwapAndMintParams memory params) internal returns (uint total0, uint total1, uint available0, uint available1) {
+    function _swapAndPrepareAmounts(SwapAndMintParams memory params) internal returns (uint total0, uint total1) {
         if (params.swapSourceToken == params.token0) { 
             if (params.amount0 < params.amountIn1) {
                 revert AmountError();
@@ -477,24 +437,19 @@ contract V3Utils is IERC721Receiver {
             total1 = params.amount1;
         }
 
-        available0 = _removeMaxProtocolFee(total0);
-        available1 = _removeMaxProtocolFee(total1);
-
-        if (available0 > 0) {
-            params.token0.approve(address(nonfungiblePositionManager), available0);
+        if (total0 > 0) {
+            params.token0.approve(address(nonfungiblePositionManager), total0);
         }
-        if (available1 > 0) {
-            params.token1.approve(address(nonfungiblePositionManager), available1);
+        if (total1 > 0) {
+            params.token1.approve(address(nonfungiblePositionManager), total1);
         }
     }
 
     // returns leftover balances
     function _returnLeftovers(address to, IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1) internal {
 
-        // remove protocol fee from left balances - these fees will stay in the contract balance
-        // and can be withdrawn at a later time from the beneficiary account
-        uint left0 = _removeProtocolFee(total0, added0);
-        uint left1 = _removeProtocolFee(total1, added1);
+        uint left0 = total0 - added0;
+        uint left1 = total1 - added1;
 
         // return leftovers
         if (left0 > 0) {

@@ -14,7 +14,7 @@ contract V3UtilsTest is Test, TestBase {
     function setUp() public {
         // TODO create mock contracts
         // TODO add all fake / mock contract addresses
-        c = new V3Utils(WETH, NPM, 10 ** 16, msg.sender);
+        c = new V3Utils(WETH, NPM);
     }
 
     function testSwapAndMint() external {
