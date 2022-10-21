@@ -12,8 +12,6 @@ contract V3Utils is IERC721Receiver {
 
     using SafeERC20 for IERC20;
 
-    uint256 constant private BASE = 1e18;
- 
     IWETH immutable public weth; // wrapped native token address
     INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
 
@@ -127,9 +125,6 @@ contract V3Utils is IERC721Receiver {
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP || instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP) {
 
             if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
-                if (state.liquidity < instructions.liquidity) {
-                    revert NotEnoughLiquidity();
-                }
                 // only collect fees for tokens which were removed from liquidity
                 (state.amount0, state.amount1) = _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
                 (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), _toUint128(state.amount0), _toUint128(state.amount1));
@@ -464,7 +459,7 @@ contract V3Utils is IERC721Receiver {
     // does slippage check with amountOutMin param
     // returns new token amounts after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
-        if (amountIn > 0) {
+        if (amountIn > 0 && swapData.length > 0) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
 
@@ -550,4 +545,3 @@ error TransferError();
 error EtherSendFailed();
 error TooMuchEtherSent();
 error NoEtherToken();
-error NotEnoughLiquidity();
