@@ -38,13 +38,13 @@ contract V3Utils is IERC721Receiver {
         uint amountIn0;
         // if token0 needs to be swapped to targetToken - set values
         uint amountOut0Min;
-        bytes swapData0;
+        bytes swapData0; // encoded data from 0x api call (address,address,bytes) - to,allowanceTarget,data
 
         // amountIn1 is used for swap and also as minAmount1 for decreaseLiquidity 
         uint amountIn1;
         // if token1 needs to be swapped to targetToken - set values
         uint amountOut1Min;
-        bytes swapData1;
+        bytes swapData1; // encoded data from 0x api call (address,address,bytes) - to,allowanceTarget,data
 
         // for creating new positions (change range)
         uint24 fee;
@@ -134,7 +134,7 @@ contract V3Utils is IERC721Receiver {
             
             uint targetAmount;
             if (state.token0 != instructions.targetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.targetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.targetToken), instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0);
                 if (amountInDelta < state.amount0) {
                     IERC20(state.token0).safeTransfer(from, state.amount0 - amountInDelta);
                 }
@@ -143,7 +143,7 @@ contract V3Utils is IERC721Receiver {
                 targetAmount += state.amount0; 
             }
             if (state.token1 != instructions.targetToken) {
-                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token1), IERC20(instructions.targetToken), state.amount1, instructions.amountOut1Min, instructions.swapData1);
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token1), IERC20(instructions.targetToken), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1);
                 if (amountInDelta < state.amount1) {
                     IERC20(state.token1).safeTransfer(from, state.amount1 - amountInDelta);
                 }
