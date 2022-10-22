@@ -220,12 +220,15 @@ contract V3Utils is IERC721Receiver {
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
+
+        // how much is provided of token0 and token1
         uint256 amount0;
         uint256 amount1;
         address recipient; // recipient of nft and leftover tokens
         uint256 deadline;
 
         // source token for swaps (maybe either address(0), token0, token1 or another token)
+        // if swapSourceToken is another token than token0 or token1 -> amountIn0 + amountIn1 of swapSourceToken are expected to be available
         IERC20 swapSourceToken;
 
         // if swapSourceToken needs to be swapped to token0 - set values
@@ -258,12 +261,15 @@ contract V3Utils is IERC721Receiver {
 
     struct SwapAndIncreaseLiquidityParams {
         uint256 tokenId;
+
+        // how much is provided of token0 and token1
         uint256 amount0;
         uint256 amount1;
         address recipient; // recipient of leftover tokens
         uint256 deadline;
         
         // source token for swaps (maybe either address(0), token0, token1 or another token)
+        // if swapSourceToken is another token than token0 or token1 -> amountIn0 + amountIn1 of swapSourceToken are expected to be available
         IERC20 swapSourceToken;
 
         // if swapSourceToken needs to be swapped to token0 - set values
