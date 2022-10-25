@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "./IModule.sol";
 import "../NFTHolder.sol";
 
-contract CompoundorModule is IModule {
+contract StopLossModule is IModule {
 
     NFTHolder public immutable holder;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
@@ -13,6 +13,16 @@ contract CompoundorModule is IModule {
         holder = _holder;
         nonfungiblePositionManager = _nonfungiblePositionManager;
     }
+
+    struct Position {
+        bool isLimit;
+        bool side0;
+        uint minStopLossAmountOut;
+        uint minStopLossSwapOut;
+    }
+
+    mapping (uint => Position) positions;
+
 
     /// @notice how reward should be converted
     enum RewardConversion { NONE, TOKEN_0, TOKEN_1 }
@@ -32,12 +42,19 @@ contract CompoundorModule is IModule {
         bool doSwap;
     }
 
-    function autoCompound(AutoCompoundParams memory params) external {
+    // function which can be called when position is in certain state
+    function stopLoss(AutoCompoundParams memory params) external {
 
-        // decrease liquidity for given position
-        (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
+        // TODO check if in one sided state
+        // TODO check minAmountOut
+        // TODO check minSwapAmountOut
 
-        // TODO swap & price validation
+        (,,,,,,,uint128 liquidity,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+
+        // decrease liquidity for given position (one sided only)
+        (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
+
+        // TODO swap all to other token
 
         nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, 0, 0, block.timestamp));
 
@@ -47,9 +64,14 @@ contract CompoundorModule is IModule {
 
     }
 
-    function addToken(uint256 tokenId, address owner, bytes calldata data) override external  { }
+    function addToken(uint256 tokenId, address owner, bytes calldata data) override external  {
+        Position memory position = abi.decode(data, (Position));
+        positions[tokenId] = position;
+    }
 
-    function withdrawToken(uint256 tokenId, address owner) override external { }
+    function withdrawToken(uint256 tokenId, address) override external {
+         delete positions[tokenId];
+    }
 
     function checkOnCollect(uint256, address, uint, uint) override external pure returns (bool) {
         return true;

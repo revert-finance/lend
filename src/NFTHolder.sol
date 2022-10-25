@@ -29,13 +29,19 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     mapping(uint256 => uint256) public tokenModules;
     mapping(address => uint256[]) public accountTokens;
 
+    // generic module params
+    struct ModuleParams {
+        uint8 index;
+        bytes data; // custom data to be passed to module on add / update
+    }
+
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
-        uint initialModules = abi.decode(data, (uint));
+        ModuleParams[] memory initialModules = abi.decode(data, (ModuleParams[]));
         _addToken(tokenId, from, initialModules);
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    function addToken(uint256 tokenId, uint256 initialModules) external {
+    function addToken(uint256 tokenId, ModuleParams[] memory initialModules) external {
         // must be approved beforehand
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(initialModules));
     }
@@ -53,12 +59,13 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         return accountTokens[account].length;
     }
 
-    function addTokenToModule(uint256 tokenId, uint8 module) external {
+    function addTokenToModule(uint256 tokenId, ModuleParams calldata module) external {
         require(tokenOwners[tokenId] == msg.sender, "!owner");
-        require(tokenModules[tokenId] & 1 << module == 0, "already active");
 
-        modules[module].implementation.addToken(tokenId, msg.sender);
-        tokenModules[tokenId] = tokenModules[tokenId] | 1 << module;
+        // can be called multiple times to update config, modules must handle this case
+        modules[module.index].implementation.addToken(tokenId, msg.sender, module.data);
+
+        tokenModules[tokenId] = tokenModules[tokenId] | 1 << module.index;
     }
 
     function removeTokenFromModule(uint256 tokenId, uint8 module) external {
@@ -66,10 +73,10 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         require(tokenModules[tokenId] & 1 << module != 0, "not active");
 
         modules[module].implementation.withdrawToken(tokenId, msg.sender);
-        tokenModules[tokenId] = tokenModules[tokenId] | 1 << module;
+        tokenModules[tokenId] -= 1 << module;
     }
 
-    function registerModule(Module calldata module) external onlyOwner {
+    function addModule(Module calldata module) external onlyOwner {
         require(address(module.implementation) != address(0), "implementation == 0");
         require(modulesIndex[address(module.implementation)] == 0, "already registered");
         require(modulesCount < type(uint8).max, "modules maxxed out");
@@ -79,19 +86,18 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         modulesIndex[address(module.implementation)] = modulesCount;
     }
 
-    function deprecateModule(uint8 module) external onlyOwner {
+    function setModuleActive(uint8 module, bool active) external onlyOwner {
         require(module > 0 && module <= modulesCount, "invalid module");
-        require(modules[module].active, "!active");
-        modules[module].active = false;
+        modules[module].active = active;
     }
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;
-        uint128 liquidity;
+        uint128 liquidity; // set to exact liquidity to be removed - 0 if only collect fees
         uint256 amount0Min;
         uint256 amount1Min;
-        uint128 amountFees0Max;
-        uint128 amountFees1Max;
+        uint128 amountFees0Max; // set to uint128.max for all fees (+ all liquidity removed)
+        uint128 amountFees1Max; // set to uint128.max for all fees (+ all liquidity removed)
         uint256 deadline;
         address recipient;
     }
@@ -101,7 +107,8 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         uint mod = tokenModules[params.tokenId];
         uint8 moduleIndex = modulesIndex[msg.sender];
         bool callFromActiveModule = moduleIndex > 0 && (mod & (1 << moduleIndex) != 0);
-        require(callFromActiveModule || tokenOwners[params.tokenId] == msg.sender, "!owner");
+        address owner = tokenOwners[params.tokenId];
+        require(callFromActiveModule || owner == msg.sender, "!owner");
 
         if (params.liquidity > 0) {
             (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
@@ -124,29 +131,38 @@ contract NFTHolder is IERC721Receiver, Ownable  {
             )
         );
 
-        //TODO check if each active modules allows collect
+        uint maxIndex = modulesCount;
+        uint8 index = 0;
+        while(mod > 0) {
+            if (index > maxIndex) {
+                revert("not existing module");
+            }
+            if (mod & 1 << index != 0 && index != moduleIndex) {
+                if (modules[index].checkOnCollect) {
+                    if (!modules[index].implementation.checkOnCollect(params.tokenId, owner, amount0, amount1)) {
+                        revert ModuleCollectCheckFail(index);
+                    }
+                }
+                mod -= 1 << index;
+            }
+            index++;
+        }
     }
 
-    function _addToken(uint tokenId, address account, uint initialModules) internal {
+    function _addToken(uint tokenId, address account, ModuleParams[] memory initialModules) internal {
 
         require(accountTokens[account].length < MAX_TOKENS_PER_ADDRESS, "max tokens reached");
 
         accountTokens[account].push(tokenId);
         tokenOwners[tokenId] = account;
-        tokenModules[tokenId] = initialModules;
-
-        uint maxIndex = modulesCount;
-        uint8 index = 0;
-        while(initialModules > 0) {
-            if (index >= maxIndex) {
-                revert("not existing module");
-            }
-            if (initialModules & 1 << index != 0) {
-                modules[index].implementation.addToken(tokenId, account);
-                initialModules -= 1 << index;
-            }
-            index++;
+        uint i;
+        uint mod = 0;
+        for (; i < initialModules.length; i++) {
+            mod += 1 << initialModules[i].index;
+            modules[initialModules[i].index].implementation.addToken(tokenId, account, initialModules[i].data);
         }
+
+        tokenModules[tokenId] = mod;
     }
 
     function _removeToken(uint256 tokenId, address account) internal {
@@ -156,7 +172,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         uint maxIndex = modulesCount;
         uint8 index = 0;
         while(mod > 0) {
-            if (index >= maxIndex) {
+            if (index > maxIndex) {
                 revert("not existing module");
             }
             if (mod & 1 << index != 0) {
@@ -190,3 +206,5 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         require((y = uint128(x)) == x);
     }
 }
+
+error ModuleCollectCheckFail(uint8 index);
