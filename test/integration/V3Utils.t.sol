@@ -462,7 +462,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         USDC.approve(address(c), 1000000);
 
         vm.expectRevert(SlippageError.selector);
-        (uint256 amountOut) = c.swap(params);
+        c.swap(params);
         vm.stopPrank();
     }
 
@@ -482,7 +482,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         USDC.approve(address(c), 1000000);
 
         vm.expectRevert(SwapFailed.selector);
-        (uint256 amountOut) = c.swap(params);
+        c.swap(params);
         vm.stopPrank();
     }
 
@@ -502,7 +502,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
 
         // if swap router is EOA - swap call wont fail but no coins are returned so slippage error is triggered
         vm.expectRevert(SlippageError.selector);
-        (uint256 amountOut) = c.swap(params);
+        c.swap(params);
         vm.stopPrank();
     }
 
@@ -613,7 +613,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         return abi.encode(address(c), address(c), hex"1234567890");
     }
 
-    function _getInvalidSwapDataEOA() internal view returns (bytes memory) {
+    function _getInvalidSwapDataEOA() internal pure returns (bytes memory) {
         return abi.encode(TEST_ACCOUNT, TEST_ACCOUNT, hex"1234567890");
     }
 }

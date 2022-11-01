@@ -5,14 +5,25 @@ import "./modules/IModule.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/interfaces/IUniswapV3Factory.sol";
+
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 contract NFTHolder is IERC721Receiver, Ownable  {
 
     uint constant public MAX_TOKENS_PER_ADDRESS = 100;
+
+    // wrapped native token address
+    address public immutable weth;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager) {
+    IUniswapV3Factory immutable public factory;
+
+    constructor(address _weth, INonfungiblePositionManager _nonfungiblePositionManager, IUniswapV3Factory _factory) {
+        weth = _weth;
         nonfungiblePositionManager = _nonfungiblePositionManager;
+        factory = _factory;
     }
     
     struct Module {
@@ -167,7 +178,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
 
     function _removeToken(uint256 tokenId, address account) internal {
 
-        // withdraw from all active modules
+        // withdraw from all registered modules
         uint mod = tokenModules[tokenId];
         uint maxIndex = modulesCount;
         uint8 index = 0;

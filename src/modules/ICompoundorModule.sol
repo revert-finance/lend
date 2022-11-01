@@ -33,18 +33,6 @@ interface ICompoundorModule is IModule {
         address token1
     );
 
-    /// @notice The weth address
-    function weth() external view returns (address);
-
-    /// @notice The factory address with which this staking contract is compatible
-    function factory() external view returns (IUniswapV3Factory);
-
-    /// @notice The nonfungible position manager address with which this staking contract is compatible
-    function nonfungiblePositionManager() external view returns (INonfungiblePositionManager);
-
-    /// @notice The nonfungible position manager address with which this staking contract is compatible
-    function swapRouter() external view returns (ISwapRouter);
-
     /// @notice Total reward which is payed for autocompounding
     function totalRewardX64() external view returns (uint64);
 
@@ -56,6 +44,9 @@ interface ICompoundorModule is IModule {
 
     /// @notice Number of seconds to use for TWAP calculation
     function TWAPSeconds() external view returns (uint32);
+
+    /// @notice Max percentage difference from current price during swap
+    function maxSwapDifferenceX16() external view returns (uint16);
 
     /**
      * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)
@@ -101,8 +92,14 @@ interface ICompoundorModule is IModule {
         // should token be withdrawn to compounder immediately
         bool withdrawReward;
 
-        // do swap - to add max amount to position (costs more gas)
-        bool doSwap;
+        // how much to swap (0 for no swap)
+        uint swapAmount;
+
+        // token swap direction
+        bool swap0For1;
+
+        // if there needs a swap to be done
+        bytes swapData;
     }
 
     /**
@@ -115,8 +112,3 @@ interface ICompoundorModule is IModule {
      */
     function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1);
 }
-
-error SwapNotAllowed();
-error CollectInvalid();
-error SwapFailed();
-error SlippageError();

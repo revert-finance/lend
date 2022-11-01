@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "./Module.sol";
 import "./ICompoundorModule.sol";
-import "../NFTHolder.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -11,15 +11,11 @@ import "@openzeppelin/contracts/utils/Multicall.sol";
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
-import "v3-core/libraries/FullMath.sol";
 
 import "v3-periphery/interfaces/ISwapRouter.sol";
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
-contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multicall {
-
-    uint128 constant Q64 = 2**64;
-    uint128 constant Q96 = 2**96;
+contract CompoundorModule is Module, ICompoundorModule, ReentrancyGuard, Multicall {
 
     // max reward
     uint64 constant public MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
@@ -29,26 +25,12 @@ contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multic
     uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
     uint32 public override maxTWAPTickDifference = 100; // 1%
     uint32 public override TWAPSeconds = 60;
-
-    // wrapped native token address
-    address public override weth;
-
-    NFTHolder public immutable holder;
-
-    // uniswap v3 components
-    IUniswapV3Factory public override immutable factory;
-    INonfungiblePositionManager public override immutable nonfungiblePositionManager;
-    ISwapRouter public override immutable swapRouter;
+    uint16 public override maxSwapDifferenceX16 = uint16(Q16 / 100); //1%
 
     // balances
     mapping(address => mapping(address => uint256)) public override accountBalances;
 
-    constructor(address _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter, NFTHolder _holder) {
-        weth = _weth;
-        factory = _factory;
-        nonfungiblePositionManager = _nonfungiblePositionManager;
-        swapRouter = _swapRouter;
-        holder = _holder;
+    constructor(NFTHolder _holder, address _swapRouter) Module(_holder, _swapRouter) {
     }
 
     /**
@@ -82,6 +64,7 @@ contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multic
         uint256 maxAddAmount1;
         uint256 amount0Fees;
         uint256 amount1Fees;
+        uint256 amountOutMin;
         uint256 priceX96;
         address tokenOwner;
         address token0;
@@ -105,18 +88,17 @@ contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multic
         nonReentrant 
         returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1)
     {
-        require(holder.tokenOwners(params.tokenId) != address(0), "!found");
-
         AutoCompoundState memory state;
+
+        state.tokenOwner = holder.tokenOwners(params.tokenId);
+
+        require(state.tokenOwner != address(0), "!found");
 
         // collect fees
         (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
 
         // get position info
-        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
-            nonfungiblePositionManager.positions(params.tokenId);
-
-        state.tokenOwner = holder.tokenOwners(params.tokenId);
+        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
 
         // add previous balances from given tokens
         state.amount0 += accountBalances[state.tokenOwner][state.token0];
@@ -125,24 +107,40 @@ contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multic
         // only if there are balances to work with - start autocompounding process
         if (state.amount0 > 0 || state.amount1 > 0) {
 
-            SwapParams memory swapParams = SwapParams(
-                state.token0, 
-                state.token1, 
-                state.fee, 
-                state.tickLower, 
-                state.tickUpper, 
-                state.amount0, 
-                state.amount1, 
-                block.timestamp, 
-                params.rewardConversion, 
-                state.tokenOwner == msg.sender, 
-                params.doSwap
-            );
-    
-            // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
-            (state.amount0, state.amount1, state.priceX96, state.maxAddAmount0, state.maxAddAmount1) = 
-                _swapToPriceRatio(swapParams);
+            // if swap is configured - execute it
+            if (params.swapAmount > 0) {
+                IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+                (state.amountOutMin, state.priceX96) = _validateSwap(params.swap0For1, params.swapAmount, pool, TWAPSeconds, maxTWAPTickDifference, maxSwapDifferenceX16);
+                (uint amountInDelta, uint256 amountOutDelta) = _swap(params.swap0For1 ? IERC20(state.token0) : IERC20(state.token1), params.swap0For1 ? IERC20(state.token1) : IERC20(state.token0), params.swapAmount, state.amountOutMin, params.swapData);
+                state.amount0 = params.swap0For1 ? state.amount0 - amountInDelta : state.amount0 + amountOutDelta;
+                state.amount1 = params.swap0For1 ? state.amount1 + amountOutDelta : state.amount1 - amountInDelta;
+            }
 
+            // calculate max amount to add - considering fees (if token owner is calling - no fees)
+            if (state.tokenOwner == msg.sender) {
+                state.maxAddAmount0 = state.amount0;
+                state.maxAddAmount1 = state.amount1;
+            } else {
+                // in case caller is not owner - max amounts to add are slightly lower than available amounts - to account for (potential) reward payments
+                if (params.rewardConversion == RewardConversion.NONE) {
+                    state.maxAddAmount0 = state.amount0 * Q64 / (totalRewardX64 + Q64);
+                    state.maxAddAmount1 = state.amount1 * Q64 / (totalRewardX64 + Q64);
+                } else {
+                    // if not loaded previously
+                    if (state.priceX96 == 0) {
+                        state.priceX96 = _getPoolPrice(state.token0, state.token1, state.fee);
+                    }
+
+                    if (params.rewardConversion == RewardConversion.TOKEN_0) {
+                        state.maxAddAmount0 = (state.amount0 + state.amount1 * Q96 / state.priceX96) * Q64 / (totalRewardX64 + Q64);
+                        state.maxAddAmount1 = state.amount1;
+                    } else {
+                        state.maxAddAmount0 = state.amount0;
+                        state.maxAddAmount1 = (state.amount1 + state.amount0 * state.priceX96 / Q96) * Q64 / (totalRewardX64 + Q64);
+                    }
+                }
+            }
+ 
             // deposit liquidity into tokenId
             if (state.maxAddAmount0 > 0 || state.maxAddAmount1 > 0) {
                 (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
@@ -186,11 +184,8 @@ contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multic
             _setBalance(state.tokenOwner, state.token0, state.amount0 - compounded0 - state.amount0Fees);
             _setBalance(state.tokenOwner, state.token1, state.amount1 - compounded1 - state.amount1Fees);
 
-            // distribute fees - handle 2 cases (nft owner - no protocol reward / anyone else)
-            if (state.tokenOwner == msg.sender) {
-                reward0 = 0;
-                reward1 = 0;
-            } else {
+            // distribute fees - (if nft owner - no protocol reward / anyone else)
+            if (state.tokenOwner != msg.sender) {
                 uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
                 uint256 protocolFees0 = state.amount0Fees * protocolRewardX64 / totalRewardX64;
                 uint256 protocolFees1 = state.amount1Fees * protocolRewardX64 / totalRewardX64;
@@ -265,213 +260,13 @@ contract CompoundorModule is ICompoundorModule, ReentrancyGuard, Ownable, Multic
         uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
             SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token0, address(swapRouter), type(uint256).max);
         }
         uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance1 == 0) {
             SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token1, address(swapRouter), type(uint256).max);
         }
     }
 
-    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24, bool) {
-        uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = 0; // from (before)
-        secondsAgos[1] = twapPeriod; // from (before)
-        // pool observe may fail when there is not enough history available
-        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            return (int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod))), true);
-        } catch {
-            return (0, false);
-        } 
-    }
-    function _requireMaxTickDifference(int24 tick, int24 other, uint32 maxDifference) internal pure {
-        require(other > tick && (uint48(int48(other - tick)) < maxDifference) ||
-        other <= tick && (uint48(int48(other - tick)) < maxDifference),
-        "price err");
-    }
-    // state used during swap execution
-    struct SwapState {
-        uint256 rewardAmount0;
-        uint256 rewardAmount1;
-        uint256 positionAmount0;
-        uint256 positionAmount1;
-        int24 tick;
-        int24 otherTick;
-        uint160 sqrtPriceX96;
-        uint160 sqrtPriceX96Lower;
-        uint160 sqrtPriceX96Upper;
-        uint256 amountRatioX96;
-        uint256 delta0;
-        uint256 delta1;
-        bool sell0;
-        bool twapOk;
-        uint256 totalReward0;
-    }
-
-    struct SwapParams {
-        address token0;
-        address token1;
-        uint24 fee; 
-        int24 tickLower; 
-        int24 tickUpper; 
-        uint256 amount0;
-        uint256 amount1;
-        uint256 deadline;
-        RewardConversion bc;
-        bool isOwner;
-        bool doSwap;
-    }
-
-    // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
-    function _swapToPriceRatio(SwapParams memory params) 
-        internal 
-        returns (uint256 amount0, uint256 amount1, uint256 priceX96, uint256 maxAddAmount0, uint256 maxAddAmount1) 
-    {    
-        SwapState memory state;
-
-        amount0 = params.amount0;
-        amount1 = params.amount1;
-        
-        // get price
-        IUniswapV3Pool pool = IUniswapV3Pool(factory.getPool(params.token0, params.token1, params.fee));
-        
-        (state.sqrtPriceX96,state.tick,,,,,) = pool.slot0();
-
-        // how many seconds are needed for TWAP protection
-        uint32 tSecs = TWAPSeconds;
-        if (tSecs > 0) {
-            // check that price is not too far from TWAP (protect from price manipulation attacks)
-            (state.otherTick, state.twapOk) = _getTWAPTick(pool, tSecs);
-            if (state.twapOk) {
-                _requireMaxTickDifference(state.tick, state.otherTick, maxTWAPTickDifference);
-            } else {
-                // if there is no valid TWAP - disable swap
-                params.doSwap = false;
-            }
-        }
-        
-        priceX96 = uint256(state.sqrtPriceX96) * state.sqrtPriceX96 / Q96;
-        state.totalReward0 = (amount0 + amount1 * Q96 / priceX96) * totalRewardX64 / Q64;
-
-        // swap to correct proportions is requested
-        if (params.doSwap) {
-
-            // calculate ideal position amounts
-            state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
-            state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
-            (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                                                state.sqrtPriceX96, 
-                                                                state.sqrtPriceX96Lower, 
-                                                                state.sqrtPriceX96Upper, 
-                                                                Q96); // dummy value we just need ratio
-
-            // calculate how much of the position needs to be converted to the other token
-            if (state.positionAmount0 == 0) {
-                state.delta0 = amount0;
-                state.sell0 = true;
-            } else if (state.positionAmount1 == 0) {
-                state.delta0 = amount1 * Q96 / priceX96;
-                state.sell0 = false;
-            } else {
-                state.amountRatioX96 = state.positionAmount0 * Q96 / state.positionAmount1;
-                state.sell0 = (state.amountRatioX96 * amount1) < amount0 * Q96;
-                if (state.sell0) {
-                    state.delta0 = (amount0 * Q96 - state.amountRatioX96 * amount1) / (state.amountRatioX96 * priceX96 / Q96 + Q96);
-                } else {
-                    state.delta0 = (state.amountRatioX96 * amount1 - amount0 * Q96) / (state.amountRatioX96 * priceX96 / Q96 + Q96);
-                }
-            }
-
-            // adjust delta considering reward payment mode
-            if (!params.isOwner) {
-                if (params.bc == RewardConversion.TOKEN_0) {
-                    state.rewardAmount0 = state.totalReward0;
-                    if (state.sell0) {
-                        if (state.delta0 >= state.totalReward0) {
-                            state.delta0 -= state.delta0 - state.totalReward0;
-                        } else {
-                            state.delta0 = state.totalReward0 - state.delta0;
-                            state.sell0 = false;
-                        }
-                    } else {
-                        state.delta0 = state.delta0 + state.totalReward0;
-                        if (state.delta0 > amount1 * Q96 / priceX96) {
-                            state.delta0 = amount1 * Q96 / priceX96;
-                        }
-                    }
-                } else if (params.bc == RewardConversion.TOKEN_1) {
-                    state.rewardAmount1 = state.totalReward0 * priceX96 / Q96;
-                    if (!state.sell0) {
-                        if (state.delta0 >= state.totalReward0) {
-                            state.delta0 = state.delta0 - state.totalReward0;
-                        } else {
-                            state.delta0 = state.totalReward0 - state.delta0;
-                            state.sell0 = true;
-                        }
-                    } else {
-                        state.delta0 = state.delta0 + state.totalReward0;
-                        if (state.delta0 > amount0) {
-                            state.delta0 = amount0;
-                        }
-                    }
-                }
-            }
-
-            if (state.delta0 > 0) {
-                if (state.sell0) {
-                    uint256 amountOut = _swap(
-                                            abi.encodePacked(params.token0, params.fee, params.token1), 
-                                            state.delta0, 
-                                            params.deadline
-                                        );
-                    amount0 -= state.delta0;
-                    amount1 += amountOut;
-                } else {
-                    state.delta1 = state.delta0 * priceX96 / Q96;
-                    // prevent possible rounding to 0 issue
-                    if (state.delta1 > 0) {
-                        uint256 amountOut = _swap(abi.encodePacked(params.token1, params.fee, params.token0), state.delta1, params.deadline);
-                        amount0 += amountOut;
-                        amount1 -= state.delta1;
-                    }
-                }
-            }
-        } else {
-            if (!params.isOwner) {
-                if (params.bc == RewardConversion.TOKEN_0) {
-                    state.rewardAmount0 = state.totalReward0;
-                } else if (params.bc == RewardConversion.TOKEN_1) {
-                    state.rewardAmount1 = state.totalReward0 * priceX96 / Q96;
-                }
-            }
-        }
-        
-        // calculate max amount to add - considering fees (if token owner is calling - no fees)
-        if (params.isOwner) {
-            maxAddAmount0 = amount0;
-            maxAddAmount1 = amount1;
-        } else {
-            // in case caller is not owner - max amounts to add are slightly lower than available amounts - to account for reward payments
-            if (params.bc == RewardConversion.NONE) {
-                maxAddAmount0 = amount0 * Q64 / (totalRewardX64 + Q64);
-                maxAddAmount1 = amount1 * Q64 / (totalRewardX64 + Q64);
-            } else {
-                maxAddAmount0 = amount0 > state.rewardAmount0 ? amount0 - state.rewardAmount0 : 0;
-                maxAddAmount1 = amount1 > state.rewardAmount1 ? amount1 - state.rewardAmount1 : 0;
-            }
-        }
-    }
-
-    function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) internal returns (uint256 amountOut) {
-        if (amount > 0) {
-            amountOut = swapRouter.exactInput(
-                ISwapRouter.ExactInputParams(swapPath, address(this), deadline, amount, 0)
-            );
-        }
-    }
-
-   
     // IModule required functions
     function addToken(uint256 tokenId, address owner, bytes calldata data) override external  { }
 
