@@ -29,7 +29,6 @@ contract Module is Ownable {
     
     constructor(NFTHolder _holder, address _swapRouter) {
         holder = _holder;
-
         weth = _holder.weth();
         nonfungiblePositionManager = _holder.nonfungiblePositionManager();
         factory = _holder.factory();
@@ -85,13 +84,13 @@ contract Module is Ownable {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxDifference, uint16 maxPriceDifferenceX16) internal view returns (uint amountOutMin, uint priceX96) {
+    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint16 maxPriceDifferenceX16) internal view returns (uint amountOutMin, uint priceX96) {
         
         // get current price and tick
         (uint160 sqrtPriceX96,int24 currentTick,,,,,) = pool.slot0();
         
         // check if current tick not too far from TWAP
-        if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxDifference)) {
+        if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
             revert TWAPCheckFailed();
         }
 
