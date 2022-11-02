@@ -28,10 +28,11 @@ contract Module is Ownable {
     address public swapRouter;
     
     constructor(NFTHolder _holder, address _swapRouter) {
+        INonfungiblePositionManager npm = _holder.nonfungiblePositionManager();
         holder = _holder;
-        weth = _holder.weth();
-        nonfungiblePositionManager = _holder.nonfungiblePositionManager();
-        factory = _holder.factory();
+        nonfungiblePositionManager = npm;
+        weth = npm.WETH9();
+        factory = IUniswapV3Factory(npm.factory());
         swapRouter = _swapRouter;
     }
 

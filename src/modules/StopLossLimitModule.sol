@@ -90,8 +90,36 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         bytes swapData;
     }
 
+    struct ExecuteState {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 amountOutMin;
+        uint256 amountInDelta;
+        uint256 amountOutDelta;
+        IUniswapV3Pool pool;
+        uint protocolReward0;
+        uint protocolReward1;
+        uint swapAmount;
+        int24 tick;
+        bool isLimit;
+        bool isStopLoss;
+        bool isAbove;
+        int24 criticalTick;
+        uint8 blocks;
+        uint16 rewardX16;
+        address owner;
+    }
+
     // function which can be executed by anyone when position is in certain state
     function execute(ExecuteParams memory params) external returns (uint256 reward0, uint256 reward1) {
+
+        ExecuteState memory state;
 
         PositionConfig storage config = positionConfigs[params.tokenId];
 
@@ -101,72 +129,71 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         }
 
         // get position info
-        (,,address token0, address token1, uint24 fee,int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
 
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        state.pool = _getPool(state.token0, state.token1, state.fee);
 
         // TODO deduplicate this call - it is called later on
-        (,int24 tick,,,,,) = pool.slot0();
+        (,state.tick,,,,,) = state.pool.slot0();
 
         // quick check if limit or stoploss activatable
-        bool isLimit = config.isLimit && (config.token0Limit && tick < tickLower || !config.token0Limit && tick > tickUpper);
-        bool isStopLoss = !isLimit && config.isStopLoss && (config.token0Limit && tick > tickLower || !config.token0Limit && tick < tickUpper);
+        state.isLimit = config.isLimit && (config.token0Limit && state.tick < state.tickLower || !config.token0Limit && state.tick > state.tickUpper);
+        state.isStopLoss = !state.isLimit && config.isStopLoss && (config.token0Limit && state.tick > state.tickLower || !config.token0Limit && state.tick < state.tickUpper);
 
-        if (!isLimit && !isStopLoss) {
+        if (!state.isLimit && !state.isStopLoss) {
             revert NotInCondition();
         }
 
         // check how many intervals already are in correct state
-        bool isAbove = !config.token0Limit && isLimit || config.token0Limit && isStopLoss;
-        int24 criticalTick = isAbove ? tickUpper : tickLower;
-        uint8 blocks = _checkNumberOfBlocks(pool, config.secondsUntilMax, criticalTick, isAbove);
+        state.isAbove = !config.token0Limit && state.isLimit || config.token0Limit && state.isStopLoss;
+        state.criticalTick = state.isAbove ? state.tickUpper : state.tickLower;
+        state.blocks = _checkNumberOfBlocks(state.pool, config.secondsUntilMax, state.criticalTick, state.isAbove);
 
         // if the last block was not in correct condition - stop
-        if (blocks == 0) {
+        if (state.blocks == 0) {
             revert NotInCondition();
         }
 
         // decrease liquidity for given position (one sided only) - and return fees as well
-        (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
+        (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
 
         // if stop loss order - swap to other token
-        if (isStopLoss) {
-
+        if (state.isStopLoss) {
             if (params.swapData.length == 0) {
                 revert MissingSwapData();
             }
 
-            uint swapAmount = isAbove ? amount0 : amount1;
+            state.swapAmount = state.isAbove ? state.amount0 : state.amount1;
 
-            (uint amountOutMin,) = _validateSwap(isAbove, swapAmount, pool, config.TWAPSeconds, config.ticksFromTWAP, config.maxSwapDifferenceX16);
-            (uint amountInDelta, uint256 amountOutDelta) = _swap(isAbove ? IERC20(token0) : IERC20(token1), isAbove ? IERC20(token1) : IERC20(token0), swapAmount, amountOutMin, params.swapData);
+            (state.amountOutMin,) = _validateSwap(state.isAbove, state.swapAmount, state.pool, config.TWAPSeconds, config.ticksFromTWAP, config.maxSwapDifferenceX16);
+            (state.amountInDelta, state.amountOutDelta) = _swap(state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.swapAmount, state.amountOutMin, params.swapData);
 
-            amount0 = isAbove ? amount0 - amountInDelta : amount0 + amountOutDelta;
-            amount1 = isAbove ? amount1 + amountOutDelta : amount1 - amountInDelta;
+            state.amount0 = state.isAbove ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
+            state.amount1 = state.isAbove ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
         }
         
         // calculate dynamic reward factor depending on how many blocks have passed
-        uint rewardX16 = (config.minRewardX16 + (config.maxRewardX16 - config.minRewardX16) * blocks / CHECK_INTERVALS);
+        state.rewardX16 = (config.minRewardX16 + (config.maxRewardX16 - config.minRewardX16) * state.blocks / CHECK_INTERVALS);
         
-        reward0 = amount0 * rewardX16 / Q16;
-        reward1 = amount1 * rewardX16 / Q16;
+        reward0 = state.amount0 * state.rewardX16 / Q16;
+        reward1 = state.amount1 * state.rewardX16 / Q16;
 
-        uint protocolReward0 = amount0 * protocolRewardX64 / Q64;
-        uint protocolReward1 = amount1 * protocolRewardX64 / Q64;
+        state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
+        state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
 
         // send final tokens to position owner
-        address owner = holder.tokenOwners(params.tokenId);
-        SafeERC20.safeTransfer(IERC20(token0), owner, amount0 - reward0 - protocolReward0);
-        SafeERC20.safeTransfer(IERC20(token1), owner, amount1 - reward1 - protocolReward1);
+        state.owner = holder.tokenOwners(params.tokenId);
+        SafeERC20.safeTransfer(IERC20(state.token0), state.owner, state.amount0 - reward0 - state.protocolReward0);
+        SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.amount1 - reward1 - state.protocolReward1);
 
         // send rewards to executor
-        SafeERC20.safeTransfer(IERC20(token0), msg.sender, reward0);
-        SafeERC20.safeTransfer(IERC20(token1), msg.sender, reward1);
+        SafeERC20.safeTransfer(IERC20(state.token0), msg.sender, reward0);
+        SafeERC20.safeTransfer(IERC20(state.token1), msg.sender, reward1);
 
         // keep rest in contract (for owner withdrawal)
 
         // log event
-        emit Executed(msg.sender, isLimit, params.tokenId, amount0 - reward0 - protocolReward0, amount1 - reward1 - protocolReward1, reward0, reward1, token0, token1);
+        emit Executed(msg.sender, state.isLimit, params.tokenId, state.amount0 - reward0 - state.protocolReward0, state.amount1 - reward1 - state.protocolReward1, reward0, reward1, state.token0, state.token1);
     }
 
     function _checkNumberOfBlocks(IUniswapV3Pool pool, uint16 secondsUntilMax, int24 checkTick, bool isAbove) internal view returns (uint8) {
