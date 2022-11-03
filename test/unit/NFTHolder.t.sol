@@ -106,7 +106,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
         params[0] = NFTHolder.ModuleParams(moduleIndex, "");
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, abi.encode(params));
         assertEq(holder.tokenOwners(tokenId), address(this));
-        assertEq(holder.tokenModules(tokenId), 1);
+        assertEq(holder.tokenModules(tokenId), 1 << moduleIndex);
     }
 
     function testTransferTokenInWithModulesAndApprove() external {
@@ -122,7 +122,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
         holder.addToken(tokenId, initialModules);
 
         assertEq(holder.tokenOwners(tokenId), address(this));
-        assertEq(holder.tokenModules(tokenId), 3);
+        assertEq(holder.tokenModules(tokenId), (1 << moduleIndex) + (1 << moduleIndex2));
     }
 
     function testSendOtherNFT() external {
@@ -143,6 +143,30 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
         vm.expectRevert(NFTHolder.InvalidWithdrawTarget.selector);
         holder.withdrawToken(tokenId, address(holder), "");
+    }
+
+    function testAllModules() external {
+
+        for (uint8 index = 0; index < 255; index++) {
+            holder.addModule(NFTHolder.Module(new TestModule(holder, true), true, false));
+        }
+
+        nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, "");
+
+        holder.setModuleActive(1, true);
+        holder.setModuleActive(255, true);
+
+        assertEq(holder.tokenModules(tokenId), 0);
+
+        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(1, ""));
+        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(255, ""));
+
+        assertEq(holder.tokenModules(tokenId), (1 << 1) + (1 << 255));
+
+        holder.removeTokenFromModule(tokenId, 1);
+        holder.removeTokenFromModule(tokenId, 255);
+
+        assertEq(holder.tokenModules(tokenId), 0);
     }
 
     function testWithdraw() external {
