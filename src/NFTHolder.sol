@@ -31,6 +31,10 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     error TokenNotInModule();
     error InvalidWithdrawTarget();
 
+    // events
+    event AddedModule(uint8 index, IModule implementation);
+    event SetModuleActive(uint8 index, bool isActive);
+
     constructor(INonfungiblePositionManager _nonfungiblePositionManager) {
         nonfungiblePositionManager = _nonfungiblePositionManager;
     }
@@ -141,15 +145,19 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         modules[modulesCount] = module;
         modulesIndex[address(module.implementation)] = count;
 
+        emit AddedModule(count, module.implementation);
+
         return count;
     }
 
-    function setModuleActive(uint8 moduleIndex, bool active) external onlyOwner {
+    function setModuleActive(uint8 moduleIndex, bool isActive) external onlyOwner {
         Module storage module = modules[moduleIndex];
         if (address(module.implementation) == address(0)) {
             revert ModuleNotExists();
         }
-        module.active = active;
+        module.active = isActive;
+
+        emit SetModuleActive(moduleIndex, isActive);
     }
 
     struct DecreaseLiquidityAndCollectParams {

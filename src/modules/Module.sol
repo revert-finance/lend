@@ -18,6 +18,12 @@ contract Module is Ownable {
     uint256 constant Q64 = 2**64;
     uint256 constant Q96 = 2**96;
 
+    // errors
+    error SwapFailed();
+    error SlippageError();
+    error TWAPCheckFailed();
+
+    // events
     event SwapRouterUpdated(address account, address swapRouter);
 
     NFTHolder public immutable holder;
@@ -140,7 +146,3 @@ contract Module is Ownable {
         }
     }
 }
-
-error SwapFailed();
-error SlippageError();
-error TWAPCheckFailed();

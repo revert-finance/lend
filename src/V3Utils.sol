@@ -8,18 +8,43 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 import "./external/IWETH.sol";
 
+/// @title V3Utils
+/// @notice Utilies for Uniswap V3 positions - completely ownerless contract
 contract V3Utils is IERC721Receiver {
 
+    // SafeERC20 library used for all ERC20 transfers
     using SafeERC20 for IERC20;
 
-    IWETH immutable public weth; // wrapped native token address
-    INonfungiblePositionManager immutable public nonfungiblePositionManager; // uniswap v3 position manager
+    /// @notice Wrapped native token address
+    IWETH immutable public weth;
 
+    /// @notice Uniswap v3 position manager
+    INonfungiblePositionManager immutable public nonfungiblePositionManager;
+
+    // error types
+    error Unauthorized();
+    error WrongContract();
+    error WrongChain();
+    error NotSupportedWhatToDo();
+    error SameToken();
+    error SwapFailed();
+    error AmountError();
+    error SlippageError();
+    error CollectError();
+    error TransferError();
+    error EtherSendFailed();
+    error TooMuchEtherSent();
+    error NoEtherToken();
+
+    /// @notice Constructor
+    /// @param _weth Wrapped native token address
+    /// @param _nonfungiblePositionManager Uniswap v3 position manager
     constructor(IWETH _weth, INonfungiblePositionManager _nonfungiblePositionManager) {
         weth = _weth;
         nonfungiblePositionManager = _nonfungiblePositionManager;
     }
 
+    /// @notice Action which should be executed on provided NFT
     enum WhatToDo {
         CHANGE_RANGE,
         WITHDRAW_AND_SWAP,
@@ -27,6 +52,7 @@ contract V3Utils is IERC721Receiver {
         COMPOUND_FEES
     }
 
+    /// @notice Complete description of what should be executed on provided NFT - different fields are used depending on specified WhatToDo 
     struct Instructions {
         // what action to perform on provided Uniswap v3 position
         WhatToDo whatToDo;
@@ -65,6 +91,7 @@ contract V3Utils is IERC721Receiver {
         bytes returnData;
     }
 
+    /// @notice struct used to store local variables during function execution
     struct ERC721ReceivedState {
         address token0;
         address token1;
@@ -73,10 +100,7 @@ contract V3Utils is IERC721Receiver {
         uint amount1;
     }
 
-    /**
-     * @dev Method which recieves Uniswap v3 NFT and does manipulation as configured in encoded Instructions parameter
-     * At the end the NFT and any leftover tokens are returned to sender.
-     */
+    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. At the end the NFT and any leftover tokens are returned to sender.
     function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed
@@ -91,7 +115,6 @@ contract V3Utils is IERC721Receiver {
 
         if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
             (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
-
             if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
@@ -103,6 +126,7 @@ contract V3Utils is IERC721Receiver {
                 }
                 _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0), IERC20(state.token0), IERC20(state.token1));
             } else {
+                // no swap is done here
                 _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
             }
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
@@ -120,6 +144,7 @@ contract V3Utils is IERC721Receiver {
                 }
                 _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0));
             } else {
+                // no swap is done here
                 _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0));
             }
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP || instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP) {
@@ -164,6 +189,7 @@ contract V3Utils is IERC721Receiver {
         return IERC721Receiver.onERC721Received.selector;
     }
 
+    /// @notice Params for swap() function
     struct SwapParams {
         IERC20 tokenIn;
         IERC20 tokenOut;
@@ -174,11 +200,10 @@ contract V3Utils is IERC721Receiver {
         bool unwrap; // if tokenIn or tokenOut is WETH - unwrap
     }
 
-    /**
-     * @dev Swaps amountIn of tokenIn for tokenOut - returning at least minAmountOut
-     * If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
-     * Optionally unwraps any wrapped native token and returns native token instead
-     */
+    /// @notice Swaps amountIn of tokenIn for tokenOut - returning at least minAmountOut
+    /// @param params Swap configuration
+    /// If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
+    /// Optionally unwraps any wrapped native token and returns native token instead
     function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
 
         _prepareAdd(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
@@ -214,6 +239,7 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
+    /// @notice Params for swapAndMint() function
     struct SwapAndMintParams {
         IERC20 token0;
         IERC20 token1;
@@ -246,10 +272,8 @@ contract V3Utils is IERC721Receiver {
         uint amountAddMin1;
     }
 
-    /**
-     * @dev Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position.
-     * Sends newly minted position and any leftover tokens to recipient.
-     */
+    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position.
+    /// Newly minted NFT and leftover tokens are returned to recipient
     function swapAndMint(SwapAndMintParams calldata params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) {
         if (params.token0 == params.token1) {
             revert SameToken();
@@ -259,6 +283,7 @@ contract V3Utils is IERC721Receiver {
         (tokenId, liquidity, amount0, amount1) = _swapAndMint(params);
     }
 
+    /// @notice Params for swapAndIncreaseLiquidity() function
     struct SwapAndIncreaseLiquidityParams {
         uint256 tokenId;
 
@@ -287,10 +312,8 @@ contract V3Utils is IERC721Receiver {
         uint amountAddMin1;
     }
 
-    /**
-     * @dev Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner).
-     * Sends any leftover tokens to recipient.
-     */
+    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner).
+    // Sends any leftover tokens to recipient.
     function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
         _prepareAdd(IERC20(token0), IERC20(token1), params.swapSourceToken, params.amount0, params.amount1, params.amountIn0 + params.amountIn1);
@@ -356,10 +379,7 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
-    function _burn(uint tokenId) internal {
-        nonfungiblePositionManager.burn(tokenId);
-    }
-
+    // swap and mint logic
     function _swapAndMint(SwapAndMintParams memory params) internal returns (uint tokenId, uint128 liquidity, uint added0, uint added1) {
 
         (uint total0, uint total1) = _swapAndPrepareAmounts(params);
@@ -384,6 +404,7 @@ contract V3Utils is IERC721Receiver {
         _returnLeftovers(params.recipient, params.token0, params.token1, total0, total1, added0, added1);
     }
 
+    // swap and increase logic
     function _swapAndIncrease(SwapAndIncreaseLiquidityParams memory params, IERC20 token0, IERC20 token1) internal returns (uint128 liquidity, uint added0, uint added1) {
 
         (uint total0, uint total1) = _swapAndPrepareAmounts(
@@ -404,7 +425,7 @@ contract V3Utils is IERC721Receiver {
         _returnLeftovers(params.recipient, token0, token1, total0, total1, added0, added1);
     }
 
-    // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager considering protocol fee
+    // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager
     function _swapAndPrepareAmounts(SwapAndMintParams memory params) internal returns (uint total0, uint total1) {
         if (params.swapSourceToken == params.token0) { 
             if (params.amount0 < params.amountIn1) {
@@ -463,7 +484,7 @@ contract V3Utils is IERC721Receiver {
 
     // general swap function which uses external router with off-chain calculated swap instructions
     // does slippage check with amountOutMin param
-    // returns new token amounts after swap
+    // returns token amounts deltas after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0 && swapData.length > 0) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
@@ -497,6 +518,7 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
+    // decreases liquidity from uniswap v3 position
     function _decreaseLiquidity(uint tokenId, uint128 liquidity, uint deadline, uint token0Min, uint token1Min) internal returns (uint256 amount0, uint256 amount1) {
         if (liquidity > 0) {
             (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
@@ -511,6 +533,7 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
+    // collects specified amount of fees from uniswap v3 position
     function _collectFees(uint tokenId, IERC20 token0, IERC20 token1, uint128 collectAmount0, uint128 collectAmount1) internal returns (uint256 amount0, uint256 amount1) {
         uint balanceBefore0 = token0.balanceOf(address(this));
         uint balanceBefore1 = token1.balanceOf(address(this));
@@ -529,6 +552,7 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
+    // utility function to do safe downcast
     function _toUint128(uint256 x) private pure returns (uint128 y) {
         require((y = uint128(x)) == x);
     }
@@ -536,18 +560,3 @@ contract V3Utils is IERC721Receiver {
     // needed for WETH unwrapping
     receive() external payable {}
 }
-
-// error types
-error Unauthorized();
-error WrongContract();
-error WrongChain();
-error NotSupportedWhatToDo();
-error SameToken();
-error SwapFailed();
-error AmountError();
-error SlippageError();
-error CollectError();
-error TransferError();
-error EtherSendFailed();
-error TooMuchEtherSent();
-error NoEtherToken();

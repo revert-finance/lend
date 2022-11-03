@@ -12,6 +12,10 @@ import "./mock/TestNFT.sol";
 
 contract NFTHolderTest is Test, IERC721Receiver {
 
+    // copy-pasted events from NFTHolder - needed to be testable
+    event AddedModule(uint8 index, IModule implementation);
+    event SetModuleActive(uint8 index, bool isActive);
+
     TestNFT testNFT;
     NFTHolder holder;
     WETH9 weth9;
@@ -45,7 +49,15 @@ contract NFTHolderTest is Test, IERC721Receiver {
     }
 
     function testAddModule() external {
+
+        vm.expectEmit(false, false, false, true);
+        emit AddedModule(1, module1);
+
         holder.addModule(NFTHolder.Module(module1, true, false));
+
+        vm.expectEmit(false, false, false, true);
+        emit AddedModule(2, module2);
+
         holder.addModule(NFTHolder.Module(module2, true, false));
     }
 
@@ -60,6 +72,10 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
     function testSetModuleActive() external {
         holder.addModule(NFTHolder.Module(module1, false, false));
+
+        vm.expectEmit(false, false, false, true);
+        emit SetModuleActive(1, true);
+
         holder.setModuleActive(1, true);
     }
 

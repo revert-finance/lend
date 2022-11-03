@@ -461,7 +461,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.startPrank(TEST_ACCOUNT);
         USDC.approve(address(c), 1000000);
 
-        vm.expectRevert(SlippageError.selector);
+        vm.expectRevert(V3Utils.SlippageError.selector);
         c.swap(params);
         vm.stopPrank();
     }
@@ -481,7 +481,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.startPrank(TEST_ACCOUNT);
         USDC.approve(address(c), 1000000);
 
-        vm.expectRevert(SwapFailed.selector);
+        vm.expectRevert(V3Utils.SwapFailed.selector);
         c.swap(params);
         vm.stopPrank();
     }
@@ -501,7 +501,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         USDC.approve(address(c), 1000000);
 
         // if swap router is EOA - swap call wont fail but no coins are returned so slippage error is triggered
-        vm.expectRevert(SlippageError.selector);
+        vm.expectRevert(V3Utils.SlippageError.selector);
         c.swap(params);
         vm.stopPrank();
     }
