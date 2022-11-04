@@ -25,7 +25,7 @@ contract CompoundorModule is Module, ICompoundorModule, ReentrancyGuard, Multica
     uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
     uint32 public override maxTWAPTickDifference = 100; // 1%
     uint32 public override TWAPSeconds = 60;
-    uint16 public override maxSwapDifferenceX16 = uint16(Q16 / 100); //1%
+    uint16 public override maxSwapDifferenceX16 = uint16(Q16 / 100); // 1%
 
     // balances
     mapping(address => mapping(address => uint256)) public override accountBalances;

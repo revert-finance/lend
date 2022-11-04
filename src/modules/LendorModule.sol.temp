@@ -64,11 +64,11 @@ contract LendorModule is Module, IModule {
         
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override external  {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external  {
         positionConfigs[tokenId] = PositionConfig(0);
     }
 
-    function withdrawToken(uint256 tokenId, address) override external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
         // recreate from CTokens if needed
         if (positionConfigs[tokenId].cTokenAmount > 0) {
 

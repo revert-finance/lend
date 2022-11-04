@@ -22,6 +22,7 @@ contract Module is Ownable {
     error SwapFailed();
     error SlippageError();
     error TWAPCheckFailed();
+    error Unauthorized();
 
     // events
     event SwapRouterUpdated(address account, address swapRouter);
@@ -40,6 +41,13 @@ contract Module is Ownable {
         weth = npm.WETH9();
         factory = IUniswapV3Factory(npm.factory());
         swapRouter = _swapRouter;
+    }
+
+    modifier onlyHolder() {
+        if (msg.sender != address(holder)) {
+            revert Unauthorized();
+        }
+        _;
     }
 
     /**

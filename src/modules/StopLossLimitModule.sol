@@ -23,6 +23,15 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
     // changable config values
     uint64 public protocolRewardX64 = MAX_REWARD_X64; // 0.1%
 
+    // errors 
+    error NotFound();
+    error NotConfigured();
+    error NotEnoughHistory();
+    error NotInCondition();
+    error MissingSwapData();
+    error ConfigError();
+
+
     constructor(NFTHolder _holder, address _swapRouter) Module(_holder, _swapRouter) {
     }
 
@@ -228,7 +237,7 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         return CHECK_INTERVALS;
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override external  {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external  {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
         if (config.secondsUntilMax < CHECK_INTERVALS) {
@@ -238,7 +247,7 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         positionConfigs[tokenId] = config;
     }
 
-    function withdrawToken(uint256 tokenId, address) override external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
     }
 
@@ -246,10 +255,3 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         return true;
     }
 }
-
-error NotFound();
-error NotConfigured();
-error NotEnoughHistory();
-error NotInCondition();
-error MissingSwapData();
-error ConfigError();

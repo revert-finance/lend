@@ -5,14 +5,10 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "../src/external/IWETH.sol";
-
 abstract contract TestBase {
     
     int24 constant MIN_TICK_100 = -887272;
     int24 constant MIN_TICK_500 = -887270;
-
-    IWETH constant WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IERC20 constant WETH_ERC20 = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20 constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);

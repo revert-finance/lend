@@ -24,7 +24,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     function setUp() external {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
-        c = new V3Utils(WETH, NPM);
+        c = new V3Utils(NPM);
     }
 
     function testUnauthorizedTransfer() external {

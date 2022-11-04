@@ -20,7 +20,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
 
     // errors
-    error WrongContract();
+    error WrongNFT();
     error Unauthorized();
     error MaxTokensReached();
     error ModuleZero();
@@ -63,7 +63,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
 
         // only Uniswap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
-            revert WrongContract();
+            revert WrongNFT();
         }
 
         ModuleParams[] memory initialModules;
@@ -132,6 +132,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         tokenModules[tokenId] -= (1 << moduleIndex);
     }
 
+    /// @notice Adds a new module to the holder
     function addModule(Module calldata module) external onlyOwner returns(uint8) {
         if(address(module.implementation) == address(0)) {
             revert ModuleZero();
@@ -140,23 +141,24 @@ contract NFTHolder is IERC721Receiver, Ownable  {
             revert ModuleAlreadyRegistered();
         }
 
-        uint8 count = ++modulesCount; // overflows when all registered
+        uint8 moduleIndex = ++modulesCount; // overflows when all registered
 
         modules[modulesCount] = module;
-        modulesIndex[address(module.implementation)] = count;
+        modulesIndex[address(module.implementation)] = moduleIndex;
 
-        emit AddedModule(count, module.implementation);
+        emit AddedModule(moduleIndex, module.implementation);
 
-        return count;
+        return moduleIndex;
     }
 
+    /// @notice Sets module in active or inactive state
+    // When a module is inactive, no more new positions can be added to it
     function setModuleActive(uint8 moduleIndex, bool isActive) external onlyOwner {
         Module storage module = modules[moduleIndex];
         if (address(module.implementation) == address(0)) {
             revert ModuleNotExists();
         }
         module.active = isActive;
-
         emit SetModuleActive(moduleIndex, isActive);
     }
 

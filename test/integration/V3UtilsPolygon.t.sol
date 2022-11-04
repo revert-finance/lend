@@ -18,7 +18,7 @@ contract V3UtilsPolygonIntegrationTest is Test, TestBase {
     function setUp() external {
         mainnetFork = vm.createFork("https://rpc.ankr.com/polygon", 34633114);
         vm.selectFork(mainnetFork);
-        c = new V3Utils(WETH, NPM);
+        c = new V3Utils(NPM);
     }
 
     function testRealUseCase() external {
