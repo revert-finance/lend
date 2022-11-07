@@ -43,7 +43,6 @@ contract V3Utils is IERC721Receiver {
     event SwapAndMint(uint indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
     event SwapAndIncreaseLiquidity(uint indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
 
-
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
     constructor(INonfungiblePositionManager _nonfungiblePositionManager) {
@@ -54,8 +53,6 @@ contract V3Utils is IERC721Receiver {
     /// @notice Action which should be executed on provided NFT
     enum WhatToDo {
         CHANGE_RANGE,
-        WITHDRAW_AND_SWAP,
-        COLLECT_AND_SWAP,
         WITHDRAW_AND_COLLECT_AND_SWAP,
         COMPOUND_FEES
     }
@@ -79,6 +76,10 @@ contract V3Utils is IERC721Receiver {
         // if token1 needs to be swapped to targetToken - set values
         uint amountOut1Min;
         bytes swapData1; // encoded data from 0x api call (address,address,bytes) - to,allowanceTarget,data
+
+        // collect fee amount for COMPOUND_FEES / WITHDRAW_AND_COLLECT_AND_SWAP (if uint(128).max - ALL)
+        uint128 feeAmount0;
+        uint128 feeAmount1;
 
         // for creating new positions (change range)
         uint24 fee;
@@ -123,7 +124,7 @@ contract V3Utils is IERC721Receiver {
         (,,state.token0,state.token1,,,,state.liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
-            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
+            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), instructions.feeAmount0, instructions.feeAmount1);
             if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
@@ -158,17 +159,12 @@ contract V3Utils is IERC721Receiver {
                 (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0));
             }
             emit ChangeRange(tokenId, state.newTokenId);
-        } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP || instructions.whatToDo == WhatToDo.COLLECT_AND_SWAP || instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
+        } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
 
-            if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP  || instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
+            if (instructions.liquidity > 0) {
                 (state.amount0, state.amount1) = _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
             }
-            if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_SWAP) {
-                // only collect fees for tokens which were removed from liquidity
-                (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), _toUint128(state.amount0), _toUint128(state.amount1));
-            } else {
-                (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
-            }
+            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), instructions.feeAmount0 == type(uint128).max ? type(uint128).max : _toUint128(state.amount0 + instructions.feeAmount0), instructions.feeAmount1 == type(uint128).max ? type(uint128).max : _toUint128(state.amount1 + instructions.feeAmount1));
 
             uint targetAmount;
             if (state.token0 != instructions.targetToken) {
