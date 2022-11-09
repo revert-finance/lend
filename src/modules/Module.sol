@@ -99,7 +99,7 @@ contract Module is Ownable {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint16 maxPriceDifferenceX16) internal view returns (uint amountOutMin, uint priceX96) {
+    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint amountOutMin, uint priceX96) {
         
         // get current price and tick
         (uint160 sqrtPriceX96,int24 currentTick,,,,,) = pool.slot0();
@@ -112,14 +112,14 @@ contract Module is Ownable {
         // calculate min output price price and percentage
         priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         if (swap0For1) {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q16 - maxPriceDifferenceX16), priceX96, Q96 * Q16);
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q96 * Q64);
         } else {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q16 - maxPriceDifferenceX16), Q96, priceX96 * Q16);
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q96, priceX96 * Q64);
         }
     }
 
     // general swap function which uses external router with off-chain calculated swap instructions
-    // does slippage check with amountOutMin param
+    // does price difference check with amountOutMin param (calculated based on oracle verified price)
     // returns new token amounts after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0 && swapData.length > 0) {
