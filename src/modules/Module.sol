@@ -6,13 +6,12 @@ import "../NFTHolder.sol";
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
-
-import 'v3-periphery/libraries/PoolAddress.sol';
+import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 // base functionality for modules
-contract Module is Ownable {
+contract Module is Ownable, IUniswapV3SwapCallback {
 
     uint256 constant Q16 = 2**16;
     uint256 constant Q64 = 2**64;
@@ -120,6 +119,7 @@ contract Module is Ownable {
 
     // general swap function which uses external router with off-chain calculated swap instructions
     // does price difference check with amountOutMin param (calculated based on oracle verified price)
+    // NOTE: can be only called from trusted context (nft owner / contract owner) because otherwise swapData can be manipulated to return always amountOutMin
     // returns new token amounts after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0 && swapData.length > 0) {
@@ -153,4 +153,21 @@ contract Module is Ownable {
             }
         }
     }
+
+    // general swap function which uses given pool to swap amount available in the contract
+    // does price difference check with amountOutMin param (calculated based on oracle verified price)
+    // returns new token amounts after swap
+    function _poolSwap(IUniswapV3Pool pool, bool zeroForOne, uint amountIn, uint amountOutMin) internal returns (uint amountInDelta, uint256 amountOutDelta) {
+        // TODO implement swap directly on a pool (with callback uniswap3 style)
+    }
+
+    /// @inheritdoc IUniswapV3SwapCallback
+    function uniswapV3SwapCallback(
+        int256 amount0Delta,
+        int256 amount1Delta,
+        bytes calldata _data
+    ) external override {
+        // TODO implement similar to SwapRouter simplified
+    }
+
 }

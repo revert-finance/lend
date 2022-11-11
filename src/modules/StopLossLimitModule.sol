@@ -10,8 +10,6 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
-import 'v3-periphery/libraries/PoolAddress.sol';
-
 contract StopLossLimitModule is IStopLossLimitModule, Module {
 
     // errors 
@@ -25,12 +23,13 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
 
     uint32 public override maxTWAPTickDifference = 100; // 1%
     uint32 public override TWAPSeconds = 60;
+    uint64 public override protocolRewardX64 = uint64(Q64 / 200); // 0.5%
 
     constructor(NFTHolder _holder, address _swapRouter) Module(_holder, _swapRouter) {
     }
 
     struct PositionConfig {
-        // should swap tokens
+        // should swap token to other token when triggered
         bool token0Swap;
         bool token1Swap;
 
@@ -72,13 +71,35 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         uint swapAmount;
         int24 tick;
         bool isSwap;
-        uint8 blocks;
-        uint16 rewardX16;
+        bool isAbove;
         address owner;
     }
 
+    /**
+     * @notice Management method to lower reward (onlyOwner)
+     * @param _protocolRewardX64 new reward (can't be higher than current reward)
+     */
+    function setReward(uint64 _protocolRewardX64) external onlyOwner {
+        require(_protocolRewardX64 <= protocolRewardX64, ">protocolRewardX64");
+        protocolRewardX64 = _protocolRewardX64;
+        emit RewardUpdated(msg.sender, _protocolRewardX64);
+    }
+
+    /**
+     * @notice Withdraws token balance for a address and token
+     * @param token Address of token to withdraw
+     * @param to Address to send t
+     */
+    function withdrawBalance(address token, address to) external onlyOwner {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (balance > 0) {
+            SafeERC20.safeTransfer(IERC20(token), to, balance);
+        }
+    }
+
+
     // function which can be executed by owner only (atm) when position is in certain state
-    function execute(ExecuteParams memory params) external onlyOwner returns (uint256 reward0, uint256 reward1) {
+    function execute(ExecuteParams memory params) external onlyOwner {
 
         ExecuteState memory state;
 
@@ -101,7 +122,7 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
     
         // check how many intervals already are in correct state
         state.isAbove = state.tick > config.token1TriggerTick;
-        state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap
+        state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
        
         // decrease full liquidity for given position (one sided only) - and return fees as well
         (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
@@ -115,41 +136,35 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
             
             // checks if price in valid oracle range and calculates amountOutMin
-            (state.amountOutMin,) = _validateSwap(state.isAbove, state.swapAmount, state.pool, config.TWAPSeconds, config.ticksFromTWAP, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
-            (state.amountInDelta, state.amountOutDelta) = _swap(state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.swapAmount, state.amountOutMin, params.swapData);
+            (state.amountOutMin,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
+            (state.amountInDelta, state.amountOutDelta) = _swap(state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
 
-            state.amount0 = state.isAbove ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
-            state.amount1 = state.isAbove ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+            state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
+            state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
         }
-        
-        // calculate dynamic reward factor depending on how many blocks have passed
-        state.rewardX16 = (config.minRewardX16 + (config.maxRewardX16 - config.minRewardX16) * state.blocks / CHECK_INTERVALS);
-        
-        reward0 = state.amount0 * state.rewardX16 / Q16;
-        reward1 = state.amount1 * state.rewardX16 / Q16;
-
+     
         state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
         state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
 
-        // send final tokens to position owner
+        // send final tokens to position owner - if any
         state.owner = holder.tokenOwners(params.tokenId);
-        SafeERC20.safeTransfer(IERC20(state.token0), state.owner, state.amount0 - reward0 - state.protocolReward0);
-        SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.amount1 - reward1 - state.protocolReward1);
-
-        // send rewards to executor
-        SafeERC20.safeTransfer(IERC20(state.token0), msg.sender, reward0);
-        SafeERC20.safeTransfer(IERC20(state.token1), msg.sender, reward1);
-
+        if (state.amount0 - state.protocolReward0 > 0) {
+            SafeERC20.safeTransfer(IERC20(state.token0), state.owner, state.amount0 - state.protocolReward0);
+        }
+        if (state.amount1 - state.protocolReward1 > 0) {
+            SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.amount1 - state.protocolReward1);
+        }
+        
         // keep rest in contract (for owner withdrawal)
 
         // log event
-        emit Executed(msg.sender, state.isLimit, params.tokenId, state.amount0 - reward0 - state.protocolReward0, state.amount1 - reward1 - state.protocolReward1, reward0, reward1, state.token0, state.token1);
+        emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
     }
 
     function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external  {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
-        (,,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) =  nonfungiblePositionManager.positions(tokenId);
+        (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) =  nonfungiblePositionManager.positions(tokenId);
 
         // trigger ticks have to be on the correct side of position range
         if (tickLower <= config.token0TriggerTick || tickUpper >= config.token1TriggerTick) {
@@ -161,7 +176,7 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         // prepare pool to be ready with enough observations
         (,,,,uint16 observationCardinalityNext,,) = pool.slot0();
         if (observationCardinalityNext < TWAPSeconds) {
-            pool.increaseObservationCardinalityNext(TWAPSeconds); // TODO what number to use here - can be less than TWAPSeconds
+            pool.increaseObservationCardinalityNext(uint16(TWAPSeconds)); // TODO what number to use here - can be less than TWAPSeconds
         }
         
         positionConfigs[tokenId] = config;

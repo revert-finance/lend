@@ -17,13 +17,20 @@ interface IStopLossLimitModule is IModule {
     // stop loss / limit event
     event Executed(
         address account,
-        bool isLimit,
+        bool isSwap,
         uint256 tokenId,
         uint256 amountReturned0,
         uint256 amountReturned1,
-        uint256 reward0,
-        uint256 reward1,
         address token0,
         address token1
     );
+
+    /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
+    function protocolRewardX64() external view returns (uint64);
+
+    /// @notice Max tick difference between TWAP tick and current price to allow operations
+    function maxTWAPTickDifference() external view returns (uint32);
+
+    /// @notice Number of seconds to use for TWAP calculation
+    function TWAPSeconds() external view returns (uint32);
 }
