@@ -10,16 +10,6 @@ import "../../src/V3Utils.sol";
 contract V3UtilsIntegrationTest is Test, TestBase {
     V3Utils c;
     uint256 mainnetFork;
-
-    address constant TEST_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
-    address constant TEST_FEE_ACCOUNT = 0x8df57E3D9dDde355dCE1adb19eBCe93419ffa0FB;
-
-    uint256 constant TEST_NFT_ID = 24181; // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326
-    uint256 constant TEST_NFT_ID_IN_RANGE = 23901; // DAI/USCD 0.05% - two sided
-
-    address constant TEST_NFT_WITH_FEES_ACCOUNT = 0xa3eF006a7da5BcD1144d8BB86EfF1734f46A0c1E;
-    uint256 constant TEST_NFT_WITH_FEES = 4660;
-
     function setUp() external {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
