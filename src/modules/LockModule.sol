@@ -11,7 +11,7 @@ import 'v3-core/libraries/FullMath.sol';
 contract LockModule is Module, IModule {
   
     // errors 
-    error Locked();
+    error IsLocked();
 
     constructor(NFTHolder _holder) Module(_holder) {
     }
@@ -22,26 +22,26 @@ contract LockModule is Module, IModule {
 
     mapping (uint => PositionConfig) positionConfigs;
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external returns(bool) {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
         // if locked can not be changed
         if (block.timestamp < positionConfigs[tokenId].releaseTime) {
-            return false;
+            revert IsLocked();
         }
         
         positionConfigs[tokenId] = config;
-        return true;
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder external view returns (bool) {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
         if (block.timestamp < positionConfigs[tokenId].releaseTime) {
-            return false;
+            revert IsLocked();
         }
-        return true;
     }
 
-    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override external view returns (bool) {
-        return liquidity == 0 || block.timestamp >= positionConfigs[tokenId].releaseTime;
+    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override external  {
+        if (liquidity > 0 && block.timestamp < positionConfigs[tokenId].releaseTime) {
+            revert IsLocked();
+        }
     }
 }

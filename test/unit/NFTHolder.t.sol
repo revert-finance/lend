@@ -230,11 +230,11 @@ contract NFTHolderTest is Test, IERC721Receiver {
         holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
 
         // owner - nok anymore
-        vm.expectRevert(abi.encodeWithSelector(NFTHolder.ModuleCollectCheckFail.selector, module2Index));
+        vm.expectRevert(TestModule.CheckCollectError.selector);
         holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
 
         // enabled module - nok anymore
-        vm.expectRevert(abi.encodeWithSelector(NFTHolder.ModuleCollectCheckFail.selector, module2Index));
+        vm.expectRevert(TestModule.CheckCollectError.selector);
         module1.triggerCollectForTesting(tokenId);
 
         // blocking module - still ok (needs to do test in its own code)

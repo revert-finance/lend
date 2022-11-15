@@ -80,7 +80,7 @@ contract LockModuleTest is Test, TestBase {
 
         // don't allow remove liquidity
         vm.prank(TEST_ACCOUNT);
-        vm.expectRevert(abi.encodeWithSelector(NFTHolder.ModuleCollectCheckFail.selector, moduleIndex));
+        vm.expectRevert(LockModule.IsLocked.selector);
         holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
 
         // goto releasetime

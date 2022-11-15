@@ -159,7 +159,7 @@ contract StopLossLimitModule is Module, IModule {
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
             
             // checks if price in valid oracle range and calculates amountOutMin
-            (state.amountOutMin,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
+            (state.amountOutMin,,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
             (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
 
             state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
@@ -184,7 +184,7 @@ contract StopLossLimitModule is Module, IModule {
         emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external returns (bool) {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
         (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) =  nonfungiblePositionManager.positions(tokenId);
@@ -203,16 +203,12 @@ contract StopLossLimitModule is Module, IModule {
         }
         
         positionConfigs[tokenId] = config;
-
-        return true;
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder external returns (bool) {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
-         return true;
     }
 
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external pure returns (bool) {
-        return true;
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external {
     }
 }

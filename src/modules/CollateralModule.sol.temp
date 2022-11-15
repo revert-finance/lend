@@ -14,24 +14,36 @@ import "./IModule.sol";
 
 contract CollateralModule is Module, IModule {
 
-    mapping (address => Token) tokenConfigs;
+    // errors 
+    error OracleMismatch();
+    error PoolNotActive();
+    error TokenNotActive();
+
+    error NotAllowed();
+
+    struct PoolConfig {
+        bool isActive; // token may be deposited
+    }
+
+    mapping (address => PoolConfig) poolConfigs;
 
     struct TokenConfig {
-        address pricePool; // uniswap v3 pool (token/USDC)
         address priceFeed; // chainlink USD oracle
         uint8 priceFeedDecimals;
         uint64 collateralFactorX64;
     }
 
+    mapping (address => TokenConfig) tokenConfigs;
+
     ComptrollerInterface public immutable comptroller;
 
-    constructor(NFTHolder _holder, address _swapRouter, ComptrollerInterface _comptroller) Module(_holder, _swapRouter) {
+    constructor(NFTHolder _holder, ComptrollerInterface _comptroller) Module(_holder) {
         comptroller = _comptroller;
     }
 
     function getCollateralValue(uint256 tokenId) external returns (uint) {
-
-        (, , address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(params.tokenId);
+ 
+        (, , address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(tokenId);
 
         TokenConfig storage info0 = tokenConfigs[token0];
         TokenConfig storage info1 = tokenConfigs[token1];
@@ -39,11 +51,12 @@ contract CollateralModule is Module, IModule {
         (,int price0,,uint timestamp0,) = info0.priceFeed.latestRoundData();
         (,int price1,,uint timestamp1,) = info1.priceFeed.latestRoundData();
 
-
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
         (uint160 sqrtPriceX96, int24 tick, , , , , ) = pool.slot0();
 
-        (uint256 fees0, uint256 fees1) = _getFees(pool. tickLower, tickUpper, tick, feeGrowthInside0LastX128, feeGrowthInside1LastX128, tokensOwed0, tokensOwed1, liquidity);
+        (uint256 fees0, uint256 fees1) = _getUncollectedFees(pool, tickLower, tickUpper, tick, feeGrowthInside0LastX128, feeGrowthInside1LastX128, tokensOwed0, tokensOwed1, liquidity);
+        fees0 += tokensOwed0;
+        fees1 += tokensOwed1;
 
         uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
         uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
@@ -53,7 +66,7 @@ contract CollateralModule is Module, IModule {
         return (amount0 + fees0) * price0 * info0.collateralFactorX64 / (10 ** info0.priceFeedDecimals * Q64) + (amount1 + fees1) * price1 * info1.collateralFactorX64 / (10 ** info1.decpriceFeedDecimalsimals * Q64);
     }
 
-    function _getFees(IUniswapV3Pool pool, int24 tickLower, int24 tickUpper, int24 tick, uint256 oldFeeGrowthInside0LastX128, uint256 oldFeeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1, uint128 liquidity) internal view returns (uint256 fees0, uint256 fees1)
+    function _getUncollectedFees(IUniswapV3Pool pool, int24 tickLower, int24 tickUpper, int24 tick, uint256 oldFeeGrowthInside0LastX128, uint256 oldFeeGrowthInside1LastX128, uint128 liquidity) internal view returns (uint256 fees0, uint256 fees1)
     {
         (uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = _getFeeGrowthInside(
             pool,
@@ -64,8 +77,8 @@ contract CollateralModule is Module, IModule {
             pool.feeGrowthGlobal1X128()
         );
 
-        fees0 = tokensOwed0 + FullMath.mulDiv(feeGrowthInside0LastX128 - oldFeeGrowthInside0LastX128, liquidity, FixedPoint128.Q128);
-        fees1 = tokensOwed1 + FullMath.mulDiv(feeGrowthInside1LastX128 - oldFeeGrowthInside0LastX128, liquidity, FixedPoint128.Q128);
+        fees0 = FullMath.mulDiv(feeGrowthInside0LastX128 - oldFeeGrowthInside0LastX128, liquidity, FixedPoint128.Q128);
+        fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - oldFeeGrowthInside0LastX128, liquidity, FixedPoint128.Q128);
     }
 
     function _getFeeGrowthInside(
@@ -105,33 +118,37 @@ contract CollateralModule is Module, IModule {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external  {
-        (, , address token0, address token1, , , , , , , ,) = nonfungiblePositionManager.positions(params.tokenId);
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
+        (, , address token0, address token1, uint24 fee , , , , , , ,) = nonfungiblePositionManager.positions(tokenId);
+
+        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+
+        if (!poolConfigs[address(pool)].active) {
+            revert PoolNotActive();
+        }
 
         TokenConfig storage info0 = tokenConfigs[token0];
         TokenConfig storage info1 = tokenConfigs[token1];
 
-        if (info0.priceFeed == address(0)) {
-            revert NotSupportedToken(token0);
-        }
-        if (info1.priceFeed == address(0)) {
-            revert NotSupportedToken(token1);
+        if (info0.priceFeed == address(0) || info1.priceFeed == address(0) || !info0.isActive || !info1.isActive) {
+            revert TokenNotActive();
         }
     }
 
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
+        /*
         (uint err,,uint shortfall) = comptroller.getHypotheticalAccountLiquidity(account); // create hypotetical function for removing token
-        if (err != 0 || shortfall > 0) {
-            revert NotWithdrawable(tokenId);
+        if (err > 0 || shortfall > 0) {
+            revert NotAllowed();
+        }
+        */
+    }
+
+    function checkOnCollect(uint256, address owner, uint128 , uint , uint ) override external {
+        (uint err,,uint shortfall) = comptroller.getAccountLiquidity(owner);
+        if (err > 0 || shortfall > 0) {
+            revert NotAllowed();
         }
     }
-
-    function checkOnCollect(uint256, address account, uint, uint) override external pure returns (bool) {
-        (uint err,,uint shortfall) = comptroller.getAccountLiquidity(account);
-        return err == 0 && shortfall == 0;
-    }
 }
-
-error NotSupportedToken(address);
-error NotWithdrawable(uint256);
 

@@ -6,6 +6,8 @@ import "./../../../src/NFTHolder.sol";
 
 contract TestModule is IModule {
 
+    error CheckCollectError();
+
     NFTHolder holder;
     bool checkOnCollectResponse;
 
@@ -14,16 +16,16 @@ contract TestModule is IModule {
         checkOnCollectResponse = _checkOnCollectResponse;
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override external pure returns (bool) {
-        return true;
+    function addToken(uint256 tokenId, address, bytes calldata data) override external {
     }
 
-    function withdrawToken(uint256 tokenId, address) override external pure returns (bool) {
-        return true;
+    function withdrawToken(uint256 tokenId, address) override external {
     }
 
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external view returns (bool) {
-        return checkOnCollectResponse;
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external {
+        if (!checkOnCollectResponse) {
+            revert CheckCollectError();
+        }
     }
 
     function triggerCollectForTesting(uint256 tokenId) external {

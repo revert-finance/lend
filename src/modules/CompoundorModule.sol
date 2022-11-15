@@ -84,6 +84,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         uint256 amount0Fees;
         uint256 amount1Fees;
         uint256 priceX96;
+        uint160 sqrtPriceX96;
         address tokenOwner;
         address token0;
         address token1;
@@ -137,33 +138,43 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
 
         // add previous balances from given tokens
-        state.amount0 = state.amount0 + accountBalances[state.tokenOwner][state.token0];
-        state.amount1 = state.amount1 + accountBalances[state.tokenOwner][state.token1];
+        state.amount0 += accountBalances[state.tokenOwner][state.token0];
+        state.amount1 += accountBalances[state.tokenOwner][state.token1];
 
         // only if there are balances to work with - start autocompounding process
         if (state.amount0 > 0 || state.amount1 > 0) {
 
-            // do swap logic - if swap requested
-            if (params.doSwap) {
-                state.pool = _getPool(state.token0, state.token1, state.fee);
+            state.pool = _getPool(state.token0, state.token1, state.fee);
 
-                // checks oracle if pool price is not manipulated and returns current price
-                (, state.priceX96) = _validateSwap(false, 0, state.pool, TWAPSeconds, maxTWAPTickDifference, 0);
+            // check oracle when price needs to be checked
+            if (params.doSwap || params.rewardConversion != RewardConversion.NONE) {
+                // checks oracle - reverts if not enough data available or if price is to far away from TWAP
+                (, state.sqrtPriceX96, state.priceX96) = _validateSwap(false, 0, state.pool, TWAPSeconds, maxTWAPTickDifference, 0);
+                // swap if needed
+                if (params.doSwap) {
+                     SwapParams memory swapParams = SwapParams(
+                        state.pool,
+                        state.priceX96, 
+                        state.sqrtPriceX96, 
+                        state.token0, 
+                        state.token1, 
+                        state.fee,
+                        state.tickLower, 
+                        state.tickUpper, 
+                        state.amount0, 
+                        state.amount1, 
+                        block.timestamp, 
+                        params.rewardConversion, 
+                        state.tokenOwner == msg.sender, 
+                        params.doSwap
+                    );
 
-                SwapParams memory swapParams = SwapParams(
-                    state.pool,
-                    state.priceX96, 
-                    state.tickLower, 
-                    state.tickUpper, 
-                    state.amount0, 
-                    state.amount1, 
-                    block.timestamp, 
-                    params.rewardConversion, 
-                    state.tokenOwner == msg.sender, 
-                    params.doSwap
-                );
-
-                (state.amount0, state.amount1) = _handleSwap(swapParams);
+                    (state.amount0, state.amount1) = _handleSwap(swapParams);
+                }
+            } else {
+                // simple case where oracle check is not needed
+                (state.sqrtPriceX96,,,,,,) = state.pool.slot0();
+                state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             }
 
             // in case caller is not owner - max amounts to add are slightly lower than available amounts - to account for reward payments
@@ -259,7 +270,6 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         uint256 positionAmount1;
         int24 tick;
         int24 otherTick;
-        uint160 sqrtPriceX96;
         uint160 sqrtPriceX96Lower;
         uint160 sqrtPriceX96Upper;
         uint256 amountRatioX96;
@@ -273,6 +283,10 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
     struct SwapParams {
         IUniswapV3Pool pool;
         uint priceX96; // oracle verified price
+        uint160 sqrtPriceX96; // oracle verified price - sqrt
+        address token0;
+        address token1;
+        uint24 fee;
         int24 tickLower; 
         int24 tickUpper; 
         uint256 amount0;
@@ -298,7 +312,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
         state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
         (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                                            state.sqrtPriceX96, 
+                                                            params.sqrtPriceX96, 
                                                             state.sqrtPriceX96Lower, 
                                                             state.sqrtPriceX96Upper, 
                                                             uint128(Q96)); // dummy value we just need ratio
@@ -319,6 +333,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
                 state.delta0 = (state.amountRatioX96 * amount1 - amount0 * Q96) / (state.amountRatioX96 * params.priceX96 / Q96 + Q96);
             }
         }
+      
 
         // adjust delta considering reward payment mode
         if (!params.isOwner) {
@@ -357,14 +372,14 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
 
         if (state.delta0 > 0) {
             if (state.sell0) {
-                uint256 amountOut = _poolSwap(params.pool, state.sell0, state.delta0, 0);    
+                uint256 amountOut = _poolSwap(params.pool, params.token0, params.token1, params.fee, state.sell0, state.delta0, 0);    
                 amount0 -= state.delta0;
                 amount1 += amountOut;                                    
             } else {
                 state.delta1 = state.delta0 * params.priceX96 / Q96;
                 // prevent possible rounding to 0 issue
                 if (state.delta1 > 0) {
-                    uint256 amountOut = _poolSwap(params.pool, state.sell0, state.delta1, 0);
+                    uint256 amountOut = _poolSwap(params.pool, params.token0, params.token1, params.fee, state.sell0, state.delta1, 0);
                     amount0 += amountOut;
                     amount1 -= state.delta1;
                 }
@@ -421,7 +436,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
     }
 
     function _checkApprovals(IERC20 token0, IERC20 token1) internal {
-        // approve tokens once if not yet approved
+        // approve tokens once if not yet approved - gas optimization
         uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
             SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
@@ -433,9 +448,12 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
     }
 
     // IModule required functions
-    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder external view returns (bool) { return true; }
+    function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder external { 
+        (,,address token0, address token1, uint24 fee,,,,,,,) =  nonfungiblePositionManager.positions(tokenId);
+        _checkApprovals(IERC20(token0), IERC20(token1));
+    }
 
-    function withdrawToken(uint256 tokenId, address owner) override onlyHolder external view returns (bool) { return true; }
+    function withdrawToken(uint256, address) override onlyHolder external { }
 
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external pure returns (bool) { return true; }
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external { }
 }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+
+import "forge-std/console.sol";
+
 import "../NFTHolder.sol";
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -11,12 +14,16 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
+import "v3-core/libraries/TickMath.sol";
+import 'v3-core/libraries/SafeCast.sol';
 import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 // base functionality for modules
 contract Module is Ownable, IUniswapV3SwapCallback {
+
+    using SafeCast for uint256;
 
     uint256 constant Q16 = 2**16;
     uint256 constant Q64 = 2**64;
@@ -76,8 +83,6 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         secondsAgos[0] = 0; // from (before)
         secondsAgos[1] = twapPeriod; // from (before)
 
-        // TODO call in multiple slices and remove outliers for average calculation (to avoid manipulation if needed)
-
         // pool observe may fail when there is not enough history available
         try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
             return (int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod))), true);
@@ -88,11 +93,13 @@ contract Module is Ownable, IUniswapV3SwapCallback {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint amountOutMin, uint priceX96) {
+    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint amountOutMin, uint160 sqrtPriceX96, uint priceX96) {
         
         // get current price and tick
-        (uint160 sqrtPriceX96,int24 currentTick,,,,,) = pool.slot0();
+        int24 currentTick;
         
+        (sqrtPriceX96,currentTick,,,,,) = pool.slot0();
+
         // check if current tick not too far from TWAP
         if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
             revert TWAPCheckFailed();
@@ -145,19 +152,31 @@ contract Module is Ownable, IUniswapV3SwapCallback {
     }
 
     // general swap function which uses given pool to swap amount available in the contract
-    // does price difference check with amountOutMin param (calculated based on oracle verified price)
     // returns new token amounts after swap
-    function _poolSwap(IUniswapV3Pool pool, bool zeroForOne, uint amountIn, uint amountOutMin) internal returns (uint amountOut) {
-        // TODO implement swap directly on a pool (with callback uniswap3 style)
+    function _poolSwap(IUniswapV3Pool pool, address token0, address token1, uint24 fee, bool zeroForOne, uint amountIn, uint minAmountOut) internal returns (uint amountOut) {
+        
+        (int256 amount0, int256 amount1) = pool.swap(
+                address(this),
+                zeroForOne,
+                amountIn.toInt256(),
+                (zeroForOne ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
+                abi.encode(zeroForOne ? token0 : token1, zeroForOne ? token1 : token0, fee)
+            );
+
+        amountOut = uint256(-(zeroForOne ? amount1 : amount0));
+
+        if (amountOut < minAmountOut) {
+            revert SlippageError();
+        }
     }
 
     /// @inheritdoc IUniswapV3SwapCallback
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata _data) external override {
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
 
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
 
-        // check if really called from callback
-        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(_data, (address, address, uint24));
+        // check if really called from pool
+        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(data, (address, address, uint24));
         if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
             revert Unauthorized();
         }
@@ -166,5 +185,4 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
         SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
     }
-
 }

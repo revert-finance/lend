@@ -28,10 +28,6 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     error ModuleNotExists();
     error ModuleAlreadyRegistered();
 
-    error ModuleAddFail(uint8 index);
-    error ModuleWithdrawFail(uint8 index);
-    error ModuleCollectCheckFail(uint8 index);
-
     error TokenNotInModule();
     error InvalidWithdrawTarget();
 
@@ -135,9 +131,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         if (tokenModules[tokenId] & (1 << moduleIndex) == 0) {
             revert TokenNotInModule();
         }
-        if (!module.implementation.withdrawToken(tokenId, msg.sender)) {
-             revert ModuleWithdrawFail(moduleIndex);
-        }
+        module.implementation.withdrawToken(tokenId, msg.sender);
         emit RemovedPositionFromModule(tokenId, moduleIndex);
         tokenModules[tokenId] -= (1 << moduleIndex);
     }
@@ -219,9 +213,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         while(mod > 0) {
             if (mod & (1 << index) != 0) {
                 if (index != moduleIndex && modules[index].checkOnCollect) {
-                    if (!modules[index].implementation.checkOnCollect(params.tokenId, owner, params.liquidity, amount0, amount1)) {
-                        revert ModuleCollectCheckFail(index);
-                    }
+                    modules[index].implementation.checkOnCollect(params.tokenId, owner, params.liquidity, amount0, amount1);
                 }
                 mod -= (1 << index);
             }
@@ -241,9 +233,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         uint mod = 0;
         for (; i < initialModules.length; i++) {
             mod += 1 << initialModules[i].index;
-            if (!modules[initialModules[i].index].implementation.addToken(tokenId, account, initialModules[i].data)) {
-                revert ModuleAddFail(initialModules[i].index);
-            }
+            modules[initialModules[i].index].implementation.addToken(tokenId, account, initialModules[i].data);
         }
 
         tokenModules[tokenId] = mod;
@@ -257,9 +247,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         uint8 index = 1;
         while(mod > 0) {
             if (mod & (1 << index) != 0) {
-                if (!modules[index].implementation.withdrawToken(tokenId, account)) {
-                    revert ModuleWithdrawFail(index);
-                }
+                modules[index].implementation.withdrawToken(tokenId, account);
                 emit RemovedPositionFromModule(tokenId, index);
                 mod -= (1 << index);
             }
