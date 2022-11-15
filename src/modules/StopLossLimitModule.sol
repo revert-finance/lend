@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-
-import "../NFTHolder.sol";
-import "./IStopLossLimitModule.sol";
+import "./IModule.sol";
 import "./Module.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
-contract StopLossLimitModule is IStopLossLimitModule, Module {
+contract StopLossLimitModule is Module, IModule {
+
+    // events
+    event SwapRouterUpdated(address account, address swapRouter);
+    event RewardUpdated(address account, uint64 protocolRewardX64);
+    event Executed(
+        address account,
+        bool isSwap,
+        uint256 tokenId,
+        uint256 amountReturned0,
+        uint256 amountReturned1,
+        address token0,
+        address token1
+    );
 
     // errors 
     error NotFound();
@@ -21,11 +32,13 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
     error MissingSwapData();
     error ConfigError();
 
-    uint32 public override maxTWAPTickDifference = 100; // 1%
-    uint32 public override TWAPSeconds = 60;
-    uint64 public override protocolRewardX64 = uint64(Q64 / 200); // 0.5%
+    uint32 public maxTWAPTickDifference = 100; // 1%
+    uint32 public TWAPSeconds = 60;
+    uint64 public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
+    address public swapRouter;
 
-    constructor(NFTHolder _holder, address _swapRouter) Module(_holder, _swapRouter) {
+    constructor(NFTHolder _holder, address _swapRouter) Module(_holder) {
+        swapRouter = _swapRouter;
     }
 
     struct PositionConfig {
@@ -73,6 +86,16 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         bool isSwap;
         bool isAbove;
         address owner;
+    }
+
+    /**
+     * @notice Management method to change swap router (onlyOwner)
+     * @param _swapRouter new swap router
+     */
+    function setSwapRouter(address _swapRouter) external onlyOwner {
+        require(_swapRouter != address(0), "!swapRouter");
+        swapRouter = _swapRouter;
+        emit SwapRouterUpdated(msg.sender, _swapRouter);
     }
 
     /**
@@ -137,7 +160,7 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
             
             // checks if price in valid oracle range and calculates amountOutMin
             (state.amountOutMin,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
-            (state.amountInDelta, state.amountOutDelta) = _swap(state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
+            (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
 
             state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
             state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
@@ -161,7 +184,7 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external  {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external returns (bool) {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
         (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) =  nonfungiblePositionManager.positions(tokenId);
@@ -180,13 +203,16 @@ contract StopLossLimitModule is IStopLossLimitModule, Module {
         }
         
         positionConfigs[tokenId] = config;
+
+        return true;
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external returns (bool) {
          delete positionConfigs[tokenId];
+         return true;
     }
 
-    function checkOnCollect(uint256, address, uint, uint) override external pure returns (bool) {
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external pure returns (bool) {
         return true;
     }
 }

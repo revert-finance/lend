@@ -3,12 +3,17 @@ pragma solidity ^0.8.0;
 
 import "../NFTHolder.sol";
 
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
 import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 // base functionality for modules
 contract Module is Ownable, IUniswapV3SwapCallback {
@@ -23,23 +28,18 @@ contract Module is Ownable, IUniswapV3SwapCallback {
     error TWAPCheckFailed();
     error Unauthorized();
 
-    // events
-    event SwapRouterUpdated(address account, address swapRouter);
-
     NFTHolder public immutable holder;
 
     address public immutable weth;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
-    address public swapRouter;
     
-    constructor(NFTHolder _holder, address _swapRouter) {
+    constructor(NFTHolder _holder) {
         INonfungiblePositionManager npm = _holder.nonfungiblePositionManager();
         holder = _holder;
         nonfungiblePositionManager = npm;
         weth = npm.WETH9();
         factory = IUniswapV3Factory(npm.factory());
-        swapRouter = _swapRouter;
     }
 
     modifier onlyHolder() {
@@ -49,19 +49,9 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         _;
     }
 
-    /**
-     * @notice Management method to change swap router for this module(onlyOwner)
-     * @param _swapRouter new swap router
-     */
-    function setSwapRouter(address _swapRouter) external onlyOwner {
-        require(_swapRouter != address(0), "!swapRouter");
-        swapRouter = _swapRouter;
-        emit SwapRouterUpdated(msg.sender, _swapRouter);
-    }
-
     // helper method to get pool for token
-    function _getPool(address token0, address token1, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.PoolKey({token0: token0, token1: token1, fee: fee})));
+    function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
+        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 
     function _getPoolPrice(address token0, address token1, uint24 fee) internal view returns (uint) {
@@ -121,7 +111,7 @@ contract Module is Ownable, IUniswapV3SwapCallback {
     // does price difference check with amountOutMin param (calculated based on oracle verified price)
     // NOTE: can be only called from trusted context (nft owner / contract owner) because otherwise swapData can be manipulated to return always amountOutMin
     // returns new token amounts after swap
-    function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
+    function _swap(address swapRouter, IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0 && swapData.length > 0) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
@@ -157,17 +147,24 @@ contract Module is Ownable, IUniswapV3SwapCallback {
     // general swap function which uses given pool to swap amount available in the contract
     // does price difference check with amountOutMin param (calculated based on oracle verified price)
     // returns new token amounts after swap
-    function _poolSwap(IUniswapV3Pool pool, bool zeroForOne, uint amountIn, uint amountOutMin) internal returns (uint amountInDelta, uint256 amountOutDelta) {
+    function _poolSwap(IUniswapV3Pool pool, bool zeroForOne, uint amountIn, uint amountOutMin) internal returns (uint amountOut) {
         // TODO implement swap directly on a pool (with callback uniswap3 style)
     }
 
     /// @inheritdoc IUniswapV3SwapCallback
-    function uniswapV3SwapCallback(
-        int256 amount0Delta,
-        int256 amount1Delta,
-        bytes calldata _data
-    ) external override {
-        // TODO implement similar to SwapRouter simplified
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata _data) external override {
+
+        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
+
+        // check if really called from callback
+        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(_data, (address, address, uint24));
+        if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
+            revert Unauthorized();
+        }
+
+        // transfer needed amount of tokenIn
+        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
     }
 
 }

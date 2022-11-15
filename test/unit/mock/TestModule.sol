@@ -14,13 +14,15 @@ contract TestModule is IModule {
         checkOnCollectResponse = _checkOnCollectResponse;
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override external  {
+    function addToken(uint256 tokenId, address, bytes calldata data) override external pure returns (bool) {
+        return true;
     }
 
-    function withdrawToken(uint256 tokenId, address) override external {
+    function withdrawToken(uint256 tokenId, address) override external pure returns (bool) {
+        return true;
     }
 
-    function checkOnCollect(uint256, address, uint, uint) override external view returns (bool) {
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external view returns (bool) {
         return checkOnCollectResponse;
     }
 
