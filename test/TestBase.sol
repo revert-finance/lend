@@ -22,6 +22,9 @@ abstract contract TestBase {
 
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
 
+    address constant COMPOUND_COMPTROLLER = 0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B; 
+    address constant COMPOUND_ORACLE = 0x65c816077C29b557BEE980ae3cC2dCE80204A0C5; // current compound oracle
+
     address constant TEST_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
 
     uint256 constant TEST_NFT_ID = 24181; // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
