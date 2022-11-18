@@ -44,4 +44,6 @@ contract LockModule is Module, IModule {
             revert IsLocked();
         }
     }
+
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 }

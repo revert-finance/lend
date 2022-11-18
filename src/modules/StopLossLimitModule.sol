@@ -209,6 +209,7 @@ contract StopLossLimitModule is Module, IModule {
          delete positionConfigs[tokenId];
     }
 
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external {
-    }
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external { }
+
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) external { }
 }

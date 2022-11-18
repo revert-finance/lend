@@ -6,13 +6,14 @@ import "./modules/IModule.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-contract NFTHolder is IERC721Receiver, Ownable  {
+contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard  {
 
     uint constant public MAX_TOKENS_PER_ADDRESS = 100;
 
@@ -87,10 +88,9 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
         }
-        if(to == address(this)) {
+        if(to == address(this) || to == address(0)) {
             revert InvalidWithdrawTarget();
         }
-        
         _removeToken(tokenId, msg.sender);
         nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
     }
@@ -101,24 +101,24 @@ contract NFTHolder is IERC721Receiver, Ownable  {
 
     function addTokenToModule(uint256 tokenId, ModuleParams calldata params) external {
 
-        Module storage module = modules[params.index];
-
-        if(address(module.implementation) == address(0)) {
-            revert ModuleNotExists();
-        }
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
         }
+
+        Module storage module = modules[params.index];
+        if(address(module.implementation) == address(0)) {
+            revert ModuleNotExists();
+        }
         
-        uint tokenMods = tokenModules[tokenId] | (1 << params.index);
-        if (module.blocking & tokenMods > 0) {
+        uint newTokenModules = tokenModules[tokenId] | (1 << params.index);
+        if (module.blocking & newTokenModules > 0) {
             revert ModuleBlocked();
         }
 
         // can be called multiple times to update config, modules must handle this case
         module.implementation.addToken(tokenId, msg.sender, params.data);
         emit AddedPositionToModule(tokenId, params.index, params.data);
-        tokenModules[tokenId] = tokenMods;
+        tokenModules[tokenId] = newTokenModules;
     }
 
     function removeTokenFromModule(uint256 tokenId, uint8 moduleIndex) external {
@@ -128,7 +128,6 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         }
 
         uint tokenMods = tokenModules[tokenId];
-
         if (tokenMods & (1 << moduleIndex) == 0) {
             revert TokenNotInModule();
         }
@@ -185,7 +184,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         address recipient;
     }
 
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1) {
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external nonReentrant returns (uint256 amount0, uint256 amount1) {
 
         uint mod = tokenModules[params.tokenId];
         uint8 moduleIndex = modulesIndex[msg.sender];
@@ -217,6 +216,12 @@ contract NFTHolder is IERC721Receiver, Ownable  {
             )
         );
 
+        // if call is from module - execute callback
+        if (moduleIndex > 0) {
+            modules[moduleIndex].implementation.decreaseLiquidityAndCollectCallback(params.tokenId, amount0, amount1);
+        }
+
+        // check all modules which need to be checked at the end
         uint8 index = 1;
         uint check = checkOnCollect;
         while(mod > 0) {

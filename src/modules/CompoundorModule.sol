@@ -456,4 +456,6 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
     function withdrawToken(uint256, address) override onlyHolder external { }
 
     function checkOnCollect(uint256, address, uint128, uint, uint) override external { }
+
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 }

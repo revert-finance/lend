@@ -110,7 +110,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
         // remove from blocking module
         holder.removeTokenFromModule(tokenId, moduleIndex);
 
-        // now can be added
+        // now can be added to new module
         holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
     }
 
