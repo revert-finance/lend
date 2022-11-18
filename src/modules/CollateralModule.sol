@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "forge-std/console.sol";
+
+
 import "compound-protocol/Comptroller.sol";
 
 import "v3-core/libraries/TickMath.sol";
@@ -20,6 +23,7 @@ contract CollateralModule is Module, IModule {
     error PoolNotActive();
     error TokenNotActive();
     error NotAllowed();
+    error OracleDeviation();
 
     // current oracle
     IOracle public oracle;
@@ -27,12 +31,12 @@ contract CollateralModule is Module, IModule {
     struct PoolConfig {
         bool isActive; // pool may be deposited
         uint64 collateralFactorX64;
+        uint64 maxOracleSqrtDeviationX64; // reasonable value maybe 10%
     }
 
     mapping (address => PoolConfig) poolConfigs;
 
     struct TokenConfig {
-        string symbol;
         uint8 decimals;
         bool isActive; // token may be deposited
     }
@@ -46,50 +50,133 @@ contract CollateralModule is Module, IModule {
         oracle = _oracle;
     }
 
-    // calculates collateral value of v3 position returning value in compound format -> USD with 6 digits
-    function getCollateralValue(uint256 tokenId) external returns (uint) {
- 
-        (, , address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(tokenId);
-
-        TokenConfig storage config0 = tokenConfigs[token0];
-        TokenConfig storage config1 = tokenConfigs[token1];
-
-        // if there is any problem with the oracle - call must revert
-        uint price0 = oracle.price(token0, config0.symbol);
-        uint price1 = oracle.price(token1, config1.symbol);
-
-        // get corresponding price
-        uint oraclePriceX192 = FullMath.mulDiv(price0, Q96 * Q96, price1);
-        uint160 oracleSqrtPriceX96 = uint160(_sqrt(oraclePriceX192));
-
-        // calculate uncollected fees
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        (,int24 tick,,,,,) = pool.slot0();
-        (uint256 fees0, uint256 fees1) = _getUncollectedFees(pool, tickLower, tickUpper, tick, feeGrowthInside0LastX128, feeGrowthInside1LastX128, liquidity);
-        fees0 += tokensOwed0;
-        fees1 += tokensOwed1;
-
-        uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
-        uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
-        
-        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(oracleSqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, liquidity);
-
-        return ((amount0 + fees0) * price0 / (10 ** config0.decimals) + (amount1 + fees1) * price1 / (10 ** config1.decimals)) * poolConfigs[address(pool)].collateralFactorX64 / Q64;
+    /// @notice Management method to configure a pool
+    function setPoolConfig(address pool, PoolConfig calldata config) external onlyOwner {
+        poolConfigs[pool] = config;
     }
 
-    function _getUncollectedFees(IUniswapV3Pool pool, int24 tickLower, int24 tickUpper, int24 tick, uint256 oldFeeGrowthInside0LastX128, uint256 oldFeeGrowthInside1LastX128, uint128 liquidity) internal view returns (uint256 fees0, uint256 fees1)
+    /// @notice Management method to configure a token
+    function setTokenConfig(address token, bool isActive) external onlyOwner {
+        uint8 decimals = IERC20Metadata(token).decimals();
+        tokenConfigs[token] = TokenConfig(decimals, isActive);
+    }
+
+    /// @notice Management method to set oracle
+    function setOracle(IOracle _oracle) external onlyOwner {
+        oracle = _oracle;
+    }
+
+    struct PositionState {
+        address token0;
+        address token1;
+        uint8 decimals0;
+        uint8 decimals1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 feeGrowthInside0LastX128;
+        uint256 feeGrowthInside1LastX128;
+        uint128 tokensOwed0;
+        uint128 tokensOwed1;
+        IUniswapV3Pool pool;
+    }
+
+    // calculates collateral value of v3 position returning value in compound format -> USD with 6 digits
+    // this function may revert if there is any error with oracle prices - this will disable borrowing / liquidations in connected compound
+    function getCollateralValue(uint256 tokenId) external returns (uint) {
+ 
+        PositionState memory position = _getPositionState(tokenId);
+
+        (uint256 price0, uint256 price1, uint160 oracleSqrtPriceX96) = _getOraclePrice(position.token0, position.token1, position.decimals0, position.decimals1);
+
+        (uint160 sqrtPriceX96, int24 tick,,,,,) = position.pool.slot0();
+
+        // calculate position amounts (incl uncollected fees)
+        (uint amount0, uint amount1) = _getAmounts(position, oracleSqrtPriceX96, tick);
+
+        PoolConfig storage poolConfig = poolConfigs[address(position.pool)];
+
+        // check for mayor difference between pool price and oracle price - if to big - revert
+        uint priceSqrtRatioX64 = Q64 - (sqrtPriceX96 < oracleSqrtPriceX96 ? sqrtPriceX96 * Q64 / oracleSqrtPriceX96 : oracleSqrtPriceX96 * Q64 / sqrtPriceX96);
+        if (priceSqrtRatioX64 > poolConfig.maxOracleSqrtDeviationX64) {
+            revert OracleDeviation();
+        }
+
+        return _getUSDValue(position.decimals0, position.decimals1, amount0, amount1, price0, price1, poolConfig.collateralFactorX64);
+    }
+
+    function _getPositionState(uint256 tokenId) internal view returns (PositionState memory state) {
+        (
+            ,
+            ,
+            address token0,
+            address token1,
+            uint24 fee,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        ) = nonfungiblePositionManager.positions(tokenId);
+
+        TokenConfig storage tokenConfig0 = tokenConfigs[token0];
+        TokenConfig storage tokenConfig1 = tokenConfigs[token1];
+
+        state.token0 = token0;
+        state.token1 = token1;
+        state.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+        state.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
+        state.tickLower = tickLower;
+        state.tickUpper = tickUpper;
+        state.liquidity = liquidity;
+        state.tokensOwed0 = tokensOwed0;
+        state.tokensOwed1 = tokensOwed1;
+        state.pool = _getPool(token0, token1, fee);
+        state.decimals0 = tokenConfig0.decimals;
+        state.decimals1 = tokenConfig1.decimals;
+    }
+
+    function _getUSDValue(uint8 decimals0, uint8 decimals1, uint amount0, uint amount1, uint price0, uint price1, uint64 collateralFactorX64) internal returns (uint) {
+        return (amount0 * price0 / (10 ** decimals0) + amount1 * price1 / (10 ** decimals1)) * collateralFactorX64 / Q64;
+    }   
+
+    function _getAmounts(PositionState memory position, uint160 oracleSqrtPriceX96, int24 tick) internal returns (uint amount0, uint amount1) {
+  
+        (uint fees0, uint fees1) = _getUncollectedFees(position, tick);
+
+        uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(position.tickLower);
+        uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(position.tickUpper);        
+
+        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(oracleSqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, position.liquidity);
+
+        amount0 += fees0;
+        amount1 += fees1;
+    }
+
+    function _getOraclePrice(address token0, address token1, uint8 decimals0, uint8 decimals1) internal returns (uint price0, uint price1, uint160 oracleSqrtPriceX96) {
+        price0 = oracle.price(token0);
+        price1 = oracle.price(token1);
+
+        uint oraclePriceX192 = FullMath.mulDiv(price0 * (10 ** decimals1), Q96 * Q96, price1 * (10 ** decimals0));
+        oracleSqrtPriceX96 = uint160(_sqrt(oraclePriceX192));
+    }
+
+    function _getUncollectedFees(PositionState memory position, int24 tick) internal view returns (uint256 fees0, uint256 fees1)
     {
         (uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = _getFeeGrowthInside(
-            pool,
-            tickLower,
-            tickUpper,
+            position.pool,
+            position.tickLower,
+            position.tickUpper,
             tick,
-            pool.feeGrowthGlobal0X128(),
-            pool.feeGrowthGlobal1X128()
+            position.pool.feeGrowthGlobal0X128(),
+            position.pool.feeGrowthGlobal1X128()
         );
 
-        fees0 = FullMath.mulDiv(feeGrowthInside0LastX128 - oldFeeGrowthInside0LastX128, liquidity, FixedPoint128.Q128);
-        fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - oldFeeGrowthInside0LastX128, liquidity, FixedPoint128.Q128);
+        fees0 = FullMath.mulDiv(feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128, position.liquidity, FixedPoint128.Q128);
+        fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, FixedPoint128.Q128);
     }
 
     function _getFeeGrowthInside(
@@ -227,33 +314,13 @@ contract CollateralModule is Module, IModule {
 }
 
 
-
-// TODO oracle proposals
-
 interface IOracle {
     /**
      * @notice Get the official price for a token (if it fails - call must revert)
      * @param token The token to fetch the price of
      * @return Price denominated in USD, with 6 decimals
      */
-    function price(address token, string calldata symbol) external view returns (uint);
-}
- 
-interface IUniswapAnchoredView {
-    function price(string calldata symbol) external view returns (uint256);
-}
-
-contract UniswapAnchoredViewWrapperOracle is IOracle {
-
-    IUniswapAnchoredView public immutable uniswapAnchoredView;
-
-    constructor(IUniswapAnchoredView _uniswapAnchoredView) {
-        uniswapAnchoredView = _uniswapAnchoredView;
-    }
-
-    function price(address token, string calldata symbol) external view override returns (uint) {
-        return uniswapAnchoredView.price(symbol);
-    }
+    function price(address token) external view returns (uint);
 }
 
 interface AggregatorV3Interface {
@@ -267,10 +334,9 @@ interface AggregatorV3Interface {
 
     function decimals() external view returns (uint8);
 }
-
 contract ChainlinkOracle is IOracle, Ownable {
 
-    uint8 constant COMPOUND_USD_DECIMALS = 6;
+    uint8 constant OUTPUT_USD_DECIMALS = 6; // needed by compound
 
     error WrongFeedDecimals();
     error NoFeedConfigured();
@@ -290,13 +356,13 @@ contract ChainlinkOracle is IOracle, Ownable {
 
     function setTokenFeed(address token, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
         uint8 decimals = feed.decimals();
-        if (decimals < COMPOUND_USD_DECIMALS) {
+        if (decimals < OUTPUT_USD_DECIMALS) {
             revert WrongFeedDecimals();
         }
         feedConfigs[token] = FeedConfig(feed, maxFeedAge, decimals);
     }
 
-    function price(address token, string calldata symbol) external view override returns (uint) {
+    function price(address token) external view override returns (uint) {
         FeedConfig storage feedConfig = feedConfigs[token];
         if (address(feedConfig.feed) == address(0)) {
             revert NoFeedConfigured();
@@ -311,6 +377,6 @@ contract ChainlinkOracle is IOracle, Ownable {
             revert InvalidAnswer();
         }
 
-        return uint256(answer) / ((feedConfig.decimals - COMPOUND_USD_DECIMALS) ** 10);
+        return uint256(answer) / (10 ** (feedConfig.decimals - OUTPUT_USD_DECIMALS));
     }
 }
