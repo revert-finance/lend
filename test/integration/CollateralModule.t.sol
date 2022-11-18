@@ -39,7 +39,7 @@ contract CollateralModuleTest is Test, TestBase {
         module.setTokenConfig(address(DAI), true);
         module.setTokenConfig(address(WETH_ERC20), true);
 
-        moduleIndex = holder.addModule(NFTHolder.Module(module, true, true)); // must be added with checkoncollect
+        moduleIndex = holder.addModule(module, true, 0); // must be added with checkoncollect
     }
 
     function testGetWithoutConfiguredTokens() external {

@@ -27,7 +27,7 @@ contract LockModuleTest is Test, TestBase {
             0x1F98431c8aD98523631AE4a59f267346ea31F984
         );
 
-        moduleIndex = holder.addModule(NFTHolder.Module(module, true, true)); // must be added with checkoncollect
+        moduleIndex = holder.addModule(module, true, 0); // must be added with checkoncollect
     }
 
     function _addLiquidityAndDecreasePartial() internal returns (uint256 amount0, uint256 amount1) {

@@ -22,7 +22,7 @@ contract CompoundorModuleTest is Test, TestBase {
         holder = new NFTHolder(NPM);
         module = new CompoundorModule(holder);
 
-        moduleIndex = holder.addModule(NFTHolder.Module(module, true, false));
+        moduleIndex = holder.addModule(module, false, 0);
     }
 
     // add position with fees to module

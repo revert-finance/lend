@@ -25,6 +25,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
     error MaxTokensReached();
     error ModuleZero();
     error ModuleInactive();
+    error ModuleBlocked();
     error ModuleNotExists();
     error ModuleAlreadyRegistered();
 
@@ -33,7 +34,7 @@ contract NFTHolder is IERC721Receiver, Ownable  {
 
     // events
     event AddedModule(uint8 index, IModule implementation);
-    event SetModuleActive(uint8 index, bool isActive);
+    event SetModuleBlocking(uint8 index, uint blocking);
     event AddedPositionToModule(uint indexed tokenId, uint8 index, bytes data);
     event RemovedPositionFromModule(uint indexed tokenId, uint8 index);
 
@@ -41,10 +42,11 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         nonfungiblePositionManager = _nonfungiblePositionManager;
     }
     
+    uint public checkOnCollect; // bitmap with modules that need check on collect
+
     struct Module {
         IModule implementation; // 160 bits
-        bool active; // allows to add new positions
-        bool checkOnCollect; // this module needs to check if collect allowed by other modules / owner
+        uint blocking; // bitmap of modules which when active for the position don't allow the position to enter this module - if module is blocking itself -> deactivated
     }
 
     uint8 public modulesCount;
@@ -104,66 +106,72 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         if(address(module.implementation) == address(0)) {
             revert ModuleNotExists();
         }
-        if (!module.active) {
-            revert ModuleInactive();
-        }
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
+        }
+        
+        uint tokenMods = tokenModules[tokenId] | (1 << params.index);
+        if (module.blocking & tokenMods > 0) {
+            revert ModuleBlocked();
         }
 
         // can be called multiple times to update config, modules must handle this case
         module.implementation.addToken(tokenId, msg.sender, params.data);
         emit AddedPositionToModule(tokenId, params.index, params.data);
-
-        tokenModules[tokenId] = tokenModules[tokenId] | (1 << params.index);
+        tokenModules[tokenId] = tokenMods;
     }
 
     function removeTokenFromModule(uint256 tokenId, uint8 moduleIndex) external {
 
-        Module storage module = modules[moduleIndex];
-
-        if(address(module.implementation) == address(0)) {
-            revert ModuleNotExists();
-        }
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
         }
-        if (tokenModules[tokenId] & (1 << moduleIndex) == 0) {
+
+        uint tokenMods = tokenModules[tokenId];
+
+        if (tokenMods & (1 << moduleIndex) == 0) {
             revert TokenNotInModule();
         }
+
+        Module storage module = modules[moduleIndex];
         module.implementation.withdrawToken(tokenId, msg.sender);
         emit RemovedPositionFromModule(tokenId, moduleIndex);
-        tokenModules[tokenId] -= (1 << moduleIndex);
+        tokenModules[tokenId] = tokenMods - (1 << moduleIndex);
     }
 
     /// @notice Adds a new module to the holder
-    function addModule(Module calldata module) external onlyOwner returns(uint8) {
-        if(address(module.implementation) == address(0)) {
+    function addModule(IModule implementation, bool _checkOnCollect, uint blocking) external onlyOwner returns(uint8) {
+        if(address(implementation) == address(0)) {
             revert ModuleZero();
         }
-        if(modulesIndex[address(module.implementation)] > 0) {
+        if(modulesIndex[address(implementation)] > 0) {
             revert ModuleAlreadyRegistered();
         }
 
         uint8 moduleIndex = ++modulesCount; // overflows when all registered
 
-        modules[modulesCount] = module;
-        modulesIndex[address(module.implementation)] = moduleIndex;
+        modules[modulesCount] = Module(implementation, blocking);
+        modulesIndex[address(implementation)] = moduleIndex;
 
-        emit AddedModule(moduleIndex, module.implementation);
+        if (_checkOnCollect) {
+            checkOnCollect += (1 << moduleIndex);
+        }
+
+        emit AddedModule(moduleIndex, implementation);
 
         return moduleIndex;
     }
 
-    /// @notice Sets module in active or inactive state
-    // When a module is inactive, no more new positions can be added to it
-    function setModuleActive(uint8 moduleIndex, bool isActive) external onlyOwner {
+    /// @notice Sets module blocking configuration
+    // When a position is in a module which is in blocking bitmap it cant be added to this module
+    // Adding a modules index to its own blocking bitmap - disables adding new positions to the module
+    function setModuleBlocking(uint8 moduleIndex, uint blocking) external onlyOwner {
         Module storage module = modules[moduleIndex];
         if (address(module.implementation) == address(0)) {
             revert ModuleNotExists();
         }
-        module.active = isActive;
-        emit SetModuleActive(moduleIndex, isActive);
+        module.blocking = blocking;
+        emit SetModuleBlocking(moduleIndex, blocking);
     }
 
     struct DecreaseLiquidityAndCollectParams {
@@ -210,9 +218,11 @@ contract NFTHolder is IERC721Receiver, Ownable  {
         );
 
         uint8 index = 1;
+        uint check = checkOnCollect;
         while(mod > 0) {
-            if (mod & (1 << index) != 0) {
-                if (index != moduleIndex && modules[index].checkOnCollect) {
+            if (mod & (1 << index) > 0) {
+                // module to be checked must be different from calling module and in check bitmap
+                if (moduleIndex != index && check & (1 << index) > 0) {
                     modules[index].implementation.checkOnCollect(params.tokenId, owner, params.liquidity, amount0, amount1);
                 }
                 mod -= (1 << index);

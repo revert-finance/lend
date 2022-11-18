@@ -22,7 +22,7 @@ contract TestModule is IModule {
     function withdrawToken(uint256 tokenId, address) override external {
     }
 
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external {
+    function checkOnCollect(uint256, address, uint128, uint, uint) override external view {
         if (!checkOnCollectResponse) {
             revert CheckCollectError();
         }
