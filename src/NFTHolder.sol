@@ -99,6 +99,31 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard  {
         return accountTokens[account].length;
     }
 
+    // gets all tokens which are active for a given calling module
+    function getModuleTokensForOwner(address owner) external view returns (uint[] memory tokens) {
+        uint8 moduleIndex = modulesIndex[msg.sender];
+        if (moduleIndex == 0) {
+            revert ModuleNotExists();
+        }
+
+        uint count = accountTokens[owner].length;
+        uint total;
+        uint i;
+        uint mod = (1 << moduleIndex);
+        for (; i < count; i++) {
+            if (tokenModules[accountTokens[owner][i]] & mod > 0) {
+                total++;
+            }
+        }
+        tokens = new uint[](total);
+        i = 0;
+        for (; i < count; i++) {
+            if (tokenModules[accountTokens[owner][i]] & mod > 0) {
+                tokens[--total] = accountTokens[owner][i];
+            }
+        }
+    }
+
     function addTokenToModule(uint256 tokenId, ModuleParams calldata params) external {
 
         if (tokenOwners[tokenId] != msg.sender) {
@@ -245,13 +270,10 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard  {
         accountTokens[account].push(tokenId);
         tokenOwners[tokenId] = account;
         uint i;
-        uint mod = 0;
         for (; i < initialModules.length; i++) {
-            mod += 1 << initialModules[i].index;
+            tokenModules[tokenId] += 1 << initialModules[i].index;
             modules[initialModules[i].index].implementation.addToken(tokenId, account, initialModules[i].data);
         }
-
-        tokenModules[tokenId] = mod;
     }
 
     function _removeToken(uint256 tokenId, address account) internal {

@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 import "forge-std/console.sol";
 
 import "compound-protocol/Comptroller.sol";
-import "compound-protocol/CToken.sol";
 import "compound-protocol/CErc20.sol";
 
 import "compound-protocol/PriceOracle.sol";
@@ -18,9 +17,10 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "../NFTHolder.sol";
 import "./Module.sol";
 import "./IModule.sol";
+import "./ICollateralModule.sol";
 
 
-contract CollateralModule is Module, IModule, ExponentialNoError {
+contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoError {
 
     // errors 
     error PoolNotActive();
@@ -30,59 +30,50 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
     error AlreadyAdded();
     error PositionInRange();
     error WrongSide();
-
-    // current oracle
-    IOracle public oracle;
+    error MintError();
 
     struct PoolConfig {
         bool isActive; // pool may be deposited
-        uint64 collateralFactorX64;
         uint64 maxOracleSqrtDeviationX64; // reasonable value maybe 10%
     }
     mapping (address => PoolConfig) poolConfigs;
 
     struct TokenConfig {
-        uint8 decimals;
         bool isActive; // token may be deposited
         CErc20 cToken; // corresponding cToken
     }
     mapping (address => TokenConfig) tokenConfigs;
+
+    struct PositionConfigParams {
+        bool isLendable;
+    }
 
     struct PositionConfig {
         bool isLendable;
         uint cTokenAmount;
         bool isCToken0;
     }
-    mapping (uint => PositionConfig) positionConfigs;
+    mapping (uint => PositionConfig) public positionConfigs;
 
     Comptroller public immutable comptroller;
 
-    constructor(NFTHolder _holder, Comptroller _comptroller, IOracle _oracle) Module(_holder) {
+    constructor(NFTHolder _holder, Comptroller _comptroller) Module(_holder) {
         comptroller = _comptroller;
-        oracle = _oracle;
     }
 
     /// @notice Management method to configure a pool
-    function setPoolConfig(address pool, PoolConfig calldata config) external onlyOwner {
-        poolConfigs[pool] = config;
+    function setPoolConfig(address pool, bool isActive, uint64 maxOracleSqrtDeviationX64) external onlyOwner {
+        poolConfigs[pool] = PoolConfig(isActive, maxOracleSqrtDeviationX64);
     }
 
     /// @notice Management method to configure a token
     function setTokenConfig(address token, bool isActive, CErc20 cToken) external onlyOwner {
-        uint8 decimals = IERC20Metadata(token).decimals();
-        tokenConfigs[token] = TokenConfig(decimals, isActive, cToken);
-    }
-
-    /// @notice Management method to set oracle
-    function setOracle(IOracle _oracle) external onlyOwner {
-        oracle = _oracle;
+        tokenConfigs[token] = TokenConfig(isActive, cToken);
     }
 
     struct PositionState {
         address token0;
         address token1;
-        uint8 decimals0;
-        uint8 decimals1;
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
@@ -94,29 +85,41 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
         IUniswapV3Pool pool;
     }
 
-    // calculates collateral value of v3 position returning value in compound format -> USD with 6 digits
-    // this function may revert if there is any error with oracle prices - this will disable borrowing / liquidations in connected compound
-    function getCollateralValue(uint256 tokenId) external returns (uint) {
- 
+    function getTokensOfOwner(address owner) external override view returns (uint[] memory tokenIds, CToken[] memory cTokens0, CToken[] memory cTokens1) {
+        tokenIds = holder.getModuleTokensForOwner(owner);
+        cTokens0 = new CToken[](tokenIds.length);
+        cTokens1 = new CToken[](tokenIds.length);
+        uint i;
+        uint count = tokenIds.length;
+        for (;i < count;i++) {
+            (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenIds[i]);
+            cTokens0[i] = tokenConfigs[token0].cToken;
+            cTokens1[i] = tokenConfigs[token1].cToken;
+        }
+    }
+
+    // returns token breakdown using given oracle prices for both tokens
+    // returns corresponding ctoken balance if lent out
+    // reverts if prices deviate to much from pool TODO check if better use error code (compound style)
+    function getTokenBreakdown(uint256 tokenId, uint price0, uint price1) external override view returns (uint amount0, uint amount1, uint fees0, uint fees1, uint cAmount0, uint cAmount1) {
+
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
         PositionState memory position = _getPositionState(tokenId);
-      
-        (uint256 price0, uint256 price1, uint160 oracleSqrtPriceX96) = _getOraclePrice(position.token0, position.token1, position.decimals0, position.decimals1);
+
+        // calculate oracle sqrt price
+        uint160 oracleSqrtPriceX96 = uint160(_sqrt(FullMath.mulDiv(price0, Q96 * Q96, price1)));
 
         (uint160 sqrtPriceX96, int24 tick,,,,,) = position.pool.slot0();
 
         // calculate position amounts (incl uncollected fees)
-        (uint amount0, uint amount1) = _getAmounts(position, oracleSqrtPriceX96, tick);
+        (amount0, amount1, fees0, fees1) = _getAmounts(position, oracleSqrtPriceX96, tick);
 
-        // add ctoken balance
         if (positionConfig.cTokenAmount > 0) {
             if (positionConfig.isCToken0) {
-                Exp memory exchangeRate = Exp({mantissa: tokenConfigs[position.token0].cToken.exchangeRateCurrent()});
-                amount0 += mul_ScalarTruncate(exchangeRate, positionConfig.cTokenAmount);
+                cAmount0 = positionConfig.cTokenAmount;
             } else {
-                Exp memory exchangeRate = Exp({mantissa: tokenConfigs[position.token1].cToken.exchangeRateCurrent()});
-                amount1 += mul_ScalarTruncate(exchangeRate, positionConfig.cTokenAmount);
+                cAmount1 = positionConfig.cTokenAmount;
             }
         }
 
@@ -127,8 +130,47 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
         if (priceSqrtRatioX64 > poolConfig.maxOracleSqrtDeviationX64) {
             revert OracleDeviation();
         }
+    }
 
-        return _getUSDValue(position.decimals0, position.decimals1, amount0, amount1, price0, price1, poolConfig.collateralFactorX64);
+    // during liquidation - a NFT in collateral module (fees and/or liquidity or reserved ctokens) may be (partially) liquidated
+    function seizeAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeValue) external {
+
+        require(holder.tokenOwners(tokenId) == borrower, "borrower must own tokenId");
+
+        /*
+        // make call to comptroller to ensure seize is allowed
+        uint256 allowed = comptroller.seizeAllowedUniV3(
+            address(this),
+            msg.sender,
+            liquidator,
+            borrower,
+            tokenId,
+            seizeFeesToken0,
+            seizeFeesToken1,
+            seizeLiquidity
+        );
+
+        require(allowed == 0, "seize not allowed according to Comptroller");
+
+        if (seizeLiquidity > 0) {
+            // liquidate seizeLiquidity from tokenId position
+            _decreaseLiquidity(tokenId, uint128(seizeLiquidity));
+
+            // claim all fees + tokens from liquidity removal
+            nonfungiblePositionManager.collect(
+                INonfungiblePositionManager.CollectParams(tokenId, liquidator, type(uint128).max, type(uint128).max)
+            );
+        } else {
+            // claim feesAmountToken0 and feesAmountToken1 and send to liquidator
+            nonfungiblePositionManager.collect(
+                INonfungiblePositionManager.CollectParams(
+                    tokenId,
+                    liquidator,
+                    uint128(seizeFeesToken0),
+                    uint128(seizeFeesToken1)
+                )
+            );
+        }*/
     }
 
     // removes liquidity from position and mints ctokens
@@ -136,25 +178,36 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
-        if (positionConfig.cTokenAmount > 0) {
+        if (!positionConfig.isLendable || positionConfig.cTokenAmount > 0) {
             return;
         }
 
         // get position info
         (,,address token0, address token1, uint24 fee,int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) =  nonfungiblePositionManager.positions(tokenId);
+
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
         (,int24 tick,,,,,) = pool.slot0();
 
-        // collect all onsided liquidity if out of range
+        // collect all oneside liquidity+fees if out of range
         if (tick < tickLower) {
             (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, type(uint128).max, 0, block.timestamp, address(this)));
-            uint cAmount = tokenConfigs[token0].cToken.mint(amount0);
-            positionConfig.cTokenAmount = cAmount;
+            IERC20(token0).approve(address(tokenConfigs[token0].cToken), amount0);
+            uint cAmountBefore = tokenConfigs[token0].cToken.balanceOf(address(this));
+            if (tokenConfigs[token0].cToken.mint(amount0) != 0) {
+                revert MintError();
+            }
+            uint cAmountAfter = tokenConfigs[token0].cToken.balanceOf(address(this));
+            positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = true;
         } else if (tick > tickUpper) {
             (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, 0, type(uint128).max, block.timestamp, address(this)));
-            uint cAmount = tokenConfigs[token1].cToken.mint(amount1);
-            positionConfig.cTokenAmount = cAmount;
+            IERC20(token1).approve(address(tokenConfigs[token1].cToken), amount1);
+            uint cAmountBefore = tokenConfigs[token1].cToken.balanceOf(address(this));
+            if (tokenConfigs[token1].cToken.mint(amount1) != 0) {
+                revert MintError();
+            }
+            uint cAmountAfter = tokenConfigs[token1].cToken.balanceOf(address(this));
+            positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = false;
         }
     }
@@ -207,6 +260,7 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
             
             positionConfig.cTokenAmount = 0;
         } else {
+            // can only unlend when position one-sided
             revert PositionInRange(); 
         }
     }
@@ -228,9 +282,6 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
             uint128 tokensOwed1
         ) = nonfungiblePositionManager.positions(tokenId);
 
-        TokenConfig storage tokenConfig0 = tokenConfigs[token0];
-        TokenConfig storage tokenConfig1 = tokenConfigs[token1];
-
         state.token0 = token0;
         state.token1 = token1;
         state.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
@@ -241,15 +292,9 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
         state.tokensOwed0 = tokensOwed0;
         state.tokensOwed1 = tokensOwed1;
         state.pool = _getPool(token0, token1, fee);
-        state.decimals0 = tokenConfig0.decimals;
-        state.decimals1 = tokenConfig1.decimals;
     }
 
-    function _getUSDValue(uint8 decimals0, uint8 decimals1, uint amount0, uint amount1, uint price0, uint price1, uint64 collateralFactorX64) internal returns (uint) {
-        return (amount0 * price0 / (10 ** decimals0) + amount1 * price1 / (10 ** decimals1)) * collateralFactorX64 / Q64;
-    }   
-
-    function _getAmounts(PositionState memory position, uint160 oracleSqrtPriceX96, int24 tick) internal returns (uint amount0, uint amount1) {
+    function _getAmounts(PositionState memory position, uint160 oracleSqrtPriceX96, int24 tick) internal view returns (uint amount0, uint amount1, uint fees0, uint fees1) {
         if (position.liquidity > 0) {
             uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(position.tickLower);
             uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(position.tickUpper);        
@@ -260,14 +305,6 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
         
         amount0 += fees0 + position.tokensOwed0;
         amount1 += fees1 + position.tokensOwed1;
-    }
-
-    function _getOraclePrice(address token0, address token1, uint8 decimals0, uint8 decimals1) internal returns (uint price0, uint price1, uint160 oracleSqrtPriceX96) {
-        price0 = oracle.price(token0);
-        price1 = oracle.price(token1);
-
-        uint oraclePriceX192 = FullMath.mulDiv(price0 * (10 ** decimals1), Q96 * Q96, price1 * (10 ** decimals0));
-        oracleSqrtPriceX96 = uint160(_sqrt(oraclePriceX192));
     }
 
     function _getUncollectedFees(PositionState memory position, int24 tick) internal view returns (uint256 fees0, uint256 fees1)
@@ -322,7 +359,10 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
+    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder external {
+
+        PositionConfigParams memory params = abi.decode(data, (PositionConfigParams));
+
         (, , address token0, address token1, uint24 fee , , , , , , ,) = nonfungiblePositionManager.positions(tokenId);
 
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
@@ -338,28 +378,33 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
             revert TokenNotActive();
         }
 
-        _lend(tokenId);
+        // update status
+        positionConfigs[tokenId].isLendable = params.isLendable;
+        if (!params.isLendable) {
+            _unlend(tokenId);
+        } else if (params.isLendable) {
+            _lend(tokenId);
+        }
+        _checkCollateral(owner);
     }
 
     function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
-
-        // unlend token - if in lent state
         _unlend(tokenId);
+        _checkCollateral(owner);
+    }
 
+    function checkOnCollect(uint256, address owner, uint128 , uint , uint ) override external {
+        _checkCollateral(owner);
+    }
+
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
+
+    function _checkCollateral(address owner) internal {
         (uint err,,uint shortfall) = comptroller.getAccountLiquidity(owner); // TODO comptroller.getHypotheticalAccountLiquidity(account); // create hypotetical function for removing token
         if (err > 0 || shortfall > 0) {
             revert NotAllowed();
         }
     }
-
-    function checkOnCollect(uint256, address owner, uint128 , uint , uint ) override external {
-        (uint err,,uint shortfall) = comptroller.getAccountLiquidity(owner);
-        if (err > 0 || shortfall > 0) {
-            revert NotAllowed();
-        }
-    }
-
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 
     function _sqrt(uint256 x) internal pure returns (uint256 z) {
         /// @solidity memory-safe-assembly
@@ -427,16 +472,6 @@ contract CollateralModule is Module, IModule, ExponentialNoError {
     }
 }
 
-
-interface IOracle {
-    /**
-     * @notice Get the official price for a token (if it fails - call must revert)
-     * @param token The token to fetch the price of
-     * @return Price denominated in USD, with 6 decimals
-     */
-    function price(address token) external view returns (uint);
-}
-
 interface AggregatorV3Interface {
     function latestRoundData() external view returns (
         uint80 roundId,
@@ -448,20 +483,15 @@ interface AggregatorV3Interface {
 
     function decimals() external view returns (uint8);
 }
-contract ChainlinkOracle is IOracle, PriceOracle, Ownable {
+contract ChainlinkOracle is PriceOracle, Ownable {
 
-    uint8 constant OUTPUT_USD_DECIMALS = 6; // needed by compound
-
-    error WrongFeedDecimals();
     error NoFeedConfigured();
-    error FeedOutdated();
-    error InvalidAnswer();
 
     struct FeedConfig {
         AggregatorV3Interface feed;
         uint32 maxFeedAge;
-        uint8 decimals;
-        uint baseUnit;
+        uint8 feedDecimals;
+        uint8 tokenDecimals;
     }
 
     mapping(address => FeedConfig) feedConfigs;
@@ -470,34 +500,33 @@ contract ChainlinkOracle is IOracle, PriceOracle, Ownable {
     }
 
     function setTokenFeed(address token, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
-        uint8 decimals = feed.decimals();
-        uint baseUnit = 10 ** IERC20Metadata(token).decimals();
-        if (decimals < OUTPUT_USD_DECIMALS) {
-            revert WrongFeedDecimals();
-        }
-        feedConfigs[token] = FeedConfig(feed, maxFeedAge, decimals, baseUnit);
+        uint8 feedDecimals = feed.decimals();
+        uint8 tokenDecimals = IERC20Metadata(token).decimals();
+        feedConfigs[token] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
     }
 
-    function price(address token) public view override returns (uint) {
+    function getPrice(address token) override public view returns (uint) {
         FeedConfig storage feedConfig = feedConfigs[token];
         if (address(feedConfig.feed) == address(0)) {
             revert NoFeedConfigured();
         }
 
-        // if stale data - exception 
+        // if stale data - return 0 - handled as error in compound 
         (, int256 answer, , uint256 updatedAt, ) = feedConfig.feed.latestRoundData();
         if (updatedAt + feedConfig.maxFeedAge < block.timestamp) {
-            revert FeedOutdated();
+            return 0;
         }
+        // if invalid data - return 0 - handled as error in compound 
         if (answer < 0) {
-            revert InvalidAnswer();
+            return 0;
         }
 
-        return uint256(answer) / (10 ** (feedConfig.decimals - OUTPUT_USD_DECIMALS));
+        // convert to compound expected format
+        return (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * uint256(answer);
     }
 
     function getUnderlyingPrice(CToken cToken) override external view returns (uint) {
-        address underlying = CErc20(address(cToken)).underlying();
-        return (10 ** 30) * price(underlying) / feedConfigs[underlying].baseUnit;
+        address underlying = CErc20Storage(address(cToken)).underlying();
+        return getPrice(underlying);
     }
 }
