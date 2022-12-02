@@ -40,6 +40,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             0,
+            TEST_ACCOUNT,
             ""
         );
         NPM.safeTransferFrom(
@@ -91,16 +92,16 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             block.timestamp,
+            TEST_ACCOUNT,
             ""
         );
 
+        // using approve / execute pattern
         vm.prank(TEST_ACCOUNT);
-        NPM.safeTransferFrom(
-            TEST_ACCOUNT,
-            address(c),
-            TEST_NFT_ID,
-            abi.encode(inst)
-        );
+        NPM.approve(address(c), TEST_NFT_ID);
+
+        vm.prank(TEST_ACCOUNT);
+        c.execute(TEST_NFT_ID, inst);
 
         // now we have 2 NFTs (1 empty)
         uint256 countAfter = NPM.balanceOf(TEST_ACCOUNT);
@@ -131,6 +132,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             block.timestamp,
+            TEST_NFT_WITH_FEES_ACCOUNT,
             ""
         );
 
@@ -182,6 +184,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             block.timestamp,
+            TEST_NFT_WITH_FEES_ACCOUNT,
             ""
         );
 
@@ -239,6 +242,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             block.timestamp,
+            TEST_ACCOUNT,
             ""
         );
 
@@ -296,6 +300,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             block.timestamp,
+            TEST_ACCOUNT,
             ""
         );
 

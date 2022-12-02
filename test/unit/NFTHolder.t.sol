@@ -172,7 +172,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
         TestNFT otherNFT = new TestNFT();
         uint otherTokenId = otherNFT.mint();
 
-        vm.expectRevert(NFTHolder.WrongNFT.selector);
+        vm.expectRevert(NFTHolder.WrongContract.selector);
         otherNFT.safeTransferFrom(address(this), address(holder), otherTokenId, "");
     }
 

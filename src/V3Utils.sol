@@ -96,6 +96,9 @@ contract V3Utils is IERC721Receiver {
         // for all uniswap deadlineable functions
         uint deadline;
 
+        // left over tokens and newly created position will be sent to this address (the sent NFT will ALWAYS be returned to from)
+        address recipient;
+
         // data sent when token returned (optional)
         bytes returnData;
     }
@@ -108,6 +111,18 @@ contract V3Utils is IERC721Receiver {
         uint amount0;
         uint amount1;
         uint newTokenId;
+    }
+
+    /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
+    function execute(uint256 tokenId, Instructions memory instructions) external
+    {
+        // must be approved beforehand
+        nonfungiblePositionManager.safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenId,
+            abi.encode(instructions)
+        );
     }
 
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. At the end the NFT and any leftover tokens are returned to sender.
@@ -129,15 +144,15 @@ contract V3Utils is IERC721Receiver {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
-                (state.liquidity, state.amount0, state.amount1) = _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
+                (state.liquidity, state.amount0, state.amount1) = _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, instructions.recipient, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
             } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
-                (state.liquidity, state.amount0, state.amount1) = _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0), IERC20(state.token0), IERC20(state.token1));
+                (state.liquidity, state.amount0, state.amount1) = _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, instructions.recipient, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0), IERC20(state.token0), IERC20(state.token1));
             } else {
                 // no swap is done here
-                (state.liquidity,state.amount0, state.amount1) = _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, from, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
+                (state.liquidity,state.amount0, state.amount1) = _swapAndIncrease(SwapAndIncreaseLiquidityParams(tokenId, state.amount0, state.amount1, instructions.recipient, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", 0, 0), IERC20(state.token0), IERC20(state.token1));
             }
             emit CompoundFees(tokenId, state.liquidity, state.amount0, state.amount1);            
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
@@ -148,15 +163,15 @@ contract V3Utils is IERC721Receiver {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
-                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0));
+                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0));
             } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
-                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0));
+                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0));
             } else {
                 // no swap is done here
-                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0));
+                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0));
             }
             emit ChangeRange(tokenId, state.newTokenId);
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
@@ -170,7 +185,7 @@ contract V3Utils is IERC721Receiver {
             if (state.token0 != instructions.targetToken) {
                 (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.targetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
                 if (amountInDelta < state.amount0) {
-                    IERC20(state.token0).safeTransfer(from, state.amount0 - amountInDelta);
+                    IERC20(state.token0).safeTransfer(instructions.recipient, state.amount0 - amountInDelta);
                 }
                 targetAmount += amountOutDelta;
             } else {
@@ -179,7 +194,7 @@ contract V3Utils is IERC721Receiver {
             if (state.token1 != instructions.targetToken) {
                 (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token1), IERC20(instructions.targetToken), state.amount1, instructions.amountOut1Min, instructions.swapData1);
                 if (amountInDelta < state.amount1) {
-                    IERC20(state.token1).safeTransfer(from, state.amount1 - amountInDelta);
+                    IERC20(state.token1).safeTransfer(instructions.recipient, state.amount1 - amountInDelta);
                 }
                 targetAmount += amountOutDelta;
             } else {
@@ -187,14 +202,14 @@ contract V3Utils is IERC721Receiver {
             }
 
             // send complete target amount
-            IERC20(instructions.targetToken).safeTransfer(from, targetAmount);
+            IERC20(instructions.targetToken).safeTransfer(instructions.recipient, targetAmount);
 
             emit WithdrawAndCollectAndSwap(tokenId, instructions.targetToken, targetAmount);
         } else {
             revert NotSupportedWhatToDo();
         }
         
-        // return token to owner (this line guarantees that token is returned to rightful owner)
+        // return token to owner (this line guarantees that token is returned to originating owner)
         nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
 
         return IERC721Receiver.onERC721Received.selector;

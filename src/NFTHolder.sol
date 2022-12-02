@@ -20,7 +20,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
     // errors
-    error WrongNFT();
+    error WrongContract();
     error Unauthorized();
     error MaxTokensReached();
     error ModuleZero();
@@ -28,6 +28,8 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     error ModuleBlocked();
     error ModuleNotExists();
     error ModuleAlreadyRegistered();
+    error TokenNotReturned();
+    error FlashTransformNotConfigured();
 
     error TokenNotInModule();
     error InvalidWithdrawTarget();
@@ -35,6 +37,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     // events
     event AddedModule(uint8 index, IModule implementation);
     event SetModuleBlocking(uint8 index, uint256 blocking);
+    event SetFlashTransformContract(address flashTransformContract);
     event AddedPositionToModule(
         uint256 indexed tokenId,
         uint8 index,
@@ -47,6 +50,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     }
 
     uint256 public checkOnCollect; // bitmap with modules that need check on collect
+    address public flashTransformContract; // contract which is allowed to do flash transforms
 
     struct Module {
         IModule implementation; // 160 bits
@@ -75,7 +79,11 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     ) external override returns (bytes4) {
         // only Uniswap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
-            revert WrongNFT();
+            revert WrongContract();
+        }
+        // if flashTransform contract sent token back - no need to do nothing here
+        if (from == flashTransformContract) {
+            return IERC721Receiver.onERC721Received.selector;
         }
 
         ModuleParams[] memory initialModules;
@@ -195,7 +203,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     /// @notice Adds a new module to the holder
     function addModule(
         IModule implementation,
-        bool _checkOnCollect,
+        bool checkCollect,
         uint256 blocking
     ) external onlyOwner returns (uint8) {
         if (address(implementation) == address(0)) {
@@ -210,7 +218,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         modules[modulesCount] = Module(implementation, blocking);
         modulesIndex[address(implementation)] = moduleIndex;
 
-        if (_checkOnCollect) {
+        if (checkCollect) {
             checkOnCollect += (1 << moduleIndex);
         }
 
@@ -234,6 +242,14 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         emit SetModuleBlocking(moduleIndex, blocking);
     }
 
+
+    /// @notice Sets new flash transform contract
+    function setFlashTransformContract(address _flashTransformContract) external onlyOwner
+    {
+        flashTransformContract = _flashTransformContract;
+        emit SetFlashTransformContract(_flashTransformContract);
+    }
+
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;
         uint128 liquidity; // set to exact liquidity to be removed - 0 if only collect fees
@@ -243,6 +259,33 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         uint128 amountFees1Max; // set to uint128.max for all fees (+ all liquidity removed)
         uint256 deadline;
         address recipient;
+    }
+
+    /// @notice flash transforms token - must be returned afterwards
+    /// only token owner is allowed to call this!!
+    /// currently used vor v3utils type of operations
+    function flashTransform(uint256 tokenId, bytes calldata data) external nonReentrant {
+
+        address owner = tokenOwners[tokenId];
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+
+        if (flashTransformContract == address(0)) {
+            revert FlashTransformNotConfigured();
+        }
+        
+        // do transfer to flash transform contract
+        nonfungiblePositionManager.safeTransferFrom(address(this), flashTransformContract, tokenId, data);
+
+        // must have been returned afterwards
+        if (nonfungiblePositionManager.ownerOf(tokenId) != address(this)) {
+            revert TokenNotReturned();
+        }
+
+        // only allow if complete collect is allowed
+        uint256 mod = tokenModules[tokenId];
+        _checkOnCollect(0, mod, tokenId, owner, type(uint128).max, type(uint128).max, type(uint128).max);
     }
 
     function decreaseLiquidityAndCollect(
@@ -274,8 +317,8 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
             INonfungiblePositionManager.CollectParams(
                 params.tokenId,
                 params.recipient,
-                amount0 + params.amountFees0Max > type(uint128).max ? type(uint128).max : _toUint128(amount0 + params.amountFees0Max),
-                amount1 + params.amountFees1Max > type(uint128).max ? type(uint128).max : _toUint128(amount1 + params.amountFees1Max)
+                amount0 + params.amountFees0Max >= type(uint128).max ? type(uint128).max : _toUint128(amount0 + params.amountFees0Max),
+                amount1 + params.amountFees1Max >= type(uint128).max ? type(uint128).max : _toUint128(amount1 + params.amountFees1Max)
             )
         );
 
@@ -290,6 +333,11 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
                 );
         }
 
+        _checkOnCollect(moduleIndex, mod, params.tokenId, owner, params.liquidity, amount0, amount1);
+    }
+
+    function _checkOnCollect(uint8 moduleIndex, uint256 mod, uint256 tokenId, address owner, uint128 liquidity, uint fees0, uint fees1) internal {
+        
         // check all modules which need to be checked at the end
         uint8 index = 1;
         uint256 check = checkOnCollect;
@@ -298,11 +346,11 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
                 // module to be checked must be different from calling module and in check bitmap
                 if (moduleIndex != index && check & (1 << index) > 0) {
                     modules[index].implementation.checkOnCollect(
-                        params.tokenId,
+                        tokenId,
                         owner,
-                        params.liquidity,
-                        amount0,
-                        amount1
+                        liquidity,
+                        fees0,
+                        fees1
                     );
                 }
                 mod -= (1 << index);
