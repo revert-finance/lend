@@ -175,7 +175,7 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(shortfall, 0);
     }
 
-    function testGetCollateralValueNotLent() external {
+    function testGetCollateralValueNotLentAndLent() external {
 
         uint err;
         uint liquidity;
@@ -197,64 +197,24 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(cTokenAmount, 0);
         assertEq(isCToken0, false);
 
-        (uint[] memory tokenIds,,) = module.getTokensOfOwner(TEST_NFT_2_ACCOUNT);
-        assertEq(tokenIds.length, 1);
-
         (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
         assertEq(err, 0);
         assertEq(liquidity, 540729630887579142348);
-        assertEq(shortfall, 0);      
-    }
-
-    function testGetCollateralValueLent() external {
-
-        uint err;
-        uint liquidity;
-        uint shortfall;
-
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(true)));
+        assertEq(shortfall, 0);     
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.safeTransferFrom(
-                TEST_NFT_2_ACCOUNT,
-                address(holder),
-                TEST_NFT_2,
-                abi.encode(params)
-            );
+        holder.addTokenToModule(TEST_NFT_2, NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(true)))); 
 
-        (bool isLendable, uint cTokenAmount, bool isCToken0) = module.positionConfigs(TEST_NFT_2);
+        (isLendable, cTokenAmount, isCToken0) = module.positionConfigs(TEST_NFT_2);
         assertEq(isLendable, true);
         assertGt(cTokenAmount, 0);
         assertEq(isCToken0, false);
 
-        (uint[] memory tokenIds,,) = module.getTokensOfOwner(TEST_NFT_2_ACCOUNT);
-        assertEq(tokenIds.length, 1);
-
         (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
         assertEq(err, 0);
         assertEq(liquidity, 540729630887579142348);
-        assertEq(shortfall, 0);      
-    }
-
-/*
-    function testGetWithoutConfiguredTokens() external {
-
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, "");
-
-        vm.prank(TEST_NFT_ETH_USDC_ACCOUNT);
-        NPM.safeTransferFrom(
-                TEST_NFT_ETH_USDC_ACCOUNT,
-                address(holder),
-                TEST_NFT_ETH_USDC,
-                abi.encode(params)
-            );
-
-        uint value1 = module.getCollateralValue(TEST_NFT_ETH_USDC);
-        assertEq(value1, 6762980324); // 6762 USD - based on oracle price
+        assertEq(shortfall, 0);
     }
 
     
- */  
 }
