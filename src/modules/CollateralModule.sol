@@ -3,10 +3,12 @@ pragma solidity ^0.8.0;
 
 import "forge-std/console.sol";
 
-import "compound-protocol/Comptroller.sol";
-import "compound-protocol/CErc20.sol";
+import "../compound/ComptrollerInterface.sol";
+import "../compound/Lens/CompoundLens.sol";
 
-import "compound-protocol/PriceOracle.sol";
+import "../compound/CErc20.sol";
+
+import "../compound/PriceOracle.sol";
 
 import "v3-core/libraries/TickMath.sol";
 import "v3-core/libraries/FullMath.sol";
@@ -55,9 +57,9 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     }
     mapping (uint => PositionConfig) public positionConfigs;
 
-    Comptroller public immutable comptroller;
+    address public immutable comptroller;
 
-    constructor(NFTHolder _holder, Comptroller _comptroller) Module(_holder) {
+    constructor(NFTHolder _holder, address _comptroller) Module(_holder) {
         comptroller = _comptroller;
     }
 
@@ -85,6 +87,16 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         IUniswapV3Pool pool;
     }
 
+    function getOwnerOfToken(uint256 tokenId) external override view returns(address) {
+        return holder.tokenOwners(tokenId);
+    }
+
+    function getCTokensOfToken(uint256 tokenId) external override view returns (CToken cToken0, CToken cToken1) {
+        (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        cToken0 = tokenConfigs[token0].cToken;
+        cToken1 = tokenConfigs[token1].cToken;
+    }
+
     function getTokensOfOwner(address owner) external override view returns (uint[] memory tokenIds, CToken[] memory cTokens0, CToken[] memory cTokens1) {
         tokenIds = holder.getModuleTokensForOwner(owner);
         cTokens0 = new CToken[](tokenIds.length);
@@ -101,7 +113,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     // returns token breakdown using given oracle prices for both tokens
     // returns corresponding ctoken balance if lent out
     // reverts if prices deviate to much from pool TODO check if better use error code (compound style)
-    function getTokenBreakdown(uint256 tokenId, uint price0, uint price1) external override view returns (uint amount0, uint amount1, uint fees0, uint fees1, uint cAmount0, uint cAmount1) {
+    function getTokenBreakdown(uint256 tokenId, uint price0, uint price1) external override view returns (uint128 liquidity, uint amount0, uint amount1, uint fees0, uint fees1, uint cAmount0, uint cAmount1) {
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
@@ -132,45 +144,49 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         }
     }
 
-    // during liquidation - a NFT in collateral module (fees and/or liquidity or reserved ctokens) may be (partially) liquidated
-    function seizeAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeValue) external {
-
+    function seizeAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1, uint256 seizeCToken0, uint256 seizeCToken1) external override {
+        
         require(holder.tokenOwners(tokenId) == borrower, "borrower must own tokenId");
 
-        /*
         // make call to comptroller to ensure seize is allowed
-        uint256 allowed = comptroller.seizeAllowedUniV3(
+        uint256 allowed = ComptrollerInterface(comptroller).seizeAllowedUniV3(
             address(this),
             msg.sender,
             liquidator,
             borrower,
             tokenId,
+            seizeLiquidity,
             seizeFeesToken0,
             seizeFeesToken1,
-            seizeLiquidity
+            seizeCToken0,
+            seizeCToken1
         );
 
         require(allowed == 0, "seize not allowed according to Comptroller");
 
-        if (seizeLiquidity > 0) {
-            // liquidate seizeLiquidity from tokenId position
-            _decreaseLiquidity(tokenId, uint128(seizeLiquidity));
+        // if position internal values are seized
+        if (seizeLiquidity > 0 || seizeFeesToken0 > 0 || seizeFeesToken1 > 0) {
+            holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, liquidator));
+        }
 
-            // claim all fees + tokens from liquidity removal
-            nonfungiblePositionManager.collect(
-                INonfungiblePositionManager.CollectParams(tokenId, liquidator, type(uint128).max, type(uint128).max)
-            );
-        } else {
-            // claim feesAmountToken0 and feesAmountToken1 and send to liquidator
-            nonfungiblePositionManager.collect(
-                INonfungiblePositionManager.CollectParams(
-                    tokenId,
-                    liquidator,
-                    uint128(seizeFeesToken0),
-                    uint128(seizeFeesToken1)
-                )
-            );
-        }*/
+        // if ctokens are seized
+        if (seizeCToken0 > 0 || seizeCToken1 > 0) {
+            (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+            if (seizeCToken0 > 0) {
+                CErc20 cToken0 = tokenConfigs[token0].cToken;
+                uint balanceBefore = IERC20(token0).balanceOf(address(this));
+                cToken0.redeem(seizeCToken0);
+                uint balanceAfter = IERC20(token0).balanceOf(address(this));
+                SafeERC20.safeTransfer(IERC20(token0), liquidator, balanceAfter - balanceBefore);
+            }
+            if (seizeCToken1 > 0) {
+                CErc20 cToken1 = tokenConfigs[token1].cToken;
+                uint balanceBefore = IERC20(token1).balanceOf(address(this));
+                cToken1.redeem(seizeCToken1);
+                uint balanceAfter = IERC20(token1).balanceOf(address(this));
+                SafeERC20.safeTransfer(IERC20(token1), liquidator, balanceAfter - balanceBefore);
+            }
+        }
     }
 
     // removes liquidity from position and mints ctokens
@@ -400,10 +416,15 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 
     function _checkCollateral(address owner) internal {
-        (uint err,,uint shortfall) = comptroller.getAccountLiquidity(owner); // TODO comptroller.getHypotheticalAccountLiquidity(account); // create hypotetical function for removing token
+        (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner); // TODO comptroller.getHypotheticalAccountLiquidity(account); // create hypotetical function for removing token
         if (err > 0 || shortfall > 0) {
             revert NotAllowed();
         }
+    }
+
+    // utility function to do safe downcast
+    function _toUint128(uint256 x) private pure returns (uint128 y) {
+        require((y = uint128(x)) == x);
     }
 
     function _sqrt(uint256 x) internal pure returns (uint256 z) {
@@ -505,7 +526,7 @@ contract ChainlinkOracle is PriceOracle, Ownable {
         feedConfigs[token] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
     }
 
-    function getPrice(address token) override public view returns (uint) {
+    function _getPrice(address token) internal view returns (uint) {
         FeedConfig storage feedConfig = feedConfigs[token];
         if (address(feedConfig.feed) == address(0)) {
             revert NoFeedConfigured();
@@ -527,6 +548,6 @@ contract ChainlinkOracle is PriceOracle, Ownable {
 
     function getUnderlyingPrice(CToken cToken) override external view returns (uint) {
         address underlying = CErc20Storage(address(cToken)).underlying();
-        return getPrice(underlying);
+        return _getPrice(underlying);
     }
 }

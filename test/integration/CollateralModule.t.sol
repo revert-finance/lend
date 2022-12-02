@@ -4,10 +4,11 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "compound-protocol/Unitroller.sol";
-import "compound-protocol/WhitePaperInterestRateModel.sol";
-import "compound-protocol/CErc20Delegate.sol";
-import "compound-protocol/CErc20Delegator.sol";
+import "../../src/compound/Unitroller.sol";
+import "../../src/compound/Comptroller.sol";
+import "../../src/compound/WhitePaperInterestRateModel.sol";
+import "../../src/compound/CErc20Delegate.sol";
+import "../../src/compound/CErc20Delegator.sol";
 
 import "../TestBase.sol";
 
@@ -71,7 +72,7 @@ contract CollateralModuleTest is Test, TestBase {
         /// setup
         holder = new NFTHolder(NPM);
 
-        module = new CollateralModule(holder, comptroller);
+        module = new CollateralModule(holder, address(comptroller));
 
         // link module to comptroller
         comptroller._setCollateralModule(module);
