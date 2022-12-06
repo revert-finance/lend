@@ -92,6 +92,97 @@ contract CollateralModuleTest is Test, TestBase {
         moduleIndex = holder.addModule(module, true, 0); // must be added with checkoncollect
     }
 
+    struct PositionData {
+        address owner;
+        uint tokenId; 
+        uint128 liquidity; 
+        uint amount0; 
+        uint amount1; 
+        uint fees0; 
+        uint fees1; 
+        uint cAmount0; 
+        uint cAmount1;
+    }
+
+    function _preparePositionCollateralDAIUSDCInRangeWithFees() internal returns (PositionData memory data) {
+
+        data.owner = TEST_NFT_WITH_FEES_ACCOUNT;
+        data.tokenId = TEST_NFT_WITH_FEES;
+
+        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
+        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+
+        vm.prank(data.owner);
+        NPM.safeTransferFrom(
+                data.owner,
+                address(holder),
+                data.tokenId,
+                abi.encode(params)
+            );
+
+        (uint[] memory tokenIds,,) = module.getTokensOfOwner(data.owner);
+        assertEq(tokenIds.length, 1);
+
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getTokenBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
+
+        assertEq(data.liquidity, 12922419498089422291);
+        assertEq(data.amount0, 37792545112113042069479);
+        assertEq(data.amount1, 39622351929);
+        assertEq(data.fees0, 363011977924869600719);
+        assertEq(data.fees1, 360372013);
+        assertEq(data.cAmount0, 0);
+        assertEq(data.cAmount1, 0);
+    }
+
+    function _preparePositionCollateralDAIWETHOutOfRangeWithFees(bool lent) internal returns (PositionData memory data) {
+
+        data.owner = TEST_NFT_2_ACCOUNT;
+        data.tokenId = TEST_NFT_2;
+
+        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
+        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(lent)));
+
+        vm.prank(data.owner);
+        NPM.safeTransferFrom(
+                data.owner,
+                address(holder),
+                data.tokenId,
+                abi.encode(params)
+            );
+
+        (uint[] memory tokenIds,,) = module.getTokensOfOwner(data.owner);
+        assertEq(tokenIds.length, 1);
+
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getTokenBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
+
+        if (lent) {
+            // if lent all liquidity is moved to ctoken, only other fee token may be still available
+            assertEq(data.liquidity, 0);
+            assertEq(data.amount0, 0);
+            assertEq(data.amount1, 0);
+            assertEq(data.fees0, 311677619940061890346);
+            assertEq(data.fees1, 0);
+            assertEq(data.cAmount0, 0);
+            assertEq(data.cAmount1, 506903060556612041);
+        } else {
+            // original onesided position
+            assertEq(data.liquidity, 80059851033970806503);
+            assertEq(data.amount0, 0);
+            assertEq(data.amount1, 407934143575036696);
+            assertEq(data.fees0, 311677619940061890346);
+            assertEq(data.fees1, 98968916981575345);
+            assertEq(data.cAmount0, 0);
+            assertEq(data.cAmount1, 0);
+        }
+    }
+
+    function _prepareAvailableUSDC(uint amount) internal {
+        vm.prank(USDC_WHALE);   
+        USDC.approve(address(cTokenUSDC), amount);
+        vm.prank(USDC_WHALE);   
+        cTokenUSDC.mint(amount);
+    }
+
     function testBasicCompound() external {
         uint err;
         uint liquidity;
@@ -132,37 +223,18 @@ contract CollateralModuleTest is Test, TestBase {
         uint liquidity;
         uint shortfall;
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        PositionData memory data = _preparePositionCollateralDAIUSDCInRangeWithFees();
 
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
-        NPM.safeTransferFrom(
-                TEST_NFT_WITH_FEES_ACCOUNT,
-                address(holder),
-                TEST_NFT_WITH_FEES,
-                abi.encode(params)
-            );
+        uint borrowAmount = 100000000;
 
-        (uint[] memory tokenIds,,) = module.getTokensOfOwner(TEST_NFT_WITH_FEES_ACCOUNT);
-        assertEq(tokenIds.length, 1);
-
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
-        assertEq(err, 0);
-        assertEq(liquidity, 39078446572567534888584);
-        assertEq(shortfall, 0);
-
-        // someone lends 100 USDC
-        vm.prank(TEST_ACCOUNT);   
-        USDC.approve(address(cTokenUSDC), 100000000);
-        vm.prank(TEST_ACCOUNT);   
-        cTokenUSDC.mint(100000000);
+        _prepareAvailableUSDC(borrowAmount);
 
         // borrow all there is
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
-        err = cTokenUSDC.borrow(100000000);
+        vm.prank(data.owner);
+        err = cTokenUSDC.borrow(borrowAmount);
         assertEq(err, 0);
 
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertEq(liquidity, 38978449275567534888584);
         assertEq(shortfall, 0);
@@ -173,112 +245,81 @@ contract CollateralModuleTest is Test, TestBase {
         err = cTokenUSDC.accrueInterest();
         assertEq(err, 0);
 
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertLt(liquidity, 38978449275567534888584); // fees were added
         assertEq(shortfall, 0);
     }
 
-    function testGetCollateralValueNotLentAndLent() external {
+    function testGetCollateralValueNotLent() external {
 
         uint err;
         uint liquidity;
         uint shortfall;
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
-
-        vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.safeTransferFrom(
-                TEST_NFT_2_ACCOUNT,
-                address(holder),
-                TEST_NFT_2,
-                abi.encode(params)
-            );
-
-        (bool isLendable, uint cTokenAmount, bool isCToken0) = module.positionConfigs(TEST_NFT_2);
-        assertEq(isLendable, false);
-        assertEq(cTokenAmount, 0);
-        assertEq(isCToken0, false);
-
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
+        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees(false);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertEq(liquidity, 540729630887579142348);
         assertEq(shortfall, 0);     
-
-        vm.prank(TEST_NFT_2_ACCOUNT);
-        holder.addTokenToModule(TEST_NFT_2, NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(true)))); 
-
-        (isLendable, cTokenAmount, isCToken0) = module.positionConfigs(TEST_NFT_2);
-        assertEq(isLendable, true);
-        assertGt(cTokenAmount, 0);
-        assertEq(isCToken0, false);
-
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
-        assertEq(err, 0);
-        assertEq(liquidity, 540729630887579142348);
-        assertEq(shortfall, 0);
     }
 
-    function _prepareLiquidationScenario() internal {
+    function testGetCollateralValueLent() external {
 
         uint err;
         uint liquidity;
         uint shortfall;
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees(true);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
+        assertEq(err, 0);
+        assertEq(liquidity, 540729630887579142348);
+        assertEq(shortfall, 0);     
+    }
 
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
-        NPM.safeTransferFrom(
-                TEST_NFT_WITH_FEES_ACCOUNT,
-                address(holder),
-                TEST_NFT_WITH_FEES,
-                abi.encode(params)
-            );
+    function _prepareLiquidationScenario() internal returns (PositionData memory data) {
 
-        (uint[] memory tokenIds,,) = module.getTokensOfOwner(TEST_NFT_WITH_FEES_ACCOUNT);
-        assertEq(tokenIds.length, 1);
+        uint err;
+        uint liquidity;
+        uint shortfall;
 
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        data = _preparePositionCollateralDAIUSDCInRangeWithFees();
+
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertEq(liquidity, 39078446572567534888584);
         assertEq(shortfall, 0);
 
         uint lendAmount = 39078000000;
+        _prepareAvailableUSDC(lendAmount);
 
-        vm.prank(USDC_WHALE);   
-        USDC.approve(address(cTokenUSDC), lendAmount);
-        vm.prank(USDC_WHALE);   
-        cTokenUSDC.mint(lendAmount);
-
-        uint bb = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        uint bb = USDC.balanceOf(data.owner);
 
         // borrow all there is
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        vm.prank(data.owner);
         err = cTokenUSDC.borrow(lendAmount);
         assertEq(err, 0);
 
-        uint ba = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+        uint ba = USDC.balanceOf(data.owner);
 
         assertEq(ba - bb, lendAmount);
 
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertEq(liquidity, 1502850907534888584); // 1 USD liquidity left
         assertEq(shortfall, 0);
 
-        // move oracle price of USDC to $1.10
+        // move oracle price of USDC to $1.01
         vm.mockCall(CHAINLINK_USDC_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(101000000), block.timestamp, block.timestamp, uint80(0)));
     
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertEq(liquidity, 0);
         assertEq(shortfall, 327613650189133661102); // 327 USD missing after price change
     }
 
     function testLiquidation() external {
-        _prepareLiquidationScenario();
+        PositionData memory data = _prepareLiquidationScenario();
 
         uint256 err;
         uint256 liquidity;
@@ -289,15 +330,15 @@ contract CollateralModuleTest is Test, TestBase {
 
         uint repayAmount = 39078000000 / 2;
 
-        err = comptroller.liquidateBorrowAllowedUniV3(address(cTokenUSDC), TEST_NFT_WITH_FEES, USDC_WHALE, TEST_NFT_WITH_FEES_ACCOUNT, repayAmount);
+        err = comptroller.liquidateBorrowAllowedUniV3(address(cTokenUSDC), data.tokenId, USDC_WHALE, data.owner, repayAmount);
         assertEq(err, 0);
 
-        (err, liquidity, fees0, fees1, cToken0, cToken1) = comptroller.liquidateCalculateSeizeTokensUniV3(address(cTokenUSDC), TEST_NFT_WITH_FEES, repayAmount);
+        (err, liquidity, fees0, fees1, cToken0, cToken1) = comptroller.liquidateCalculateSeizeTokensUniV3(address(cTokenUSDC), data.tokenId, repayAmount);
        
         assertEq(err, 0);
-        assertEq(liquidity, 3518256826418559553);
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
+        assertEq(liquidity, 3430081225379852442);
+        assertEq(fees0, 363011977924869600719);
+        assertEq(fees1, 360372013);
         assertEq(cToken0, 0);
         assertEq(cToken1, 0);
 
@@ -305,8 +346,18 @@ contract CollateralModuleTest is Test, TestBase {
         vm.prank(USDC_WHALE);   
         USDC.approve(address(cTokenUSDC), repayAmount);
         
+        uint bbdai = DAI.balanceOf(USDC_WHALE);
+        uint bbusdc = USDC.balanceOf(USDC_WHALE);
+
         vm.prank(USDC_WHALE);
-        (err) = cTokenUSDC.liquidateBorrowUniV3(TEST_NFT_WITH_FEES_ACCOUNT, repayAmount, TEST_NFT_WITH_FEES);
+        (err) = cTokenUSDC.liquidateBorrowUniV3(data.owner, repayAmount, data.tokenId);
         assertEq(err, 0);
+
+        uint badai = DAI.balanceOf(USDC_WHALE);
+        uint bausdc = USDC.balanceOf(USDC_WHALE);
+
+        // around 108% of repayAmount
+        assertEq(badai - bbdai, 11469587512910263224405);
+        assertEq(repayAmount + bausdc - bbusdc, 9802285514);
     }
 }

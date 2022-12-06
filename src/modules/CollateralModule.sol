@@ -319,10 +319,10 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(oracleSqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, position.liquidity);
         }
 
-        (uint fees0, uint fees1) = _getUncollectedFees(position, tick);
+        (fees0, fees1) = _getUncollectedFees(position, tick);
         
-        amount0 += fees0 + position.tokensOwed0;
-        amount1 += fees1 + position.tokensOwed1;
+        fees0 += position.tokensOwed0;
+        fees1 += position.tokensOwed1;
     }
 
     function _getUncollectedFees(PositionState memory position, int24 tick) internal view returns (uint256 fees0, uint256 fees1)
