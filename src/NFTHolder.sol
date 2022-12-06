@@ -263,7 +263,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
 
     /// @notice flash transforms token - must be returned afterwards
     /// only token owner is allowed to call this!!
-    /// currently used vor v3utils type of operations
+    /// currently used vor v3utils type of operations, data is encoded Instructions for V3Utils
     function flashTransform(uint256 tokenId, bytes calldata data) external nonReentrant {
 
         address owner = tokenOwners[tokenId];
@@ -288,9 +288,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         _checkOnCollect(0, mod, tokenId, owner, type(uint128).max, type(uint128).max, type(uint128).max);
     }
 
-    function decreaseLiquidityAndCollect(
-        DecreaseLiquidityAndCollectParams calldata params
-    ) external nonReentrant returns (uint256 amount0, uint256 amount1) {
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external nonReentrant returns (uint256 amount0, uint256 amount1) {
         uint256 mod = tokenModules[params.tokenId];
         uint8 moduleIndex = modulesIndex[msg.sender];
         bool callFromActiveModule = moduleIndex > 0 &&

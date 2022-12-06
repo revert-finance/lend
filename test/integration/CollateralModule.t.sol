@@ -45,6 +45,10 @@ contract CollateralModuleTest is Test, TestBase {
         // change comptroller to proxy unitroller
         comptroller = Comptroller(address(unitroller));
 
+        // value from mainnet comptroller
+        comptroller._setCloseFactor(500000000000000000); // 50%
+        comptroller._setLiquidationIncentive(1080000000000000000); // 108%
+
         oracle = new ChainlinkOracle();
         oracle.setTokenFeed(address(USDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
         oracle.setTokenFeed(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
@@ -216,5 +220,93 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(shortfall, 0);
     }
 
+    function _prepareLiquidationScenario() internal {
+
+        uint err;
+        uint liquidity;
+        uint shortfall;
+
+        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
+        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+
+        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        NPM.safeTransferFrom(
+                TEST_NFT_WITH_FEES_ACCOUNT,
+                address(holder),
+                TEST_NFT_WITH_FEES,
+                abi.encode(params)
+            );
+
+        (uint[] memory tokenIds,,) = module.getTokensOfOwner(TEST_NFT_WITH_FEES_ACCOUNT);
+        assertEq(tokenIds.length, 1);
+
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        assertEq(err, 0);
+        assertEq(liquidity, 39078446572567534888584);
+        assertEq(shortfall, 0);
+
+        uint lendAmount = 39078000000;
+
+        vm.prank(USDC_WHALE);   
+        USDC.approve(address(cTokenUSDC), lendAmount);
+        vm.prank(USDC_WHALE);   
+        cTokenUSDC.mint(lendAmount);
+
+        uint bb = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+
+        // borrow all there is
+        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        err = cTokenUSDC.borrow(lendAmount);
+        assertEq(err, 0);
+
+        uint ba = USDC.balanceOf(TEST_NFT_WITH_FEES_ACCOUNT);
+
+        assertEq(ba - bb, lendAmount);
+
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        assertEq(err, 0);
+        assertEq(liquidity, 1502850907534888584); // 1 USD liquidity left
+        assertEq(shortfall, 0);
+
+        // move oracle price of USDC to $1.10
+        vm.mockCall(CHAINLINK_USDC_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(101000000), block.timestamp, block.timestamp, uint80(0)));
     
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_WITH_FEES_ACCOUNT);
+        assertEq(err, 0);
+        assertEq(liquidity, 0);
+        assertEq(shortfall, 327613650189133661102); // 327 USD missing after price change
+    }
+
+    function testLiquidation() external {
+        _prepareLiquidationScenario();
+
+        uint256 err;
+        uint256 liquidity;
+        uint256 fees0;
+        uint256 fees1;
+        uint256 cToken0;
+        uint256 cToken1;
+
+        uint repayAmount = 39078000000 / 2;
+
+        err = comptroller.liquidateBorrowAllowedUniV3(address(cTokenUSDC), TEST_NFT_WITH_FEES, USDC_WHALE, TEST_NFT_WITH_FEES_ACCOUNT, repayAmount);
+        assertEq(err, 0);
+
+        (err, liquidity, fees0, fees1, cToken0, cToken1) = comptroller.liquidateCalculateSeizeTokensUniV3(address(cTokenUSDC), TEST_NFT_WITH_FEES, repayAmount);
+       
+        assertEq(err, 0);
+        assertEq(liquidity, 3518256826418559553);
+        assertEq(fees0, 0);
+        assertEq(fees1, 0);
+        assertEq(cToken0, 0);
+        assertEq(cToken1, 0);
+
+        // whale executing liquidation
+        vm.prank(USDC_WHALE);   
+        USDC.approve(address(cTokenUSDC), repayAmount);
+        
+        vm.prank(USDC_WHALE);
+        (err) = cTokenUSDC.liquidateBorrowUniV3(TEST_NFT_WITH_FEES_ACCOUNT, repayAmount, TEST_NFT_WITH_FEES);
+        assertEq(err, 0);
+    }
 }

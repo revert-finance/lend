@@ -1038,14 +1038,13 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         uint256 cAmount1;
     }
 
-
     /**
      * @notice Calculate amount of liquidity NFT to seize given an underlying amount
      * @dev Used in liquidation (called in cToken.liquidateBorrowFreshUniV3)
      * @param cTokenBorrowed The address of the borrowed cToken
      * @param collateralTokenId The NFT tokenId to (partially) seize from the borrower
      * @param actualRepayAmount The amount of cTokenBorrowed underlying to convert into cTokenCollateral tokens
-     * @return (errorCode, percent of fees to be seized, amount of colalteralTokenId liquidity to be seized in a liquidation, amount of positions ctokens to be seized)
+     * @return (errorCode, amount of colalteralTokenId liquidity to be seized in a liquidation, amount of fees to be seized, amount of positions ctokens to be seized)
      */
     function liquidateCalculateSeizeTokensUniV3(
         address cTokenBorrowed,
@@ -1083,13 +1082,12 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             return (uint256(Error.PRICE_ERROR), 0, 0, 0, 0, 0);
         }
 
-        (, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getTokenBreakdown(collateralTokenId, vars.oraclePriceMantissa0, vars.oraclePriceMantissa1);
+        (vars.liquidity, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getTokenBreakdown(collateralTokenId, vars.oraclePriceMantissa0, vars.oraclePriceMantissa1);
 
         vars.borrowValue = mul_(
             mul_(Exp({ mantissa: liquidationIncentiveMantissa }), Exp({ mantissa: vars.priceBorrowedMantissa })),
             actualRepayAmount
         );
-
         vars.liquidityValue = add_(
             mul_(Exp({ mantissa: vars.oraclePriceMantissa0 }), vars.amount0),
             mul_(Exp({ mantissa: vars.oraclePriceMantissa1 }), vars.amount1)
@@ -1123,7 +1121,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             vars.fees1 = mul_ScalarTruncate(div_(sub_(vars.borrowValue, vars.cTokenValue), vars.feeValue), vars.fees1);
             return (uint256(Error.NO_ERROR), 0, vars.fees1, vars.fees0, vars.cAmount0, vars.cAmount1);
         } else {
-            // return from cTokens and fees and liquidity
+            // return from cTokens and fees and liquidity  
             vars.liquidity = mul_ScalarTruncate(div_(sub_(sub_(vars.borrowValue, vars.cTokenValue), vars.feeValue), vars.liquidityValue), vars.liquidity);
             return (uint256(Error.NO_ERROR), vars.liquidity, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1);
         }

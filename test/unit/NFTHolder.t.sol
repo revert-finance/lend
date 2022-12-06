@@ -9,6 +9,7 @@ import "./../../src/NFTHolder.sol";
 import "./mock/WETH9.sol";
 import "./mock/TestModule.sol";
 import "./mock/TestNFT.sol";
+import "./mock/TestFlashTransform.sol";
 
 contract NFTHolderTest is Test, IERC721Receiver {
 
@@ -24,6 +25,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
     TestModule module2;
     uint24 fee;
     INonfungiblePositionManager nonfungiblePositionManager;
+    TestFlashTransform testFlashTransform;
 
     function setUp() public {
         weth9 = new WETH9();
@@ -46,6 +48,10 @@ contract NFTHolderTest is Test, IERC721Receiver {
         module2 = new TestModule(holder, false);
 
         tokenId = testNFT.mint();
+
+        // set up flash transform contract
+        testFlashTransform = new TestFlashTransform(nonfungiblePositionManager);
+        holder.setFlashTransformContract(address(testFlashTransform));
     }
 
     function testAddModule() external {
@@ -272,6 +278,19 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
         // ok again
         holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
+    }
+
+    function testTransform() external {
+        nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, "");
+
+        uint balanceBefore = testNFT.balanceOf(address(holder));
+
+        // send token to external contract for manipulation and return in the same call
+        holder.flashTransform(tokenId, "");
+
+        uint balanceAfter = testNFT.balanceOf(address(holder));
+
+        assertEq(balanceBefore, balanceAfter);
     }
 
     // for tests where NFTs are withdrawn

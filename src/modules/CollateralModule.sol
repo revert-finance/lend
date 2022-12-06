@@ -119,6 +119,8 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
 
         PositionState memory position = _getPositionState(tokenId);
 
+        liquidity = position.liquidity;
+
         // calculate oracle sqrt price
         uint160 oracleSqrtPriceX96 = uint160(_sqrt(FullMath.mulDiv(price0, Q96 * Q96, price1)));
 
