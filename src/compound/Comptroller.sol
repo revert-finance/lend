@@ -517,7 +517,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             return uint256(Error.MARKET_NOT_LISTED);
         }
 
-        if (collateralModule.getOwnerOfToken(collateralTokenId) != borrower) {
+        if (collateralModule.getOwnerOfPosition(collateralTokenId) != borrower) {
             return uint256(Error.TOKEN_ID_BORROWER_MISMATCH);
         }
 
@@ -881,7 +881,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         OraclePriceCache memory oraclePriceCache; // Holds cached oracle prices
 
         // for each NFT this account has as collateral
-        (vars.tokenIds, vars.tokens0, vars.tokens1) = collateralModule.getTokensOfOwner(account);
+        (vars.tokenIds, vars.tokens0, vars.tokens1) = collateralModule.getPositionsOfOwner(account);
 
         for (vars.i = 0; vars.i < vars.tokenIds.length; vars.i++) {
             vars.tokenId = vars.tokenIds[vars.i];
@@ -895,7 +895,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             if (vars.oracle1PriceMantissa == 0) {
                 return (Error.PRICE_ERROR, 0, 0);
             }                   
-            (, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getTokenBreakdown(vars.tokenId, vars.oraclePriceMantissa, vars.oracle1PriceMantissa);
+            (, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getPositionBreakdown(vars.tokenId, vars.oraclePriceMantissa, vars.oracle1PriceMantissa);
 
             if (vars.amount0 + vars.fees0 > 0 || vars.cAmount0 > 0) {
                 vars.collateralFactor = Exp({mantissa: markets[address(vars.asset)].collateralFactorMantissa});
@@ -1076,7 +1076,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
          * Then take that value, divided by the total value of the liquidity, and multiply by the amount of liquidity.
          * Cap this liquidity amount at the total liquidity amount (since we've already liquidated everything)
          */
-        (vars.token0, vars.token1) = collateralModule.getTokensOfToken(collateralTokenId);
+        (vars.token0, vars.token1) = collateralModule.getTokensOfPosition(collateralTokenId);
 
         // lookup ctokens
         vars.cToken0 = cTokensByUnderlying[vars.token0];
@@ -1090,7 +1090,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             return (uint256(Error.PRICE_ERROR), 0, 0, 0, 0, 0);
         }
 
-        (vars.liquidity, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getTokenBreakdown(collateralTokenId, vars.oraclePriceMantissa0, vars.oraclePriceMantissa1);
+        (vars.liquidity, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getPositionBreakdown(collateralTokenId, vars.oraclePriceMantissa0, vars.oraclePriceMantissa1);
 
         vars.borrowValue = mul_(
             mul_(Exp({ mantissa: liquidationIncentiveMantissa }), Exp({ mantissa: vars.priceBorrowedMantissa })),

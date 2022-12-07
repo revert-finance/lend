@@ -25,7 +25,6 @@ contract Module is Ownable, IUniswapV3SwapCallback {
 
     using SafeCast for uint256;
 
-    uint256 constant Q16 = 2**16;
     uint256 constant Q64 = 2**64;
     uint256 constant Q96 = 2**96;
 

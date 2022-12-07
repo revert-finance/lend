@@ -8,6 +8,8 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
+/// @title LockModule
+/// @notice Lets a v3 position to be locked for a certain time (but allows removal of fees at any time)
 contract LockModule is Module, IModule {
   
     // errors 

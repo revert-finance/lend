@@ -116,10 +116,10 @@ contract CollateralModuleTest is Test, TestBase {
                 abi.encode(params)
             );
 
-        (uint[] memory tokenIds,,) = module.getTokensOfOwner(data.owner);
+        (uint[] memory tokenIds,,) = module.getPositionsOfOwner(data.owner);
         assertEq(tokenIds.length, 1);
 
-        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getTokenBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
 
         assertEq(data.liquidity, 12922419498089422291);
         assertEq(data.amount0, 37792545112113042069479);
@@ -146,10 +146,10 @@ contract CollateralModuleTest is Test, TestBase {
                 abi.encode(params)
             );
 
-        (uint[] memory tokenIds,,) = module.getTokensOfOwner(data.owner);
+        (uint[] memory tokenIds,,) = module.getPositionsOfOwner(data.owner);
         assertEq(tokenIds.length, 1);
 
-        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getTokenBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
 
         if (lent) {
             // if lent all liquidity is moved to ctoken, only other fee token may be still available

@@ -13,6 +13,8 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
+/// @title NFTHolder
+/// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
 contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     uint256 public constant MAX_TOKENS_PER_ADDRESS = 100;
 

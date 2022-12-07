@@ -8,6 +8,8 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
+/// @title StopLossLimitModule
+/// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. A revert controlled bot is responsible for the execution.
 contract StopLossLimitModule is Module, IModule {
 
     // events

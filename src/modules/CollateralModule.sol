@@ -23,7 +23,8 @@ import "./Module.sol";
 import "./IModule.sol";
 import "./ICollateralModule.sol";
 
-
+/// @title CollateralModule
+/// @notice Module responsible for connection to Compound Fork, taking care collateral is checked after each liquidity/fee removal, supports lending of position when out of range, support seizing of collateral when liquidatable
 contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoError {
 
     // errors 
@@ -93,15 +94,15 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         IUniswapV3Pool pool;
     }
 
-    function getOwnerOfToken(uint256 tokenId) external override view returns(address) {
+    function getOwnerOfPosition(uint256 tokenId) external override view returns(address) {
         return holder.tokenOwners(tokenId);
     }
 
-    function getTokensOfToken(uint256 tokenId) external override view returns (address token0, address token1) {
+    function getTokensOfPosition(uint256 tokenId) external override view returns (address token0, address token1) {
         (,,token0,token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
     }
 
-    function getTokensOfOwner(address owner) external override view returns (uint[] memory tokenIds, address[] memory tokens0, address[] memory tokens1) {
+    function getPositionsOfOwner(address owner) external override view returns (uint[] memory tokenIds, address[] memory tokens0, address[] memory tokens1) {
         tokenIds = holder.getModuleTokensForOwner(owner);
         tokens0 = new address[](tokenIds.length);
         tokens1 = new address[](tokenIds.length);
@@ -117,7 +118,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     // returns token breakdown using given oracle prices for both tokens
     // returns corresponding ctoken balance if lent out
     // reverts if prices deviate to much from pool TODO check if better use error code (compound style)
-    function getTokenBreakdown(uint256 tokenId, uint price0, uint price1) external override view returns (uint128 liquidity, uint amount0, uint amount1, uint fees0, uint fees1, uint cAmount0, uint cAmount1) {
+    function getPositionBreakdown(uint256 tokenId, uint price0, uint price1) external override view returns (uint128 liquidity, uint amount0, uint amount1, uint fees0, uint fees1, uint cAmount0, uint cAmount1) {
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
@@ -265,7 +266,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     }
 
 
-    function seizeAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1, uint256 seizeCToken0, uint256 seizeCToken1) external override {
+    function seizePositionAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1, uint256 seizeCToken0, uint256 seizeCToken1) external override {
         
         require(holder.tokenOwners(tokenId) == borrower, "borrower must own tokenId");
 

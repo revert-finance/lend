@@ -14,6 +14,8 @@ import "v3-core/libraries/TickMath.sol";
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
+/// @title CompoundorModule
+/// @notice Adds auto-compounding capability (improved logic from old compoundor)
 contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
 
     // config changes

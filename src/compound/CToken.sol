@@ -876,7 +876,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         require(amountSeizeError == NO_ERROR, "LIQUIDATE_COMPTROLLER_CALCULATE_AMOUNT_SEIZE_FAILED");
 
         /* Reverts on any error */
-        comptroller.getCollateralModule().seizeAssets(
+        comptroller.getCollateralModule().seizePositionAssets(
             liquidator,
             borrower,
             collateralTokenId,
