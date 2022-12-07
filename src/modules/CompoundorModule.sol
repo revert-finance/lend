@@ -146,7 +146,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
 
             state.pool = _getPool(state.token0, state.token1, state.fee);
 
-            // check oracle when price needs to be checked
+            // check oracle when price is needed during compounding
             if (params.doSwap || params.rewardConversion != RewardConversion.NONE) {
                 // checks oracle - reverts if not enough data available or if price is to far away from TWAP
                 (, state.sqrtPriceX96, state.priceX96) = _validateSwap(false, 0, state.pool, TWAPSeconds, maxTWAPTickDifference, 0);
@@ -171,10 +171,6 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
 
                     (state.amount0, state.amount1) = _handleSwap(swapParams);
                 }
-            } else {
-                // simple case where oracle check is not needed
-                (state.sqrtPriceX96,,,,,,) = state.pool.slot0();
-                state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             }
 
             // in case caller is not owner - max amounts to add are slightly lower than available amounts - to account for reward payments
