@@ -80,6 +80,8 @@ contract ComptrollerV2Storage is ComptrollerV1Storage {
      */
     mapping(address => Market) public markets;
 
+    /// @notice All cTokens addresses mapped by their underlying token addresses
+    mapping(address => CToken) public cTokensByUnderlying;
 
     /**
      * @notice The Pause Guardian can pause certain actions as a safety mechanism.

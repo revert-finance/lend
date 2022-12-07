@@ -748,6 +748,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         Exp tokensToDenom;
 
         CToken asset;
+        CToken asset1;
 
         uint amount0;
         uint amount1;
@@ -763,8 +764,8 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         uint tokenId;
 
         uint[] tokenIds;
-        CToken[] cTokens0; 
-        CToken[] cTokens1;
+        address[] tokens0; 
+        address[] tokens1;
     }
 
     /**
@@ -880,22 +881,23 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         OraclePriceCache memory oraclePriceCache; // Holds cached oracle prices
 
         // for each NFT this account has as collateral
-        (vars.tokenIds, vars.cTokens0, vars.cTokens1) = collateralModule.getTokensOfOwner(account);
+        (vars.tokenIds, vars.tokens0, vars.tokens1) = collateralModule.getTokensOfOwner(account);
 
         for (vars.i = 0; vars.i < vars.tokenIds.length; vars.i++) {
             vars.tokenId = vars.tokenIds[vars.i];
-            vars.oraclePriceMantissa = _getOraclePriceCached(vars.cTokens0[vars.i], oraclePriceCache);
+            vars.asset = cTokensByUnderlying[vars.tokens0[vars.i]];
+            vars.asset1 = cTokensByUnderlying[vars.tokens1[vars.i]];
+            vars.oraclePriceMantissa = _getOraclePriceCached(vars.asset, oraclePriceCache);
             if (vars.oraclePriceMantissa == 0) {
                 return (Error.PRICE_ERROR, 0, 0);
             }
-            vars.oracle1PriceMantissa = _getOraclePriceCached(vars.cTokens1[vars.i], oraclePriceCache);   
+            vars.oracle1PriceMantissa = _getOraclePriceCached(vars.asset1, oraclePriceCache);   
             if (vars.oracle1PriceMantissa == 0) {
                 return (Error.PRICE_ERROR, 0, 0);
             }                   
             (, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getTokenBreakdown(vars.tokenId, vars.oraclePriceMantissa, vars.oracle1PriceMantissa);
 
             if (vars.amount0 + vars.fees0 > 0 || vars.cAmount0 > 0) {
-                vars.asset = vars.cTokens0[vars.i];
                 vars.collateralFactor = Exp({mantissa: markets[address(vars.asset)].collateralFactorMantissa});
                 vars.oraclePrice = Exp({mantissa: vars.oraclePriceMantissa});  
                 if (vars.amount0 + vars.fees0 > 0) {
@@ -909,14 +911,13 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
                 }
             }
             if (vars.amount1 + vars.fees1 > 0 || vars.cAmount1 > 0) {
-                vars.asset = vars.cTokens1[vars.i];
-                vars.collateralFactor = Exp({mantissa: markets[address(vars.asset)].collateralFactorMantissa});
+                vars.collateralFactor = Exp({mantissa: markets[address(vars.asset1)].collateralFactorMantissa});
                 vars.oraclePrice = Exp({mantissa: vars.oracle1PriceMantissa});  
                 if (vars.amount1 + vars.fees1 > 0) {
                     vars.sumCollateral = mul_ScalarTruncateAddUInt(mul_(vars.collateralFactor, vars.oraclePrice), vars.amount1 + vars.fees1, vars.sumCollateral);
                 }
                 if (vars.cAmount1 > 0) {
-                    vars.exchangeRateMantissa = vars.asset.exchangeRateStored();
+                    vars.exchangeRateMantissa = vars.asset1.exchangeRateStored();
                     vars.exchangeRate = Exp({mantissa: vars.exchangeRateMantissa});
                     vars.tokensToDenom = mul_(mul_(vars.collateralFactor, vars.exchangeRate), vars.oraclePrice);
                     vars.sumCollateral = mul_ScalarTruncateAddUInt(vars.tokensToDenom, vars.cAmount1, vars.sumCollateral);
@@ -1023,6 +1024,9 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         Exp liquidityValue;
         Exp cTokenValue;
 
+        address token0;
+        address token1;
+
         CToken cToken0;
         CToken cToken1;
         uint256 priceBorrowedMantissa;
@@ -1072,7 +1076,11 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
          * Then take that value, divided by the total value of the liquidity, and multiply by the amount of liquidity.
          * Cap this liquidity amount at the total liquidity amount (since we've already liquidated everything)
          */
-        (vars.cToken0, vars.cToken1) = collateralModule.getCTokensOfToken(collateralTokenId);
+        (vars.token0, vars.token1) = collateralModule.getTokensOfToken(collateralTokenId);
+
+        // lookup ctokens
+        vars.cToken0 = cTokensByUnderlying[vars.token0];
+        vars.cToken1 = cTokensByUnderlying[vars.token1];
 
         vars.priceBorrowedMantissa = oracle.getUnderlyingPrice(CToken(cTokenBorrowed));
         vars.oraclePriceMantissa0 = oracle.getUnderlyingPrice(vars.cToken0);
@@ -1276,6 +1284,13 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         cToken.isCToken(); // Sanity check to make sure its really a CToken
 
+        // Make sure market is not already listed
+        address underlying = CErc20Storage(address(cToken)).underlying();
+
+        if (address(cTokensByUnderlying[underlying]) != address(0)) {
+            return fail(Error.MARKET_ALREADY_LISTED, FailureInfo.SUPPORT_MARKET_EXISTS);
+        }
+
         // Note that isComped is not in active use anymore
         Market storage newMarket = markets[address(cToken)];
         newMarket.isListed = true;
@@ -1284,6 +1299,8 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         _addMarketInternal(address(cToken));
         _initializeMarket(address(cToken));
+
+        cTokensByUnderlying[underlying] = cToken;      
 
         emit MarketListed(cToken);
 
@@ -1430,6 +1447,13 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      */
     function adminOrInitializing() internal view returns (bool) {
         return msg.sender == admin || msg.sender == comptrollerImplementation;
+    }
+
+    /**
+     * @notice Returns CToken registered for underlying asset
+     */
+    function getCTokenByUnderlying(address underlying) external view returns (CToken) {
+        return cTokensByUnderlying[underlying];
     }
 
     /**

@@ -10,6 +10,8 @@ import "../compound/CErc20.sol";
 
 import "../compound/PriceOracle.sol";
 
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+
 import "v3-core/libraries/TickMath.sol";
 import "v3-core/libraries/FullMath.sol";
 import 'v3-core/libraries/FixedPoint128.sol';
@@ -40,12 +42,6 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     }
     mapping (address => PoolConfig) poolConfigs;
 
-    struct TokenConfig {
-        bool isActive; // token may be deposited
-        CErc20 cToken; // corresponding cToken
-    }
-    mapping (address => TokenConfig) tokenConfigs;
-
     struct PositionConfigParams {
         bool isLendable;
     }
@@ -63,14 +59,24 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         comptroller = _comptroller;
     }
 
-    /// @notice Management method to configure a pool
-    function setPoolConfig(address pool, bool isActive, uint64 maxOracleSqrtDeviationX64) external onlyOwner {
-        poolConfigs[pool] = PoolConfig(isActive, maxOracleSqrtDeviationX64);
+    function _getCToken(address token) internal returns (CErc20) {
+        return CErc20(address(ComptrollerLensInterface(comptroller).getCTokenByUnderlying(token)));
     }
 
-    /// @notice Management method to configure a token
-    function setTokenConfig(address token, bool isActive, CErc20 cToken) external onlyOwner {
-        tokenConfigs[token] = TokenConfig(isActive, cToken);
+    /// @notice Management method to configure a pool
+    function setPoolConfig(address pool, bool isActive, uint64 maxOracleSqrtDeviationX64) external onlyOwner {
+
+        CErc20 cToken0 = _getCToken(IUniswapV3Pool(pool).token0());
+        CErc20 cToken1 = _getCToken(IUniswapV3Pool(pool).token1());
+
+        if (address(cToken0) == address(0)) {
+            revert TokenNotActive();
+        }
+        if (address(cToken1) == address(0)) {
+            revert TokenNotActive();
+        }
+
+        poolConfigs[pool] = PoolConfig(isActive, maxOracleSqrtDeviationX64);
     }
 
     struct PositionState {
@@ -91,22 +97,20 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         return holder.tokenOwners(tokenId);
     }
 
-    function getCTokensOfToken(uint256 tokenId) external override view returns (CToken cToken0, CToken cToken1) {
-        (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-        cToken0 = tokenConfigs[token0].cToken;
-        cToken1 = tokenConfigs[token1].cToken;
+    function getTokensOfToken(uint256 tokenId) external override view returns (address token0, address token1) {
+        (,,token0,token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
     }
 
-    function getTokensOfOwner(address owner) external override view returns (uint[] memory tokenIds, CToken[] memory cTokens0, CToken[] memory cTokens1) {
+    function getTokensOfOwner(address owner) external override view returns (uint[] memory tokenIds, address[] memory tokens0, address[] memory tokens1) {
         tokenIds = holder.getModuleTokensForOwner(owner);
-        cTokens0 = new CToken[](tokenIds.length);
-        cTokens1 = new CToken[](tokenIds.length);
+        tokens0 = new address[](tokenIds.length);
+        tokens1 = new address[](tokenIds.length);
         uint i;
         uint count = tokenIds.length;
         for (;i < count;i++) {
             (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenIds[i]);
-            cTokens0[i] = tokenConfigs[token0].cToken;
-            cTokens1[i] = tokenConfigs[token1].cToken;
+            tokens0[i] = token0;
+            tokens1[i] = token1;
         }
     }
 
@@ -146,6 +150,42 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         }
     }
 
+    function borrowAndAddLiquidity(uint256 tokenId, uint128 liquidity) external {
+        /*
+        (,,address token0, address token1, uint24 fee,int24 tickLower, int24 tickUpper, , , , , ) =  nonfungiblePositionManager.positions(tokenId);
+        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        (uint160 sqrtPriceX96, ,,,,,) = position.pool.slot0();
+
+        uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
+        uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);  
+
+        (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, liquidity);
+
+        address owner = holder.tokenOwners(tokenId);
+
+        if (amount0 > 0) {
+            tokenConfigs[token0].cToken.borrowBehalf(owner, amount0);
+        }
+        if (amount1 > 0) {
+            tokenConfigs[token1].cToken.borrowBehalf(owner, amount1);
+        }
+
+        nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(tokenId, amount0, amount1, 0, 0, block.timestamp));
+        */
+    }
+
+    /// @notice removes liquidity (ignoring temporal undercollateralization)
+    function repayFromRemovedLiquidity(uint256 tokenId, uint128 liquidity) external {
+        /*
+        if (amount0 > 0) {
+            tokenConfigs[token0].cToken.repayBehalf(owner, amount0);
+        }
+        if (amount1 > 0) {
+            tokenConfigs[token1].cToken.repayBehalf(owner, amount1);
+        }*/
+    }
+
+
     function seizeAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1, uint256 seizeCToken0, uint256 seizeCToken1) external override {
         
         require(holder.tokenOwners(tokenId) == borrower, "borrower must own tokenId");
@@ -175,14 +215,14 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         if (seizeCToken0 > 0 || seizeCToken1 > 0) {
             (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
             if (seizeCToken0 > 0) {
-                CErc20 cToken0 = tokenConfigs[token0].cToken;
+                CErc20 cToken0 = _getCToken(token0);
                 uint balanceBefore = IERC20(token0).balanceOf(address(this));
                 cToken0.redeem(seizeCToken0);
                 uint balanceAfter = IERC20(token0).balanceOf(address(this));
                 SafeERC20.safeTransfer(IERC20(token0), liquidator, balanceAfter - balanceBefore);
             }
             if (seizeCToken1 > 0) {
-                CErc20 cToken1 = tokenConfigs[token1].cToken;
+                CErc20 cToken1 = _getCToken(token1);
                 uint balanceBefore = IERC20(token1).balanceOf(address(this));
                 cToken1.redeem(seizeCToken1);
                 uint balanceAfter = IERC20(token1).balanceOf(address(this));
@@ -209,22 +249,24 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         // collect all oneside liquidity+fees if out of range
         if (tick < tickLower) {
             (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, type(uint128).max, 0, block.timestamp, address(this)));
-            IERC20(token0).approve(address(tokenConfigs[token0].cToken), amount0);
-            uint cAmountBefore = tokenConfigs[token0].cToken.balanceOf(address(this));
-            if (tokenConfigs[token0].cToken.mint(amount0) != 0) {
+            CErc20 cToken = _getCToken(token0);
+            IERC20(token0).approve(address(cToken), amount0);
+            uint cAmountBefore = cToken.balanceOf(address(this));
+            if (cToken.mint(amount0) != 0) {
                 revert MintError();
             }
-            uint cAmountAfter = tokenConfigs[token0].cToken.balanceOf(address(this));
+            uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = true;
         } else if (tick > tickUpper) {
             (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, 0, type(uint128).max, block.timestamp, address(this)));
-            IERC20(token1).approve(address(tokenConfigs[token1].cToken), amount1);
-            uint cAmountBefore = tokenConfigs[token1].cToken.balanceOf(address(this));
-            if (tokenConfigs[token1].cToken.mint(amount1) != 0) {
+            CErc20 cToken = _getCToken(token1);
+            IERC20(token1).approve(address(cToken), amount1);
+            uint cAmountBefore = cToken.balanceOf(address(this));
+            if (cToken.mint(amount1) != 0) {
                 revert MintError();
             }
-            uint cAmountAfter = tokenConfigs[token1].cToken.balanceOf(address(this));
+            uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = false;
         }
@@ -249,13 +291,14 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             if (!positionConfig.isCToken0) {
                 revert WrongSide();
             }
-            uint amount0 = tokenConfigs[token0].cToken.redeem(positionConfig.cTokenAmount);
+            CErc20 cToken = _getCToken(token0);
+            uint amount = cToken.redeem(positionConfig.cTokenAmount);
 
             nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
                 tokenId, 
-                amount0, 
+                amount, 
                 0, 
-                amount0,
+                amount,
                 0, 
                 block.timestamp
             ));
@@ -265,14 +308,15 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             if (positionConfig.isCToken0) {
                 revert WrongSide();
             }
-            uint amount1 = tokenConfigs[token1].cToken.redeem(positionConfig.cTokenAmount);
+            CErc20 cToken = _getCToken(token1);
+            uint amount = cToken.redeem(positionConfig.cTokenAmount);
 
             nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
                 tokenId, 
                 0, 
-                amount1, 
+                amount, 
                 0,
-                amount1, 
+                amount, 
                 block.timestamp
             ));
             
@@ -389,13 +433,6 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             revert PoolNotActive();
         }
 
-        TokenConfig storage info0 = tokenConfigs[token0];
-        TokenConfig storage info1 = tokenConfigs[token1];
-
-        if (!info0.isActive || !info1.isActive) {
-            revert TokenNotActive();
-        }
-
         // update status
         positionConfigs[tokenId].isLendable = params.isLendable;
         if (!params.isLendable) {
@@ -418,7 +455,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 
     function _checkCollateral(address owner) internal {
-        (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner); // TODO comptroller.getHypotheticalAccountLiquidity(account); // create hypotetical function for removing token
+        (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
         if (err > 0 || shortfall > 0) {
             revert NotAllowed();
         }

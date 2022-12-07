@@ -8,6 +8,7 @@ import "../EIP20Interface.sol";
 
 interface ComptrollerLensInterface {
     function markets(address) external view returns (bool, uint);
+    function getCTokenByUnderlying(address underlying) external view returns (CToken);
     function oracle() external view returns (PriceOracle);
     function getAccountLiquidity(address) external view returns (uint, uint, uint);
     function getAssetsIn(address) external view returns (CToken[] memory);

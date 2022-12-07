@@ -85,10 +85,6 @@ contract CollateralModuleTest is Test, TestBase {
         module.setPoolConfig(TEST_NFT_ETH_USDC_POOL, true, uint64(Q64 / 100));
         module.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
 
-        module.setTokenConfig(address(USDC), true, cTokenUSDC);
-        module.setTokenConfig(address(DAI), true, cTokenDAI);
-        module.setTokenConfig(address(WETH_ERC20), true, cTokenWETH);
-
         moduleIndex = holder.addModule(module, true, 0); // must be added with checkoncollect
     }
 
