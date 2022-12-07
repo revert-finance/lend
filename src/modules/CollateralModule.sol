@@ -150,39 +150,118 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         }
     }
 
-    function borrowAndAddLiquidity(uint256 tokenId, uint128 liquidity) external {
-        /*
-        (,,address token0, address token1, uint24 fee,int24 tickLower, int24 tickUpper, , , , , ) =  nonfungiblePositionManager.positions(tokenId);
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        (uint160 sqrtPriceX96, ,,,,,) = position.pool.slot0();
-
-        uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
-        uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);  
-
-        (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, liquidity);
-
-        address owner = holder.tokenOwners(tokenId);
-
-        if (amount0 > 0) {
-            tokenConfigs[token0].cToken.borrowBehalf(owner, amount0);
-        }
-        if (amount1 > 0) {
-            tokenConfigs[token1].cToken.borrowBehalf(owner, amount1);
-        }
-
-        nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(tokenId, amount0, amount1, 0, 0, block.timestamp));
-        */
+    struct BorrowAndAddLiquidityParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        uint256 minAmount0;
+        uint256 minAmount1;
     }
 
-    /// @notice removes liquidity (ignoring temporal undercollateralization)
-    function repayFromRemovedLiquidity(uint256 tokenId, uint128 liquidity) external {
-        /*
+    struct BorrowAndAddLiquidityState {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        IUniswapV3Pool pool;
+    }
+
+    /// @notice borrows amount of liquidity and adds to position
+    function borrowAndAddLiquidity(BorrowAndAddLiquidityParams calldata params) external {
+
+        BorrowAndAddLiquidityState memory state;
+
+        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+        state.pool = _getPool(state.token0, state.token1, state.fee);
+        (uint160 sqrtPriceX96, ,,,,,) = state.pool.slot0();
+
+        uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
+        uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
+
+        (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, params.liquidity);
+
+        address owner = holder.tokenOwners(params.tokenId);
+
+        CErc20 cToken0 = _getCToken(state.token0);
+        CErc20 cToken1 = _getCToken(state.token1);
+
         if (amount0 > 0) {
-            tokenConfigs[token0].cToken.repayBehalf(owner, amount0);
+            cToken0.borrowBehalf(owner, amount0);
+            IERC20(state.token0).approve(address(nonfungiblePositionManager), amount0);
         }
         if (amount1 > 0) {
-            tokenConfigs[token1].cToken.repayBehalf(owner, amount1);
-        }*/
+            cToken1.borrowBehalf(owner, amount1);
+            IERC20(state.token1).approve(address(nonfungiblePositionManager), amount1);
+        }
+
+        (, uint addedAmount0, uint addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.minAmount0, params.minAmount1, block.timestamp));
+
+        if (addedAmount0 < amount0) {
+            IERC20(state.token0).approve(address(cToken0), amount0 - addedAmount0);
+            cToken0.repayBorrowBehalf(owner, amount0 - addedAmount0);
+        } 
+        if (addedAmount1 < amount1) {
+            IERC20(state.token1).approve(address(cToken1), amount1 - addedAmount1);
+            cToken1.repayBorrowBehalf(owner, amount1 - addedAmount1);
+        }
+    }
+
+    struct RepayFromRemovedLiquidityParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        uint256 minAmount0;
+        uint256 minAmount1;
+        uint128 fees0;
+        uint128 fees1;
+    }
+
+    struct RepayFromRemovedLiquidityState {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+    }
+
+    /// @notice removes liquidity (and or fees) to repay debt
+    function repayFromRemovedLiquidity(RepayFromRemovedLiquidityParams calldata params) external {
+
+        RepayFromRemovedLiquidityState memory state;
+
+        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
+
+        address owner = holder.tokenOwners(params.tokenId);
+
+        // this is done without collateral check here - it is done at the end of call
+        (uint amount0, uint amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, address(this)));
+
+        CErc20 cToken0 = _getCToken(state.token0);
+        CErc20 cToken1 = _getCToken(state.token1);
+
+        uint borrowBalance0 = cToken0.borrowBalanceCurrent(owner);
+        uint borrowBalance1 = cToken1.borrowBalanceCurrent(owner);
+
+        if (amount0 > 0) {
+            if (borrowBalance0 > 0) {
+                IERC20(state.token0).approve(address(cToken0), amount0 > borrowBalance0 ? borrowBalance0 : amount0);
+                cToken0.repayBorrowBehalf(owner, amount0 > borrowBalance0 ? borrowBalance0 : amount0);
+            }
+            if (amount0 > borrowBalance0) {
+                SafeERC20.safeTransfer(IERC20(state.token0), owner, amount0 - borrowBalance0);
+            }
+        }
+        if (amount1 > 0) {
+            if (borrowBalance1 > 0) {
+                IERC20(state.token1).approve(address(cToken1), amount1 > borrowBalance1 ? borrowBalance1 : amount1);
+                cToken1.repayBorrowBehalf(owner, amount1 > borrowBalance1 ? borrowBalance1 : amount1);
+            }
+            if (amount0 > borrowBalance0) {
+                SafeERC20.safeTransfer(IERC20(state.token1), owner, amount1 - borrowBalance1);
+            }
+        }
+
+        // check collateral
+        _checkCollateral(owner);
     }
 
 
@@ -252,9 +331,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             CErc20 cToken = _getCToken(token0);
             IERC20(token0).approve(address(cToken), amount0);
             uint cAmountBefore = cToken.balanceOf(address(this));
-            if (cToken.mint(amount0) != 0) {
-                revert MintError();
-            }
+            cToken.mint(amount0);
             uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = true;
@@ -263,9 +340,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             CErc20 cToken = _getCToken(token1);
             IERC20(token1).approve(address(cToken), amount1);
             uint cAmountBefore = cToken.balanceOf(address(this));
-            if (cToken.mint(amount1) != 0) {
-                revert MintError();
-            }
+            cToken.mint(amount1);
             uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = false;

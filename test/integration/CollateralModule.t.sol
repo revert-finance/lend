@@ -173,10 +173,17 @@ contract CollateralModuleTest is Test, TestBase {
     }
 
     function _prepareAvailableUSDC(uint amount) internal {
-        vm.prank(USDC_WHALE);   
+        vm.prank(WHALE_ACCOUNT);   
         USDC.approve(address(cTokenUSDC), amount);
-        vm.prank(USDC_WHALE);   
+        vm.prank(WHALE_ACCOUNT);   
         cTokenUSDC.mint(amount);
+    }
+
+    function _prepareAvailableDAI(uint amount) internal {
+        vm.prank(WHALE_ACCOUNT);   
+        DAI.approve(address(cTokenDAI), amount);
+        vm.prank(WHALE_ACCOUNT);   
+        cTokenDAI.mint(amount);
     }
 
     function testBasicCompound() external {
@@ -273,6 +280,51 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(shortfall, 0);     
     }
 
+    function testGrowShrinkPositionWithBorrowing() external {
+
+        uint err;
+        uint liquidity;
+        uint shortfall;
+
+        PositionData memory data = _preparePositionCollateralDAIUSDCInRangeWithFees();
+
+        // prepare borrowable tokens 1000000 DAI / 1000000 USDC
+        _prepareAvailableDAI(100000 ether);
+        _prepareAvailableUSDC(100000000000);
+
+
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
+        assertEq(err, 0);
+        assertEq(liquidity, 39078446572567534888584); // fees were added
+        assertEq(shortfall, 0);
+
+        (, , , , , , , uint128 liquidityBefore, , , , ) = NPM.positions(data.tokenId);
+
+        vm.prank(data.owner);
+        module.borrowAndAddLiquidity(CollateralModule.BorrowAndAddLiquidityParams(data.tokenId, 5000000000000000000, 0, 0));
+     
+        (, , , , , , , uint128 liquidityAfter, , , , ) = NPM.positions(data.tokenId);
+
+        assertGt(liquidityAfter, liquidityBefore); 
+
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
+        assertEq(err, 0);
+        assertEq(liquidity, 24097530741784906792213); // fees were added
+        assertEq(shortfall, 0);
+
+        module.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, 0, 0));
+
+        (, , , , , , , liquidityBefore, , , , ) = NPM.positions(data.tokenId);
+
+        assertGt(liquidityAfter, liquidityBefore); 
+
+        module.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, liquidityBefore, 0, 0, 0, 0));
+
+        (, , , , , , , liquidityBefore, , , , ) = NPM.positions(data.tokenId);
+
+        assertEq(liquidityBefore, 0);
+    }
+
     function _prepareLiquidationScenario() internal returns (PositionData memory data) {
 
         uint err;
@@ -326,7 +378,7 @@ contract CollateralModuleTest is Test, TestBase {
 
         uint repayAmount = 39078000000 / 2;
 
-        err = comptroller.liquidateBorrowAllowedUniV3(address(cTokenUSDC), data.tokenId, USDC_WHALE, data.owner, repayAmount);
+        err = comptroller.liquidateBorrowAllowedUniV3(address(cTokenUSDC), data.tokenId, WHALE_ACCOUNT, data.owner, repayAmount);
         assertEq(err, 0);
 
         (err, liquidity, fees0, fees1, cToken0, cToken1) = comptroller.liquidateCalculateSeizeTokensUniV3(address(cTokenUSDC), data.tokenId, repayAmount);
@@ -339,18 +391,18 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(cToken1, 0);
 
         // whale executing liquidation
-        vm.prank(USDC_WHALE);   
+        vm.prank(WHALE_ACCOUNT);   
         USDC.approve(address(cTokenUSDC), repayAmount);
         
-        uint bbdai = DAI.balanceOf(USDC_WHALE);
-        uint bbusdc = USDC.balanceOf(USDC_WHALE);
+        uint bbdai = DAI.balanceOf(WHALE_ACCOUNT);
+        uint bbusdc = USDC.balanceOf(WHALE_ACCOUNT);
 
-        vm.prank(USDC_WHALE);
+        vm.prank(WHALE_ACCOUNT);
         (err) = cTokenUSDC.liquidateBorrowUniV3(data.owner, repayAmount, data.tokenId);
         assertEq(err, 0);
 
-        uint badai = DAI.balanceOf(USDC_WHALE);
-        uint bausdc = USDC.balanceOf(USDC_WHALE);
+        uint badai = DAI.balanceOf(WHALE_ACCOUNT);
+        uint bausdc = USDC.balanceOf(WHALE_ACCOUNT);
 
         // around 108% of repayAmount
         assertEq(badai - bbdai, 11469587512910263224405);

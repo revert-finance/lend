@@ -117,6 +117,17 @@ contract CErc20Delegator is CTokenInterface, CErc20Interface, CDelegatorInterfac
     }
 
     /**
+     * @notice Sender borrows assets from the protocol on behalf of borrower
+     * @param borrower The account with the debt being taken for
+     * @param borrowAmount The amount of the underlying asset to borrow
+     * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
+     */
+    function borrowBehalf(address borrower, uint borrowAmount) override external returns (uint) {
+        bytes memory data = delegateToImplementation(abi.encodeWithSignature("borrowBehalf(address,uint256)", borrower, borrowAmount));
+        return abi.decode(data, (uint));
+    }
+
+    /**
      * @notice Sender repays their own borrow
      * @param repayAmount The amount to repay, or -1 for the full outstanding amount
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)

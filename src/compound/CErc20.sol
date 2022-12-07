@@ -84,6 +84,17 @@ contract CErc20 is CToken, CErc20Interface {
     }
 
     /**
+     * @notice Sender borrows assets from the protocol on behalf of borrower
+     * @param borrower the account with the debt being taken for
+     * @param borrowAmount The amount of the underlying asset to borrow
+     * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
+     */
+    function borrowBehalf(address borrower, uint256 borrowAmount) override external returns (uint) {
+        borrowBehalfInternal(borrower, borrowAmount);
+        return NO_ERROR;
+    }
+
+    /**
      * @notice Sender repays their own borrow
      * @param repayAmount The amount to repay, or -1 for the full outstanding amount
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)

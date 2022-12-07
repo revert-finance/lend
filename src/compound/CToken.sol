@@ -555,14 +555,26 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
     function borrowInternal(uint borrowAmount) internal nonReentrant {
         accrueInterest();
         // borrowFresh emits borrow-specific logs on errors, so we don't need to
-        borrowFresh(payable(msg.sender), borrowAmount);
+        borrowFresh(payable(msg.sender), msg.sender, borrowAmount);
+    }
+
+    /**
+     * @notice Sender borrows assets from the protocol on behalf of borrower
+     * @param borrower The address of the account under which borrowing is tracked
+     * @param borrowAmount The amount of the underlying asset to borrow
+     */
+    function borrowBehalfInternal(address borrower, uint256 borrowAmount) internal nonReentrant {
+        require(msg.sender == address(comptroller.getCollateralModule()) || msg.sender == borrower, "only collateral module or borrower allowed");
+        accrueInterest();
+        // borrowFresh emits borrow-specific logs on errors, so we don't need to
+        borrowFresh(payable(msg.sender), borrower, borrowAmount);
     }
 
     /**
       * @notice Users borrow assets from the protocol to their own address
       * @param borrowAmount The amount of the underlying asset to borrow
       */
-    function borrowFresh(address payable borrower, uint borrowAmount) internal {
+    function borrowFresh(address payable to, address borrower, uint256 borrowAmount) internal {
         /* Fail if borrow not allowed */
         uint allowed = comptroller.borrowAllowed(address(this), borrower, borrowAmount);
         if (allowed != 0) {
@@ -606,7 +618,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          *  On success, the cToken borrowAmount less of cash.
          *  doTransferOut reverts if anything goes wrong, since we can't be sure if side effects occurred.
          */
-        doTransferOut(borrower, borrowAmount);
+        doTransferOut(to, borrowAmount);
 
         /* We emit a Borrow event */
         emit Borrow(borrower, borrowAmount, accountBorrowsNew, totalBorrowsNew);
