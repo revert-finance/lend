@@ -62,7 +62,7 @@ contract V3Utils is IERC721Receiver {
         // what action to perform on provided Uniswap v3 position
         WhatToDo whatToDo;
 
-        // target token for swaps
+        // target token for swaps (if this is address(0) no swaps are executed)
         address targetToken;
 
         // amountIn0 is used for swap and also as minAmount0 for decreaseLiquidity (when WITHDRAW_AND_COLLECT_AND_SWAP amountIn0 + available fees0 will be swapped)
@@ -202,7 +202,9 @@ contract V3Utils is IERC721Receiver {
             }
 
             // send complete target amount
-            IERC20(instructions.targetToken).safeTransfer(instructions.recipient, targetAmount);
+            if (targetAmount > 0 && address(instructions.targetToken) != address(0)) {
+                IERC20(instructions.targetToken).safeTransfer(instructions.recipient, targetAmount);
+            }
 
             emit WithdrawAndCollectAndSwap(tokenId, instructions.targetToken, targetAmount);
         } else {
@@ -515,7 +517,7 @@ contract V3Utils is IERC721Receiver {
     // does slippage check with amountOutMin param
     // returns token amounts deltas after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
-        if (amountIn > 0 && swapData.length > 0) {
+        if (amountIn > 0 && swapData.length > 0 && address(tokenOut) != address(0)) {
             uint balanceInBefore = tokenIn.balanceOf(address(this));
             uint balanceOutBefore = tokenOut.balanceOf(address(this));
 
