@@ -630,19 +630,21 @@ contract ChainlinkOracle is PriceOracle, Ownable {
         uint8 tokenDecimals;
     }
 
+    // ctoken => config mapping
     mapping(address => FeedConfig) feedConfigs;
     
     constructor() {
     }
 
-    function setTokenFeed(address token, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
+    function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
         uint8 feedDecimals = feed.decimals();
-        uint8 tokenDecimals = IERC20Metadata(token).decimals();
-        feedConfigs[token] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
+        address underlying = CErc20Storage(address(cToken)).underlying();
+        uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
+        feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
     }
 
-    function _getPrice(address token) internal view returns (uint) {
-        FeedConfig storage feedConfig = feedConfigs[token];
+    function getUnderlyingPrice(CToken cToken) override external view returns (uint) {
+        FeedConfig storage feedConfig = feedConfigs[address(cToken)];
         if (address(feedConfig.feed) == address(0)) {
             revert NoFeedConfigured();
         }
@@ -659,10 +661,5 @@ contract ChainlinkOracle is PriceOracle, Ownable {
 
         // convert to compound expected format
         return (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * uint256(answer);
-    }
-
-    function getUnderlyingPrice(CToken cToken) override external view returns (uint) {
-        address underlying = CErc20Storage(address(cToken)).underlying();
-        return _getPrice(underlying);
     }
 }

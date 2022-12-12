@@ -41,6 +41,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             TEST_ACCOUNT,
+            false,
             ""
         );
         NPM.safeTransferFrom(
@@ -65,6 +66,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             TEST_NFT_ID,
             abi.encode(true, false, 1, "test")
         );
+    }
+
+    function testSendEtherNotAllowed() external {
+        vm.expectRevert(V3Utils.NotWETH.selector);
+        address(c).call{value: 123}("");
     }
 
     function testTransferWithChangeRange() external {
@@ -93,6 +99,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             block.timestamp,
             TEST_ACCOUNT,
+            false,
             ""
         );
 
@@ -133,6 +140,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             block.timestamp,
             TEST_NFT_WITH_FEES_ACCOUNT,
+            false,
             ""
         );
 
@@ -185,6 +193,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             block.timestamp,
             TEST_NFT_WITH_FEES_ACCOUNT,
+            false,
             ""
         );
 
@@ -243,6 +252,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             block.timestamp,
             TEST_ACCOUNT,
+            false,
             ""
         );
 
@@ -301,6 +311,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             block.timestamp,
             TEST_ACCOUNT,
+            false,
             ""
         );
 

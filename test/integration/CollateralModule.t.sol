@@ -49,13 +49,6 @@ contract CollateralModuleTest is Test, TestBase {
         comptroller._setCloseFactor(500000000000000000); // 50%
         comptroller._setLiquidationIncentive(1080000000000000000); // 108%
 
-        oracle = new ChainlinkOracle();
-        oracle.setTokenFeed(address(USDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
-        oracle.setTokenFeed(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
-        oracle.setTokenFeed(address(WETH_ERC20), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600);
-
-        comptroller._setPriceOracle(oracle);
-
         irm = new WhitePaperInterestRateModel(20000000000000000, 300000000000000000);
 
         cErc20Delegate = new CErc20Delegate();
@@ -63,6 +56,12 @@ contract CollateralModuleTest is Test, TestBase {
         cTokenUSDC = CErc20(address(new CErc20Delegator(address(USDC), comptroller, irm, 1 ether, "cUSDC", "cUSDC", 8, payable(address(this)), address(cErc20Delegate), "")));
         cTokenDAI = CErc20(address(new CErc20Delegator(address(DAI), comptroller, irm, 1 ether, "cDAI", "cDAI", 8, payable(address(this)), address(cErc20Delegate), "")));
         cTokenWETH = CErc20(address(new CErc20Delegator(address(WETH_ERC20), comptroller, irm, 1 ether, "cWETH", "cWETH", 8, payable(address(this)), address(cErc20Delegate), "")));
+
+        oracle = new ChainlinkOracle();
+        oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
+        oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
+        oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600);
+        comptroller._setPriceOracle(oracle);
 
         uint64 fiftyPercent = 5 * 10 ** 17;
 
