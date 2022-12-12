@@ -252,19 +252,19 @@ contract NFTHolderTest is Test, IERC721Receiver {
         module2.triggerCollectForTesting(tokenId);
 
         // owner - ok
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this)));
 
         // other account - nok
         vm.expectRevert(NFTHolder.Unauthorized.selector);
         vm.prank(address(holder)); // dummy account
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this)));
 
         // register for module which blocks withdrawals 
         holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
 
         // owner - nok anymore
         vm.expectRevert(TestModule.CheckCollectError.selector);
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this)));
 
         // enabled module - nok anymore
         vm.expectRevert(TestModule.CheckCollectError.selector);
@@ -277,7 +277,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
         holder.removeTokenFromModule(tokenId, module2Index);
 
         // ok again
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this)));
     }
 
     function testTransform() external {

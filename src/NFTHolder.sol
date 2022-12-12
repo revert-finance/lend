@@ -232,9 +232,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     /// @notice Sets module blocking configuration
     // When a position is in a module which is in blocking bitmap it cant be added to this module
     // Adding a modules index to its own blocking bitmap - disables adding new positions to the module
-    function setModuleBlocking(uint8 moduleIndex, uint256 blocking)
-        external
-        onlyOwner
+    function setModuleBlocking(uint8 moduleIndex, uint256 blocking) external onlyOwner
     {
         Module storage module = modules[moduleIndex];
         if (address(module.implementation) == address(0)) {
@@ -260,6 +258,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         uint128 amountFees0Max; // set to uint128.max for all fees (+ all liquidity removed)
         uint128 amountFees1Max; // set to uint128.max for all fees (+ all liquidity removed)
         uint256 deadline;
+        bool unwrap;
         address recipient;
     }
 

@@ -33,7 +33,7 @@ contract TestModule is IModule {
     }
 
     function triggerCollectForTesting(uint256 tokenId) external {
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this)));
     }
 
 }

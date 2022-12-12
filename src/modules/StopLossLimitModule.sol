@@ -118,7 +118,7 @@ contract StopLossLimitModule is Module, IModule {
     function withdrawBalance(address token, address to) external onlyOwner {
         uint256 balance = IERC20(token).balanceOf(address(this));
         if (balance > 0) {
-            SafeERC20.safeTransfer(IERC20(token), to, balance);
+            _transferToken(to, IERC20(token), balance, true);
         }
     }
 
@@ -150,7 +150,7 @@ contract StopLossLimitModule is Module, IModule {
         state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
        
         // decrease full liquidity for given position (one sided only) - and return fees as well
-        (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
+        (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this)));
 
         // swap to other token
         if (state.isSwap) {
@@ -174,10 +174,10 @@ contract StopLossLimitModule is Module, IModule {
         // send final tokens to position owner - if any
         state.owner = holder.tokenOwners(params.tokenId);
         if (state.amount0 - state.protocolReward0 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token0), state.owner, state.amount0 - state.protocolReward0);
+            _transferToken(state.owner, IERC20(state.token0), state.amount0 - state.protocolReward0, true);
         }
         if (state.amount1 - state.protocolReward1 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.amount1 - state.protocolReward1);
+            _transferToken(state.owner, IERC20(state.token1), state.amount1 - state.protocolReward1, true);
         }
         
         // keep rest in contract (for owner withdrawal)

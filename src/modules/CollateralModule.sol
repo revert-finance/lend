@@ -234,7 +234,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
         address owner = holder.tokenOwners(params.tokenId);
 
         // this is done without collateral check here - it is done at the end of call
-        (uint amount0, uint amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, address(this)));
+        (uint amount0, uint amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, false, address(this)));
 
         CErc20 cToken0 = _getCToken(state.token0);
         CErc20 cToken1 = _getCToken(state.token1);
@@ -248,7 +248,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
                 cToken0.repayBorrowBehalf(owner, amount0 > borrowBalance0 ? borrowBalance0 : amount0);
             }
             if (amount0 > borrowBalance0) {
-                SafeERC20.safeTransfer(IERC20(state.token0), owner, amount0 - borrowBalance0);
+                _transferToken(owner, IERC20(state.token0), amount0 - borrowBalance0, true);
             }
         }
         if (amount1 > 0) {
@@ -257,7 +257,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
                 cToken1.repayBorrowBehalf(owner, amount1 > borrowBalance1 ? borrowBalance1 : amount1);
             }
             if (amount0 > borrowBalance0) {
-                SafeERC20.safeTransfer(IERC20(state.token1), owner, amount1 - borrowBalance1);
+                _transferToken(owner, IERC20(state.token1), amount1 - borrowBalance1, true);
             }
         }
 
@@ -288,7 +288,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
 
         // if position internal values are seized
         if (seizeLiquidity > 0 || seizeFeesToken0 > 0 || seizeFeesToken1 > 0) {
-            holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, liquidator));
+            holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, true, liquidator));
         }
 
         // if ctokens are seized
@@ -299,14 +299,14 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
                 uint balanceBefore = IERC20(token0).balanceOf(address(this));
                 cToken0.redeem(seizeCToken0);
                 uint balanceAfter = IERC20(token0).balanceOf(address(this));
-                SafeERC20.safeTransfer(IERC20(token0), liquidator, balanceAfter - balanceBefore);
+                _transferToken(liquidator, IERC20(token0), balanceAfter - balanceBefore, true);
             }
             if (seizeCToken1 > 0) {
                 CErc20 cToken1 = _getCToken(token1);
                 uint balanceBefore = IERC20(token1).balanceOf(address(this));
                 cToken1.redeem(seizeCToken1);
                 uint balanceAfter = IERC20(token1).balanceOf(address(this));
-                SafeERC20.safeTransfer(IERC20(token1), liquidator, balanceAfter - balanceBefore);
+                _transferToken(liquidator, IERC20(token1), balanceAfter - balanceBefore, true);
             }
         }
     }
@@ -328,7 +328,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
 
         // collect all oneside liquidity+fees if out of range
         if (tick < tickLower) {
-            (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, type(uint128).max, 0, block.timestamp, address(this)));
+            (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, type(uint128).max, 0, block.timestamp, false, address(this)));
             CErc20 cToken = _getCToken(token0);
             IERC20(token0).approve(address(cToken), amount0);
             uint cAmountBefore = cToken.balanceOf(address(this));
@@ -337,7 +337,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = true;
         } else if (tick > tickUpper) {
-            (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, 0, type(uint128).max, block.timestamp, address(this)));
+            (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, 0, type(uint128).max, block.timestamp, false, address(this)));
             CErc20 cToken = _getCToken(token1);
             IERC20(token1).approve(address(cToken), amount1);
             uint cAmountBefore = cToken.balanceOf(address(this));

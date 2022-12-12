@@ -134,7 +134,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         require(state.tokenOwner != address(0), "!found");
 
         // collect ONLY fees - NO liquidity
-        (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, address(this)));
+        (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this)));
 
         // get position info
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
@@ -429,7 +429,7 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         require(amount <= balance, "amount>balance");
         accountBalances[msg.sender][token] -= amount;
         emit BalanceRemoved(msg.sender, token, amount);
-        SafeERC20.safeTransfer(IERC20(token), to, amount);
+        _transferToken(to, IERC20(token), amount, true);
         emit BalanceWithdrawn(msg.sender, token, to, amount);
     }
 

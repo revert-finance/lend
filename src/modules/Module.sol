@@ -19,6 +19,7 @@ import 'v3-core/libraries/SafeCast.sol';
 import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery/interfaces/external/IWETH9.sol";
 
 // base functionality for modules
 contract Module is Ownable, IUniswapV3SwapCallback {
@@ -33,10 +34,12 @@ contract Module is Ownable, IUniswapV3SwapCallback {
     error SlippageError();
     error TWAPCheckFailed();
     error Unauthorized();
+    error NotWETH();
+    error EtherSendFailed();
 
     NFTHolder public immutable holder;
 
-    address public immutable weth;
+    IWETH9 public immutable weth;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
     
@@ -44,7 +47,7 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         INonfungiblePositionManager npm = _holder.nonfungiblePositionManager();
         holder = _holder;
         nonfungiblePositionManager = npm;
-        weth = npm.WETH9();
+        weth = IWETH9(npm.WETH9());
         factory = IUniswapV3Factory(npm.factory());
     }
 
@@ -169,6 +172,18 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         }
     }
 
+    function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
+        if (address(weth) == address(token) && unwrap) {
+            weth.withdraw(amount);
+            (bool sent, ) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            SafeERC20.safeTransfer(token, to, amount);
+        }
+    }
+
     /// @inheritdoc IUniswapV3SwapCallback
     function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
 
@@ -183,5 +198,12 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         // transfer needed amount of tokenIn
         uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
         SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+    }
+
+    // needed for WETH unwrapping
+    receive() external payable {
+        if (msg.sender != address(weth)) {
+            revert NotWETH();
+        }
     }
 }
