@@ -42,6 +42,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             TEST_ACCOUNT,
             false,
+            "",
             ""
         );
         NPM.safeTransferFrom(
@@ -69,8 +70,9 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     }
 
     function testSendEtherNotAllowed() external {
+        bool success;
         vm.expectRevert(V3Utils.NotWETH.selector);
-        address(c).call{value: 123}("");
+        (success,) = address(c).call{value: 123}("");
     }
 
     function testTransferWithChangeRange() external {
@@ -100,6 +102,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             block.timestamp,
             TEST_ACCOUNT,
             false,
+            "",
             ""
         );
 
@@ -141,6 +144,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             block.timestamp,
             TEST_NFT_WITH_FEES_ACCOUNT,
             false,
+            "",
             ""
         );
 
@@ -194,6 +198,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             block.timestamp,
             TEST_NFT_WITH_FEES_ACCOUNT,
             false,
+            "",
             ""
         );
 
@@ -253,6 +258,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             block.timestamp,
             TEST_ACCOUNT,
             false,
+            "",
             ""
         );
 
@@ -312,6 +318,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             block.timestamp,
             TEST_ACCOUNT,
             false,
+            "",
             ""
         );
 
@@ -441,6 +448,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             TEST_ACCOUNT,
+            TEST_ACCOUNT,
             block.timestamp,
             IERC20(address(0)),
             0,
@@ -450,7 +458,8 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             "",
             0,
-            0
+            0,
+            ""
         );
 
         vm.prank(TEST_ACCOUNT);
@@ -503,6 +512,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             2000000,
             TEST_ACCOUNT,
+            TEST_ACCOUNT,
             block.timestamp,
             USDC,
             1000000,
@@ -512,7 +522,8 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             "",
             0,
-            0
+            0,
+            ""
         );
 
         vm.prank(TEST_ACCOUNT);
@@ -546,6 +557,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             0,
             0,
             TEST_ACCOUNT,
+            TEST_ACCOUNT,
             block.timestamp,
             WETH_ERC20,
             500000000000000000, // 0.5ETH
@@ -555,7 +567,8 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             661794703,
             _get05ETHToUSDCSwapData(),
             0,
-            0
+            0,
+            ""
         );
 
         vm.prank(TEST_ACCOUNT);

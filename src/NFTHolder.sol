@@ -32,6 +32,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     error ModuleAlreadyRegistered();
     error TokenNotReturned();
     error FlashTransformNotConfigured();
+    error FlashTransformInProgress();
 
     error TokenNotInModule();
     error InvalidWithdrawTarget();
@@ -53,6 +54,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
 
     uint256 public checkOnCollect; // bitmap with modules that need check on collect
     address public flashTransformContract; // contract which is allowed to do flash transforms
+    uint256 flashTransformedTokenId; // store tokenid which is flash transformed
 
     struct Module {
         IModule implementation; // 160 bits
@@ -83,9 +85,15 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
-        // if flashTransform contract sent token back - no need to do nothing here
+        // if flashTransform contract sent token back
         if (from == flashTransformContract) {
-            return IERC721Receiver.onERC721Received.selector;
+            if (tokenId == flashTransformedTokenId) {
+                 // its the same token - no need to do nothing here
+                return IERC721Receiver.onERC721Received.selector;
+            } else {
+                // its another token - assume it belongs to flash transformed tokens owner
+                from = tokenOwners[flashTransformedTokenId];
+            }
         }
 
         ModuleParams[] memory initialModules;
@@ -96,9 +104,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    function addToken(uint256 tokenId, ModuleParams[] memory initialModules)
-        external
-    {
+    function addToken(uint256 tokenId, ModuleParams[] memory initialModules) external {
         // must be approved beforehand
         nonfungiblePositionManager.safeTransferFrom(
             msg.sender,
@@ -265,7 +271,11 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     /// @notice flash transforms token - must be returned afterwards
     /// only token owner is allowed to call this!!
     /// currently used vor v3utils type of operations, data is encoded Instructions for V3Utils
-    function flashTransform(uint256 tokenId, bytes calldata data) external nonReentrant {
+    function flashTransform(uint256 tokenId, bytes calldata data) external {
+        if (flashTransformedTokenId > 0) {
+            revert FlashTransformInProgress();
+        }
+        flashTransformedTokenId = tokenId;
 
         address owner = tokenOwners[tokenId];
         if (owner != msg.sender) {
@@ -287,6 +297,9 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         // only allow if complete collect is allowed
         uint256 mod = tokenModules[tokenId];
         _checkOnCollect(0, mod, tokenId, owner, type(uint128).max, type(uint128).max, type(uint128).max);
+    
+        // reset flash transformed token
+        flashTransformedTokenId = 0;
     }
 
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external nonReentrant returns (uint256 amount0, uint256 amount1) {
