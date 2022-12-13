@@ -38,7 +38,6 @@ contract Module is Ownable, IUniswapV3SwapCallback {
     error EtherSendFailed();
 
     NFTHolder public immutable holder;
-
     IWETH9 public immutable weth;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
@@ -63,7 +62,8 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 
-    function _getPoolPrice(address token0, address token1, uint24 fee) internal view returns (uint) {
+    // get current pool price
+    function _getPoolPriceX96(address token0, address token1, uint24 fee) internal view returns (uint) {
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
@@ -80,6 +80,7 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         }
     }
 
+    // gets twap tick from pool history if enough history available
     function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24, bool) {
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = 0; // from (before)
@@ -172,19 +173,7 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         }
     }
 
-    function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
-        if (address(weth) == address(token) && unwrap) {
-            weth.withdraw(amount);
-            (bool sent, ) = to.call{value: amount}("");
-            if (!sent) {
-                revert EtherSendFailed();
-            }
-        } else {
-            SafeERC20.safeTransfer(token, to, amount);
-        }
-    }
-
-    /// @inheritdoc IUniswapV3SwapCallback
+    // swap callback function where amount for swap is payed - @inheritdoc IUniswapV3SwapCallback
     function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
 
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
@@ -198,6 +187,19 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         // transfer needed amount of tokenIn
         uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
         SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+    }
+
+    // function to transfer token / native unwrapped token to address
+    function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
+        if (address(weth) == address(token) && unwrap) {
+            weth.withdraw(amount);
+            (bool sent, ) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            SafeERC20.safeTransfer(token, to, amount);
+        }
     }
 
     // needed for WETH unwrapping

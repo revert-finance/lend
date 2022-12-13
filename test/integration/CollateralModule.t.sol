@@ -32,7 +32,7 @@ contract CollateralModuleTest is Test, TestBase {
     CErc20Delegate cErc20Delegate;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
+        mainnetFork = vm.createFork("https://rpc.flashbots.net", 15489169);
         vm.selectFork(mainnetFork);
 
         // SETUP complete custom COMPOUND

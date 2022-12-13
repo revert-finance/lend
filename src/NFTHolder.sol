@@ -6,7 +6,6 @@ import "./modules/IModule.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -15,7 +14,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 /// @title NFTHolder
 /// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
-contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
+contract NFTHolder is IERC721Receiver, Ownable {
     uint256 public constant MAX_TOKENS_PER_ADDRESS = 100;
 
     // wrapped native token address
@@ -33,7 +32,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
     error TokenNotReturned();
     error FlashTransformNotConfigured();
     error FlashTransformInProgress();
-
+    error NoFlashTransformInProgress();
     error TokenNotInModule();
     error InvalidWithdrawTarget();
 
@@ -87,7 +86,13 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         }
         // if flashTransform contract sent token back
         if (from == flashTransformContract) {
-            if (tokenId == flashTransformedTokenId) {
+            uint flashTokenId = flashTransformedTokenId;
+
+            if (flashTokenId == 0) {
+                revert NoFlashTransformInProgress();
+            }
+
+            if (tokenId == flashTokenId) {
                  // its the same token - no need to do nothing here
                 return IERC721Receiver.onERC721Received.selector;
             } else {
@@ -302,7 +307,7 @@ contract NFTHolder is IERC721Receiver, Ownable, ReentrancyGuard {
         flashTransformedTokenId = 0;
     }
 
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external nonReentrant returns (uint256 amount0, uint256 amount1) {
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1) {
         uint256 mod = tokenModules[params.tokenId];
         uint8 moduleIndex = modulesIndex[msg.sender];
         bool callFromActiveModule = moduleIndex > 0 &&
