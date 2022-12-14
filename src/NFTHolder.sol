@@ -84,27 +84,38 @@ contract NFTHolder is IERC721Receiver, Ownable {
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
-        // if flashTransform contract sent token back
-        if (from == flashTransformContract) {
-            uint flashTokenId = flashTransformedTokenId;
-
-            if (flashTokenId == 0) {
-                revert NoFlashTransformInProgress();
-            }
-
-            if (tokenId == flashTokenId) {
-                 // its the same token - no need to do nothing here
-                return IERC721Receiver.onERC721Received.selector;
-            } else {
-                // its another token - assume it belongs to flash transformed tokens owner
-                from = tokenOwners[flashTransformedTokenId];
-            }
-        }
 
         ModuleParams[] memory initialModules;
-        if (data.length > 0) {
-            initialModules = abi.decode(data, (ModuleParams[]));
+
+        // if flashTransform contract sent token back - special handling
+        if (from == flashTransformContract) {
+            uint flashTokenId = flashTransformedTokenId;
+            // if its called from minting context
+            if (flashTokenId == 0) {
+                bytes memory returnData;
+                // set owner to caller of minting context
+                (from, returnData) = abi.decode(data, (address, bytes));
+                if (returnData.length > 0) {
+                    initialModules = abi.decode(returnData, (ModuleParams[]));
+                }
+            } else {
+                if (tokenId == flashTokenId) {
+                     // its the same token - no need to do nothing here
+                    return IERC721Receiver.onERC721Received.selector;
+                } else {
+                    // its another token - assume it belongs to flash transformed tokens owner
+                    from = tokenOwners[flashTransformedTokenId];
+                }
+                if (data.length > 0) {
+                    initialModules = abi.decode(data, (ModuleParams[]));
+                }
+            }
+        } else {
+            if (data.length > 0) {
+                initialModules = abi.decode(data, (ModuleParams[]));
+            }
         }
+    
         _addToken(tokenId, from, initialModules);
         return IERC721Receiver.onERC721Received.selector;
     }

@@ -170,15 +170,15 @@ contract V3Utils is IERC721Receiver {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
                 }
-                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0, instructions.swapAndMintReturnData), instructions.unwrap);
+                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, from, instructions.deadline, IERC20(state.token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", 0, 0, false, instructions.swapAndMintReturnData), instructions.unwrap);
             } else if (instructions.targetToken == state.token1) {
                 if (state.amount0 < instructions.amountIn0) {
                     revert AmountError();
                 }
-                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0, instructions.swapAndMintReturnData), instructions.unwrap);
+                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, from, instructions.deadline, IERC20(state.token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, 0, 0, false, instructions.swapAndMintReturnData), instructions.unwrap);
             } else {
                 // no swap is done here
-                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0, instructions.swapAndMintReturnData), instructions.unwrap);
+                (state.newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(state.token0), IERC20(state.token1), instructions.fee, instructions.tickLower, instructions.tickUpper, state.amount0, state.amount1, instructions.recipient, from, instructions.deadline, IERC20(state.token0), 0, 0, "", 0, 0, "", 0, 0, false, instructions.swapAndMintReturnData), instructions.unwrap);
             }
 
             emit ChangeRange(tokenId, state.newTokenId);
@@ -293,6 +293,7 @@ contract V3Utils is IERC721Receiver {
         uint amountAddMin1;
 
         // data to be sent along newly created nft when sent to recipient
+        bool returnDataAddSender; // for minting directly into nft holder this must be true - otherwise false
         bytes returnData;
     }
 
@@ -418,13 +419,19 @@ contract V3Utils is IERC721Receiver {
                 total1, 
                 params.amountAddMin0,
                 params.amountAddMin1,
-                address(this),
+                address(this), // is sent to real recipient aftwards
                 params.deadline
             );
 
         // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
-        nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, params.returnData);
+
+        // special case for nftholder directed minting (and proof ownership)
+        if (params.returnDataAddSender) {
+            nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, abi.encode(msg.sender, params.returnData));
+        } else {
+            nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, params.returnData);
+        }
 
         emit SwapAndMint(tokenId, liquidity, added0, added1);
 
@@ -435,7 +442,7 @@ contract V3Utils is IERC721Receiver {
     function _swapAndIncrease(SwapAndIncreaseLiquidityParams memory params, IERC20 token0, IERC20 token1, bool unwrap) internal returns (uint128 liquidity, uint added0, uint added1) {
 
         (uint total0, uint total1) = _swapAndPrepareAmounts(
-            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1, params.amountAddMin0, params.amountAddMin1, ""), unwrap);
+            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1, params.amountAddMin0, params.amountAddMin1, false, ""), unwrap);
 
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(

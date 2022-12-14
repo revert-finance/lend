@@ -6,10 +6,12 @@ import "forge-std/console.sol";
 
 import "../TestBase.sol";
 
+import "../../src/V3Utils.sol";
 import "../../src/NFTHolder.sol";
 import "../../src/modules/CompoundorModule.sol";
 
 contract CompoundorModuleTest is Test, TestBase {
+    V3Utils v3utils;
     NFTHolder holder;
     CompoundorModule module;
     uint256 mainnetFork;
@@ -19,8 +21,12 @@ contract CompoundorModuleTest is Test, TestBase {
         mainnetFork = vm.createFork("https://rpc.flashbots.net", 15489169);
         vm.selectFork(mainnetFork);
 
+
         holder = new NFTHolder(NPM);
         module = new CompoundorModule(holder);
+        v3utils = new V3Utils(NPM);
+
+        holder.setFlashTransformContract(address(v3utils));
 
         moduleIndex = holder.addModule(module, false, 0);
     }
@@ -114,5 +120,52 @@ contract CompoundorModuleTest is Test, TestBase {
         assertEq(reward1, 6965742);
         assertEq(compounded0, 376519398080354422508);
         assertEq(compounded1, 320086390);
+    }
+
+    function testInitiateAndAddToCompound() external {
+        
+        // instructions to add to compoundor module
+        NFTHolder.ModuleParams[] memory moduleParams = new NFTHolder.ModuleParams[](1);
+        moduleParams[0] = NFTHolder.ModuleParams(moduleIndex, "");
+
+        // add one sided position
+        V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
+            DAI,
+            USDC,
+            500,
+            -MIN_TICK_500 - 200000,
+            -MIN_TICK_500,
+            1 ether,
+            0,
+            WHALE_ACCOUNT,
+            address(holder),
+            block.timestamp,
+            IERC20(address(0)),
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            0,
+            0,
+            true, // important flag otherwise will fails
+            abi.encode(moduleParams)
+        );
+
+        vm.prank(WHALE_ACCOUNT);
+        DAI.approve(address(v3utils), 1 ether);
+
+        vm.prank(WHALE_ACCOUNT);
+        (
+            uint256 tokenId,
+            uint128 liquidity,
+            uint256 amount0,
+            uint256 amount1
+        ) = v3utils.swapAndMint(params);
+
+        assertEq(holder.balanceOf(WHALE_ACCOUNT), 1);
+        assertEq(holder.tokenOwners(tokenId), WHALE_ACCOUNT);
+        assertEq(holder.tokenModules(tokenId), 1 << moduleIndex);
     }
 }

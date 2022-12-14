@@ -459,6 +459,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             "",
             0,
             0,
+            false, 
             ""
         );
 
@@ -501,7 +502,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         int24 upper,
         uint256 eLiquidity,
         uint256 eAmount0,
-        uint256 aAmount1
+        uint256 eAmount1
     ) internal {
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
             DAI,
@@ -523,6 +524,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             "",
             0,
             0,
+            false, 
             ""
         );
 
@@ -544,7 +546,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertGt(tokenId, 0);
         assertEq(liquidity, eLiquidity);
         assertEq(amount0, eAmount0);
-        assertEq(amount1, aAmount1);
+        assertEq(amount1, eAmount1);
     }
 
     function testSwapAndMintWithETH() public {
@@ -568,6 +570,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             _get05ETHToUSDCSwapData(),
             0,
             0,
+            false, 
             ""
         );
 
