@@ -253,6 +253,34 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(shortfall, 0);
     }
 
+    function testRemoveCollateralWhenNeeded() external {
+
+        PositionData memory data = _preparePositionCollateralDAIUSDCInRangeWithFees();
+
+        uint borrowAmount = 100000000;
+        _prepareAvailableUSDC(borrowAmount);
+
+        // borrow all there is
+        vm.prank(data.owner);
+        uint err = cTokenUSDC.borrow(borrowAmount);
+        assertEq(err, 0);
+
+        // fails when removing token (collateral is needed)
+        vm.prank(data.owner);
+        vm.expectRevert(CollateralModule.NotAllowed.selector);
+        holder.withdrawToken(data.tokenId, data.owner, "");
+
+        vm.prank(data.owner);   
+        USDC.approve(address(cTokenUSDC), borrowAmount);
+
+        vm.prank(data.owner);
+        cTokenUSDC.repayBorrow(borrowAmount);
+
+        // now can be withdrawn (debt was repayed)
+        vm.prank(data.owner);
+        holder.withdrawToken(data.tokenId, data.owner, "");
+    }
+
     function testGetCollateralValueNotLent() external {
 
         uint err;

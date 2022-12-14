@@ -11,6 +11,7 @@ interface ComptrollerLensInterface {
     function getCTokenByUnderlying(address underlying) external view returns (CToken);
     function oracle() external view returns (PriceOracle);
     function getAccountLiquidity(address) external view returns (uint, uint, uint);
+    function getHypotheticalAccountLiquidity(address, address, uint, uint, uint) external view returns (uint, uint, uint);
     function getAssetsIn(address) external view returns (CToken[] memory);
     function claimComp(address) external;
     function compAccrued(address) external view returns (uint);

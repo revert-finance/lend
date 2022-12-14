@@ -310,7 +310,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
             revert TokenNotReturned();
         }
 
-        // only allow if complete collect is allowed
+        // only allow if complete collect is allowed by all modules involved
         uint256 mod = tokenModules[tokenId];
         _checkOnCollect(0, mod, tokenId, owner, type(uint128).max, type(uint128).max, type(uint128).max);
     

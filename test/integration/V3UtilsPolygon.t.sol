@@ -12,7 +12,7 @@ contract V3UtilsPolygonIntegrationTest is Test, TestBase {
     V3Utils c;
     uint256 mainnetFork;
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/polygon", 36835056);
+        mainnetFork = vm.createFork("https://polygon-rpc.com", 36835056);
         vm.selectFork(mainnetFork);
         c = V3Utils(payable(0x7763424F9A29263eBd6F269122E6db2562F8cD81));
     }
@@ -40,6 +40,6 @@ contract V3UtilsPolygonIntegrationTest is Test, TestBase {
         assertEq(V3Utils.swapAndIncreaseLiquidity.selector, hex"a161848b");
 
         vm.prank(0xDAA27d84ea816F28F4c420F7b0AD6a9998B7e305);
-        (uint128 liquidity, uint256 amount0, uint256 amount1) = c.swapAndIncreaseLiquidity(params);
+        c.swapAndIncreaseLiquidity(params);
     }
 }

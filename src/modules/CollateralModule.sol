@@ -521,7 +521,7 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
 
     function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
         _unlend(tokenId);
-        _checkCollateral(owner);
+        _checkCollateralWithoutToken(owner, tokenId);
     }
 
     function checkOnCollect(uint256, address owner, uint128 , uint , uint ) override external {
@@ -532,6 +532,13 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
 
     function _checkCollateral(address owner) internal {
         (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
+        if (err > 0 || shortfall > 0) {
+            revert NotAllowed();
+        }
+    }
+
+    function _checkCollateralWithoutToken(address owner, uint256 tokenId) internal {
+        (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getHypotheticalAccountLiquidity(owner, address(0), 0, 0, tokenId);
         if (err > 0 || shortfall > 0) {
             revert NotAllowed();
         }

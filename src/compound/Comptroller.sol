@@ -299,7 +299,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         }
 
         /* Otherwise, perform a hypothetical liquidity check to guard against shortfall */
-        (Error err, , uint shortfall) = getHypotheticalAccountLiquidityInternal(redeemer, CToken(cToken), redeemTokens, 0);
+        (Error err, , uint shortfall) = getHypotheticalAccountLiquidityInternal(redeemer, CToken(cToken), redeemTokens, 0, 0);
         if (err != Error.NO_ERROR) {
             return uint(err);
         }
@@ -369,7 +369,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             require(nextTotalBorrows < borrowCap, "market borrow cap reached");
         }
 
-        (Error err, , uint shortfall) = getHypotheticalAccountLiquidityInternal(borrower, CToken(cToken), 0, borrowAmount);
+        (Error err, , uint shortfall) = getHypotheticalAccountLiquidityInternal(borrower, CToken(cToken), 0, borrowAmount, 0);
         if (err != Error.NO_ERROR) {
             return uint(err);
         }
@@ -775,7 +775,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      *          account shortfall below collateral requirements)
      */
     function getAccountLiquidity(address account) public view returns (uint, uint, uint) {
-        (Error err, uint liquidity, uint shortfall) = getHypotheticalAccountLiquidityInternal(account, CToken(address(0)), 0, 0);
+        (Error err, uint liquidity, uint shortfall) = getHypotheticalAccountLiquidityInternal(account, CToken(address(0)), 0, 0, 0);
 
         return (uint(err), liquidity, shortfall);
     }
@@ -787,7 +787,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      *          account shortfall below collateral requirements)
      */
     function getAccountLiquidityInternal(address account) internal view returns (Error, uint, uint) {
-        return getHypotheticalAccountLiquidityInternal(account, CToken(address(0)), 0, 0);
+        return getHypotheticalAccountLiquidityInternal(account, CToken(address(0)), 0, 0, 0);
     }
 
     /**
@@ -796,6 +796,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      * @param account The account to determine liquidity for
      * @param redeemTokens The number of tokens to hypothetically redeem
      * @param borrowAmount The amount of underlying to hypothetically borrow
+     * @param ignoreTokenId Token to ignore for collateral calculation (if 0 none is ignored)    
      * @return (possible error code (semi-opaque),
                 hypothetical account liquidity in excess of collateral requirements,
      *          hypothetical account shortfall below collateral requirements)
@@ -804,8 +805,9 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         address account,
         address cTokenModify,
         uint redeemTokens,
-        uint borrowAmount) public view returns (uint, uint, uint) {
-        (Error err, uint liquidity, uint shortfall) = getHypotheticalAccountLiquidityInternal(account, CToken(cTokenModify), redeemTokens, borrowAmount);
+        uint borrowAmount,
+        uint ignoreTokenId) public view returns (uint, uint, uint) {
+        (Error err, uint liquidity, uint shortfall) = getHypotheticalAccountLiquidityInternal(account, CToken(cTokenModify), redeemTokens, borrowAmount, ignoreTokenId);
         return (uint(err), liquidity, shortfall);
     }
 
@@ -865,6 +867,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      * @param account The account to determine liquidity for
      * @param redeemTokens The number of tokens to hypothetically redeem
      * @param borrowAmount The amount of underlying to hypothetically borrow
+     * @param ignoreTokenId Token to ignore for collateral calculation (if 0 none is ignored)
      * @dev Note that we calculate the exchangeRateStored for each collateral cToken using stored data,
      *  without calculating accumulated interest.
      * @return (possible error code,
@@ -875,7 +878,8 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         address account,
         CToken cTokenModify,
         uint redeemTokens,
-        uint borrowAmount) internal view returns (Error, uint, uint) {
+        uint borrowAmount,
+        uint ignoreTokenId) internal view returns (Error, uint, uint) {
 
         AccountLiquidityLocalVars memory vars; // Holds all our calculation results
         OraclePriceCache memory oraclePriceCache; // Holds cached oracle prices
@@ -885,6 +889,9 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         for (vars.i = 0; vars.i < vars.tokenIds.length; vars.i++) {
             vars.tokenId = vars.tokenIds[vars.i];
+            if (vars.tokenId == ignoreTokenId) {
+                continue;
+            }
             vars.asset = cTokensByUnderlying[vars.tokens0[vars.i]];
             vars.asset1 = cTokensByUnderlying[vars.tokens1[vars.i]];
             vars.oraclePriceMantissa = _getOraclePriceCached(vars.asset, oraclePriceCache);
