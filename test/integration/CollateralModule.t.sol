@@ -84,7 +84,7 @@ contract CollateralModuleTest is Test, TestBase {
         module.setPoolConfig(TEST_NFT_ETH_USDC_POOL, true, uint64(Q64 / 100));
         module.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
 
-        moduleIndex = holder.addModule(module, true, 0); // must be added with checkoncollect
+        moduleIndex = holder.addModule(module, 0); // must be added with checkoncollect
     }
 
     struct PositionData {

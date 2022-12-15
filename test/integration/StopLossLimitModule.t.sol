@@ -27,7 +27,7 @@ contract StopLossLimitModuleTest is Test, TestBase {
             0x1F98431c8aD98523631AE4a59f267346ea31F984
         );
 
-        moduleIndex = holder.addModule(module, false, 0);
+        moduleIndex = holder.addModule(module, 0);
     }
 
     function _addToModule(

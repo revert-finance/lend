@@ -11,6 +11,8 @@ contract TestModule is IModule {
     NFTHolder holder;
     bool checkOnCollectResponse;
 
+    bool public immutable override needsCheckOnCollect = true;
+
     constructor(NFTHolder _holder, bool _checkOnCollectResponse) {
         holder = _holder;
         checkOnCollectResponse = _checkOnCollectResponse;

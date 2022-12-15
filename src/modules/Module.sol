@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 
 import "forge-std/console.sol";
 
+import "./IModule.sol";
 import "../NFTHolder.sol";
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -22,7 +23,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-periphery/interfaces/external/IWETH9.sol";
 
 // base functionality for modules
-contract Module is Ownable, IUniswapV3SwapCallback {
+abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
 
     using SafeCast for uint256;
 
@@ -189,7 +190,7 @@ contract Module is Ownable, IUniswapV3SwapCallback {
         SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
     }
 
-    // function to transfer token / native unwrapped token to address
+    // transfers token (or unwraps WETH and sends ETH)
     function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
@@ -208,4 +209,10 @@ contract Module is Ownable, IUniswapV3SwapCallback {
             revert NotWETH();
         }
     }
+
+    // IModule default empty implementations
+    function addToken(uint256 tokenId, address, bytes calldata data) override virtual onlyHolder external { }
+    function withdrawToken(uint256 tokenId, address) override virtual onlyHolder external { }
+    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override virtual external  { }
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override virtual external { }
 }

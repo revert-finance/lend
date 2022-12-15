@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./IModule.sol";
 import "./Module.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
@@ -10,7 +9,7 @@ import 'v3-core/libraries/FullMath.sol';
 
 /// @title StopLossLimitModule
 /// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. A revert controlled bot is responsible for the execution.
-contract StopLossLimitModule is Module, IModule {
+contract StopLossLimitModule is Module {
 
     // events
     event SwapRouterUpdated(address account, address swapRouter);
@@ -38,6 +37,8 @@ contract StopLossLimitModule is Module, IModule {
     uint32 public TWAPSeconds = 60;
     uint64 public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
     address public swapRouter;
+
+    bool public immutable override needsCheckOnCollect = false;
 
     constructor(NFTHolder _holder, address _swapRouter) Module(_holder) {
         swapRouter = _swapRouter;
@@ -210,8 +211,4 @@ contract StopLossLimitModule is Module, IModule {
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
     }
-
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external { }
-
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) external { }
 }

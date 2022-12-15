@@ -20,12 +20,11 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 import "../NFTHolder.sol";
 import "./Module.sol";
-import "./IModule.sol";
 import "./ICollateralModule.sol";
 
 /// @title CollateralModule
 /// @notice Module responsible for connection to Compound Fork, taking care collateral is checked after each liquidity/fee removal, supports lending of position when out of range, support seizing of collateral when liquidatable
-contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoError {
+contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     // errors 
     error PoolNotActive();
@@ -55,6 +54,8 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     mapping (uint => PositionConfig) public positionConfigs;
 
     address public immutable comptroller;
+
+    bool public immutable override needsCheckOnCollect = true;
 
     constructor(NFTHolder _holder, address _comptroller) Module(_holder) {
         comptroller = _comptroller;
@@ -527,8 +528,6 @@ contract CollateralModule is Module, IModule, ICollateralModule, ExponentialNoEr
     function checkOnCollect(uint256, address owner, uint128 , uint , uint ) override external {
         _checkCollateral(owner);
     }
-
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 
     function _checkCollateral(address owner) internal {
         (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);

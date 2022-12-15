@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./IModule.sol";
 import "./Module.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -16,7 +15,7 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 /// @title CompoundorModule
 /// @notice Adds auto-compounding capability (improved logic from old compoundor)
-contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
+contract CompoundorModule is Module, ReentrancyGuard, Multicall {
 
     // config changes
     event RewardUpdated(address account, uint64 totalRewardX64, uint64 compounderRewardX64);
@@ -50,6 +49,8 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
 
     // balances
     mapping(address => mapping(address => uint256)) public accountBalances;
+
+    bool public immutable override needsCheckOnCollect = false;
 
     constructor(NFTHolder _holder) Module(_holder) {
     }
@@ -445,15 +446,9 @@ contract CompoundorModule is Module, IModule, ReentrancyGuard, Multicall {
         }
     }
 
-    // IModule required functions
+    // IModule needed functions
     function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder external { 
         (,,address token0, address token1, uint24 fee,,,,,,,) =  nonfungiblePositionManager.positions(tokenId);
         _checkApprovals(IERC20(token0), IERC20(token1));
     }
-
-    function withdrawToken(uint256, address) override onlyHolder external { }
-
-    function checkOnCollect(uint256, address, uint128, uint, uint) override external { }
-
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external { }
 }

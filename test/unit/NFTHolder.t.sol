@@ -59,25 +59,25 @@ contract NFTHolderTest is Test, IERC721Receiver {
         vm.expectEmit(false, false, false, true);
         emit AddedModule(1, module1);
 
-        holder.addModule(module1, false, 0);
+        holder.addModule(module1, 0);
 
         vm.expectEmit(false, false, false, true);
         emit AddedModule(2, module2);
 
-        holder.addModule(module2, false, 0);
+        holder.addModule(module2, 0);
     }
 
     function testFailAddModuleZero() external {
-        holder.addModule(IModule(address(0)), false, 0);
+        holder.addModule(IModule(address(0)), 0);
     }
 
     function testFailAddModuleDuplicated() external {
-        holder.addModule(module1, false, 0);
-        holder.addModule(module1, false, 0);
+        holder.addModule(module1, 0);
+        holder.addModule(module1, 0);
     }
 
     function testSetModuleBlocking() external {
-        holder.addModule(module1, false, 0);
+        holder.addModule(module1, 0);
 
         vm.expectEmit(false, false, false, true);
         emit SetModuleBlocking(1, 0);
@@ -95,7 +95,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
     function testBlockedModules() external {
         // blocked module
-        uint8 moduleIndex = holder.addModule(module1, false, 0);
+        uint8 moduleIndex = holder.addModule(module1, 0);
         holder.setModuleBlocking(moduleIndex, (1 << moduleIndex));
 
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, "");
@@ -107,7 +107,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
         holder.setModuleBlocking(moduleIndex, 0);
         holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(moduleIndex, ""));
 
-        uint8 module2Index = holder.addModule(module2, false, (1 << moduleIndex));
+        uint8 module2Index = holder.addModule(module2, (1 << moduleIndex));
 
         // can't add to module blocked by other active module
         vm.expectRevert(NFTHolder.ModuleBlocked.selector);
@@ -149,7 +149,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
     function testTransferTokenInWithModules() external {
 
-        uint8 moduleIndex = holder.addModule(module1, false, 0);
+        uint8 moduleIndex = holder.addModule(module1, 0);
 
         NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
         params[0] = NFTHolder.ModuleParams(moduleIndex, "");
@@ -160,8 +160,8 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
     function testTransferTokenInWithModulesAndApprove() external {
 
-        uint8 moduleIndex = holder.addModule(module1, false, 0);
-        uint8 moduleIndex2 = holder.addModule(module2, false, 0);
+        uint8 moduleIndex = holder.addModule(module1, 0);
+        uint8 moduleIndex2 = holder.addModule(module2, 0);
 
         NFTHolder.ModuleParams[] memory initialModules = new NFTHolder.ModuleParams[](2);
         initialModules[0] = NFTHolder.ModuleParams(moduleIndex, "");
@@ -197,7 +197,7 @@ contract NFTHolderTest is Test, IERC721Receiver {
     function testAllModules() external {
 
         for (uint8 index = 0; index < 255; index++) {
-            holder.addModule(new TestModule(holder, true), false, 0);
+            holder.addModule(new TestModule(holder, true), 0);
         }
 
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, "");
@@ -236,8 +236,8 @@ contract NFTHolderTest is Test, IERC721Receiver {
 
     function testCollects() external {
 
-        uint8 moduleIndex = holder.addModule(module1, false, 0);
-        uint8 module2Index = holder.addModule(module2, true, 0);
+        uint8 moduleIndex = holder.addModule(module1, 0);
+        uint8 module2Index = holder.addModule(module2, 0);
         
         // register for first module
         NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);

@@ -28,7 +28,7 @@ contract CompoundorModuleTest is Test, TestBase {
 
         holder.setFlashTransformContract(address(v3utils));
 
-        moduleIndex = holder.addModule(module, false, 0);
+        moduleIndex = holder.addModule(module, 0);
     }
 
     // add position with fees to module

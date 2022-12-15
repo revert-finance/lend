@@ -227,7 +227,6 @@ contract NFTHolder is IERC721Receiver, Ownable {
     /// @notice Adds a new module to the holder
     function addModule(
         IModule implementation,
-        bool checkCollect,
         uint256 blocking
     ) external onlyOwner returns (uint8) {
         if (address(implementation) == address(0)) {
@@ -242,7 +241,8 @@ contract NFTHolder is IERC721Receiver, Ownable {
         modules[modulesCount] = Module(implementation, blocking);
         modulesIndex[address(implementation)] = moduleIndex;
 
-        if (checkCollect) {
+        // add to checkoncollect flags if needed
+        if (implementation.needsCheckOnCollect()) {
             checkOnCollect += (1 << moduleIndex);
         }
 
