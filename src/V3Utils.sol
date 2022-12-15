@@ -7,12 +7,10 @@ import "v3-periphery/interfaces/external/IWETH9.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-/// @title V3Utils
-/// @notice Utilies for Uniswap V3 positions - completely ownerless contract - does not hold any ERC20 or NFTs
+/// @title V3Utils - Utility functions for UniswapV3 positions
+/// @notice This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs 
+/// @dev It can be simply redeployed when new / better funcionality is implemented
 contract V3Utils is IERC721Receiver {
-
-    // SafeERC20 library used for all ERC20 transfers
-    using SafeERC20 for IERC20;
 
     /// @notice Wrapped native token address
     IWETH9 immutable public weth;
@@ -78,7 +76,7 @@ contract V3Utils is IERC721Receiver {
         uint amountOut1Min;
         bytes swapData1; // encoded data from 0x api call (address,address,bytes) - to,allowanceTarget,data
 
-        // collect fee amount for COMPOUND_FEES / WITHDRAW_AND_COLLECT_AND_SWAP (if uint(128).max - ALL)
+        // collect fee amount for COMPOUND_FEES / CHANGE_RANGE / WITHDRAW_AND_COLLECT_AND_SWAP (if uint(128).max - ALL)
         uint128 feeAmount0;
         uint128 feeAmount1;
 
@@ -87,7 +85,7 @@ contract V3Utils is IERC721Receiver {
         int24 tickLower;
         int24 tickUpper;
         
-        // for liquidity operations
+        // remove liquidity amount for COMPOUND_FEES (in this case should be probably 0) / CHANGE_RANGE / WITHDRAW_AND_COLLECT_AND_SWAP
         uint128 liquidity;
 
         // for adding liquidity slippage
@@ -103,10 +101,10 @@ contract V3Utils is IERC721Receiver {
         // if tokenIn or tokenOut is WETH - unwrap
         bool unwrap;
 
-        // data sent with returned token (optional)
+        // data sent with returned token to IERC721Receiver (optional) 
         bytes returnData;
 
-        // data sent with minted token (optional)
+        // data sent with minted token to IERC721Receiver (optional)
         bytes swapAndMintReturnData;
     }
 
@@ -145,8 +143,12 @@ contract V3Utils is IERC721Receiver {
 
         (,,state.token0,state.token1,,,,state.liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
+        if (instructions.liquidity > 0) {
+            (state.amount0, state.amount1) = _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
+        }
+        (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), instructions.feeAmount0 == type(uint128).max ? type(uint128).max : _toUint128(state.amount0 + instructions.feeAmount0), instructions.feeAmount1 == type(uint128).max ? type(uint128).max : _toUint128(state.amount1 + instructions.feeAmount1));
+
         if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
-            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), instructions.feeAmount0, instructions.feeAmount1);
             if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
@@ -163,9 +165,6 @@ contract V3Utils is IERC721Receiver {
             }
             emit CompoundFees(tokenId, state.liquidity, state.amount0, state.amount1);            
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
-            _decreaseLiquidity(tokenId, state.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
-            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), type(uint128).max, type(uint128).max);
-
             if (instructions.targetToken == state.token0) {
                 if (state.amount1 < instructions.amountIn1) {
                     revert AmountError();
@@ -183,12 +182,6 @@ contract V3Utils is IERC721Receiver {
 
             emit ChangeRange(tokenId, state.newTokenId);
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
-
-            if (instructions.liquidity > 0) {
-                (state.amount0, state.amount1) = _decreaseLiquidity(tokenId, instructions.liquidity, instructions.deadline, instructions.amountIn0, instructions.amountIn1);
-            }
-            (state.amount0, state.amount1) = _collectFees(tokenId, IERC20(state.token0), IERC20(state.token1), instructions.feeAmount0 == type(uint128).max ? type(uint128).max : _toUint128(state.amount0 + instructions.feeAmount0), instructions.feeAmount1 == type(uint128).max ? type(uint128).max : _toUint128(state.amount1 + instructions.feeAmount1));
-
             uint targetAmount;
             if (state.token0 != instructions.targetToken) {
                 (uint amountInDelta, uint256 amountOutDelta) = _swap(IERC20(state.token0), IERC20(instructions.targetToken), state.amount0, instructions.amountOut0Min, instructions.swapData0);
@@ -292,8 +285,10 @@ contract V3Utils is IERC721Receiver {
         uint amountAddMin0;
         uint amountAddMin1;
 
-        // data to be sent along newly created nft when sent to recipient
-        bool returnDataAddSender; // for minting directly into nft holder this must be true - otherwise false
+        // this flag must be true ONLY in special case of minting directly into NFTHolder
+        bool returnDataAddSender;
+
+        // data to be sent along newly created NFT when transfered to recipient (sent to IERC721Receiver callback)
         bytes returnData;
     }
 
@@ -379,7 +374,7 @@ contract V3Utils is IERC721Receiver {
         // get missing tokens (fails if not enough provided)
         if (amount0 > amountAdded0) {
             uint balanceBefore = token0.balanceOf(address(this));
-            token0.safeTransferFrom(msg.sender, address(this), amount0 - amountAdded0);
+            SafeERC20.safeTransferFrom(token0, msg.sender, address(this), amount0 - amountAdded0);
             uint balanceAfter = token0.balanceOf(address(this));
             if (balanceAfter - balanceBefore != amount0 - amountAdded0) {
                 revert TransferError(); // reverts for fee-on-transfer tokens
@@ -387,15 +382,15 @@ contract V3Utils is IERC721Receiver {
         }
         if (amount1 > amountAdded1) {
             uint balanceBefore = token1.balanceOf(address(this));
-            token1.safeTransferFrom(msg.sender, address(this), amount1 - amountAdded1);
+            SafeERC20.safeTransferFrom(token1, msg.sender, address(this), amount1 - amountAdded1);
             uint balanceAfter = token1.balanceOf(address(this));
             if (balanceAfter - balanceBefore != amount1 - amountAdded1) {
                 revert TransferError(); // reverts for fee-on-transfer tokens
             }
         }
-        if (token0 != otherToken && token1 != otherToken && address(otherToken) != address(0) && amountOther > amountAddedOther) {
+        if (address(otherToken) != address(0) && token0 != otherToken && token1 != otherToken && amountOther > amountAddedOther) {
             uint balanceBefore = otherToken.balanceOf(address(this));
-            otherToken.safeTransferFrom(msg.sender, address(this), amountOther - amountAddedOther);
+            SafeERC20.safeTransferFrom(otherToken, msg.sender, address(this), amountOther - amountAddedOther);
             uint balanceAfter = otherToken.balanceOf(address(this));
             if (balanceAfter - balanceBefore != amountOther - amountAddedOther) {
                 revert TransferError(); // reverts for fee-on-transfer tokens
@@ -526,7 +521,7 @@ contract V3Utils is IERC721Receiver {
                 revert EtherSendFailed();
             }
         } else {
-            token.safeTransfer(to, amount);
+            SafeERC20.safeTransfer(token, to, amount);
         }
     }
 

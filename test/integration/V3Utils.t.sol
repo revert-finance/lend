@@ -81,6 +81,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
 
         uint256 countBefore = NPM.balanceOf(TEST_ACCOUNT);
 
+        (, , , , , , , uint128 liquidityBefore, , , , ) = NPM.positions(
+            TEST_NFT_ID
+        );
+
         // swap half of DAI to USDC and add full range
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
@@ -96,9 +100,9 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             100, // change fee as well
             MIN_TICK_100,
             -MIN_TICK_100,
-            0,
-            0,
-            0,
+            liquidityBefore, // take all liquidity
+            type(uint128).max, // take all fees
+            type(uint128).max, // take all fees
             block.timestamp,
             TEST_ACCOUNT,
             false,
