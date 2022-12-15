@@ -80,7 +80,7 @@ contract V3Utils is IERC721Receiver {
         uint128 feeAmount0;
         uint128 feeAmount1;
 
-        // for creating new positions (change range)
+        // for creating new positions with CHANGE_RANGE
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
@@ -119,6 +119,8 @@ contract V3Utils is IERC721Receiver {
     }
 
     /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
+    /// @param tokenId Token to process
+    /// @param instructions Instructions to execute
     function execute(uint256 tokenId, Instructions memory instructions) external
     {
         // must be approved beforehand
@@ -130,7 +132,8 @@ contract V3Utils is IERC721Receiver {
         );
     }
 
-    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. At the end the NFT is returned to sender, the leftover tokens and/or new nft is sent to instructions.recipient.
+    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. 
+    /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
     function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed
@@ -293,6 +296,7 @@ contract V3Utils is IERC721Receiver {
     }
 
     /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position.
+    /// @param params Swap and mint configuration
     /// Newly minted NFT and leftover tokens are returned to recipient
     function swapAndMint(SwapAndMintParams calldata params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) {
         if (params.token0 == params.token1) {
@@ -332,6 +336,7 @@ contract V3Utils is IERC721Receiver {
     }
 
     /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner).
+    /// @param params Swap and increase liquidity configuration
     // Sends any leftover tokens to recipient.
     function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(params.tokenId);
