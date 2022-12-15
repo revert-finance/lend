@@ -650,7 +650,7 @@ contract ChainlinkOracle is PriceOracle, Ownable {
 
     function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
         uint8 feedDecimals = feed.decimals();
-        address underlying = CErc20Storage(address(cToken)).underlying();
+        address underlying = CErc20Interface(address(cToken)).underlying();
         uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
         feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
     }

@@ -1292,7 +1292,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         cToken.isCToken(); // Sanity check to make sure its really a CToken
 
         // Make sure market is not already listed
-        address underlying = CErc20Storage(address(cToken)).underlying();
+        address underlying = CErc20Interface(address(cToken)).underlying();
 
         if (address(cTokensByUnderlying[underlying]) != address(0)) {
             return fail(Error.MARKET_ALREADY_LISTED, FailureInfo.SUPPORT_MARKET_EXISTS);
