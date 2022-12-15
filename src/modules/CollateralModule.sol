@@ -35,6 +35,8 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     error PositionInRange();
     error WrongSide();
     error MintError();
+    error OwnerNotBorrower();
+    error SeizeNotAllowed(uint err);
 
     struct PoolConfig {
         bool isActive; // pool may be deposited
@@ -269,10 +271,12 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     function seizePositionAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1, uint256 seizeCToken0, uint256 seizeCToken1) external override {
         
-        require(holder.tokenOwners(tokenId) == borrower, "borrower must own tokenId");
+        if (holder.tokenOwners(tokenId) != borrower) {
+            revert OwnerNotBorrower();
+        }
 
         // make call to comptroller to ensure seize is allowed
-        uint256 allowed = ComptrollerInterface(comptroller).seizeAllowedUniV3(
+        uint256 err = ComptrollerInterface(comptroller).seizeAllowedUniV3(
             address(this),
             msg.sender,
             liquidator,
@@ -285,7 +289,9 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             seizeCToken1
         );
 
-        require(allowed == 0, "seize not allowed according to Comptroller");
+        if (err > 0) {
+            revert SeizeNotAllowed(err);
+        }
 
         // if position internal values are seized
         if (seizeLiquidity > 0 || seizeFeesToken0 > 0 || seizeFeesToken1 > 0) {
