@@ -7,8 +7,8 @@ import "v3-periphery/interfaces/external/IWETH9.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-/// @title V3Utils - Utility functions for UniswapV3 positions
-/// @notice This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs 
+/// @title v3Utils - Utility functions for Uniswap V3 positions
+/// @notice This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
 /// @dev It can be simply redeployed when new / better funcionality is implemented
 contract V3Utils is IERC721Receiver {
 
@@ -430,7 +430,7 @@ contract V3Utils is IERC721Receiver {
 
         emit SwapAndMint(tokenId, liquidity, added0, added1);
 
-        _returnLeftovers(params.recipient, params.token0, params.token1, total0, total1, added0, added1, unwrap);
+        _returnLeftoverTokens(params.recipient, params.token0, params.token1, total0, total1, added0, added1, unwrap);
     }
 
     // swap and increase logic
@@ -453,7 +453,7 @@ contract V3Utils is IERC721Receiver {
 
         emit SwapAndIncreaseLiquidity(params.tokenId, liquidity, added0, added1);
 
-        _returnLeftovers(params.recipient, token0, token1, total0, total1, added0, added1, unwrap);
+        _returnLeftoverTokens(params.recipient, token0, token1, total0, total1, added0, added1, unwrap);
     }
 
     // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager
@@ -498,8 +498,8 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
-    // returns leftover balances
-    function _returnLeftovers(address to, IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1, bool unwrap) internal {
+    // returns leftover token balances
+    function _returnLeftoverTokens(address to, IERC20 token0, IERC20 token1, uint total0, uint total1, uint added0, uint added1, bool unwrap) internal {
 
         uint left0 = total0 - added0;
         uint left1 = total1 - added1;
@@ -513,6 +513,7 @@ contract V3Utils is IERC721Receiver {
         }
     }
 
+    // transfers token (or unwraps WETH and sends ETH)
     function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
