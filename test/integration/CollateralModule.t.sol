@@ -336,7 +336,7 @@ contract CollateralModuleTest is Test, TestBase {
 
         (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
-        assertEq(liquidity, 24097530741784906792213); // fees were added
+        assertEq(liquidity, 24097530741284063731072); // fees were added
         assertEq(shortfall, 0);
 
         module.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, 0, 0));

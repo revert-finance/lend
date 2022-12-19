@@ -120,6 +120,21 @@ contract NFTHolderTest is Test, IERC721Receiver {
         holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
     }
 
+    function testMaxNfts() external {
+
+        // add allowed
+        for (uint index = 0; index < holder.MAX_TOKENS_PER_ADDRESS(); index++) {
+            uint id = testNFT.mint();
+            nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), id, "");
+        }
+
+        uint id = testNFT.mint();
+
+        // can't add one more
+        vm.expectRevert(NFTHolder.MaxTokensReached.selector);
+        nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), id, "");
+    }
+
     function testTransferTokenIn() external {
 
         uint balanceBefore = testNFT.balanceOf(address(holder));

@@ -200,13 +200,12 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
         (, uint addedAmount0, uint addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.minAmount0, params.minAmount1, block.timestamp));
 
+        // transfer left over tokens (should be minimal if any) - cheaper than repay borrow
         if (addedAmount0 < amount0) {
-            IERC20(state.token0).approve(address(cToken0), amount0 - addedAmount0);
-            cToken0.repayBorrowBehalf(owner, amount0 - addedAmount0);
+            _transferToken(owner, IERC20(state.token0), amount0 - addedAmount0, true);
         } 
         if (addedAmount1 < amount1) {
-            IERC20(state.token1).approve(address(cToken1), amount1 - addedAmount1);
-            cToken1.repayBorrowBehalf(owner, amount1 - addedAmount1);
+            _transferToken(owner, IERC20(state.token1), amount1 - addedAmount1, true);
         }
     }
 
