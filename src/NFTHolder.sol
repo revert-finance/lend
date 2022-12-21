@@ -154,13 +154,13 @@ contract NFTHolder is IERC721Receiver, Ownable {
         return accountTokens[account].length;
     }
 
-    // gets all tokens which are active for a given calling module
-    function getModuleTokensForOwner(address owner)
+    // gets all tokens which are active for a given module address
+    function getModuleTokensForOwner(address owner, address module)
         external
         view
         returns (uint256[] memory tokens)
     {
-        uint8 moduleIndex = modulesIndex[msg.sender];
+        uint8 moduleIndex = modulesIndex[module];
         if (moduleIndex == 0) {
             revert ModuleNotExists();
         }

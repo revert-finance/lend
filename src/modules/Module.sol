@@ -30,6 +30,8 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     uint256 constant Q64 = 2**64;
     uint256 constant Q96 = 2**96;
 
+    uint8 constant CHECK_INTERVALS = 10;
+
     // errors
     error SwapFailed();
     error SlippageError();
@@ -37,6 +39,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     error Unauthorized();
     error NotWETH();
     error EtherSendFailed();
+    error NotEnoughHistory();
 
     NFTHolder public immutable holder;
     IWETH9 public immutable weth;
@@ -61,6 +64,14 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     // helper method to get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
         return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+    }
+
+    // helper method to get pool for token
+    function _getTokensLiquidityAndTicks(uint tokenId) internal view returns (address token0, address token1, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) {
+        uint24 fee;
+        (,,token0, token1, fee, tickLower, tickUpper, liquidity, , , , ) = nonfungiblePositionManager.positions(tokenId);
+        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        (,tick,,,,,) = pool.slot0();
     }
 
     // get current pool price
@@ -93,6 +104,39 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
         } catch {
             return (0, false);
         } 
+    }
+
+    // checks for how many block pool is in given condition (below or above tick)
+    function _checkNumberOfBlocks(IUniswapV3Pool pool, uint16 secondsUntilMax, uint8 checkIntervals, int24 checkTick, bool isAbove) internal view returns (uint8) {
+
+        uint16 blockTime = secondsUntilMax / checkIntervals; 
+
+        uint32[] memory secondsAgos = new uint32[](checkIntervals + 1);
+        uint8 i;
+        for (; i <= CHECK_INTERVALS; i++) {
+            secondsAgos[i] = i * blockTime;
+        }
+
+        int56 checkTickMul = int16(blockTime) * checkTick;
+
+        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
+            i = 0;
+            for (; i < checkIntervals; i++) {
+                if (isAbove) {
+                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) <= checkTickMul) {
+                        return i;
+                    }
+                } else {
+                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) >= checkTickMul) {
+                        return i;
+                    }
+                }
+            }
+        } catch {
+            revert NotEnoughHistory();
+        }
+
+        return checkIntervals;
     }
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts

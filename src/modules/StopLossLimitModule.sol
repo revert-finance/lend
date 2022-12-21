@@ -28,7 +28,6 @@ contract StopLossLimitModule is Module {
     error NotFound();
     error NoLiquidity();
     error NotConfigured();
-    error NotEnoughHistory();
     error NotInCondition();
     error MissingSwapData();
     error ConfigError();

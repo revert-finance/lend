@@ -50,8 +50,10 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     struct PositionConfig {
         bool isLendable;
-        uint cTokenAmount;
+        int24 lendMinBufferTicks; // how many ticks is buffer zone
+        int24 unlendMaxBufferTicks; // how many ticks is buffer zone
         bool isCToken0;
+        uint cTokenAmount;
     }
     mapping (uint => PositionConfig) public positionConfigs;
 
@@ -63,16 +65,13 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         comptroller = _comptroller;
     }
 
-    function _getCToken(address token) internal returns (CErc20) {
-        return CErc20(address(ComptrollerLensInterface(comptroller).getCTokenByUnderlying(token)));
-    }
-
     /// @notice Management method to configure a pool
     function setPoolConfig(address pool, bool isActive, uint64 maxOracleSqrtDeviationX64) external onlyOwner {
 
         CErc20 cToken0 = _getCToken(IUniswapV3Pool(pool).token0());
         CErc20 cToken1 = _getCToken(IUniswapV3Pool(pool).token1());
 
+        // ctokens must be configured in comptroller
         if (address(cToken0) == address(0)) {
             revert TokenNotActive();
         }
@@ -106,7 +105,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     }
 
     function getPositionsOfOwner(address owner) external override view returns (uint[] memory tokenIds, address[] memory tokens0, address[] memory tokens1) {
-        tokenIds = holder.getModuleTokensForOwner(owner);
+        tokenIds = holder.getModuleTokensForOwner(owner, address(this));
         tokens0 = new address[](tokenIds.length);
         tokens1 = new address[](tokenIds.length);
         uint i;
@@ -317,20 +316,32 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         }
     }
 
+    /// @notice function for keeper to set position in lent state - can only be called when in correct range - pays bounty to msg.sender - increasing bounty auction style
+    function lend(uint256 tokenId) external {
+        _lend(tokenId, true);
+    }
+
+    /// @notice function for keeper to set position in unlent state - can only be called when in correct range - pays bounty to msg.sender - increasing bounty auction style
+    function unlend(uint256 tokenId) external {
+        _unlend(tokenId, true);
+    }
+
     // removes liquidity from position and mints ctokens
-    function _lend(uint256 tokenId) internal {
+    function _lend(uint256 tokenId, bool doRangeCheck) internal {
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
+        // not lendale or already lent - ok
         if (!positionConfig.isLendable || positionConfig.cTokenAmount > 0) {
             return;
         }
 
         // get position info
-        (,,address token0, address token1, uint24 fee,int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) =  nonfungiblePositionManager.positions(tokenId);
+        (address token0, address token1, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) =  _getTokensLiquidityAndTicks(tokenId);
 
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        (,int24 tick,,,,,) = pool.slot0();
+        if (!doRangeCheck || (tick >= tickLower - positionConfig.lendMinBufferTicks && tick < tickUpper + positionConfig.lendMinBufferTicks)) {
+            return;
+        }
 
         // collect all oneside liquidity+fees if out of range
         if (tick < tickLower) {
@@ -342,7 +353,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = true;
-        } else if (tick > tickUpper) {
+        } else if (tick >= tickUpper) {
             (uint256 amount0, uint256 amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, 0, type(uint128).max, block.timestamp, false, address(this)));
             CErc20 cToken = _getCToken(token1);
             IERC20(token1).approve(address(cToken), amount1);
@@ -351,22 +362,27 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = false;
+        } else {
+            // position in range - do nothing
         }
     }
 
     // redeems ctokens and adds liquidity to position
-    function _unlend(uint256 tokenId) internal {
+    function _unlend(uint256 tokenId, bool doRangeCheck) internal {
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
         
+        // nothing lent - ok
         if (positionConfig.cTokenAmount == 0) {
             return;
         }
 
         // get position info
-        (,,address token0, address token1, uint24 fee,int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) =  nonfungiblePositionManager.positions(tokenId);
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        (,int24 tick,,,,,) = pool.slot0();
+        (address token0, address token1, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) =  _getTokensLiquidityAndTicks(tokenId);
+    
+        if (!doRangeCheck || tick < tickLower - positionConfig.unlendMaxBufferTicks || tick >= tickUpper + positionConfig.unlendMaxBufferTicks) {
+            return;
+        }
 
         // collect all onsided liquidity if out of range
         if (tick < tickLower) {
@@ -518,15 +534,16 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         // update status
         positionConfigs[tokenId].isLendable = params.isLendable;
         if (!params.isLendable) {
-            _unlend(tokenId);
+            _unlend(tokenId, false);
         } else if (params.isLendable) {
-            _lend(tokenId);
+            _lend(tokenId, false);
         }
         _checkCollateral(owner);
     }
 
     function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
-        _unlend(tokenId);
+        // only lets withdraw if unlend successful
+        _unlend(tokenId, false);
         _checkCollateralWithoutToken(owner, tokenId);
     }
 
@@ -546,6 +563,11 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         if (err > 0 || shortfall > 0) {
             revert NotAllowed();
         }
+    }
+
+    // gets ctoken for an underlying token from comptroller
+    function _getCToken(address token) internal returns (CErc20) {
+        return CErc20(address(ComptrollerLensInterface(comptroller).getCTokenByUnderlying(token)));
     }
 
     // utility function to do safe downcast
