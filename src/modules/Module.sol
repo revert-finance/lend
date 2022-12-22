@@ -30,8 +30,6 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     uint256 constant Q64 = 2**64;
     uint256 constant Q96 = 2**96;
 
-    uint8 constant CHECK_INTERVALS = 10;
-
     // errors
     error SwapFailed();
     error SlippageError();
@@ -67,10 +65,10 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     }
 
     // helper method to get pool for token
-    function _getTokensLiquidityAndTicks(uint tokenId) internal view returns (address token0, address token1, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) {
+    function _getTokensPoolLiquidityAndTicks(uint tokenId) internal view returns (address token0, address token1, IUniswapV3Pool pool, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) {
         uint24 fee;
         (,,token0, token1, fee, tickLower, tickUpper, liquidity, , , , ) = nonfungiblePositionManager.positions(tokenId);
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        pool = _getPool(token0, token1, fee);
         (,tick,,,,,) = pool.slot0();
     }
 
@@ -113,7 +111,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
 
         uint32[] memory secondsAgos = new uint32[](checkIntervals + 1);
         uint8 i;
-        for (; i <= CHECK_INTERVALS; i++) {
+        for (; i <= checkIntervals; i++) {
             secondsAgos[i] = i * blockTime;
         }
 

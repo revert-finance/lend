@@ -75,7 +75,7 @@ contract CollateralModuleTest is Test, TestBase {
         /// setup
         holder = new NFTHolder(NPM);
 
-        module = new CollateralModule(holder, address(comptroller));
+        module = new CollateralModule(holder, address(comptroller), 60);
 
         // link module to comptroller
         comptroller._setCollateralModule(module);
