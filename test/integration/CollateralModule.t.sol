@@ -129,13 +129,13 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(data.cAmount1, 0);
     }
 
-    function _preparePositionCollateralDAIWETHOutOfRangeWithFees(bool lent) internal returns (PositionData memory data) {
+    function _preparePositionCollateralDAIWETHOutOfRangeWithFees(bool lendable) internal returns (PositionData memory data) {
 
         data.owner = TEST_NFT_2_ACCOUNT;
         data.tokenId = TEST_NFT_2;
 
         NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(lent)));
+        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(lendable)));
 
         vm.prank(data.owner);
         NPM.safeTransferFrom(
@@ -150,7 +150,7 @@ contract CollateralModuleTest is Test, TestBase {
 
         (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
 
-        if (lent) {
+        if (lendable) {
             // if lent all liquidity is moved to ctoken, only other fee token may be still available
             assertEq(data.liquidity, 0);
             assertEq(data.amount0, 0);
