@@ -32,7 +32,7 @@ contract CollateralModuleTest is Test, TestBase {
     CErc20Delegate cErc20Delegate;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.flashbots.net", 15489169);
+        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
 
         // SETUP complete custom COMPOUND
@@ -305,6 +305,23 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(err, 0);
         assertEq(liquidity, 540729630887579142348);
         assertEq(shortfall, 0);     
+    }
+
+    function testLendingWithKeeper() external {
+        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees(true);
+
+        // owner may unlend always
+        vm.prank(data.owner);
+        module.unlend(data.tokenId);
+
+        // other account only may lend because "enough out of range"
+        vm.prank(WHALE_ACCOUNT);
+        module.lend(data.tokenId);
+
+        // may not unlend because not enough close to "in range" - with default config
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(CollateralModule.PositionNotInValidTick.selector);
+        module.unlend(data.tokenId);
     }
 
     function testGrowShrinkPositionWithBorrowing() external {

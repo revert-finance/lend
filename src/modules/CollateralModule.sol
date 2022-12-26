@@ -32,11 +32,10 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     error NotAllowed();
     error OracleDeviation();
     error AlreadyAdded();
-    error PositionInRange();
-    error WrongSide();
     error MintError();
     error OwnerNotBorrower();
     error SeizeNotAllowed(uint err);
+    error PositionNotInValidTick();
 
     struct PoolConfig {
         bool isActive; // pool may be deposited
@@ -309,26 +308,33 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         if (seizeCToken0 > 0 || seizeCToken1 > 0) {
             (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
             if (seizeCToken0 > 0) {
-                CErc20 cToken0 = _getCToken(token0);
-                uint balanceBefore = IERC20(token0).balanceOf(address(this));
-                cToken0.redeem(seizeCToken0);
-                uint balanceAfter = IERC20(token0).balanceOf(address(this));
-                _transferToken(liquidator, IERC20(token0), balanceAfter - balanceBefore, true);
+                uint amount = _redeem(IERC20(token0), seizeCToken0);
+                _transferToken(liquidator, IERC20(token0), amount, true);
             }
             if (seizeCToken1 > 0) {
-                CErc20 cToken1 = _getCToken(token1);
-                uint balanceBefore = IERC20(token1).balanceOf(address(this));
-                cToken1.redeem(seizeCToken1);
-                uint balanceAfter = IERC20(token1).balanceOf(address(this));
-                _transferToken(liquidator, IERC20(token1), balanceAfter - balanceBefore, true);
+                uint amount = _redeem(IERC20(token1), seizeCToken1);
+                _transferToken(liquidator, IERC20(token1), amount, true);
             }
         }
+    }
+
+    function _redeem(IERC20 token, uint amount) internal returns (uint) {
+        CErc20 cToken = _getCToken(address(token));
+        uint balanceBefore = IERC20(token).balanceOf(address(this));
+        // reverts if any problem
+        cToken.redeem(amount);
+        uint balanceAfter = IERC20(token).balanceOf(address(this));
+        return balanceAfter - balanceBefore;
     }
 
     /// @notice function for keeper to set position in lent state
     /// can only be called when in correct range - pays bounty to msg.sender - increasing bounty auction style
     /// when called by owner no fees - no range check
     function lend(uint256 tokenId) external {
+        PositionConfig storage positionConfig = positionConfigs[tokenId];
+        if (!positionConfig.isLendable || positionConfig.cTokenAmount > 0) {
+            revert NotAllowed();
+        }
         bool isOwner = holder.tokenOwners(tokenId) == msg.sender;
         _lend(tokenId, isOwner);
     }
@@ -337,6 +343,10 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     /// can only be called when in correct range - pays bounty to msg.sender - increasing bounty auction style
     /// when called by owner no fees - no range check
     function unlend(uint256 tokenId) external {
+        PositionConfig storage positionConfig = positionConfigs[tokenId];
+        if (positionConfig.cTokenAmount == 0) {
+            revert NotAllowed();
+        }
         bool isOwner = holder.tokenOwners(tokenId) == msg.sender;
         _unlend(tokenId, isOwner, address(0));
     }
@@ -370,7 +380,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             } else if (tick >= tickUpper + positionConfig.lendMinBufferTicks) {
                 feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, tickUpper + positionConfig.lendMinBufferTicks, true, pool);
             } else {
-                return;
+                revert PositionNotInValidTick();
             }
         }
 
@@ -435,24 +445,24 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
         // if payFees can be only done when in certain range
         if (!isOwner) {
-            if (state.tick >= state.tickLower - positionConfig.unlendMaxBufferTicks) {
+            if (state.tick >= state.tickLower - positionConfig.unlendMaxBufferTicks && state.tick < state.tickLower) {
                 state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickLower - positionConfig.lendMinBufferTicks, true, state.pool);
-            } else if (state.tick < state.tickUpper + positionConfig.unlendMaxBufferTicks) {
+            } else if (state.tick < state.tickUpper + positionConfig.unlendMaxBufferTicks && state.tick >= state.tickUpper) {
                 state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickUpper + positionConfig.unlendMaxBufferTicks, false, state.pool);
             } else {
-                return;
+                revert PositionNotInValidTick();
             }
         }
 
         // collect all onsided liquidity if out of range
         if (state.tick < state.tickLower) {
             if (!positionConfig.isCToken0) {
-                revert WrongSide();
+                revert PositionNotInValidTick();
             }
-            CErc20 cToken = _getCToken(state.token0);
-            state.amount = cToken.redeem(positionConfig.cTokenAmount);
+            state.amount = _redeem(IERC20(state.token0), positionConfig.cTokenAmount);
             state.fee = state.amount * state.feeX64 / Q64;
 
+            IERC20(state.token0).approve(address(nonfungiblePositionManager), state.amount);
             nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
                 tokenId, 
                 state.amount - state.fee, 
@@ -468,12 +478,12 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             }
         } else if (state.tick > state.tickUpper) {
             if (positionConfig.isCToken0) {
-                revert WrongSide();
+                revert PositionNotInValidTick();
             }
-            CErc20 cToken = _getCToken(state.token1);
-            state.amount = cToken.redeem(positionConfig.cTokenAmount);
+            state.amount = _redeem(IERC20(state.token1), positionConfig.cTokenAmount);
             state.fee = state.amount * state.feeX64 / Q64;
 
+            IERC20(state.token1).approve(address(nonfungiblePositionManager), state.amount);        
             nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
                 tokenId, 
                 0, 
@@ -491,18 +501,16 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             // if owner wants to unlend because of withdrawing position - special force handling - sends all tokens to owner
             if (forceWithdrawAddress != address(0)) {
                 if (positionConfig.isCToken0) {
-                    CErc20 cToken = _getCToken(state.token0);
-                    state.amount = cToken.redeem(positionConfig.cTokenAmount);
+                    state.amount = _redeem(IERC20(state.token0), positionConfig.cTokenAmount);
                     SafeERC20.safeTransfer(IERC20(state.token0), forceWithdrawAddress, state.amount);
                 } else {
-                    CErc20 cToken = _getCToken(state.token1);
-                    state.amount = cToken.redeem(positionConfig.cTokenAmount);
+                    state.amount = _redeem(IERC20(state.token1), positionConfig.cTokenAmount);
                     SafeERC20.safeTransfer(IERC20(state.token1), forceWithdrawAddress, state.amount);
                 }
                 positionConfig.cTokenAmount = 0;
             } else {
                 // can only unlend when position one-sided
-                revert PositionInRange(); 
+                revert PositionNotInValidTick();
             }
         }
     }

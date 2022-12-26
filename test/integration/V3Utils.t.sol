@@ -11,7 +11,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     V3Utils c;
     uint256 mainnetFork;
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.flashbots.net", 15489169);
+        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
         c = new V3Utils(NPM);
     }

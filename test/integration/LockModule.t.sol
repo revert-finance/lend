@@ -16,7 +16,7 @@ contract LockModuleTest is Test, TestBase {
     uint8 moduleIndex;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.flashbots.net", 15489169);
+        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
 
         holder = new NFTHolder(NPM);
