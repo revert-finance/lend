@@ -8,7 +8,9 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
 /// @title StopLossLimitModule
-/// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. A revert controlled bot is responsible for the execution.
+/// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. 
+/// A revert controlled bot is responsible for the execution of optimized swaps
+/// Non-swap or pool-swap operations can be called by anyone
 contract StopLossLimitModule is Module {
 
     // events
@@ -30,6 +32,7 @@ contract StopLossLimitModule is Module {
     error NotConfigured();
     error NotInCondition();
     error MissingSwapData();
+    error OnlyOwnerCanSwap();
     error ConfigError();
 
     uint32 public maxTWAPTickDifference = 100; // 1%
@@ -48,6 +51,9 @@ contract StopLossLimitModule is Module {
         bool token0Swap;
         bool token1Swap;
 
+        // should a swap in the same pool be allowed (for decentralized keepers)
+        bool allowPoolSwap;
+
         // max price difference from current pool price for swap / Q64
         uint64 token0SlippageX64;
         uint64 token1SlippageX64;
@@ -64,7 +70,7 @@ contract StopLossLimitModule is Module {
         // tokenid to process
         uint256 tokenId;
 
-        // if its a swap order - include swap data
+        // if its a swap order and caller is contract owner - can include optimized swap data
         bytes swapData;
     }
 
@@ -87,6 +93,7 @@ contract StopLossLimitModule is Module {
         int24 tick;
         bool isSwap;
         bool isAbove;
+        bool isContractOwner;
         address owner;
     }
 
@@ -124,9 +131,11 @@ contract StopLossLimitModule is Module {
 
 
     // function which can be executed by owner only (atm) when position is in certain state
-    function execute(ExecuteParams memory params) external onlyOwner {
+    function execute(ExecuteParams memory params) external {
 
         ExecuteState memory state;
+
+        state.isContractOwner = owner() == msg.sender;
 
         PositionConfig storage config = positionConfigs[params.tokenId];
 
@@ -154,15 +163,24 @@ contract StopLossLimitModule is Module {
 
         // swap to other token
         if (state.isSwap) {
-            if (params.swapData.length == 0) {
+            if (params.swapData.length == 0 && !config.allowPoolSwap) {
                 revert MissingSwapData();
+            }
+            if (params.swapData.length > 0 && !state.isContractOwner) {
+                revert OnlyOwnerCanSwap();
             }
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
             
             // checks if price in valid oracle range and calculates amountOutMin
             (state.amountOutMin,,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
-            (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
+
+            if (params.swapData.length > 0) {
+                (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
+            } else {
+                state.amountInDelta = state.swapAmount;
+                state.amountOutDelta = _poolSwap(state.pool, state.token0, state.token1, state.fee, !state.isAbove, state.swapAmount, state.amountOutMin);
+            }
 
             state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
             state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
@@ -170,6 +188,7 @@ contract StopLossLimitModule is Module {
      
         state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
         state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
+
 
         // send final tokens to position owner - if any
         state.owner = holder.tokenOwners(params.tokenId);
@@ -180,7 +199,15 @@ contract StopLossLimitModule is Module {
             _transferToken(state.owner, IERC20(state.token1), state.amount1 - state.protocolReward1, true);
         }
         
-        // keep rest in contract (for owner withdrawal)
+        // if caller not contract owner - directly send rewards - otherwise keep in contract for withdrawal when needed
+        if (!state.isContractOwner) {
+            if (state.protocolReward0 > 0) {
+                _transferToken(msg.sender, IERC20(state.token0), state.protocolReward0, true);
+            }
+            if (state.protocolReward1 > 0) {
+                _transferToken(msg.sender, IERC20(state.token1), state.protocolReward1, true);
+            }
+        }
 
         // log event
         emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
