@@ -36,7 +36,7 @@ abstract contract TestBase {
     uint256 constant TEST_NFT_ID = 24181; // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
     uint256 constant TEST_NFT_ID_IN_RANGE = 23901; // DAI/USCD 0.05% - two sided
 
-    uint256 constant TEST_NFT_WITH_FEES = 4660;
+    uint256 constant TEST_NFT_WITH_FEES = 4660; // DAI/USDC 0.05% - in range 
     address constant TEST_NFT_WITH_FEES_POOL = 0x6c6Bc977E13Df9b0de53b251522280BB72383700;
     address constant TEST_NFT_WITH_FEES_ACCOUNT = 0xa3eF006a7da5BcD1144d8BB86EfF1734f46A0c1E;
 

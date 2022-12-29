@@ -114,12 +114,30 @@ contract CompoundorModuleTest is Test, TestBase {
         _setupPosition();
 
         // simple autocompound with swap
+        vm.prank(WHALE_ACCOUNT);
         (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, true));
+
+        uint storedReward1 = module.accountBalances(WHALE_ACCOUNT, address(USDC));
 
         assertEq(reward0, 0);
         assertEq(reward1, 6965742);
+        assertEq(storedReward1, 6965742);
         assertEq(compounded0, 376519398080354422508);
         assertEq(compounded1, 320086390);
+
+        uint balanceBefore = USDC.balanceOf(WHALE_ACCOUNT);
+
+        // test getting fees partially
+        vm.prank(WHALE_ACCOUNT);
+        module.withdrawBalance(address(USDC), WHALE_ACCOUNT, 1);
+        assertEq(module.accountBalances(WHALE_ACCOUNT, address(USDC)), storedReward1 - 1);
+        assertEq(USDC.balanceOf(WHALE_ACCOUNT) - balanceBefore, 1);
+
+        // test getting fees rest / all
+        vm.prank(WHALE_ACCOUNT);
+        module.withdrawBalance(address(USDC), WHALE_ACCOUNT, 0);
+        assertEq(module.accountBalances(WHALE_ACCOUNT, address(USDC)), 0);
+        assertEq(USDC.balanceOf(WHALE_ACCOUNT) - balanceBefore, storedReward1);
     }
 
     function testInitiateAndAddToCompound() external {

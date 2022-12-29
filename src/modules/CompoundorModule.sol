@@ -393,8 +393,10 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
      * @param amount amount to withdraw
      */
     function withdrawBalance(address token, address to, uint256 amount) external nonReentrant {
-        require(amount > 0, "amount==0");
         uint256 balance = accountBalances[msg.sender][token];
+        if (amount == 0 || amount > balance) {
+            amount = balance;
+        }
         _withdrawBalanceInternal(token, to, balance, amount);
     }
 
