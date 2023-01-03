@@ -390,7 +390,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
      * @notice Withdraws token balance for a address and token
      * @param token Address of token to withdraw
      * @param to Address to send to
-     * @param amount amount to withdraw
+     * @param amount amount to withdraw (if 0 - all available is withdrawn)
      */
     function withdrawBalance(address token, address to, uint256 amount) external nonReentrant {
         uint256 balance = accountBalances[msg.sender][token];

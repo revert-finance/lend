@@ -24,6 +24,7 @@ import "./ICollateralModule.sol";
 
 /// @title CollateralModule
 /// @notice Module responsible for connection to Compound Fork, taking care collateral is checked after each liquidity/fee removal, supports lending of position when out of range, support seizing of collateral when liquidatable
+/// can NOT be used together with LockModule (set blocking config)
 contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     // errors 
@@ -54,9 +55,9 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     uint16 public immutable secondsUntilMax;
 
     struct PositionConfig {
-        bool isLendable;
-        int24 lendMinBufferTicks; // how many ticks is buffer zone
-        int24 unlendMaxBufferTicks; // how many ticks is buffer zone
+        bool isLendable; // enable lending automation for this position
+        int24 lendMinBufferTicks; // how many ticks min away to be able to be lent by anyone
+        int24 unlendMaxBufferTicks; // how many ticks max away to be able to be unlent by anyone
         uint64 minFeeX64; // min percentage of position to pay for fee (lend / unlend)
         uint64 maxFeeX64; // max percentage of position to pay for fee (lend / unlend)
         bool isCToken0;
@@ -144,6 +145,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         // calculate position amounts (incl uncollected fees)
         (amount0, amount1, fees0, fees1) = _getAmounts(position, oracleSqrtPriceX96, tick);
 
+        // if it is lent out - set corresponding ctoken amounts
         if (positionConfig.cTokenAmount > 0) {
             if (positionConfig.isCToken0) {
                 cAmount0 = positionConfig.cTokenAmount;
@@ -265,7 +267,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
                 IERC20(state.token1).approve(address(cToken1), amount1 > borrowBalance1 ? borrowBalance1 : amount1);
                 cToken1.repayBorrowBehalf(owner, amount1 > borrowBalance1 ? borrowBalance1 : amount1);
             }
-            if (amount0 > borrowBalance0) {
+            if (amount1 > borrowBalance1) {
                 _transferToken(owner, IERC20(state.token1), amount1 - borrowBalance1, true);
             }
         }

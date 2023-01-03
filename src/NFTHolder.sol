@@ -35,6 +35,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
     error NoFlashTransformInProgress();
     error TokenNotInModule();
     error InvalidWithdrawTarget();
+    error InvalidFromAddress();
 
     // events
     event AddedModule(uint8 index, IModule implementation);
@@ -95,6 +96,9 @@ contract NFTHolder is IERC721Receiver, Ownable {
                 bytes memory returnData;
                 // set owner to caller of minting context
                 (from, returnData) = abi.decode(data, (address, bytes));
+                if (from == address(0)) {
+                    revert InvalidFromAddress();
+                }
                 if (returnData.length > 0) {
                     initialModules = abi.decode(returnData, (ModuleParams[]));
                 }
