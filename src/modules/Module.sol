@@ -256,5 +256,5 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     function addToken(uint256 tokenId, address, bytes calldata data) override virtual onlyHolder external { }
     function withdrawToken(uint256 tokenId, address) override virtual onlyHolder external { }
     function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override virtual external  { }
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override virtual external { }
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1, bytes calldata data) override virtual external returns (bytes memory returnData) { }
 }

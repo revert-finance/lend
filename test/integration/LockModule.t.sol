@@ -74,20 +74,20 @@ contract LockModuleTest is Test, TestBase {
 
         // allow collect fees
         vm.prank(TEST_ACCOUNT);
-        (uint amount0, uint amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this)));
+        (uint amount0, uint amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
         assertEq(amount0, 499999999999999566);
         assertEq(amount1, 0);
 
         // don't allow remove liquidity
         vm.prank(TEST_ACCOUNT);
         vm.expectRevert(LockModule.IsLocked.selector);
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
 
         // goto releasetime
         vm.warp(block.timestamp + lockTime);
 
         // now allowed
         vm.prank(TEST_ACCOUNT);
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_ID, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
     }
 }

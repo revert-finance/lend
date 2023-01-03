@@ -286,6 +286,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
         uint256 deadline;
         bool unwrap;
         address recipient;
+        bytes callbackData; // data which is sent to callback
     }
 
     /// @notice flash transforms token - must be returned afterwards
@@ -322,7 +323,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
         flashTransformedTokenId = 0;
     }
 
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1) {
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1, bytes memory callbackReturnData) {
         uint256 mod = tokenModules[params.tokenId];
         uint8 moduleIndex = modulesIndex[msg.sender];
         bool callFromActiveModule = moduleIndex > 0 &&
@@ -354,14 +355,13 @@ contract NFTHolder is IERC721Receiver, Ownable {
             )
         );
 
-        // if call is from module - execute callback
+        // if call is from module - execute callback - for code that needs to be run before _checkOnCollect is run
         if (moduleIndex > 0) {
-            modules[moduleIndex]
-                .implementation
-                .decreaseLiquidityAndCollectCallback(
+            callbackReturnData = modules[moduleIndex].implementation.decreaseLiquidityAndCollectCallback(
                     params.tokenId,
                     amount0,
-                    amount1
+                    amount1,
+                    params.callbackData
                 );
         }
 

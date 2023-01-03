@@ -30,12 +30,12 @@ contract TestModule is IModule {
         }
     }
 
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1) override external {
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1, bytes calldata data) override external returns (bytes memory returnData) {
 
     }
 
     function triggerCollectForTesting(uint256 tokenId) external {
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this)));
+        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
     }
 
 }

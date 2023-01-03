@@ -159,7 +159,7 @@ contract StopLossLimitModule is Module {
         state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
        
         // decrease full liquidity for given position (one sided only) - and return fees as well
-        (state.amount0, state.amount1) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this)));
+        (state.amount0, state.amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
 
         // swap to other token
         if (state.isSwap) {
