@@ -1,33 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
-
 import "../TestBase.sol";
 
-import "../../src/NFTHolder.sol";
-import "../../src/modules/StopLossLimitModule.sol";
+contract StopLossLimitModuleTest is TestBase {
 
-contract StopLossLimitModuleTest is Test, TestBase {
-    NFTHolder holder;
-    StopLossLimitModule module;
-    uint256 mainnetFork;
     uint8 moduleIndex;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
-        vm.selectFork(mainnetFork);
-
-        holder = new NFTHolder(NPM);
-        module = new StopLossLimitModule(holder, EX0x);
-
-        assertEq(
-            address(module.factory()),
-            0x1F98431c8aD98523631AE4a59f267346ea31F984
-        );
-
-        moduleIndex = holder.addModule(module, 0);
+        _setupBase();
+        moduleIndex = _setupStopLossLimitModule();
     }
 
     function _addToModule(
@@ -87,7 +69,7 @@ contract StopLossLimitModuleTest is Test, TestBase {
         assertEq(liquidity, 0);
 
         vm.expectRevert(StopLossLimitModule.NoLiquidity.selector);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
     }
 
     function _addLiquidity() internal returns (uint256 amount0, uint256 amount1) {
@@ -112,7 +94,7 @@ contract StopLossLimitModuleTest is Test, TestBase {
         uint balanceBeforeOwner = USDC.balanceOf(TEST_ACCOUNT);
 
         vm.prank(WHALE_ACCOUNT);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
 
         uint balanceAfter = USDC.balanceOf(WHALE_ACCOUNT);
         uint balanceAfterOwner = USDC.balanceOf(TEST_ACCOUNT);
@@ -138,14 +120,14 @@ contract StopLossLimitModuleTest is Test, TestBase {
     
         _addToModule(true, TEST_NFT_ID, false, false, false, 0, 0, -276325, type(int24).max);
         vm.expectRevert(StopLossLimitModule.NotInCondition.selector);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
 
         uint balanceBeforeOwner = DAI.balanceOf(TEST_ACCOUNT);
 
         _addToModule(false, TEST_NFT_ID, false, false, false, 0, 0, -276324, type(int24).max);
 
         // execute limit order - without swap
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
 
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(TEST_NFT_ID);
         assertEq(liquidity, 0);
@@ -154,14 +136,14 @@ contract StopLossLimitModuleTest is Test, TestBase {
 
         // check paid fee
         uint balanceBefore = DAI.balanceOf(address(this));
-        module.withdrawBalance(address(DAI), address(this));
+        stopLossLimitModule.withdrawBalance(address(DAI), address(this));
         uint balanceAfter = DAI.balanceOf(address(this));
 
         assertEq(balanceAfterOwner + balanceAfter - balanceBeforeOwner - balanceBefore + 1, amount0); // +1 because Uniswap imprecision (remove same liquidity returns 1 less)
 
         // cant execute again - liquidity disapeard
         vm.expectRevert(StopLossLimitModule.NoLiquidity.selector);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
 
         // add new liquidity
         (amount0, amount1) = _addLiquidity();
@@ -172,19 +154,19 @@ contract StopLossLimitModuleTest is Test, TestBase {
         // execute stop loss from another account with swap data fails
         vm.prank(TEST_ACCOUNT);
         vm.expectRevert(StopLossLimitModule.OnlyOwnerCanSwap.selector);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, _get999999999999999632DAIToUSDSwapData()));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, _get999999999999999632DAIToUSDSwapData()));
 
         // execute without swap data fails because not allowed by config
         vm.expectRevert(StopLossLimitModule.MissingSwapData.selector);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, ""));
 
         // execute stop loss order - with swap
         uint swapBalanceBefore = USDC.balanceOf(TEST_ACCOUNT);
-        module.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, _get999999999999999632DAIToUSDSwapData()));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, _get999999999999999632DAIToUSDSwapData()));
         uint swapBalanceAfter = USDC.balanceOf(TEST_ACCOUNT);
         
         balanceBefore = USDC.balanceOf(address(this));
-        module.withdrawBalance(address(USDC), address(this));
+        stopLossLimitModule.withdrawBalance(address(USDC), address(this));
         balanceAfter = USDC.balanceOf(address(this));
 
         assertEq(swapBalanceAfter - swapBalanceBefore, 988879);

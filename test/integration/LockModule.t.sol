@@ -1,33 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
-
 import "../TestBase.sol";
 
-import "../../src/NFTHolder.sol";
-import "../../src/modules/LockModule.sol";
-
-contract LockModuleTest is Test, TestBase {
-    NFTHolder holder;
-    LockModule module;
-    uint256 mainnetFork;
+contract LockModuleTest is TestBase {
     uint8 moduleIndex;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
-        vm.selectFork(mainnetFork);
-
-        holder = new NFTHolder(NPM);
-        module = new LockModule(holder);
-
-        assertEq(
-            address(module.factory()),
-            0x1F98431c8aD98523631AE4a59f267346ea31F984
-        );
-
-        moduleIndex = holder.addModule(module, 0);
+        _setupBase();
+        moduleIndex = _setupLockModule();
     }
 
     function _addLiquidityAndDecreasePartial() internal returns (uint256 amount0, uint256 amount1) {

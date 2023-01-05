@@ -1,19 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
-
 import "../TestBase.sol";
-import "../../src/V3Utils.sol";
 
-contract V3UtilsIntegrationTest is Test, TestBase {
-    V3Utils c;
-    uint256 mainnetFork;
+contract V3UtilsIntegrationTest is TestBase {
+   
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
-        vm.selectFork(mainnetFork);
-        c = new V3Utils(NPM);
+        _setupBase();
     }
 
     function testUnauthorizedTransfer() external {
@@ -47,7 +40,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
         NPM.safeTransferFrom(
             TEST_ACCOUNT,
-            address(c),
+            address(v3utils),
             TEST_NFT_ID,
             abi.encode(inst)
         );
@@ -63,7 +56,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.prank(TEST_ACCOUNT);
         NPM.safeTransferFrom(
             TEST_ACCOUNT,
-            address(c),
+            address(v3utils),
             TEST_NFT_ID,
             abi.encode(true, false, 1, "test")
         );
@@ -72,7 +65,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     function testSendEtherNotAllowed() external {
         bool success;
         vm.expectRevert(V3Utils.NotWETH.selector);
-        (success,) = address(c).call{value: 123}("");
+        (success,) = address(v3utils).call{value: 123}("");
     }
 
     function testTransferWithChangeRange() external {
@@ -112,10 +105,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
 
         // using approve / execute pattern
         vm.prank(TEST_ACCOUNT);
-        NPM.approve(address(c), TEST_NFT_ID);
+        NPM.approve(address(v3utils), TEST_NFT_ID);
 
         vm.prank(TEST_ACCOUNT);
-        c.execute(TEST_NFT_ID, inst);
+        v3utils.execute(TEST_NFT_ID, inst);
 
         // now we have 2 NFTs (1 empty)
         uint256 countAfter = NPM.balanceOf(TEST_ACCOUNT);
@@ -165,7 +158,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
         NPM.safeTransferFrom(
             TEST_NFT_WITH_FEES_ACCOUNT,
-            address(c),
+            address(v3utils),
             TEST_NFT_WITH_FEES,
             abi.encode(inst)
         );
@@ -219,7 +212,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
         NPM.safeTransferFrom(
             TEST_NFT_WITH_FEES_ACCOUNT,
-            address(c),
+            address(v3utils),
             TEST_NFT_WITH_FEES,
             abi.encode(inst)
         );
@@ -269,7 +262,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.prank(TEST_ACCOUNT);
         NPM.safeTransferFrom(
             TEST_ACCOUNT,
-            address(c),
+            address(v3utils),
             TEST_NFT_ID,
             abi.encode(inst)
         );
@@ -329,7 +322,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         vm.prank(TEST_ACCOUNT);
         NPM.safeTransferFrom(
             TEST_ACCOUNT,
-            address(c),
+            address(v3utils),
             TEST_NFT_ID,
             abi.encode(inst)
         );
@@ -359,7 +352,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             );
 
         vm.prank(TEST_ACCOUNT);
-        c.swapAndIncreaseLiquidity(params);
+        v3utils.swapAndIncreaseLiquidity(params);
     }
 
     function testSwapAndIncreaseLiquidity() external {
@@ -382,11 +375,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             );
 
         vm.prank(TEST_ACCOUNT);
-        USDC.approve(address(c), 1000000);
+        USDC.approve(address(v3utils), 1000000);
 
         vm.prank(TEST_ACCOUNT);
-        (uint128 liquidity, uint256 amount0, uint256 amount1) = c
-            .swapAndIncreaseLiquidity(params);
+        (uint128 liquidity, uint256 amount0, uint256 amount1) = v3utils.swapAndIncreaseLiquidity(params);
 
         uint256 feeBalance = DAI.balanceOf(TEST_FEE_ACCOUNT);
 
@@ -416,14 +408,13 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             );
 
         vm.prank(TEST_ACCOUNT);
-        USDC.approve(address(c), 2000000);
+        USDC.approve(address(v3utils), 2000000);
 
         uint256 usdcBefore = USDC.balanceOf(TEST_ACCOUNT);
         uint256 daiBefore = DAI.balanceOf(TEST_ACCOUNT);
 
         vm.prank(TEST_ACCOUNT);
-        (uint128 liquidity, uint256 amount0, uint256 amount1) = c
-            .swapAndIncreaseLiquidity(params);
+        (uint128 liquidity, uint256 amount0, uint256 amount1) = v3utils.swapAndIncreaseLiquidity(params);
 
         uint256 usdcAfter = USDC.balanceOf(TEST_ACCOUNT);
         uint256 daiAfter = DAI.balanceOf(TEST_ACCOUNT);
@@ -468,7 +459,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.prank(TEST_ACCOUNT);
-        c.swapAndMint(params);
+        v3utils.swapAndMint(params);
     }
 
     function testSwapAndMint() external {
@@ -533,7 +524,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.prank(TEST_ACCOUNT);
-        USDC.approve(address(c), 2000000);
+        USDC.approve(address(v3utils), 2000000);
 
         vm.prank(TEST_ACCOUNT);
         (
@@ -541,7 +532,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             uint128 liquidity,
             uint256 amount0,
             uint256 amount1
-        ) = c.swapAndMint(params);
+        ) = v3utils.swapAndMint(params);
 
         // close to 1% of swapped amount
         uint256 feeBalance = DAI.balanceOf(TEST_FEE_ACCOUNT);
@@ -584,7 +575,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
             uint128 liquidity,
             uint256 amount0,
             uint256 amount1
-        ) = c.swapAndMint{value: 1 ether}(params);
+        ) = v3utils.swapAndMint{value: 1 ether}(params);
 
         assertGt(tokenId, 0);
         assertEq(liquidity, 751622492052728);
@@ -609,10 +600,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.prank(TEST_ACCOUNT);
-        uint256 amountOut = c.swap{value: (1 ether) / 2}(params);
+        uint256 amountOut = v3utils.swap{value: (1 ether) / 2}(params);
 
         // fee in output token
-        uint256 inputTokenBalance = WETH_ERC20.balanceOf(address(c));
+        uint256 inputTokenBalance = WETH_ERC20.balanceOf(address(v3utils));
 
         // swapped to USDC - fee
         assertEq(amountOut, 752453266);
@@ -636,11 +627,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.startPrank(TEST_ACCOUNT);
-        USDC.approve(address(c), 1000000);
-        uint256 amountOut = c.swap(params);
+        USDC.approve(address(v3utils), 1000000);
+        uint256 amountOut = v3utils.swap(params);
         vm.stopPrank();
 
-        uint256 inputTokenBalance = USDC.balanceOf(address(c));
+        uint256 inputTokenBalance = USDC.balanceOf(address(v3utils));
 
         // swapped to DAI - fee
         assertEq(amountOut, 990241757080297174);
@@ -667,10 +658,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.startPrank(TEST_ACCOUNT);
-        USDC.approve(address(c), 1000000);
+        USDC.approve(address(v3utils), 1000000);
 
         vm.expectRevert(V3Utils.SlippageError.selector);
-        c.swap(params);
+        v3utils.swap(params);
         vm.stopPrank();
     }
 
@@ -686,10 +677,10 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.startPrank(TEST_ACCOUNT);
-        USDC.approve(address(c), 1000000);
+        USDC.approve(address(v3utils), 1000000);
 
         vm.expectRevert(V3Utils.SwapFailed.selector);
-        c.swap(params);
+        v3utils.swap(params);
         vm.stopPrank();
     }
 
@@ -705,11 +696,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         );
 
         vm.startPrank(TEST_ACCOUNT);
-        USDC.approve(address(c), 1000000);
+        USDC.approve(address(v3utils), 1000000);
 
         // if swap router is EOA - swap call wont fail but no coins are returned so slippage error is triggered
         vm.expectRevert(V3Utils.SlippageError.selector);
-        c.swap(params);
+        v3utils.swap(params);
         vm.stopPrank();
     }
 
@@ -727,11 +718,11 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         uint256 balanceBefore = TEST_ACCOUNT.balance;
 
         vm.startPrank(TEST_ACCOUNT);
-        USDC.approve(address(c), 1000000);
-        uint256 amountOut = c.swap(params);
+        USDC.approve(address(v3utils), 1000000);
+        uint256 amountOut = v3utils.swap(params);
         vm.stopPrank();
 
-        uint256 inputTokenBalance = USDC.balanceOf(address(c));
+        uint256 inputTokenBalance = USDC.balanceOf(address(v3utils));
         uint256 balanceAfter = TEST_ACCOUNT.balance;
 
         // swapped to ETH - fee
@@ -774,8 +765,8 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         uint256 balanceBefore = DAI.balanceOf(TEST_ACCOUNT);
 
         vm.startPrank(TEST_ACCOUNT);
-        DAI.approve(address(c), 1000000000000000000);
-        (liquidity, amount0, amount1) = c.swapAndIncreaseLiquidity(params);
+        DAI.approve(address(v3utils), 1000000000000000000);
+        (liquidity, amount0, amount1) = v3utils.swapAndIncreaseLiquidity(params);
         vm.stopPrank();
 
         uint256 balanceAfter = DAI.balanceOf(TEST_ACCOUNT);
@@ -787,8 +778,8 @@ contract V3UtilsIntegrationTest is Test, TestBase {
         assertEq(amount0, 999999999999999633); // added amount
         assertEq(amount1, 0); // only added on one side
 
-        uint256 balanceDAI = DAI.balanceOf(address(c));
-        uint256 balanceUSDC = USDC.balanceOf(address(c));
+        uint256 balanceDAI = DAI.balanceOf(address(v3utils));
+        uint256 balanceUSDC = USDC.balanceOf(address(v3utils));
 
         assertEq(balanceDAI, 0);
         assertEq(balanceUSDC, 0);
@@ -855,7 +846,7 @@ contract V3UtilsIntegrationTest is Test, TestBase {
     }
 
     function _getInvalidSwapData() internal view returns (bytes memory) {
-        return abi.encode(address(c), address(c), hex"1234567890");
+        return abi.encode(address(v3utils), address(v3utils), hex"1234567890");
     }
 
     function _getInvalidSwapDataEOA() internal pure returns (bytes memory) {

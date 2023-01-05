@@ -1,90 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
-
-import "../../src/compound/Unitroller.sol";
-import "../../src/compound/Comptroller.sol";
-import "../../src/compound/WhitePaperInterestRateModel.sol";
-import "../../src/compound/CErc20Delegate.sol";
-import "../../src/compound/CErc20Delegator.sol";
-
 import "../TestBase.sol";
 
-import "../../src/NFTHolder.sol";
-import "../../src/modules/CollateralModule.sol";
-
-
-contract CollateralModuleTest is Test, TestBase {
-    NFTHolder holder;
-    CollateralModule module;
-    ChainlinkOracle oracle;
-    uint256 mainnetFork;
+contract CollateralModuleTest is TestBase {
     uint8 moduleIndex;
 
-    Unitroller unitroller;
-    Comptroller comptroller;
-    InterestRateModel irm;
-    CErc20 cTokenUSDC;
-    CErc20 cTokenDAI;
-    CErc20 cTokenWETH;
-    CErc20Delegate cErc20Delegate;
-
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
-        vm.selectFork(mainnetFork);
-
-        // SETUP complete custom COMPOUND
-        unitroller = new Unitroller();
-        comptroller = new Comptroller();
-
-        unitroller._setPendingImplementation(address(comptroller));
-        comptroller._become(unitroller);
-
-        // change comptroller to proxy unitroller
-        comptroller = Comptroller(address(unitroller));
-
-        // value from mainnet comptroller
-        comptroller._setCloseFactor(500000000000000000); // 50%
-        comptroller._setLiquidationIncentive(1080000000000000000); // 108%
-
-        irm = new WhitePaperInterestRateModel(20000000000000000, 300000000000000000);
-
-        cErc20Delegate = new CErc20Delegate();
-
-        cTokenUSDC = CErc20(address(new CErc20Delegator(address(USDC), comptroller, irm, 1 ether, "cUSDC", "cUSDC", 8, payable(address(this)), address(cErc20Delegate), "")));
-        cTokenDAI = CErc20(address(new CErc20Delegator(address(DAI), comptroller, irm, 1 ether, "cDAI", "cDAI", 8, payable(address(this)), address(cErc20Delegate), "")));
-        cTokenWETH = CErc20(address(new CErc20Delegator(address(WETH_ERC20), comptroller, irm, 1 ether, "cWETH", "cWETH", 8, payable(address(this)), address(cErc20Delegate), "")));
-
-        oracle = new ChainlinkOracle();
-        oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
-        oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
-        oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600);
-        comptroller._setPriceOracle(oracle);
-
-        uint64 fiftyPercent = 5 * 10 ** 17;
-
-        comptroller._supportMarket(cTokenUSDC);
-        comptroller._setCollateralFactor(cTokenUSDC, fiftyPercent);
-        comptroller._supportMarket(cTokenDAI);
-        comptroller._setCollateralFactor(cTokenDAI, fiftyPercent);
-        comptroller._supportMarket(cTokenWETH);
-        comptroller._setCollateralFactor(cTokenWETH, fiftyPercent);
-
-        /// setup
-        holder = new NFTHolder(NPM);
-
-        module = new CollateralModule(holder, address(comptroller), 60);
-
-        // link module to comptroller
-        comptroller._setCollateralModule(module);
-
-        module.setPoolConfig(TEST_NFT_WITH_FEES_POOL, true, uint64(Q64 / 100));
-        module.setPoolConfig(TEST_NFT_ETH_USDC_POOL, true, uint64(Q64 / 100));
-        module.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
-
-        moduleIndex = holder.addModule(module, 0); // must be added with checkoncollect
+        _setupBase();
+        moduleIndex = _setupCollateralModule();
     }
 
     struct PositionData {
@@ -115,10 +39,10 @@ contract CollateralModuleTest is Test, TestBase {
                 abi.encode(params)
             );
 
-        (uint[] memory tokenIds,,) = module.getPositionsOfOwner(data.owner);
+        (uint[] memory tokenIds,,) = collateralModule.getPositionsOfOwner(data.owner);
         assertEq(tokenIds.length, 1);
 
-        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = collateralModule.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
 
         assertEq(data.liquidity, 12922419498089422291);
         assertEq(data.amount0, 37792545112113042069479);
@@ -145,10 +69,10 @@ contract CollateralModuleTest is Test, TestBase {
                 abi.encode(params)
             );
 
-        (uint[] memory tokenIds,,) = module.getPositionsOfOwner(data.owner);
+        (uint[] memory tokenIds,,) = collateralModule.getPositionsOfOwner(data.owner);
         assertEq(tokenIds.length, 1);
 
-        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = module.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = collateralModule.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
 
         if (lendable) {
             // if lent all liquidity is moved to ctoken, only other fee token may be still available
@@ -312,16 +236,16 @@ contract CollateralModuleTest is Test, TestBase {
 
         // owner may unlend always
         vm.prank(data.owner);
-        module.unlend(data.tokenId);
+        collateralModule.unlend(data.tokenId);
 
         // other account only may lend because "enough out of range"
         vm.prank(WHALE_ACCOUNT);
-        module.lend(data.tokenId);
+        collateralModule.lend(data.tokenId);
 
         // may not unlend because not enough close to "in range" - with default config
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(CollateralModule.PositionNotInValidTick.selector);
-        module.unlend(data.tokenId);
+        collateralModule.unlend(data.tokenId);
     }
 
     function testGrowShrinkPositionWithBorrowing() external {
@@ -345,7 +269,7 @@ contract CollateralModuleTest is Test, TestBase {
         (, , , , , , , uint128 liquidityBefore, , , , ) = NPM.positions(data.tokenId);
 
         vm.prank(data.owner);
-        module.borrowAndAddLiquidity(CollateralModule.BorrowAndAddLiquidityParams(data.tokenId, 5000000000000000000, 0, 0));
+        collateralModule.borrowAndAddLiquidity(CollateralModule.BorrowAndAddLiquidityParams(data.tokenId, 5000000000000000000, 0, 0));
      
         (, , , , , , , uint128 liquidityAfter, , , , ) = NPM.positions(data.tokenId);
 
@@ -356,13 +280,13 @@ contract CollateralModuleTest is Test, TestBase {
         assertEq(liquidity, 24097530741284063731072); // fees were added
         assertEq(shortfall, 0);
 
-        module.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, 0, 0));
+        collateralModule.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, 0, 0));
 
         (, , , , , , , liquidityBefore, , , , ) = NPM.positions(data.tokenId);
 
         assertGt(liquidityAfter, liquidityBefore); 
 
-        module.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, liquidityBefore, 0, 0, 0, 0));
+        collateralModule.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, liquidityBefore, 0, 0, 0, 0));
 
         (, , , , , , , liquidityBefore, , , , ) = NPM.positions(data.tokenId);
 

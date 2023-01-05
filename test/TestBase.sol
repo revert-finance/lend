@@ -1,11 +1,29 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "forge-std/Test.sol";
+import "forge-std/console.sol";
+
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-abstract contract TestBase {
+import "../src/V3Utils.sol";
+import "../src/NFTHolder.sol";
+
+import "../src/modules/CompoundorModule.sol";
+import "../src/modules/StopLossLimitModule.sol";
+import "../src/modules/LockModule.sol";
+import "../src/modules/CollateralModule.sol";
+
+import "../src/compound/Unitroller.sol";
+import "../src/compound/Comptroller.sol";
+import "../src/compound/WhitePaperInterestRateModel.sol";
+import "../src/compound/CErc20Delegate.sol";
+import "../src/compound/CErc20Delegator.sol";
+
+
+abstract contract TestBase is Test {
     
     uint256 constant Q64 = 2**64;
 
@@ -51,4 +69,111 @@ abstract contract TestBase {
     address constant TEST_NFT_ETH_USDC_POOL = 0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8;
     address constant TEST_NFT_ETH_USDC_ACCOUNT = 0x96653b13bD00842Eb8Bc77dCCFd48075178733ce;
     uint constant TEST_NFT_ETH_USDC = 827;
+
+    uint256 mainnetFork;
+
+    NFTHolder holder;
+    V3Utils v3utils;
+
+    CompoundorModule compoundorModule;
+    StopLossLimitModule stopLossLimitModule;
+    LockModule lockModule;
+
+    CollateralModule collateralModule;
+
+    ChainlinkOracle oracle;
+    Unitroller unitroller;
+    Comptroller comptroller;
+    InterestRateModel irm;
+    CErc20 cTokenUSDC;
+    CErc20 cTokenDAI;
+    CErc20 cTokenWETH;
+    CErc20Delegate cErc20Delegate;
+
+    function _setupBase() internal {
+
+        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
+        vm.selectFork(mainnetFork);
+
+        holder = new NFTHolder(NPM);
+        v3utils = new V3Utils(NPM);
+
+        holder.setFlashTransformContract(address(v3utils));
+    }
+
+    function _setupCompoundorModule() internal returns (uint8) {
+        compoundorModule = new CompoundorModule(holder);
+        return holder.addModule(compoundorModule, 0);
+    }
+
+    function _setupStopLossLimitModule() internal returns (uint8) {
+        stopLossLimitModule = new StopLossLimitModule(holder, EX0x);
+
+        assertEq(address(stopLossLimitModule.factory()), FACTORY);
+
+        return holder.addModule(stopLossLimitModule, 0);
+    }
+
+    function _setupLockModule() internal returns (uint8) {
+        lockModule = new LockModule(holder);
+
+        assertEq(address(lockModule.factory()), FACTORY);
+
+        return holder.addModule(lockModule, 0);
+    }
+
+    function _setupCollateralModule() internal returns (uint8) {
+
+        // SETUP complete custom COMPOUND
+        unitroller = new Unitroller();
+        comptroller = new Comptroller();
+
+        unitroller._setPendingImplementation(address(comptroller));
+        comptroller._become(unitroller);
+
+        // change comptroller to proxy unitroller
+        comptroller = Comptroller(address(unitroller));
+
+        // value from mainnet comptroller
+        comptroller._setCloseFactor(500000000000000000); // 50%
+        comptroller._setLiquidationIncentive(1080000000000000000); // 108%
+
+        irm = new WhitePaperInterestRateModel(20000000000000000, 300000000000000000);
+
+        cErc20Delegate = new CErc20Delegate();
+
+        cTokenUSDC = CErc20(address(new CErc20Delegator(address(USDC), comptroller, irm, 1 ether, "cUSDC", "cUSDC", 8, payable(address(this)), address(cErc20Delegate), "")));
+        cTokenDAI = CErc20(address(new CErc20Delegator(address(DAI), comptroller, irm, 1 ether, "cDAI", "cDAI", 8, payable(address(this)), address(cErc20Delegate), "")));
+        cTokenWETH = CErc20(address(new CErc20Delegator(address(WETH_ERC20), comptroller, irm, 1 ether, "cWETH", "cWETH", 8, payable(address(this)), address(cErc20Delegate), "")));
+
+        oracle = new ChainlinkOracle();
+        oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
+        oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
+        oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600);
+        comptroller._setPriceOracle(oracle);
+
+        uint64 fiftyPercent = 5 * 10 ** 17;
+
+        comptroller._supportMarket(cTokenUSDC);
+        comptroller._setCollateralFactor(cTokenUSDC, fiftyPercent);
+        comptroller._supportMarket(cTokenDAI);
+        comptroller._setCollateralFactor(cTokenDAI, fiftyPercent);
+        comptroller._supportMarket(cTokenWETH);
+        comptroller._setCollateralFactor(cTokenWETH, fiftyPercent);
+
+        /// setup
+        holder = new NFTHolder(NPM);
+
+        collateralModule = new CollateralModule(holder, address(comptroller), 60);
+
+        // link module to comptroller
+        comptroller._setCollateralModule(collateralModule);
+
+        collateralModule.setPoolConfig(TEST_NFT_WITH_FEES_POOL, true, uint64(Q64 / 100));
+        collateralModule.setPoolConfig(TEST_NFT_ETH_USDC_POOL, true, uint64(Q64 / 100));
+        collateralModule.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
+
+        return holder.addModule(collateralModule, 0);
+    }
+
 }

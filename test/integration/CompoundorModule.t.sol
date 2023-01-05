@@ -1,37 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
-
 import "../TestBase.sol";
 
-import "../../src/V3Utils.sol";
-import "../../src/NFTHolder.sol";
-import "../../src/modules/CompoundorModule.sol";
-
-contract CompoundorModuleTest is Test, TestBase {
-    V3Utils v3utils;
-    NFTHolder holder;
-    CompoundorModule module;
-    uint256 mainnetFork;
+contract CompoundorModuleTest is TestBase {
     uint8 moduleIndex;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
-        vm.selectFork(mainnetFork);
-
-
-        holder = new NFTHolder(NPM);
-        module = new CompoundorModule(holder);
-        v3utils = new V3Utils(NPM);
-
-        holder.setFlashTransformContract(address(v3utils));
-
-        moduleIndex = holder.addModule(module, 0);
+        _setupBase();
+        moduleIndex = _setupCompoundorModule();
     }
 
-    // add position with fees to module
+    // add position with fees to compoundorModule
     function _setupPosition() internal {
 
         vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
@@ -47,7 +27,7 @@ contract CompoundorModuleTest is Test, TestBase {
         _setupPosition();
 
         // simple autocompound without swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, false));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, false));
 
         assertEq(reward0, 3558940960047741131);
         assertEq(reward1, 3025524);
@@ -61,7 +41,7 @@ contract CompoundorModuleTest is Test, TestBase {
         _setupPosition();
 
         // simple autocompound without swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_0, false, false));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_0, false, false));
 
         assertEq(reward0, 6448722518610786144);
         assertEq(reward1, 0);
@@ -75,7 +55,7 @@ contract CompoundorModuleTest is Test, TestBase {
         _setupPosition();
 
         // simple autocompound without swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, false));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, false));
 
         assertEq(reward0, 0);
         assertEq(reward1, 6715850);
@@ -88,7 +68,7 @@ contract CompoundorModuleTest is Test, TestBase {
         _setupPosition();
 
         // simple autocompound with swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, true));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, true));
 
         assertEq(reward0, 3833141649374257591);
         assertEq(reward1, 3258628);
@@ -101,7 +81,7 @@ contract CompoundorModuleTest is Test, TestBase {
         _setupPosition();
 
         // simple autocompound with swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_0, false, true));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_0, false, true));
 
         assertEq(reward0, 6919282185125863149);
         assertEq(reward1, 0);
@@ -115,9 +95,9 @@ contract CompoundorModuleTest is Test, TestBase {
 
         // simple autocompound with swap
         vm.prank(WHALE_ACCOUNT);
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = module.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, true));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, true));
 
-        uint storedReward1 = module.accountBalances(WHALE_ACCOUNT, address(USDC));
+        uint storedReward1 = compoundorModule.accountBalances(WHALE_ACCOUNT, address(USDC));
 
         assertEq(reward0, 0);
         assertEq(reward1, 6965742);
@@ -129,20 +109,20 @@ contract CompoundorModuleTest is Test, TestBase {
 
         // test getting fees partially
         vm.prank(WHALE_ACCOUNT);
-        module.withdrawBalance(address(USDC), WHALE_ACCOUNT, 1);
-        assertEq(module.accountBalances(WHALE_ACCOUNT, address(USDC)), storedReward1 - 1);
+        compoundorModule.withdrawBalance(address(USDC), WHALE_ACCOUNT, 1);
+        assertEq(compoundorModule.accountBalances(WHALE_ACCOUNT, address(USDC)), storedReward1 - 1);
         assertEq(USDC.balanceOf(WHALE_ACCOUNT) - balanceBefore, 1);
 
         // test getting fees rest / all
         vm.prank(WHALE_ACCOUNT);
-        module.withdrawBalance(address(USDC), WHALE_ACCOUNT, 0);
-        assertEq(module.accountBalances(WHALE_ACCOUNT, address(USDC)), 0);
+        compoundorModule.withdrawBalance(address(USDC), WHALE_ACCOUNT, 0);
+        assertEq(compoundorModule.accountBalances(WHALE_ACCOUNT, address(USDC)), 0);
         assertEq(USDC.balanceOf(WHALE_ACCOUNT) - balanceBefore, storedReward1);
     }
 
     function testInitiateAndAddToCompound() external {
         
-        // instructions to add to compoundor module
+        // instructions to add to compoundor compoundorModule
         NFTHolder.ModuleParams[] memory moduleParams = new NFTHolder.ModuleParams[](1);
         moduleParams[0] = NFTHolder.ModuleParams(moduleIndex, "");
 

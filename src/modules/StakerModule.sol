@@ -29,7 +29,7 @@ contract StakerModule is Module {
 
     function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override external  {
         if (liquidity > 0) {
-            // TODO unstake automatically from all stakes (needs fast and limited iteration logic)
+            // TODO unstake automatically from all stakes (needs fast and limited iteration logic because liquidation may depend on this)
         }
     }
 }
