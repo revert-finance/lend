@@ -44,7 +44,7 @@ contract AllModulesTest is TestBase {
         NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](3);
         params[0] = NFTHolder.ModuleParams(compoundorModuleIndex, "");
         params[1] = NFTHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
-        params[2] = NFTHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        params[2] = NFTHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(true)));
 
         vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
         NPM.safeTransferFrom(TEST_NFT_WITH_FEES_ACCOUNT, address(holder), TEST_NFT_WITH_FEES, abi.encode(params));
@@ -56,6 +56,9 @@ contract AllModulesTest is TestBase {
         assertEq(reward1, 3025524);
         assertEq(compounded0, 355894096004774113433);
         assertEq(compounded1, 302552417);
+
+        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_WITH_FEES, TEST_NFT_WITH_FEES_ACCOUNT, "");
     }
 
 

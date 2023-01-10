@@ -10,7 +10,7 @@ import 'v3-core/libraries/FullMath.sol';
 /// @title StopLossLimitModule
 /// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. 
 /// A revert controlled bot is responsible for the execution of optimized swaps
-/// Non-swap or pool-swap operations can be called by anyone
+/// Non-swap or pool-swap (if allowed by owner) operations can be called by anyone
 contract StopLossLimitModule is Module {
 
     // events
@@ -32,7 +32,7 @@ contract StopLossLimitModule is Module {
     error NotConfigured();
     error NotInCondition();
     error MissingSwapData();
-    error OnlyOwnerCanSwap();
+    error OnlyContractOwnerCanSwap();
     error ConfigError();
 
     uint32 public maxTWAPTickDifference = 100; // 1%
@@ -130,7 +130,7 @@ contract StopLossLimitModule is Module {
     }
 
 
-    // function which can be executed by owner only (atm) when position is in certain state
+    // function which can be executed by contract owner only (atm) when position is in certain state
     function execute(ExecuteParams memory params) external {
 
         ExecuteState memory state;
@@ -142,6 +142,7 @@ contract StopLossLimitModule is Module {
         // get position info
         (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
 
+        // so can be executed only once
         if (state.liquidity == 0) {
             revert NoLiquidity();
         }
@@ -167,7 +168,7 @@ contract StopLossLimitModule is Module {
                 revert MissingSwapData();
             }
             if (params.swapData.length > 0 && !state.isContractOwner) {
-                revert OnlyOwnerCanSwap();
+                revert OnlyContractOwnerCanSwap();
             }
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
@@ -188,7 +189,6 @@ contract StopLossLimitModule is Module {
      
         state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
         state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
-
 
         // send final tokens to position owner - if any
         state.owner = holder.tokenOwners(params.tokenId);

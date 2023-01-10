@@ -153,7 +153,7 @@ contract StopLossLimitModuleTest is TestBase {
 
         // execute stop loss from another account with swap data fails
         vm.prank(TEST_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.OnlyOwnerCanSwap.selector);
+        vm.expectRevert(StopLossLimitModule.OnlyContractOwnerCanSwap.selector);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_ID, _get999999999999999632DAIToUSDSwapData()));
 
         // execute without swap data fails because not allowed by config

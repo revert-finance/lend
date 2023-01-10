@@ -37,6 +37,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     error OwnerNotBorrower();
     error SeizeNotAllowed(uint err);
     error PositionNotInValidTick();
+    error CollateralShortfall();
 
     struct PoolConfig {
         bool isActive; // pool may be deposited
@@ -645,14 +646,14 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     function _checkCollateral(address owner) internal {
         (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
         if (err > 0 || shortfall > 0) {
-            revert NotAllowed();
+            revert CollateralShortfall();
         }
     }
 
     function _checkCollateralWithoutToken(address owner, uint256 tokenId) internal {
         (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getHypotheticalAccountLiquidity(owner, address(0), 0, 0, tokenId);
         if (err > 0 || shortfall > 0) {
-            revert NotAllowed();
+            revert CollateralShortfall();
         }
     }
 

@@ -191,7 +191,7 @@ contract CollateralModuleTest is TestBase {
 
         // fails when removing token (collateral is needed)
         vm.prank(data.owner);
-        vm.expectRevert(CollateralModule.NotAllowed.selector);
+        vm.expectRevert(CollateralModule.CollateralShortfall.selector);
         holder.withdrawToken(data.tokenId, data.owner, "");
 
         vm.prank(data.owner);   
@@ -202,6 +202,13 @@ contract CollateralModuleTest is TestBase {
 
         // now can be withdrawn (debt was repayed)
         vm.prank(data.owner);
+        holder.withdrawToken(data.tokenId, data.owner, "");
+    }
+
+    function testRemoveCollateralWhenNeeded2() external {
+        PositionData memory data = _prepareLiquidationScenario();
+        vm.prank(data.owner);
+        vm.expectRevert(CollateralModule.CollateralShortfall.selector);
         holder.withdrawToken(data.tokenId, data.owner, "");
     }
 
