@@ -193,15 +193,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
             revert Unauthorized();
         }
 
-        uint256 tokenMods = tokenModules[tokenId];
-        if (tokenMods & (1 << moduleIndex) == 0) {
-            revert TokenNotInModule();
-        }
-
-        Module storage module = modules[moduleIndex];
-        module.implementation.withdrawToken(tokenId, msg.sender);
-        emit RemovedPositionFromModule(tokenId, moduleIndex);
-        tokenModules[tokenId] = tokenMods - (1 << moduleIndex);
+        _removeTokenFromModule(tokenId, moduleIndex, msg.sender);
     }
 
     /// @notice Adds a new module to the holder
@@ -388,7 +380,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
             revert ModuleNotExists();
         }
 
-        // add token to modules BEFORE calling implementation.addToken - because addToken needs module membership
+        // add token to modules BEFORE calling implementation.addToken - because addToken sometimes needs module membership
         tokenModules[tokenId] = tokenModules[tokenId] | (1 << moduleIndex);
         if (module.blocking & tokenModules[tokenId] > 0) {
             revert ModuleBlocked();
@@ -403,15 +395,26 @@ contract NFTHolder is IERC721Receiver, Ownable {
         emit AddedPositionToModule(tokenId, moduleIndex, data);
     }
 
+    function _removeTokenFromModule(uint256 tokenId, uint8 moduleIndex, address account) internal {
+
+        uint256 tokenMods = tokenModules[tokenId];
+        if (tokenMods & (1 << moduleIndex) == 0) {
+            revert TokenNotInModule();
+        }
+
+        Module storage module = modules[moduleIndex];
+        module.implementation.withdrawToken(tokenId, account);
+        emit RemovedPositionFromModule(tokenId, moduleIndex);
+        tokenModules[tokenId] = tokenMods - (1 << moduleIndex);
+    }
+
     function _removeToken(uint256 tokenId, address account) internal {
         // withdraw from all registered modules
         uint256 mod = tokenModules[tokenId];
-
         uint8 index = 1;
         while (mod > 0) {
             if (mod & (1 << index) != 0) {
-                modules[index].implementation.withdrawToken(tokenId, account);
-                emit RemovedPositionFromModule(tokenId, index);
+                _removeTokenFromModule(tokenId, index, account);
                 mod -= (1 << index);
             }
             index++;
@@ -434,7 +437,6 @@ contract NFTHolder is IERC721Receiver, Ownable {
         storedList.pop();
 
         delete tokenOwners[tokenId];
-        delete tokenModules[tokenId];
     }
 
     function _toUint128(uint256 x) private pure returns (uint128 y) {
