@@ -8,7 +8,7 @@ contract CollateralModuleTest is TestBase {
 
     function setUp() external {
         _setupBase();
-        moduleIndex = _setupCollateralModule();
+        moduleIndex = _setupCollateralModule(0);
     }
 
     struct PositionData {

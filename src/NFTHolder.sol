@@ -134,11 +134,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
         );
     }
 
-    function withdrawToken(
-        uint256 tokenId,
-        address to,
-        bytes memory data
-    ) external {
+    function withdrawToken( uint256 tokenId, address to, bytes memory data) external {
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
         }
@@ -159,10 +155,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
     }
 
     // gets all tokens which are active for a given module address
-    function getModuleTokensForOwner(address owner, address module)
-        external
-        view
-        returns (uint256[] memory tokens)
+    function getModuleTokensForOwner(address owner, address module) external view returns (uint256[] memory tokens)
     {
         uint8 moduleIndex = modulesIndex[module];
         if (moduleIndex == 0) {
@@ -187,32 +180,15 @@ contract NFTHolder is IERC721Receiver, Ownable {
         }
     }
 
-    function addTokenToModule(uint256 tokenId, ModuleParams calldata params)
-        external
-    {
+    function addTokenToModule(uint256 tokenId, ModuleParams calldata params) external {
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
         }
 
-        Module storage module = modules[params.index];
-        if (address(module.implementation) == address(0)) {
-            revert ModuleNotExists();
-        }
-
-        uint256 newTokenModules = tokenModules[tokenId] | (1 << params.index);
-        if (module.blocking & newTokenModules > 0) {
-            revert ModuleBlocked();
-        }
-
-        // can be called multiple times to update config, modules must handle this case
-        module.implementation.addToken(tokenId, msg.sender, params.data);
-        emit AddedPositionToModule(tokenId, params.index, params.data);
-        tokenModules[tokenId] = newTokenModules;
+        _addTokenToModule(tokenId, params.index, msg.sender, params.data);
     }
 
-    function removeTokenFromModule(uint256 tokenId, uint8 moduleIndex)
-        external
-    {
+    function removeTokenFromModule(uint256 tokenId, uint8 moduleIndex) external {
         if (tokenOwners[tokenId] != msg.sender) {
             revert Unauthorized();
         }
@@ -229,10 +205,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
     }
 
     /// @notice Adds a new module to the holder
-    function addModule(
-        IModule implementation,
-        uint256 blocking
-    ) external onlyOwner returns (uint8) {
+    function addModule( IModule implementation, uint256 blocking) external onlyOwner returns (uint8) {
         if (address(implementation) == address(0)) {
             revert ModuleZero();
         }
@@ -404,13 +377,30 @@ contract NFTHolder is IERC721Receiver, Ownable {
         tokenOwners[tokenId] = account;
         uint256 i;
         for (; i < initialModules.length; i++) {
-            tokenModules[tokenId] += 1 << initialModules[i].index;
-            modules[initialModules[i].index].implementation.addToken(
-                tokenId,
-                account,
-                initialModules[i].data
-            );
+            _addTokenToModule(tokenId, initialModules[i].index, account, initialModules[i].data);
         }
+    }
+    
+    function _addTokenToModule(uint256 tokenId, uint8 moduleIndex, address account, bytes memory data) internal {
+
+        Module storage module = modules[moduleIndex];
+        if (address(module.implementation) == address(0)) {
+            revert ModuleNotExists();
+        }
+
+        // add token to modules BEFORE calling implementation.addToken - because addToken needs module membership
+        tokenModules[tokenId] = tokenModules[tokenId] | (1 << moduleIndex);
+        if (module.blocking & tokenModules[tokenId] > 0) {
+            revert ModuleBlocked();
+        }
+
+        modules[moduleIndex].implementation.addToken(
+            tokenId,
+            account,
+            data
+        );
+
+        emit AddedPositionToModule(tokenId, moduleIndex, data);
     }
 
     function _removeToken(uint256 tokenId, address account) internal {

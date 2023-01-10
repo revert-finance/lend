@@ -9,7 +9,7 @@ contract StopLossLimitModuleTest is TestBase {
 
     function setUp() external {
         _setupBase();
-        moduleIndex = _setupStopLossLimitModule();
+        moduleIndex = _setupStopLossLimitModule(0);
     }
 
     function _addToModule(

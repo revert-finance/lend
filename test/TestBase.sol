@@ -101,28 +101,28 @@ abstract contract TestBase is Test {
         holder.setFlashTransformContract(address(v3utils));
     }
 
-    function _setupCompoundorModule() internal returns (uint8) {
+    function _setupCompoundorModule(uint blocking) internal returns (uint8) {
         compoundorModule = new CompoundorModule(holder);
-        return holder.addModule(compoundorModule, 0);
+        return holder.addModule(compoundorModule, blocking);
     }
 
-    function _setupStopLossLimitModule() internal returns (uint8) {
+    function _setupStopLossLimitModule(uint blocking) internal returns (uint8) {
         stopLossLimitModule = new StopLossLimitModule(holder, EX0x);
 
         assertEq(address(stopLossLimitModule.factory()), FACTORY);
 
-        return holder.addModule(stopLossLimitModule, 0);
+        return holder.addModule(stopLossLimitModule, blocking);
     }
 
-    function _setupLockModule() internal returns (uint8) {
+    function _setupLockModule(uint blocking) internal returns (uint8) {
         lockModule = new LockModule(holder);
 
         assertEq(address(lockModule.factory()), FACTORY);
 
-        return holder.addModule(lockModule, 0);
+        return holder.addModule(lockModule, blocking);
     }
 
-    function _setupCollateralModule() internal returns (uint8) {
+    function _setupCollateralModule(uint blocking) internal returns (uint8) {
 
         // SETUP complete custom COMPOUND
         unitroller = new Unitroller();
@@ -161,9 +161,6 @@ abstract contract TestBase is Test {
         comptroller._supportMarket(cTokenWETH);
         comptroller._setCollateralFactor(cTokenWETH, fiftyPercent);
 
-        /// setup
-        holder = new NFTHolder(NPM);
-
         collateralModule = new CollateralModule(holder, address(comptroller), 60);
 
         // link module to comptroller
@@ -173,7 +170,7 @@ abstract contract TestBase is Test {
         collateralModule.setPoolConfig(TEST_NFT_ETH_USDC_POOL, true, uint64(Q64 / 100));
         collateralModule.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
 
-        return holder.addModule(collateralModule, 0);
+        return holder.addModule(collateralModule, blocking);
     }
 
 }

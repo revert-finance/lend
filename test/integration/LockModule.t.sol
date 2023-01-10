@@ -8,7 +8,7 @@ contract LockModuleTest is TestBase {
 
     function setUp() external {
         _setupBase();
-        moduleIndex = _setupLockModule();
+        moduleIndex = _setupLockModule(0);
     }
 
     function _addLiquidityAndDecreasePartial() internal returns (uint256 amount0, uint256 amount1) {

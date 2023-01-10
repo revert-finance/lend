@@ -8,7 +8,7 @@ contract CompoundorModuleTest is TestBase {
 
     function setUp() external {
         _setupBase();
-        moduleIndex = _setupCompoundorModule();
+        moduleIndex = _setupCompoundorModule(0);
     }
 
     // add position with fees to compoundorModule
