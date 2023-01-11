@@ -49,26 +49,32 @@ abstract contract TestBase is Test {
     address constant CHAINLINK_DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
     address constant CHAINLINK_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
-    address constant TEST_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
+    // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
+    uint256 constant TEST_NFT = 24181;
+    address constant TEST_NFT_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
+    address constant TEST_NFT_POOL = 0x6c6Bc977E13Df9b0de53b251522280BB72383700;
 
-    uint256 constant TEST_NFT_ID = 24181; // DAI/USCD 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
-    uint256 constant TEST_NFT_ID_IN_RANGE = 23901; // DAI/USCD 0.05% - two sided
-
-    uint256 constant TEST_NFT_WITH_FEES = 4660; // DAI/USDC 0.05% - in range 
-    address constant TEST_NFT_WITH_FEES_POOL = 0x6c6Bc977E13Df9b0de53b251522280BB72383700;
-    address constant TEST_NFT_WITH_FEES_ACCOUNT = 0xa3eF006a7da5BcD1144d8BB86EfF1734f46A0c1E;
-
-
-    // DAI WETH 0.3% out of range / with liquidity and fees
+    // DAI/WETH 0.3% - one sided only WETH - with liquidity and fees
     uint256 constant TEST_NFT_2 = 7;
     address constant TEST_NFT_2_ACCOUNT = 0x3b8ccaa89FcD432f1334D35b10fF8547001Ce3e5;
     address constant TEST_NFT_2_POOL = 0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8;
 
-    address constant TEST_FEE_ACCOUNT = 0x8df57E3D9dDde355dCE1adb19eBCe93419ffa0FB;
+    // DAI/USDC 0.05% - in range - with liquidity and fees
+    uint256 constant TEST_NFT_3 = 4660; 
+    address constant TEST_NFT_3_ACCOUNT = 0xa3eF006a7da5BcD1144d8BB86EfF1734f46A0c1E;
+    address constant TEST_NFT_3_POOL = 0x6c6Bc977E13Df9b0de53b251522280BB72383700;
 
-    address constant TEST_NFT_ETH_USDC_POOL = 0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8;
-    address constant TEST_NFT_ETH_USDC_ACCOUNT = 0x96653b13bD00842Eb8Bc77dCCFd48075178733ce;
-    uint constant TEST_NFT_ETH_USDC = 827;
+    // USDC/WETH 0.3% - in range - with liquidity and fees
+    uint constant TEST_NFT_4 = 827;
+    address constant TEST_NFT_4_ACCOUNT = 0x96653b13bD00842Eb8Bc77dCCFd48075178733ce;
+    address constant TEST_NFT_4_POOL = 0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8;
+
+    // DAI/USDC 0.05% - in range - with liquidity and fees
+    uint constant TEST_NFT_5 = 23901;
+    address constant TEST_NFT_5_ACCOUNT = 0x082d3e0f04664b65127876e9A05e2183451c792a;
+
+
+    address constant TEST_FEE_ACCOUNT = 0x8df57E3D9dDde355dCE1adb19eBCe93419ffa0FB;
 
     uint256 mainnetFork;
 
@@ -166,8 +172,8 @@ abstract contract TestBase is Test {
         // link module to comptroller
         comptroller._setCollateralModule(collateralModule);
 
-        collateralModule.setPoolConfig(TEST_NFT_WITH_FEES_POOL, true, uint64(Q64 / 100));
-        collateralModule.setPoolConfig(TEST_NFT_ETH_USDC_POOL, true, uint64(Q64 / 100));
+        collateralModule.setPoolConfig(TEST_NFT_3_POOL, true, uint64(Q64 / 100));
+        collateralModule.setPoolConfig(TEST_NFT_4_POOL, true, uint64(Q64 / 100));
         collateralModule.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
 
         return holder.addModule(collateralModule, blocking);

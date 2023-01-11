@@ -34,9 +34,9 @@ contract AllModulesTest is TestBase {
         params[2] = NFTHolder.ModuleParams(lockModuleIndex, abi.encode(LockModule.PositionConfig(0)));
         params[3] = NFTHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
 
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        vm.prank(TEST_NFT_3_ACCOUNT);
         vm.expectRevert(NFTHolder.ModuleBlocked.selector);
-        NPM.safeTransferFrom(TEST_NFT_WITH_FEES_ACCOUNT, address(holder), TEST_NFT_WITH_FEES, abi.encode(params));
+        NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
     }
 
     function testCompleteExample() external {
@@ -46,19 +46,40 @@ contract AllModulesTest is TestBase {
         params[1] = NFTHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
         params[2] = NFTHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(true)));
 
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
-        NPM.safeTransferFrom(TEST_NFT_WITH_FEES_ACCOUNT, address(holder), TEST_NFT_WITH_FEES, abi.encode(params));
+        // add NFTs
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(holder), TEST_NFT, abi.encode(params));
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_2_ACCOUNT, address(holder), TEST_NFT_2, abi.encode(params));
+        vm.prank(TEST_NFT_3_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
+        vm.prank(TEST_NFT_4_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_4_ACCOUNT, address(holder), TEST_NFT_4, abi.encode(params));
+        vm.prank(TEST_NFT_5_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_5_ACCOUNT, address(holder), TEST_NFT_5, abi.encode(params));
 
         // test simple autocompound without swap with other active modules
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
 
-        assertEq(reward0, 3558940960047741131);
-        assertEq(reward1, 3025524);
-        assertEq(compounded0, 355894096004774113433);
-        assertEq(compounded1, 302552417);
+        // reverting autocompound case - all compoundable tokens were lent out because out of range and lendable - so nothing to compound
+        vm.expectRevert();
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2, CompoundorModule.RewardConversion.NONE, false, false)); 
 
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
-        holder.withdrawToken(TEST_NFT_WITH_FEES, TEST_NFT_WITH_FEES_ACCOUNT, "");
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_4, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_5, CompoundorModule.RewardConversion.NONE, false, false));
+
+        // withdraw NFTs
+        vm.prank(TEST_NFT_ACCOUNT);
+        holder.withdrawToken(TEST_NFT, TEST_NFT_ACCOUNT, "");
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_2, TEST_NFT_2_ACCOUNT, "");
+        vm.prank(TEST_NFT_3_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_3, TEST_NFT_3_ACCOUNT, "");
+        vm.prank(TEST_NFT_4_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_4, TEST_NFT_4_ACCOUNT, "");
+        vm.prank(TEST_NFT_5_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_5, TEST_NFT_5_ACCOUNT, "");
     }
 
 

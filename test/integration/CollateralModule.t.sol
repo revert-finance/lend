@@ -25,8 +25,8 @@ contract CollateralModuleTest is TestBase {
 
     function _preparePositionCollateralDAIUSDCInRangeWithFees() internal returns (PositionData memory data) {
 
-        data.owner = TEST_NFT_WITH_FEES_ACCOUNT;
-        data.tokenId = TEST_NFT_WITH_FEES;
+        data.owner = TEST_NFT_3_ACCOUNT;
+        data.tokenId = TEST_NFT_3;
 
         NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
         params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
@@ -114,30 +114,30 @@ contract CollateralModuleTest is TestBase {
         uint liquidity;
         uint shortfall;
 
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_ETH_USDC_ACCOUNT);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_4_ACCOUNT);
         assertEq(err, 0);
         assertEq(liquidity, 0);
         assertEq(shortfall, 0);
 
         // get some dollars
-        vm.prank(TEST_ACCOUNT);
-        USDC.transfer(TEST_NFT_ETH_USDC_ACCOUNT, 1000000);
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.transfer(TEST_NFT_4_ACCOUNT, 1000000);
 
         address[] memory tokens = new address[](3);
         tokens[0] = address(cTokenUSDC);
         tokens[1] = address(cTokenDAI);
         tokens[2] = address(cTokenWETH);
 
-        vm.prank(TEST_NFT_ETH_USDC_ACCOUNT);
+        vm.prank(TEST_NFT_4_ACCOUNT);
         comptroller.enterMarkets(tokens);
 
-        vm.prank(TEST_NFT_ETH_USDC_ACCOUNT);
+        vm.prank(TEST_NFT_4_ACCOUNT);
         USDC.approve(address(cTokenUSDC), 1000000);
 
-        vm.prank(TEST_NFT_ETH_USDC_ACCOUNT);
+        vm.prank(TEST_NFT_4_ACCOUNT);
         cTokenUSDC.mint(1000000);
 
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_ETH_USDC_ACCOUNT);
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(TEST_NFT_4_ACCOUNT);
         assertEq(err, 0);
         assertEq(liquidity, 499986485000000000);
         assertEq(shortfall, 0);

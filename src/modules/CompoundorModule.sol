@@ -212,6 +212,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
 
             // deposit liquidity into tokenId
             if (state.maxAddAmount0 > 0 || state.maxAddAmount1 > 0) {
+
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
                         params.tokenId,
@@ -222,7 +223,6 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
                         block.timestamp
                     )
                 );
-
 
                 // fees are always calculated based on added amount
                 // only calculate them when not tokenOwner
@@ -467,7 +467,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
 
     // IModule needed functions
     function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder external { 
-        (,,address token0, address token1, uint24 fee,,,,,,,) =  nonfungiblePositionManager.positions(tokenId);
+        (,,address token0, address token1, uint24 fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         _checkApprovals(IERC20(token0), IERC20(token1));
     }
 }

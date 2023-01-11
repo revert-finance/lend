@@ -14,12 +14,12 @@ contract CompoundorModuleTest is TestBase {
     // add position with fees to compoundorModule
     function _setupPosition() internal {
 
-        vm.prank(TEST_NFT_WITH_FEES_ACCOUNT);
+        vm.prank(TEST_NFT_3_ACCOUNT);
 
         NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
         params[0] = NFTHolder.ModuleParams(moduleIndex, "");
 
-        NPM.safeTransferFrom(TEST_NFT_WITH_FEES_ACCOUNT, address(holder), TEST_NFT_WITH_FEES, abi.encode(params));
+        NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
     }
 
     function testCompoundWithoutSwap() external {
@@ -27,7 +27,7 @@ contract CompoundorModuleTest is TestBase {
         _setupPosition();
 
         // simple autocompound without swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, false));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.NONE, false, false));
 
         assertEq(reward0, 3558940960047741131);
         assertEq(reward1, 3025524);
@@ -41,7 +41,7 @@ contract CompoundorModuleTest is TestBase {
         _setupPosition();
 
         // simple autocompound without swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_0, false, false));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.TOKEN_0, false, false));
 
         assertEq(reward0, 6448722518610786144);
         assertEq(reward1, 0);
@@ -55,7 +55,7 @@ contract CompoundorModuleTest is TestBase {
         _setupPosition();
 
         // simple autocompound without swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, false));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.TOKEN_1, false, false));
 
         assertEq(reward0, 0);
         assertEq(reward1, 6715850);
@@ -68,7 +68,7 @@ contract CompoundorModuleTest is TestBase {
         _setupPosition();
 
         // simple autocompound with swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.NONE, false, true));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.NONE, false, true));
 
         assertEq(reward0, 3833141649374257591);
         assertEq(reward1, 3258628);
@@ -81,7 +81,7 @@ contract CompoundorModuleTest is TestBase {
         _setupPosition();
 
         // simple autocompound with swap
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_0, false, true));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.TOKEN_0, false, true));
 
         assertEq(reward0, 6919282185125863149);
         assertEq(reward1, 0);
@@ -95,7 +95,7 @@ contract CompoundorModuleTest is TestBase {
 
         // simple autocompound with swap
         vm.prank(WHALE_ACCOUNT);
-        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_WITH_FEES, CompoundorModule.RewardConversion.TOKEN_1, false, true));
+        (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) = compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.TOKEN_1, false, true));
 
         uint storedReward1 = compoundorModule.accountBalances(WHALE_ACCOUNT, address(USDC));
 
