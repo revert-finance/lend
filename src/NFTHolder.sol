@@ -11,13 +11,15 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery/interfaces/external/IWETH9.sol";
 
 /// @title NFTHolder
 /// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
 contract NFTHolder is IERC721Receiver, Ownable {
     uint256 public constant MAX_TOKENS_PER_ADDRESS = 20;
 
-    // wrapped native token address
+    /// @notice Wrapped native token address
+    IWETH9 immutable public weth;
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
     // errors
@@ -36,6 +38,8 @@ contract NFTHolder is IERC721Receiver, Ownable {
     error TokenNotInModule();
     error InvalidWithdrawTarget();
     error InvalidFromAddress();
+    error EtherSendFailed();
+    error NotWETH();
 
     // events
     event AddedModule(uint8 index, IModule implementation);
@@ -49,6 +53,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
     event RemovedPositionFromModule(uint256 indexed tokenId, uint8 index);
 
     constructor(INonfungiblePositionManager _nonfungiblePositionManager) {
+        weth = IWETH9(_nonfungiblePositionManager.WETH9());
         nonfungiblePositionManager = _nonfungiblePositionManager;
     }
 
@@ -314,11 +319,22 @@ contract NFTHolder is IERC721Receiver, Ownable {
         (amount0, amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(
                 params.tokenId,
-                params.recipient,
+                params.unwrap ? address(this) : params.recipient,
                 amount0 + params.amountFees0Max >= type(uint128).max ? type(uint128).max : _toUint128(amount0 + params.amountFees0Max),
                 amount1 + params.amountFees1Max >= type(uint128).max ? type(uint128).max : _toUint128(amount1 + params.amountFees1Max)
             )
         );
+
+        // if needs unwrapping - tokens are first recieved in this contract and then resent
+        if (params.unwrap) {
+            (,,address token0, address token1, , , , , , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+            if (amount0 > 0) {
+                _transferTokenUnwrapping(params.recipient, IERC20(token0), amount0);
+            }
+            if (amount1 > 0) {
+                _transferTokenUnwrapping(params.recipient, IERC20(token1), amount1);
+            }
+        }
 
         // if call is from module - execute callback - for code that needs to be run before _checkOnCollect is run
         if (moduleIndex > 0) {
@@ -439,7 +455,27 @@ contract NFTHolder is IERC721Receiver, Ownable {
         delete tokenOwners[tokenId];
     }
 
+    // transfers token (unwraps WETH and sends ETH)
+    function _transferTokenUnwrapping(address to, IERC20 token, uint amount) internal {
+        if (address(weth) == address(token)) {
+            weth.withdraw(amount);
+            (bool sent, ) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            SafeERC20.safeTransfer(token, to, amount);
+        }
+    }
+
     function _toUint128(uint256 x) private pure returns (uint128 y) {
         require((y = uint128(x)) == x, "uint128 cast error");
+    }
+
+    // needed for WETH unwrapping
+    receive() external payable {
+        if (msg.sender != address(weth)) {
+            revert NotWETH();
+        }
     }
 }

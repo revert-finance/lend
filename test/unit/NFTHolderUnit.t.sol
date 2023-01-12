@@ -11,7 +11,7 @@ import "./mock/TestModule.sol";
 import "./mock/TestNFT.sol";
 import "./mock/TestFlashTransform.sol";
 
-contract NFTHolderTest is Test, IERC721Receiver {
+contract NFTHolderUnitTest is Test, IERC721Receiver {
 
     // copy-pasted events from NFTHolder - needed to be testable
     event AddedModule(uint8 index, IModule implementation);

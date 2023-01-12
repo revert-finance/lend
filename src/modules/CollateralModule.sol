@@ -304,7 +304,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
         // if position internal values are seized
         if (seizeLiquidity > 0 || seizeFeesToken0 > 0 || seizeFeesToken1 > 0) {
-            holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, true, liquidator, ""));
+            holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, false, liquidator, ""));
         }
 
         // if ctokens are seized
