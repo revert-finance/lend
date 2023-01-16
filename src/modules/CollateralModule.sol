@@ -350,8 +350,8 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         if (positionConfig.cTokenAmount == 0) {
             revert NotAllowed();
         }
-        bool isOwner = holder.tokenOwners(tokenId) == msg.sender;
-        _unlend(tokenId, isOwner, address(0));
+        address owner = holder.tokenOwners(tokenId);
+        _unlend(tokenId, owner == msg.sender, owner, false);
     }
 
     // calculate fee considering tick position history
@@ -428,11 +428,13 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         int24 tickUpper;
         uint64 feeX64;
         uint256 amount;
+        uint256 addedAmount0;
+        uint256 addedAmount1;
         uint256 fee;
     }
 
-    // redeems ctokens and adds liquidity to position - if forceWithdrawAddress set and can't add liquidity - returns liquidity
-    function _unlend(uint256 tokenId, bool isOwner, address forceWithdrawAddress) internal {
+    // redeems ctokens and adds liquidity to position - if isForceWithdraw set and can't add liquidity - returns tokens from full liquidity to owner
+    function _unlend(uint256 tokenId, bool isOwnerCalling, address owner, bool isForceWithdraw) internal {
 
         UnlendState memory state;
 
@@ -447,7 +449,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         (state.token0, state.token1, state.pool, , state.tick, state.tickLower, state.tickUpper) =  _getTokensPoolLiquidityAndTicks(tokenId);
 
         // if payFees can be only done when in certain range
-        if (!isOwner) {
+        if (!isOwnerCalling) {
             if (state.tick >= state.tickLower - positionConfig.unlendMaxBufferTicks && state.tick < state.tickLower) {
                 state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickLower - positionConfig.lendMinBufferTicks, true, state.pool);
             } else if (state.tick < state.tickUpper + positionConfig.unlendMaxBufferTicks && state.tick >= state.tickUpper) {
@@ -458,57 +460,45 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         }
 
         // collect all onsided liquidity if out of range
-        if (state.tick < state.tickLower) {
-            if (!positionConfig.isCToken0) {
+        if (state.tick < state.tickLower || state.tick >= state.tickUpper) {
+
+            bool isToken0 = state.tick < state.tickLower;
+
+            if (!positionConfig.isCToken0 && isToken0 || positionConfig.isCToken0 && !isToken0) {
                 revert PositionNotInValidTick();
             }
-            state.amount = _redeem(IERC20(state.token0), positionConfig.cTokenAmount);
+
+            state.amount = _redeem(IERC20(isToken0 ? state.token0 : state.token1), positionConfig.cTokenAmount);
             state.fee = state.amount * state.feeX64 / Q64;
 
-            IERC20(state.token0).approve(address(nonfungiblePositionManager), state.amount);
-            nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
+            IERC20(isToken0 ? state.token0 : state.token1).approve(address(nonfungiblePositionManager), state.amount - state.fee);
+            (,state.addedAmount0,state.addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
                 tokenId, 
-                state.amount - state.fee, 
-                0, 
-                state.amount - state.fee,
-                0, 
-                block.timestamp
-            ));
-            
-            positionConfig.cTokenAmount = 0;
-            if (state.fee > 0) {
-                SafeERC20.safeTransfer(IERC20(state.token0), msg.sender, state.fee);
-            }
-        } else if (state.tick > state.tickUpper) {
-            if (positionConfig.isCToken0) {
-                revert PositionNotInValidTick();
-            }
-            state.amount = _redeem(IERC20(state.token1), positionConfig.cTokenAmount);
-            state.fee = state.amount * state.feeX64 / Q64;
-
-            IERC20(state.token1).approve(address(nonfungiblePositionManager), state.amount);        
-            nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
-                tokenId, 
-                0, 
-                state.amount - state.fee, 
+                isToken0 ? state.amount - state.fee : 0, 
+                isToken0 ? 0 : state.amount - state.fee, 
                 0,
-                state.amount - state.fee, 
+                0, 
                 block.timestamp
             ));
-            
+
             positionConfig.cTokenAmount = 0;
+
+            // sometimes uniswap doesnt add complete amount - return leftover tokens to owner
+            if ((isToken0 ? state.addedAmount0 : state.addedAmount1) < state.amount - state.fee) {
+                _transferToken(owner, IERC20(isToken0 ? state.token0 : state.token1), state.amount - state.fee - (isToken0 ? state.addedAmount0 : state.addedAmount1), true);
+            }
             if (state.fee > 0) {
-                SafeERC20.safeTransfer(IERC20(state.token1), msg.sender, state.fee);
+                _transferToken(msg.sender, IERC20(isToken0 ? state.token0 : state.token1), state.fee, true);
             }
         } else {
             // if owner wants to unlend because of withdrawing position - special force handling - sends all tokens to owner
-            if (forceWithdrawAddress != address(0)) {
+            if (isForceWithdraw) {
                 if (positionConfig.isCToken0) {
                     state.amount = _redeem(IERC20(state.token0), positionConfig.cTokenAmount);
-                    SafeERC20.safeTransfer(IERC20(state.token0), forceWithdrawAddress, state.amount);
+                    _transferToken(owner, IERC20(state.token0), state.amount, true);
                 } else {
                     state.amount = _redeem(IERC20(state.token1), positionConfig.cTokenAmount);
-                    SafeERC20.safeTransfer(IERC20(state.token1), forceWithdrawAddress, state.amount);
+                    _transferToken(owner, IERC20(state.token1), state.amount, true);
                 }
                 positionConfig.cTokenAmount = 0;
             } else {
@@ -626,7 +616,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         // update status
         positionConfigs[tokenId].isLendable = params.isLendable;
         if (!params.isLendable) {
-            _unlend(tokenId, true, address(0));
+            _unlend(tokenId, true, owner, false);
         } else if (params.isLendable) {
             _lend(tokenId, true);
         }
@@ -635,7 +625,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
         // special case - if in range and lent - forces unlending sends tokens to caller
-        _unlend(tokenId, true, owner);
+        _unlend(tokenId, true, owner, true);
         _checkCollateralWithoutToken(owner, tokenId);
     }
 

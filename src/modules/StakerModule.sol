@@ -12,8 +12,7 @@ import 'v3-core/libraries/FullMath.sol';
 /// @notice Fork of Univ3staker which is compatible with all other modules.
 contract StakerModule is Module {
 
-    // TODO add full code from staker into the module - adjust only module specific methods slightly
-  
+
     bool public immutable override needsCheckOnCollect = true;
 
     constructor(NFTHolder _holder) Module(_holder) {

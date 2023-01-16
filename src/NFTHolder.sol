@@ -329,10 +329,10 @@ contract NFTHolder is IERC721Receiver, Ownable {
         if (params.unwrap) {
             (,,address token0, address token1, , , , , , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
             if (amount0 > 0) {
-                _transferTokenUnwrapping(params.recipient, IERC20(token0), amount0);
+                _transferToken(params.recipient, IERC20(token0), amount0, true);
             }
             if (amount1 > 0) {
-                _transferTokenUnwrapping(params.recipient, IERC20(token1), amount1);
+                _transferToken(params.recipient, IERC20(token1), amount1, true);
             }
         }
 
@@ -455,9 +455,9 @@ contract NFTHolder is IERC721Receiver, Ownable {
         delete tokenOwners[tokenId];
     }
 
-    // transfers token (unwraps WETH and sends ETH)
-    function _transferTokenUnwrapping(address to, IERC20 token, uint amount) internal {
-        if (address(weth) == address(token)) {
+    // transfers token (or unwraps WETH and sends ETH)
+    function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
+        if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
             (bool sent, ) = to.call{value: amount}("");
             if (!sent) {

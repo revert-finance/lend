@@ -51,6 +51,10 @@ contract AllModulesTest is TestBase {
         NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(holder), TEST_NFT, abi.encode(params));
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.safeTransferFrom(TEST_NFT_2_ACCOUNT, address(holder), TEST_NFT_2, abi.encode(params));
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_2_ACCOUNT, address(holder), TEST_NFT_2_A, abi.encode(params));
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_2_ACCOUNT, address(holder), TEST_NFT_2_B, abi.encode(params));
         vm.prank(TEST_NFT_3_ACCOUNT);
         NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
         vm.prank(TEST_NFT_4_ACCOUNT);
@@ -65,6 +69,12 @@ contract AllModulesTest is TestBase {
         vm.expectRevert();
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2, CompoundorModule.RewardConversion.NONE, false, false)); 
 
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_A, CompoundorModule.RewardConversion.NONE, false, false)); 
+
+        // reverting autocompound case - all compoundable tokens were lent out because out of range and lendable - so nothing to compound
+        vm.expectRevert();
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_B, CompoundorModule.RewardConversion.NONE, false, false)); 
+
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.NONE, false, false));
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_4, CompoundorModule.RewardConversion.NONE, false, false));
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_5, CompoundorModule.RewardConversion.NONE, false, false));
@@ -74,6 +84,10 @@ contract AllModulesTest is TestBase {
         holder.withdrawToken(TEST_NFT, TEST_NFT_ACCOUNT, "");
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.withdrawToken(TEST_NFT_2, TEST_NFT_2_ACCOUNT, "");
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_2_A, TEST_NFT_2_ACCOUNT, "");
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        holder.withdrawToken(TEST_NFT_2_B, TEST_NFT_2_ACCOUNT, "");
         vm.prank(TEST_NFT_3_ACCOUNT);
         holder.withdrawToken(TEST_NFT_3, TEST_NFT_3_ACCOUNT, "");
         vm.prank(TEST_NFT_4_ACCOUNT);
@@ -81,6 +95,4 @@ contract AllModulesTest is TestBase {
         vm.prank(TEST_NFT_5_ACCOUNT);
         holder.withdrawToken(TEST_NFT_5, TEST_NFT_5_ACCOUNT, "");
     }
-
-
 }
