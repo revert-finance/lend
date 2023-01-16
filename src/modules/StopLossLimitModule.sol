@@ -58,7 +58,7 @@ contract StopLossLimitModule is Module {
         uint64 token0SlippageX64;
         uint64 token1SlippageX64;
 
-        // when should action be triggered
+        // when should action be triggered (when this tick is reached - allow execute)
         int24 token0TriggerTick;
         int24 token1TriggerTick;
     }
@@ -216,10 +216,10 @@ contract StopLossLimitModule is Module {
     function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
-        (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) =  nonfungiblePositionManager.positions(tokenId);
+        (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         // trigger ticks have to be on the correct side of position range
-        if (tickLower <= config.token0TriggerTick || tickUpper >= config.token1TriggerTick) {
+        if (tickLower <= config.token0TriggerTick || tickUpper > config.token1TriggerTick) {
             revert ConfigError();
         }
 

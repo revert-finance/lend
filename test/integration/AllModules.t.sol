@@ -82,12 +82,41 @@ contract AllModulesTest is TestBase {
         // withdraw NFTs
         vm.prank(TEST_NFT_ACCOUNT);
         holder.withdrawToken(TEST_NFT, TEST_NFT_ACCOUNT, "");
+
+        // withdrawing collateral one by one for TEST_NFT_2_ACCOUNT (lent and unlent positions)
+        uint liquidity;
+        (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
+        assertEq(liquidity, 557475755488254604735);
+
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.withdrawToken(TEST_NFT_2, TEST_NFT_2_ACCOUNT, "");
+        (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
+        assertEq(liquidity, 16746124600675462387);
+
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.withdrawToken(TEST_NFT_2_A, TEST_NFT_2_ACCOUNT, "");
+        (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
+        assertEq(liquidity, 11859265196055707387);
+
+        // unlend by owner
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        collateralModule.unlend(TEST_NFT_2_B);
+
+        (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
+        assertEq(liquidity, 11859265196055098557);
+
+        // before removing execute stop loss while collateral
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        holder.addTokenToModule(TEST_NFT_2_B, NFTHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(true, true, true, type(uint64).max, type(uint64).max, 192179, 193380))));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2_B, ""));
+
+        // all was removed by stop loss module - so 0 liquidity left
+        (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
+        assertEq(liquidity, 0);
+
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.withdrawToken(TEST_NFT_2_B, TEST_NFT_2_ACCOUNT, "");
+
         vm.prank(TEST_NFT_3_ACCOUNT);
         holder.withdrawToken(TEST_NFT_3, TEST_NFT_3_ACCOUNT, "");
         vm.prank(TEST_NFT_4_ACCOUNT);
