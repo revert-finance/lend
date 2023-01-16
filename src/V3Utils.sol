@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 /// @title v3Utils - Utility functions for Uniswap V3 positions
 /// @notice This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
-/// @dev It can be simply redeployed when new / better funcionality is implemented
+/// @dev It can be simply redeployed when new / better functionality is implemented
 contract V3Utils is IERC721Receiver {
 
     /// @notice Wrapped native token address

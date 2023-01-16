@@ -360,8 +360,26 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         return minFeeX64 + (maxFeeX64 - minFeeX64) * numberOfBlocks / CHECK_INTERVALS;
     }
 
+    struct LendState {
+        address token0;
+        address token1;
+        IUniswapV3Pool pool;
+        uint128 liquidity;
+        int24 tick;
+        int24 tickLower;
+        int24 tickUpper;
+        uint64 feeX64;
+        uint256 amount;
+        address token;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 fee;
+    }
+
     // removes liquidity from position and mints ctokens
     function _lend(uint256 tokenId, bool isOwner) internal {
+
+        LendState memory state;
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
@@ -371,48 +389,39 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         }
 
         // get position info
-        (address token0, address token1, IUniswapV3Pool pool, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) =  _getTokensPoolLiquidityAndTicks(tokenId);
-
-        // default fee is 0
-        uint64 feeX64;
+        (state.token0, state.token1, state.pool, state.liquidity, state.tick, state.tickLower, state.tickUpper) =  _getTokensPoolLiquidityAndTicks(tokenId);
 
         // if !isOwner can be only done when in certain range
         if (!isOwner) {
-            if (tick < tickLower - positionConfig.lendMinBufferTicks) {
-                feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, tickLower - positionConfig.lendMinBufferTicks, false, pool);
-            } else if (tick >= tickUpper + positionConfig.lendMinBufferTicks) {
-                feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, tickUpper + positionConfig.lendMinBufferTicks, true, pool);
+            if (state.tick < state.tickLower - positionConfig.lendMinBufferTicks) {
+                state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickLower - positionConfig.lendMinBufferTicks, false, state.pool);
+            } else if (state.tick >= state.tickUpper + positionConfig.lendMinBufferTicks) {
+                state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickUpper + positionConfig.lendMinBufferTicks, true, state.pool);
             } else {
                 revert PositionNotInValidTick();
             }
         }
 
         // collect all oneside liquidity+fees if out of range
-        if (tick < tickLower) {
-            (uint256 amount,,) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, type(uint128).max, 0, block.timestamp, false, address(this), ""));
-            uint256 fee = amount * feeX64 / Q64;
-            CErc20 cToken = _getCToken(token0);
-            IERC20(token0).approve(address(cToken), amount - fee);
+        if (state.tick < state.tickLower || state.tick >= state.tickUpper) {
+            
+            bool isToken0 = state.tick < state.tickLower;
+
+            (state.amount0, state.amount1,) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, state.liquidity, 0, 0, isToken0 ? type(uint128).max : 0, isToken0 ? 0 : type(uint128).max, block.timestamp, false, address(this), ""));
+            
+            state.amount = isToken0 ? state.amount0 : state.amount1;
+            state.token = isToken0 ? state.token0 : state.token1;
+
+            state.fee = state.amount * state.feeX64 / Q64;
+            CErc20 cToken = _getCToken(state.token);
+            IERC20(state.token).approve(address(cToken), state.amount - state.fee);
             uint cAmountBefore = cToken.balanceOf(address(this));
-            cToken.mint(amount - fee);
+            cToken.mint(state.amount - state.fee);
             uint cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
-            positionConfig.isCToken0 = true;
-            if (fee > 0) {
-                SafeERC20.safeTransfer(IERC20(token0), msg.sender, fee);
-            }
-        } else if (tick >= tickUpper) {
-            (, uint256 amount,) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, liquidity, 0, 0, 0, type(uint128).max, block.timestamp, false, address(this), ""));
-            uint256 fee = amount * feeX64 / Q64;
-            CErc20 cToken = _getCToken(token1);
-            IERC20(token1).approve(address(cToken), amount - fee);
-            uint cAmountBefore = cToken.balanceOf(address(this));
-            cToken.mint(amount - fee);
-            uint cAmountAfter = cToken.balanceOf(address(this));
-            positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
-            positionConfig.isCToken0 = false;
-            if (fee > 0) {
-                SafeERC20.safeTransfer(IERC20(token1), msg.sender, fee);
+            positionConfig.isCToken0 = isToken0;
+            if (state.fee > 0) {
+                SafeERC20.safeTransfer(IERC20(state.token), msg.sender, state.fee);
             }
         } else {
             // position in range - do nothing
@@ -431,6 +440,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         uint256 addedAmount0;
         uint256 addedAmount1;
         uint256 fee;
+        address token;
     }
 
     // redeems ctokens and adds liquidity to position - if isForceWithdraw set and can't add liquidity - returns tokens from full liquidity to owner
@@ -470,8 +480,9 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
             state.amount = _redeem(IERC20(isToken0 ? state.token0 : state.token1), positionConfig.cTokenAmount);
             state.fee = state.amount * state.feeX64 / Q64;
+            state.token = isToken0 ? state.token0 : state.token1;
 
-            IERC20(isToken0 ? state.token0 : state.token1).approve(address(nonfungiblePositionManager), state.amount - state.fee);
+            IERC20(state.token).approve(address(nonfungiblePositionManager), state.amount - state.fee);
             (,state.addedAmount0,state.addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
                 tokenId, 
                 isToken0 ? state.amount - state.fee : 0, 
@@ -485,10 +496,10 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
             // sometimes uniswap doesnt add complete amount - return leftover tokens to owner
             if ((isToken0 ? state.addedAmount0 : state.addedAmount1) < state.amount - state.fee) {
-                _transferToken(owner, IERC20(isToken0 ? state.token0 : state.token1), state.amount - state.fee - (isToken0 ? state.addedAmount0 : state.addedAmount1), true);
+                _transferToken(owner, IERC20(state.token), state.amount - state.fee - (isToken0 ? state.addedAmount0 : state.addedAmount1), true);
             }
             if (state.fee > 0) {
-                _transferToken(msg.sender, IERC20(isToken0 ? state.token0 : state.token1), state.fee, true);
+                _transferToken(msg.sender, IERC20(state.token), state.fee, true);
             }
         } else {
             // if owner wants to unlend because of withdrawing position - special force handling - sends all tokens to owner
