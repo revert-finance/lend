@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/utils/Multicall.sol";
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 
@@ -15,7 +16,7 @@ import "v3-periphery/interfaces/external/IWETH9.sol";
 
 /// @title NFTHolder
 /// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
-contract NFTHolder is IERC721Receiver, Ownable {
+contract NFTHolder is IERC721Receiver, Ownable, Multicall {
     uint256 public constant MAX_TOKENS_PER_ADDRESS = 20;
 
     /// @notice Wrapped native token address
@@ -109,7 +110,7 @@ contract NFTHolder is IERC721Receiver, Ownable {
                 }
             } else {
                 if (tokenId == flashTokenId) {
-                     // its the same token - no need to do nothing here
+                     // its the same token - no need to do nothing here -its already registered - welcome back home
                     return IERC721Receiver.onERC721Received.selector;
                 } else {
                     // its another token - assume it belongs to flash transformed tokens owner

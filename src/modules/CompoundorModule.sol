@@ -136,7 +136,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
         address tokenOwner = holder.tokenOwners(params.tokenId);
         require(tokenOwner != address(0), "!found");
 
-        // collect ONLY fees - NO liquidity
+        // collects ONLY fees - NO liquidity
         (,,bytes memory callbackReturnData) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), abi.encode(msg.sender, tokenOwner, params)));
 
         // handle return values - from callback return data

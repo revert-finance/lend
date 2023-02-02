@@ -147,7 +147,6 @@ contract CompoundorModuleTest is TestBase {
             "",
             0,
             0,
-            true, // important flag used for minting directly into holder - otherwise will fail
             abi.encode(moduleParams)
         );
 
