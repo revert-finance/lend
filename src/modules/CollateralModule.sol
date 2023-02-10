@@ -35,7 +35,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     error AlreadyAdded();
     error MintError();
     error OwnerNotBorrower();
-    error SeizeNotAllowed(uint err);
+    error SeizeNotAllowed(uint256 err);
     error PositionNotInValidTick();
     error CollateralShortfall();
 
@@ -62,9 +62,9 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         uint64 minFeeX64; // min percentage of position to pay for fee (lend / unlend)
         uint64 maxFeeX64; // max percentage of position to pay for fee (lend / unlend)
         bool isCToken0;
-        uint cTokenAmount;
+        uint256 cTokenAmount;
     }
-    mapping (uint => PositionConfig) public positionConfigs;
+    mapping (uint256 => PositionConfig) public positionConfigs;
 
     address public immutable comptroller;
 
@@ -114,12 +114,12 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         (,,token0,token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
     }
 
-    function getPositionsOfOwner(address owner) external override view returns (uint[] memory tokenIds, address[] memory tokens0, address[] memory tokens1) {
+    function getPositionsOfOwner(address owner) external override view returns (uint256[] memory tokenIds, address[] memory tokens0, address[] memory tokens1) {
         tokenIds = holder.getModuleTokensForOwner(owner, address(this));
         tokens0 = new address[](tokenIds.length);
         tokens1 = new address[](tokenIds.length);
-        uint i;
-        uint count = tokenIds.length;
+        uint256 i;
+        uint256 count = tokenIds.length;
         for (;i < count;i++) {
             (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenIds[i]);
             tokens0[i] = token0;
@@ -130,7 +130,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     // returns token breakdown using given oracle prices for both tokens
     // returns corresponding ctoken balance if lent out
     // reverts if prices deviate to much from pool TODO check if better use error code (compound style)
-    function getPositionBreakdown(uint256 tokenId, uint price0, uint price1) external override view returns (uint128 liquidity, uint amount0, uint amount1, uint fees0, uint fees1, uint cAmount0, uint cAmount1) {
+    function getPositionBreakdown(uint256 tokenId, uint256 price0, uint256 price1) external override view returns (uint128 liquidity, uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1, uint256 cAmount0, uint256 cAmount1) {
 
         PositionConfig storage positionConfig = positionConfigs[tokenId];
 
@@ -158,7 +158,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         PoolConfig storage poolConfig = poolConfigs[address(position.pool)];
 
         // check for mayor difference between pool price and oracle price - if to big - revert
-        uint priceSqrtRatioX64 = Q64 - (sqrtPriceX96 < oracleSqrtPriceX96 ? sqrtPriceX96 * Q64 / oracleSqrtPriceX96 : oracleSqrtPriceX96 * Q64 / sqrtPriceX96);
+        uint256 priceSqrtRatioX64 = Q64 - (sqrtPriceX96 < oracleSqrtPriceX96 ? sqrtPriceX96 * Q64 / oracleSqrtPriceX96 : oracleSqrtPriceX96 * Q64 / sqrtPriceX96);
         if (priceSqrtRatioX64 > poolConfig.maxOracleSqrtDeviationX64) {
             revert OracleDeviation();
         }
@@ -192,7 +192,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
         uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
 
-        (uint amount0, uint amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, params.liquidity);
+        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, params.liquidity);
 
         address owner = holder.tokenOwners(params.tokenId);
 
@@ -208,7 +208,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             IERC20(state.token1).approve(address(nonfungiblePositionManager), amount1);
         }
 
-        (, uint addedAmount0, uint addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.minAmount0, params.minAmount1, block.timestamp));
+        (, uint256 addedAmount0, uint256 addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.minAmount0, params.minAmount1, block.timestamp));
 
         // transfer left over tokens (should be minimal if any) - cheaper than repay borrow
         if (addedAmount0 < amount0) {
@@ -246,13 +246,13 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         address owner = holder.tokenOwners(params.tokenId);
 
         // this is done without collateral check here - it is done at the end of call
-        (uint amount0, uint amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, false, address(this), ""));
+        (uint256 amount0, uint256 amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, false, address(this), ""));
 
         CErc20 cToken0 = _getCToken(state.token0);
         CErc20 cToken1 = _getCToken(state.token1);
 
-        uint borrowBalance0 = cToken0.borrowBalanceCurrent(owner);
-        uint borrowBalance1 = cToken1.borrowBalanceCurrent(owner);
+        uint256 borrowBalance0 = cToken0.borrowBalanceCurrent(owner);
+        uint256 borrowBalance1 = cToken1.borrowBalanceCurrent(owner);
 
         if (amount0 > 0) {
             if (borrowBalance0 > 0) {
@@ -311,22 +311,22 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         if (seizeCToken0 > 0 || seizeCToken1 > 0) {
             (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
             if (seizeCToken0 > 0) {
-                uint amount = _redeem(IERC20(token0), seizeCToken0);
+                uint256 amount = _redeem(IERC20(token0), seizeCToken0);
                 _transferToken(liquidator, IERC20(token0), amount, true);
             }
             if (seizeCToken1 > 0) {
-                uint amount = _redeem(IERC20(token1), seizeCToken1);
+                uint256 amount = _redeem(IERC20(token1), seizeCToken1);
                 _transferToken(liquidator, IERC20(token1), amount, true);
             }
         }
     }
 
-    function _redeem(IERC20 token, uint amount) internal returns (uint) {
+    function _redeem(IERC20 token, uint256 amount) internal returns (uint256) {
         CErc20 cToken = _getCToken(address(token));
-        uint balanceBefore = IERC20(token).balanceOf(address(this));
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
         // reverts if any problem
         cToken.redeem(amount);
-        uint balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
         return balanceAfter - balanceBefore;
     }
 
@@ -415,9 +415,9 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             state.fee = state.amount * state.feeX64 / Q64;
             CErc20 cToken = _getCToken(state.token);
             IERC20(state.token).approve(address(cToken), state.amount - state.fee);
-            uint cAmountBefore = cToken.balanceOf(address(this));
+            uint256 cAmountBefore = cToken.balanceOf(address(this));
             cToken.mint(state.amount - state.fee);
-            uint cAmountAfter = cToken.balanceOf(address(this));
+            uint256 cAmountAfter = cToken.balanceOf(address(this));
             positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
             positionConfig.isCToken0 = isToken0;
             if (state.fee > 0) {
@@ -547,7 +547,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         state.pool = _getPool(token0, token1, fee);
     }
 
-    function _getAmounts(PositionState memory position, uint160 oracleSqrtPriceX96, int24 tick) internal view returns (uint amount0, uint amount1, uint fees0, uint fees1) {
+    function _getAmounts(PositionState memory position, uint160 oracleSqrtPriceX96, int24 tick) internal view returns (uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) {
         if (position.liquidity > 0) {
             uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(position.tickLower);
             uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(position.tickUpper);        
@@ -640,19 +640,19 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         _checkCollateralWithoutToken(owner, tokenId);
     }
 
-    function checkOnCollect(uint256, address owner, uint128 , uint , uint ) override external {
+    function checkOnCollect(uint256, address owner, uint128 , uint256 , uint256 ) override external {
         _checkCollateral(owner);
     }
 
     function _checkCollateral(address owner) internal {
-        (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
+        (uint256 err,,uint256 shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
         if (err > 0 || shortfall > 0) {
             revert CollateralShortfall();
         }
     }
 
     function _checkCollateralWithoutToken(address owner, uint256 tokenId) internal {
-        (uint err,,uint shortfall) = ComptrollerLensInterface(comptroller).getHypotheticalAccountLiquidity(owner, address(0), 0, 0, tokenId);
+        (uint256 err,,uint256 shortfall) = ComptrollerLensInterface(comptroller).getHypotheticalAccountLiquidity(owner, address(0), 0, 0, tokenId);
         if (err > 0 || shortfall > 0) {
             revert CollateralShortfall();
         }
@@ -769,7 +769,7 @@ contract ChainlinkOracle is PriceOracle, Ownable {
         feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
     }
 
-    function getUnderlyingPrice(CToken cToken) override external view returns (uint) {
+    function getUnderlyingPrice(CToken cToken) override external view returns (uint256) {
         FeedConfig storage feedConfig = feedConfigs[address(cToken)];
         if (address(feedConfig.feed) == address(0)) {
             revert NoFeedConfigured();

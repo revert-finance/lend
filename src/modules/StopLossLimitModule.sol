@@ -63,7 +63,7 @@ contract StopLossLimitModule is Module {
         int24 token1TriggerTick;
     }
 
-    mapping (uint => PositionConfig) positionConfigs;
+    mapping (uint256 => PositionConfig) positionConfigs;
 
     /// @notice params for execute()
     struct ExecuteParams {
@@ -87,9 +87,9 @@ contract StopLossLimitModule is Module {
         uint256 amountInDelta;
         uint256 amountOutDelta;
         IUniswapV3Pool pool;
-        uint protocolReward0;
-        uint protocolReward1;
-        uint swapAmount;
+        uint256 protocolReward0;
+        uint256 protocolReward1;
+        uint256 swapAmount;
         int24 tick;
         bool isSwap;
         bool isAbove;

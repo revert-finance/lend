@@ -65,7 +65,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     }
 
     // helper method to get pool for token
-    function _getTokensPoolLiquidityAndTicks(uint tokenId) internal view returns (address token0, address token1, IUniswapV3Pool pool, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) {
+    function _getTokensPoolLiquidityAndTicks(uint256 tokenId) internal view returns (address token0, address token1, IUniswapV3Pool pool, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) {
         uint24 fee;
         (,,token0, token1, fee, tickLower, tickUpper, liquidity, , , , ) = nonfungiblePositionManager.positions(tokenId);
         pool = _getPool(token0, token1, fee);
@@ -73,7 +73,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     }
 
     // get current pool price
-    function _getPoolPriceX96(address token0, address token1, uint24 fee) internal view returns (uint) {
+    function _getPoolPriceX96(address token0, address token1, uint24 fee) internal view returns (uint256) {
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
@@ -139,7 +139,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint amountOutMin, uint160 sqrtPriceX96, uint priceX96) {
+    function _validateSwap(bool swap0For1, uint256 amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint256 amountOutMin, uint160 sqrtPriceX96, uint256 priceX96) {
         
         // get current price and tick
         int24 currentTick;
@@ -164,10 +164,10 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     // does price difference check with amountOutMin param (calculated based on oracle verified price)
     // NOTE: can be only called from trusted context (nft owner / contract owner) because otherwise swapData can be manipulated to return always amountOutMin
     // returns new token amounts after swap
-    function _swap(address swapRouter, IERC20 tokenIn, IERC20 tokenOut, uint amountIn, uint amountOutMin, bytes memory swapData) internal returns (uint amountInDelta, uint256 amountOutDelta) {
+    function _swap(address swapRouter, IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 amountOutMin, bytes memory swapData) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0 && swapData.length > 0) {
-            uint balanceInBefore = tokenIn.balanceOf(address(this));
-            uint balanceOutBefore = tokenOut.balanceOf(address(this));
+            uint256 balanceInBefore = tokenIn.balanceOf(address(this));
+            uint256 balanceOutBefore = tokenOut.balanceOf(address(this));
 
             // get router specific swap data
             (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
@@ -184,8 +184,8 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
             // remove any remaining allowance
             tokenIn.approve(allowanceTarget, 0);
 
-            uint balanceInAfter = tokenIn.balanceOf(address(this));
-            uint balanceOutAfter = tokenOut.balanceOf(address(this));
+            uint256 balanceInAfter = tokenIn.balanceOf(address(this));
+            uint256 balanceOutAfter = tokenOut.balanceOf(address(this));
 
             amountInDelta = balanceInBefore - balanceInAfter;
             amountOutDelta = balanceOutAfter - balanceOutBefore;
@@ -199,7 +199,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
 
     // general swap function which uses given pool to swap amount available in the contract
     // returns new token amounts after swap
-    function _poolSwap(IUniswapV3Pool pool, address token0, address token1, uint24 fee, bool zeroForOne, uint amountIn, uint minAmountOut) internal returns (uint amountOut) {
+    function _poolSwap(IUniswapV3Pool pool, address token0, address token1, uint24 fee, bool zeroForOne, uint256 amountIn, uint256 minAmountOut) internal returns (uint256 amountOut) {
         
         (int256 amount0, int256 amount1) = pool.swap(
                 address(this),
@@ -233,7 +233,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     }
 
     // transfers token (or unwraps WETH and sends ETH)
-    function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
+    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
             (bool sent, ) = to.call{value: amount}("");
@@ -255,6 +255,6 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     // IModule default empty implementations
     function addToken(uint256 tokenId, address, bytes calldata data) override virtual onlyHolder external { }
     function withdrawToken(uint256 tokenId, address) override virtual onlyHolder external { }
-    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override virtual external  { }
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1, bytes calldata data) override virtual external returns (bytes memory returnData) { }
+    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override virtual external  { }
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes calldata data) override virtual external returns (bytes memory returnData) { }
 }

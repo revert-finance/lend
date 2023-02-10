@@ -96,7 +96,7 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
 
         // if flashTransform contract sent token back - special handling
         if (from == flashTransformContract) {
-            uint flashTokenId = flashTransformedTokenId;
+            uint256 flashTokenId = flashTransformedTokenId;
             // if its called from minting context
             if (flashTokenId == 0) {
                 bytes memory returnData;
@@ -350,7 +350,7 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
         _checkOnCollect(moduleIndex, mod, params.tokenId, owner, params.liquidity, amount0, amount1);
     }
 
-    function _checkOnCollect(uint8 moduleIndex, uint256 mod, uint256 tokenId, address owner, uint128 liquidity, uint fees0, uint fees1) internal {
+    function _checkOnCollect(uint8 moduleIndex, uint256 mod, uint256 tokenId, address owner, uint128 liquidity, uint256 fees0, uint256 fees1) internal {
         
         // check all modules which need to be checked at the end
         uint8 index = 1;
@@ -457,7 +457,7 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
     }
 
     // transfers token (or unwraps WETH and sends ETH)
-    function _transferToken(address to, IERC20 token, uint amount, bool unwrap) internal {
+    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
             (bool sent, ) = to.call{value: amount}("");

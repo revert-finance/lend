@@ -22,7 +22,7 @@ contract LockModule is Module {
         uint32 releaseTime; // when liquidity will be accesible
     }
 
-    mapping (uint => PositionConfig) positionConfigs;
+    mapping (uint256 => PositionConfig) positionConfigs;
 
     bool public immutable override needsCheckOnCollect = true;
 
@@ -43,7 +43,7 @@ contract LockModule is Module {
         }
     }
 
-    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override external  {
+    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override external  {
         if (liquidity > 0 && block.timestamp < positionConfigs[tokenId].releaseTime) {
             revert IsLocked();
         }

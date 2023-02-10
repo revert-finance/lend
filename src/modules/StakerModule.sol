@@ -26,7 +26,7 @@ contract StakerModule is Module {
         // TODO analog to withdrawToken in v3staker
     }
 
-    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint, uint) override external  {
+    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override external  {
         if (liquidity > 0) {
             // TODO unstake automatically from all stakes (needs fast and limited iteration logic because liquidation may depend on this)
         }

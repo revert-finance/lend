@@ -144,7 +144,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
     }
 
     // callback function which is called directly after fees are available - but before checking other modules (e.g. to be able to compound and LATER check collateral)
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint amount0, uint amount1, bytes calldata data) override onlyHolder external returns (bytes memory returnData) { 
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes calldata data) override onlyHolder external returns (bytes memory returnData) { 
         
         // local vars
         AutoCompoundState memory state;    
@@ -232,7 +232,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
                         state.amount1Fees = state.compounded1 * totalRewardX64 / Q64;
                     } else {
                         // calculate total added - derive fees
-                        uint addedTotal0 = state.compounded0 + state.compounded1 * Q96 / state.priceX96;
+                        uint256 addedTotal0 = state.compounded0 + state.compounded1 * Q96 / state.priceX96;
                         if (params.rewardConversion == RewardConversion.TOKEN_0) {
                             state.amount0Fees = addedTotal0 * totalRewardX64 / Q64;
                             // if there is not enough token0 to pay fee - pay all there is
@@ -298,7 +298,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
 
     struct SwapParams {
         IUniswapV3Pool pool;
-        uint priceX96; // oracle verified price
+        uint256 priceX96; // oracle verified price
         uint160 sqrtPriceX96; // oracle verified price - sqrt
         address token0;
         address token1;
@@ -423,7 +423,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
     }
 
     function _setBalance(address account, address token, uint256 amount) internal {
-        uint currentBalance = accountBalances[account][token];
+        uint256 currentBalance = accountBalances[account][token];
         
         if (amount > currentBalance) {
             accountBalances[account][token] = amount;
