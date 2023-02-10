@@ -410,7 +410,7 @@ contract V3Utils is IERC721Receiver {
                 address(params.token0), 
                 address(params.token1), 
                 params.fee, 
-                params.tickLower, 
+                params.tickLower,
                 params.tickUpper,
                 total0,
                 total1, 
