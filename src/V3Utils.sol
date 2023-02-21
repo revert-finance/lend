@@ -18,6 +18,9 @@ contract V3Utils is IERC721Receiver {
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
 
+    /// @notice 0x swap router
+    address immutable public swapRouter;
+
     // error types
     error Unauthorized();
     error WrongContract();
@@ -44,9 +47,10 @@ contract V3Utils is IERC721Receiver {
 
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager) {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter) {
         weth = IWETH9(_nonfungiblePositionManager.WETH9());
         nonfungiblePositionManager = _nonfungiblePositionManager;
+        swapRouter = _swapRouter;
     }
 
     /// @notice Action which should be executed on provided NFT
@@ -534,7 +538,7 @@ contract V3Utils is IERC721Receiver {
             uint256 balanceOutBefore = tokenOut.balanceOf(address(this));
 
             // get router specific swap data
-            (address swapRouter, address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, address, bytes));
+            (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
 
             // approve needed amount
             tokenIn.approve(allowanceTarget, amountIn);

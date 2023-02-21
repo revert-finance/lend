@@ -15,6 +15,6 @@ contract V3UtilsTest is Test, TestBase {
 
     function setUp() public {
         vm.mockCall(address(NPM), abi.encodeWithSelector(IPeripheryImmutableState.WETH9.selector), abi.encode(address(WETH_ERC20)));
-        c = new V3Utils(NPM);
+        c = new V3Utils(NPM, EX0x);
     }
 }

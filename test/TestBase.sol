@@ -104,7 +104,7 @@ abstract contract TestBase is Test {
         vm.selectFork(mainnetFork);
 
         holder = new NFTHolder(NPM);
-        v3utils = new V3Utils(NPM);
+        v3utils = new V3Utils(NPM, EX0x);
 
         holder.setFlashTransformContract(address(v3utils));
     }

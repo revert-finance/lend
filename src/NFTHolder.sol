@@ -114,7 +114,7 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
                     return IERC721Receiver.onERC721Received.selector;
                 } else {
                     // its another token - assume it belongs to flash transformed tokens owner
-                    from = tokenOwners[flashTransformedTokenId];
+                    from = tokenOwners[flashTokenId];
                 }
                 if (data.length > 0) {
                     initialModules = abi.decode(data, (ModuleParams[]));
