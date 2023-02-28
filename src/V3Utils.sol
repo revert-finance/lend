@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 /// @title v3Utils - Utility functions for Uniswap V3 positions
 /// @notice This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
-/// @dev It can be simply redeployed when new / better functionality is implemented
+/// It can be simply redeployed when new / better functionality is implemented
 contract V3Utils is IERC721Receiver {
 
     /// @notice Wrapped native token address
@@ -18,13 +18,13 @@ contract V3Utils is IERC721Receiver {
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
 
-    /// @notice 0x swap router
+    /// @notice 0x swap router address
     address immutable public swapRouter;
 
     // error types
     error Unauthorized();
     error WrongContract();
-    error WrongChain();
+    error SelfSend();
     error NotSupportedWhatToDo();
     error SameToken();
     error SwapFailed();
@@ -138,11 +138,16 @@ contract V3Utils is IERC721Receiver {
 
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. 
     /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address , address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
+        }
+
+        // not allowed to send to itself
+        if (from == address(this)) {
+            revert SelfSend();
         }
 
         Instructions memory instructions = abi.decode(data, (Instructions));
@@ -241,6 +246,10 @@ contract V3Utils is IERC721Receiver {
     /// If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
     /// Optionally unwraps any wrapped native token and returns native token instead
     function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
+
+        if (params.tokenIn == params.tokenOut) {
+            revert SameToken();
+        }
 
         _prepareAdd(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
 
@@ -426,10 +435,7 @@ contract V3Utils is IERC721Receiver {
 
         // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
-
-        // IMPORTANT to be able to pass msg.sender to receiving contract - this is added to return data - this breaks money lego style data :(
-        // other contracts recieving NFTs with data from V3Utils must implement this special behaviour
-        nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, abi.encode(msg.sender, params.returnData));
+        nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, params.returnData);
 
         emit SwapAndMint(tokenId, liquidity, added0, added1);
 
@@ -606,7 +612,6 @@ contract V3Utils is IERC721Receiver {
     function _toUint128(uint256 x) private pure returns (uint128 y) {
         require((y = uint128(x)) == x);
     }
-
     // needed for WETH unwrapping
     receive() external payable {
         if (msg.sender != address(weth)) {
