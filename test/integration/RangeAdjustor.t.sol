@@ -9,6 +9,12 @@ contract RangeAdjustorIntegrationTest is TestBase {
         _setupBase();
     }
 
+    function testSetOperator() external {
+        assertEq(rangeAdjustor.operator(), OPERATOR_ACCOUNT);
+        rangeAdjustor.setOperator(TEST_NFT_ACCOUNT);
+        assertEq(rangeAdjustor.operator(), TEST_NFT_ACCOUNT);
+    }
+
     function testUnauthorizedSetConfig() external {
         vm.expectRevert(RangeAdjustor.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
@@ -58,10 +64,10 @@ contract RangeAdjustorIntegrationTest is TestBase {
 
     function testAdjustWithoutSwap() external {
 
-        // available amounts in TEST_NFT_2 -> 311677619940061890346 506903060556612041
+        // using out of range position TEST_NFT_2
+        // available amounts -> 311677619940061890346 506903060556612041
         // added to new position -> 311677619940061890345 77467250371417094
-
-        // out of range position
+        
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.setApprovalForAll(address(rangeAdjustor), true);
 

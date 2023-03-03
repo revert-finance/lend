@@ -70,7 +70,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     /**
      * @notice Admin function to change operator address
      */
-    function changeOperator(address _operator) onlyOwner external {
+    function setOperator(address _operator) onlyOwner external {
         emit OperatorChanged(operator, _operator);
         operator = _operator;
     }
@@ -253,16 +253,11 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
         }
     }
 
-    // recieve new ERC-721 just to resend to original owner - and update config
+    // recieve new ERC-721 - if all validations pass this updates the processing token to the new token recieved
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
-            revert WrongContract();
-        }
-
-        // only minted NFTs from V3Utils are allowed
-        if (from != address(v3Utils)) {
             revert WrongContract();
         }
 
@@ -287,7 +282,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
         return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 
-    // get tickspacing for fee tier
+    // get tick spacing for fee tier
     function _getTickSpacing(uint24 fee) internal pure returns (int24) {
         if (fee == 10000) {
             return 200;
