@@ -96,6 +96,11 @@ contract RangeAdjustorIntegrationTest is TestBase {
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 1000000000)); // max fee with 1% is 7124618988448545
 
+        // is not adjustable yet because config was removed
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(RangeAdjustor.NotConfigured.selector);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 1000000000));
+
         // fee sent to operator
         assertEq(WETH_ERC20.balanceOf(OPERATOR_ACCOUNT) - operatorBalanceBefore, 1000000000);
 
@@ -108,6 +113,11 @@ contract RangeAdjustorIntegrationTest is TestBase {
 
         // new NFT is latest NFT - because of the order they are added
         uint tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
+
+        // is not adjustable yet because in range
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(RangeAdjustor.NotReady.selector);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(tokenId, false, 0, "", block.timestamp, false, 1000000000));
 
         // newly minted token
         assertEq(tokenId, 309207);
@@ -138,7 +148,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
         // using out of range position TEST_NFT_2
         // available amounts -> DAI 311677619940061890346 WETH 506903060556612041
         // swapping 0.3 WETH -> DAI (so more can be added to new position) 
-        // added to new position -> 387190572923714463279 96235941033886286
+        // added to new position -> 767197802262466967698 190686467137733081
         
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.setApprovalForAll(address(rangeAdjustor), true);
@@ -187,6 +197,31 @@ contract RangeAdjustorIntegrationTest is TestBase {
 
         assertEq(liquidity, 9051192547761983431298);
         assertEq(liquidityOld, 0);
+    }
+
+    function testMultiAdjust() external {
+                
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.setApprovalForAll(address(rangeAdjustor), true);
+
+        // bad config so it can be adjusted always
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
+
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 7124618988448545));
+
+        uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
+
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(tokenId, false, 0, "", block.timestamp, false, 7124618988448545));
+
+        count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
+        tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
+
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(tokenId, false, 0, "", block.timestamp, false, 7124618988448545));
     }
 
     function _get03WETHToDAISwapData() internal view returns (bytes memory) {
