@@ -3,12 +3,22 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import "v3-core/interfaces/IUniswapV3Factory.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/libraries/TickMath.sol";
+
+import "v3-periphery/libraries/LiquidityAmounts.sol";
+
 import "./V3Utils.sol";
+
+//TODO remove
+import "forge-std/console.sol";
+
 
 /// @title RangeAdjustor
 /// @notice Allows operator of RangeAdjustor contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved for the contract and configured with setConfig method
-contract RangeAdjustor is Ownable {
+contract RangeAdjustor is Ownable, IERC721Receiver {
 
     error Unauthorized();
     error WrongContract();
@@ -29,7 +39,7 @@ contract RangeAdjustor is Ownable {
     IUniswapV3Factory public immutable factory;
 
     // to store current token id while doing adjust()
-    uint256 private currentTokenId;
+    uint256 private processingTokenId;
 
     // operator
     address public operator;
@@ -41,8 +51,8 @@ contract RangeAdjustor is Ownable {
         int24 lowerTickDelta; // must be 0 or a negative multiple of tick spacing
         int24 upperTickDelta; // must greater than 0 and positive multiple of tick spacing
 
-        int64 maxSlippageX64; // max allowed swap slippage including fees, price impact and slippage - from current pool price (to be sure revert bot can not do silly things)
-        int64 maxGasFeeRewardX64; // max allowed token percentage to be available for covering gas cost of operator (operator chooses which one of the two tokens to receive)
+        uint64 maxSlippageX64; // max allowed swap slippage including fees, price impact and slippage - from current pool price (to be sure revert bot can not do silly things)
+        uint64 maxGasFeeRewardX64; // max allowed token percentage to be available for covering gas cost of operator (operator chooses which one of the two tokens to receive)
     }
 
     // configured tokens
@@ -93,6 +103,24 @@ contract RangeAdjustor is Ownable {
         uint256 feeAmount;
     }
 
+    struct AdjustState {
+        address owner;
+        uint160 sqrtPriceX96;
+        uint256 priceX96;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        int24 currentTick;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 balance0;
+        uint256 balance1;
+        uint256 newTokenId;
+    }
+
     /**
      * @notice Adjust token (must be in correct state)
      * Can be called only from configured operator account
@@ -100,7 +128,7 @@ contract RangeAdjustor is Ownable {
      */
     function adjust(AdjustParams calldata params) external {
         // if already in an adjustment - do not allow reentrancy
-        if (currentTokenId != 0) {
+        if (processingTokenId != 0) {
             revert AdjustStateError();
         }
 
@@ -113,57 +141,120 @@ contract RangeAdjustor is Ownable {
             revert NotConfigured();
         }
 
-        // check if in valid range for move range
-        (,,address token0,address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) = nonfungiblePositionManager.positions(params.tokenId);
+        AdjustState memory state;
 
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        (uint160 sqrtPriceX96, int24 currentTick,,,,,) = pool.slot0();
-        if (currentTick < tickLower - config.lowerTickLimit || currentTick >= tickUpper + config.upperTickLimit) {
+        // check if in valid range for move range
+        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+
+        IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+        (state.sqrtPriceX96, state.currentTick,,,,,) = pool.slot0();
+        if (state.currentTick < state.tickLower - config.lowerTickLimit || state.currentTick >= state.tickUpper + config.upperTickLimit) {
 
             // calculate with current pool price 
-            uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-            uint256 minAmountOut = FullMath.mul(Q64 - maxSlippageX64, params.swap0To1 ? FullMath.mulDiv(params.amountIn, priceX96, Q96) : FullMath.mulDiv(params.amountIn, Q96, priceX96), Q64);
-            uint24 tickSpacing = _getTickSpacing(fee);
+            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
+            uint256 minAmountOut = FullMath.mulDiv(Q64 - config.maxSlippageX64, params.swap0To1 ? FullMath.mulDiv(params.amountIn, state.priceX96, Q96) : FullMath.mulDiv(params.amountIn, Q96, state.priceX96), Q64);
+            int24 tickSpacing = _getTickSpacing(state.fee);
 
-            address owner = nonfungiblePositionManager.ownerOf(tokenId);
+            state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
+
+            // includes negative modulus fix
+            int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             // before starting process - set context id
-            currentTokenId = params.tokenId;
+            processingTokenId = params.tokenId;
 
             // change range with v3utils
             bytes memory data = abi.encode(V3Utils.Instructions(
                 V3Utils.WhatToDo.CHANGE_RANGE,
-                params.swap0To1 ? token1 : token0,
+                params.swap0To1 ? state.token1 : state.token0,
                 params.swap0To1 ? params.amountIn : 0,
                 params.swap0To1 ? minAmountOut : 0,
-                params.swap0To1 ? params.swapData : "",
+                params.swap0To1 ? params.swapData : bytes(""),
                 params.swap0To1 ? 0 : params.amountIn,
                 params.swap0To1 ? 0 : minAmountOut,
-                params.swap0To1 ? "" : params.swapData,
+                params.swap0To1 ? bytes("") : params.swapData,
                 type(uint128).max,
                 type(uint128).max,
-                fee,
-                currentTick - (currentTick % tickSpacing) + config.lowerTickDelta,
-                currentTick - (currentTick % tickSpacing) + config.upperTickDelta,
-                liquidity,
+                state.fee,
+                baseTick + config.lowerTickDelta,
+                baseTick + config.upperTickDelta,
+                state.liquidity,
                 0,
                 0,
-                deadline,
+                params.deadline,
                 address(this), // receive leftover tokens to grab fees - and then return rest to owner
                 address(this), // recieve the new NFT to register config and then resend
                 false,
                 "",
-                abi.encode(owner, params.takeFeeFrom0, params.feeAmount, sqrtPriceX96) // pass needed parameters to onERC721Received
+                abi.encode(params.tokenId)
             ));
-            nonfungiblePositionManager.safeTransferFrom(owner, address(v3Utils), params.tokenId, data);
+            nonfungiblePositionManager.safeTransferFrom(state.owner, address(v3Utils), params.tokenId, data);
+        
+            // check if processingTokenId was updated
+            state.newTokenId = processingTokenId;
+            if (state.newTokenId == params.tokenId) {
+                revert AdjustStateError();
+            }
 
-            // after everything is finished - reset this to 0
-            currentTokenId = 0;
+            // copy token config for new token
+            configs[state.newTokenId] = config;
+            emit PositionConfigured(state.newTokenId);
+
+            // get new token liquidity
+            (,,,,,state.tickLower,state.tickUpper,state.liquidity,,,,) = nonfungiblePositionManager.positions(state.newTokenId);
+
+            // balances (leftover tokens from change range operation
+            state.balance0 = IERC20(state.token0).balanceOf(address(this));
+            state.balance1 = IERC20(state.token1).balanceOf(address(this));
+
+            // position value (position has no fees it has been just created - so only liquidity)
+            (state.amount0, state.amount1) = LiquidityAmounts.getAmountsForLiquidity(state.sqrtPriceX96, TickMath.getSqrtRatioAtTick(state.tickLower), TickMath.getSqrtRatioAtTick(state.tickUpper), state.liquidity);
+
+            // max fee in feeToken
+            uint256 totalFeeTokenAmount = params.takeFeeFrom0 ? state.balance0 + state.amount0 + FullMath.mulDiv(state.balance1 + state.amount1, Q96, state.priceX96) : state.balance1 + state.amount1 + FullMath.mulDiv(state.balance0 + state.amount0, state.priceX96, Q96);
+
+            // calculate max permited fee amount for this position
+            uint256 maxFeeAmount = FullMath.mulDiv(totalFeeTokenAmount, configs[params.tokenId].maxGasFeeRewardX64, Q64);
+
+            // calculate fee amount which can be sent.. it can be less.. so it is the operators responsibility to do correct swap
+            uint256 effectiveFeeAmount = params.feeAmount > (params.takeFeeFrom0 ? state.balance0 : state.balance1) ? (params.takeFeeFrom0 ? state.balance0 : state.balance1) : params.feeAmount;
+            if (effectiveFeeAmount > maxFeeAmount) {
+                effectiveFeeAmount = maxFeeAmount;
+            }
+
+            // send fee to operator
+            if (effectiveFeeAmount > 0) {
+                IERC20(params.takeFeeFrom0 ? state.token0 : state.token1).transfer(operator, effectiveFeeAmount);
+                if (params.takeFeeFrom0) {
+                    state.balance0 -= effectiveFeeAmount;
+                } else {
+                    state.balance1 -= effectiveFeeAmount;
+                }
+            }
+
+            // return leftover tokens to owner
+            if (state.balance0 > 0) {
+                IERC20(state.token0).transfer(state.owner, state.balance0);
+            }
+            if (state.balance1 > 0) {
+                IERC20(state.token1).transfer(state.owner, state.balance1);
+            }
+
+            // send new position to owner
+            nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId, "");
+
+            emit RangeChanged(params.tokenId, state.newTokenId);
+
+            // delete config for old position
+            delete configs[params.tokenId];
+
+            // processing of token is finished - reset this to 0
+            processingTokenId = 0;
         }
     }
 
     // recieve new ERC-721 just to resend to original owner - and update config
-    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
@@ -171,83 +262,33 @@ contract RangeAdjustor is Ownable {
         }
 
         // only minted NFTs from V3Utils are allowed
-        if (from != address(v3Utils) || operator != address(v3Utils)) {
+        if (from != address(v3Utils)) {
             revert WrongContract();
         }
 
         // get previous token id from contract state
-        uint256 previousTokenId = currentTokenId;
-        if (previousTokenId == 0) {
+        uint256 previousTokenId = processingTokenId;
+        uint256 expectedProcessingTokenId = abi.decode(data, (uint256));
+
+        // if not as expected - revert
+        // this is important - it prevents from triggering onERC721Received by a malicious contract before the expected call
+        if (previousTokenId == 0 || previousTokenId != expectedProcessingTokenId) {
             revert AdjustStateError();
         }
-
-        // get context variables forwarded through data
-        (address owner, bool takeFeeFrom0, uint256 feeAmount, uint160 sqrtPriceX96) = abi.decode(data, (address, bool, uint256, uint160));
-       
-        // copy token config for new token
-        configs[tokenId] = configs[previousTokenId];
-
-        // delete config for old position
-        delete configs[previousTokenId];
-
-        emit PositionConfigured(tokenId);
-
-        // forwards to real owner - forwarding data
-        nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId, "");
-
-        // balances (leftover tokens from change range operation)
-        uint256 balance0 = IERC20(token0).balanceOf(address(this));
-        uint256 balance1 = IERC20(token1).balanceOf(address(this));
-
-        // check amount of leftover tokens - grab fee - return rest
-        (,,address token0,address token1,, int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) = nonfungiblePositionManager.positions(tokenId);
-
-        // position value (position has no fees it has been just created - so only liquidity)
-        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, TickMath.getSqrtRatioAtTick(tickLower), TickMath.getSqrtRatioAtTick(tickUpper), liquidity);
-
-        // max fee in feeToken
-        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-        uint256 totalFeeTokenAmount = takeFeeFrom0 ? balance0 + amount0 + FullMath.mulDiv(balance1 + amount1, priceX96, Q96) : balance1 + amount1 + FullMath.mulDiv(balance0 + amount0, Q96, priceX96);
-
-        // calculate max permited fee amount for this position
-        uint256 maxFeeAmount = FullMath.mulDiv(totalFeeTokenAmount, configs[previousTokenId].maxFeeAmount, Q64);
-
-        // calculate fee amount which can be sent.. it can be less.. so it is the operators duty to do correct swap
-        uint256 effectiveFeeAmount = (feeAmount > (takeFeeFrom0 ? balance0 : balance1) ? (takeFeeFrom0 ? balance0 : balance1) : feeAmount);
-        if (effectiveFeeAmount > maxFeeAmount) {
-            effectiveFeeAmount = maxFeeAmount;
-        }
-
-        // send fee to operator
-        if (effectiveFeeAmount > 0) {
-            IERC20(takeFeeFrom0 ? token0 : token1).transfer(operator, effectiveFeeAmount);
-            if (takeFeeFrom0) {
-                balance0 -= effectiveFeeAmount;
-            } else {
-                balance1 -= effectiveFeeAmount;
-            }
-        }
-
-        // return leftover tokens to owner
-        if (balance0 > 0) {
-            IERC20(token0).transfer(owner, balance0);
-        }
-        if (balance1 > 0) {
-            IERC20(token1).transfer(owner, balance1);
-        }
-
-        emit RangeChanged(previousTokenId, tokenId);
+      
+        // update current token
+        processingTokenId = tokenId;
 
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    // helper method to get pool for token
+    // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
         return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 
-    // helper method to get tickspacing for fee tier
-    function _getTickSpacing(uint24 fee) internal pure returns (uint256) {
+    // get tickspacing for fee tier
+    function _getTickSpacing(uint24 fee) internal pure returns (int24) {
         if (fee == 10000) {
             return 200;
         } else if (fee == 3000) {

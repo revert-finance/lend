@@ -42,7 +42,7 @@ contract BridgeReceiver is ILayerZeroReceiver, Ownable {
     error NotLayerZero();
     error NotOwner();
 
-    constructor(address _lzEndpoint, address _v3Utils) {
+    constructor(address _lzEndpoint, V3Utils _v3Utils) {
         lzEndpoint = _lzEndpoint;
         v3Utils = _v3Utils;
     }
@@ -109,6 +109,8 @@ contract BridgeReceiver is ILayerZeroReceiver, Ownable {
         info.token0.approve(address(v3Utils), amount0);
         info.token1.approve(address(v3Utils), amount1);
 
+        bytes memory eb;
+
         // mint to owner 
         v3Utils.swapAndMint(V3Utils.SwapAndMintParams(
             info.token0, 
@@ -120,17 +122,17 @@ contract BridgeReceiver is ILayerZeroReceiver, Ownable {
             amount1, 
             info.owner, 
             info.owner, 
-            deadline, 
+            params.deadline, 
             params.swap0For1 ? info.token0 : info.token1, 
             params.swap0For1 ? 0 : params.amountIn,
             params.swap0For1 ? 0 : params.amountOutMin,
-            params.swap0For1 ? "" : params.swapData,
+            params.swap0For1 ? eb : params.swapData,
             params.swap0For1 ? params.amountIn : 0,
             params.swap0For1 ? params.amountOutMin : 0,
-            params.swap0For1 ? params.swapData : "",
+            params.swap0For1 ? params.swapData : eb,
             0,
             0,
-            ""));
+            eb));
     }
 
 
@@ -144,17 +146,17 @@ contract BridgeReceiver is ILayerZeroReceiver, Ownable {
             revert NotOwner();
         }
 
-        amount0 = position.amount0;
-        amount1 = position.amount1;
+        amount0 = info.amount0;
+        amount1 = info.amount1;
 
-        position.amount0 = 0;
-        position.amount1 = 0;
+        info.amount0 = 0;
+        info.amount1 = 0;
 
         if (amount0 > 0) {
-            SafeERC20.safeTransfer(position.token0, owner, amount0);
+            SafeERC20.safeTransfer(info.token0, owner, amount0);
         }
         if (amount1 > 0) {
-            SafeERC20.safeTransfer(position.token1, owner, amount1);
+            SafeERC20.safeTransfer(info.token1, owner, amount1);
         }
     }
 }

@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.0;
+
+import "../TestBase.sol";
+
+contract RangeAdjustorIntegrationTest is TestBase {
+   
+    function setUp() external {
+        _setupBase();
+    }
+
+    function testUnauthorizedSetConfig() external {
+        vm.expectRevert(RangeAdjustor.Unauthorized.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, 0, 1, 0, 0));
+    }
+
+    function testInvalidSetConfig() external {
+        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT, RangeAdjustor.PositionConfig(0, 0, 0, 0, 0, 0));
+    }
+
+    function testValidSetConfig() external {
+        vm.prank(TEST_NFT_ACCOUNT);
+        RangeAdjustor.PositionConfig memory configIn = RangeAdjustor.PositionConfig(1, -1, 0, 1, 123, 456);
+        rangeAdjustor.setConfig(TEST_NFT, configIn);
+        (int24 i1, int24 i2, int24 i3, int24 i4, uint64 i5, uint64 i6) = rangeAdjustor.configs(TEST_NFT);
+        assertEq(abi.encode(configIn), abi.encode(RangeAdjustor.PositionConfig(i1, i2, i3, i4, i5, i6)));
+    }
+
+    function testNonOperator() external {
+        vm.expectRevert(RangeAdjustor.Unauthorized.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT, false, 0, "", block.timestamp, false, 0));
+    }
+
+    function testAdjustWithoutApprove() external {
+        // out of range position
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, 0, 1, 0, 0));
+
+        // fails when sending NFT
+        vm.expectRevert(abi.encodePacked("ERC721: transfer caller is not owner nor approved"));
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 0));
+    }
+
+    function testAdjustWithoutConfig() external {
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.setApprovalForAll(address(rangeAdjustor), true);
+
+        vm.expectRevert(RangeAdjustor.NotConfigured.selector);
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT, false, 0, "", block.timestamp, false, 0));
+    }
+
+    function testAdjustWithoutSwap() external {
+
+        // available amounts in TEST_NFT_2 -> 311677619940061890346 506903060556612041
+        // added to new position -> 311677619940061890345 77467250371417094
+
+        // out of range position
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.setApprovalForAll(address(rangeAdjustor), true);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
+
+        uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
+        assertEq(count, 4);
+
+        uint operatorBalanceBefore = WETH_ERC20.balanceOf(OPERATOR_ACCOUNT);
+        uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint ownerWETHBalanceBefore = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 1000000000)); // max fee with 1% is 7124618988448545
+
+        // fee sent to operator
+        assertEq(WETH_ERC20.balanceOf(OPERATOR_ACCOUNT) - operatorBalanceBefore, 1000000000);
+
+        // leftovers returned to owner
+        assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 0); // all was added to position
+        assertEq(WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT) - ownerWETHBalanceBefore, 429435809185194946); // leftover + fee + deposited = total in old position
+
+        count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
+        assertEq(count, 5);
+
+        // new NFT is latest NFT - because of the order they are added
+        uint tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
+
+        // newly minted token
+        assertEq(tokenId, 309207);
+
+        (, , , , , int24 tickLowerAfter, int24 tickUpperAfter , uint128 liquidity, , , , ) = NPM.positions(tokenId);
+        (, , address token0 , address token1 , uint24 fee , , , uint128 liquidityOld, , , , ) = NPM.positions(TEST_NFT_2);
+
+        IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(FACTORY, PoolAddress.getPoolKey(token0, token1, fee)));
+        (uint160 sqrtPriceX96, int24 currentTick,,,,,) = pool.slot0();
+
+        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, TickMath.getSqrtRatioAtTick(tickLowerAfter), TickMath.getSqrtRatioAtTick(tickUpperAfter), liquidity);
+
+        // new position amounts
+        assertEq(amount0, 311677619940061890345); //DAI
+        assertEq(amount1, 77467250371417094); //WETH
+
+        // check tick range correct
+        assertEq(tickLowerAfter, -73260);
+        assertEq(currentTick,  -73244);
+        assertEq(tickUpperAfter, -73260 + 60);
+
+        assertEq(liquidity, 3677088415251436948990);
+        assertEq(liquidityOld, 0);
+    }
+}

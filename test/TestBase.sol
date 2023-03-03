@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../src/V3Utils.sol";
 import "../src/NFTHolder.sol";
+import "../src/RangeAdjustor.sol";
 
 import "../src/modules/CompoundorModule.sol";
 import "../src/modules/StopLossLimitModule.sol";
@@ -35,6 +36,7 @@ abstract contract TestBase is Test {
     IERC20 constant DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
 
     address constant WHALE_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
+    address constant OPERATOR_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
 
     address FACTORY = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
 
@@ -53,7 +55,6 @@ abstract contract TestBase is Test {
     uint256 constant TEST_NFT = 24181;
     address constant TEST_NFT_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
     address constant TEST_NFT_POOL = 0x6c6Bc977E13Df9b0de53b251522280BB72383700;
-
    
     uint256 constant TEST_NFT_2 = 7;  // DAI/WETH 0.3% - one sided only WETH - with liquidity and fees (-84120/-78240)
     uint256 constant TEST_NFT_2_A = 126; // DAI/USDC 0.05% - in range (-276330/-276320)
@@ -75,13 +76,13 @@ abstract contract TestBase is Test {
     uint constant TEST_NFT_5 = 23901;
     address constant TEST_NFT_5_ACCOUNT = 0x082d3e0f04664b65127876e9A05e2183451c792a;
 
-
     address constant TEST_FEE_ACCOUNT = 0x8df57E3D9dDde355dCE1adb19eBCe93419ffa0FB;
 
     uint256 mainnetFork;
 
     NFTHolder holder;
     V3Utils v3utils;
+    RangeAdjustor rangeAdjustor;
 
     CompoundorModule compoundorModule;
     StopLossLimitModule stopLossLimitModule;
@@ -105,6 +106,7 @@ abstract contract TestBase is Test {
 
         holder = new NFTHolder(NPM);
         v3utils = new V3Utils(NPM, EX0x);
+        rangeAdjustor = new RangeAdjustor(v3utils, EX0x, OPERATOR_ACCOUNT);
 
         holder.setFlashTransformContract(address(v3utils));
     }
@@ -180,5 +182,4 @@ abstract contract TestBase is Test {
 
         return holder.addModule(collateralModule, blocking);
     }
-
 }

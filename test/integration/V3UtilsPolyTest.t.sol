@@ -12,9 +12,6 @@ contract V3UtilsIntegrationPolyTest is TestBase {
     }
 
     function testCall() external {
-        
-        address account = 0xDAA27d84ea816F28F4c420F7b0AD6a9998B7e305;
-
         /*
         V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils
             .SwapAndIncreaseLiquidityParams(
