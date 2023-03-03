@@ -26,6 +26,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     error NotSupportedFeeTier();
     error AdjustStateError();
     error NotConfigured();
+    error NotReady();
 
     event PositionConfigured(uint256 indexed tokenId);
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
@@ -44,6 +45,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     // operator
     address public operator;
 
+    // defines how a position can be changed by operator
     struct PositionConfig {
         int24 lowerTickLimit; // if negative also in-range positions may be adjusted
         int24 upperTickLimit; // if negative also in-range positions may be adjusted
@@ -190,7 +192,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
             ));
             nonfungiblePositionManager.safeTransferFrom(state.owner, address(v3Utils), params.tokenId, data);
         
-            // check if processingTokenId was updated
+            // check if processingTokenId was updated - minted token was recieved
             state.newTokenId = processingTokenId;
             if (state.newTokenId == params.tokenId) {
                 revert AdjustStateError();
@@ -224,7 +226,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // send fee to operator
             if (effectiveFeeAmount > 0) {
-                IERC20(params.takeFeeFrom0 ? state.token0 : state.token1).transfer(operator, effectiveFeeAmount);
+                SafeERC20.safeTransfer(IERC20(params.takeFeeFrom0 ? state.token0 : state.token1), operator, effectiveFeeAmount);
                 if (params.takeFeeFrom0) {
                     state.balance0 -= effectiveFeeAmount;
                 } else {
@@ -234,10 +236,10 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // return leftover tokens to owner
             if (state.balance0 > 0) {
-                IERC20(state.token0).transfer(state.owner, state.balance0);
+                SafeERC20.safeTransfer(IERC20(state.token0), state.owner, state.balance0);
             }
             if (state.balance1 > 0) {
-                IERC20(state.token1).transfer(state.owner, state.balance1);
+                SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.balance1);
             }
 
             // send new position to owner
@@ -250,6 +252,8 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // processing of token is finished - reset this to 0
             processingTokenId = 0;
+        } else {
+            revert NotReady();
         }
     }
 
