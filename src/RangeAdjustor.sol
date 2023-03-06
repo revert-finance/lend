@@ -46,16 +46,19 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     // operator
     address public operator;
 
-    // defines how a position can be changed by operator
+    // defines when and how a position can be changed by operator 
+    // when a position is adjusted config for the position is cleared and copied to the newly created position
     struct PositionConfig {
-        int24 lowerTickLimit; // if negative also in-range positions may be adjusted
-        int24 upperTickLimit; // if negative also in-range positions may be adjusted
 
-        int24 lowerTickDelta; // must be 0 or a negative multiple of tick spacing
-        int24 upperTickDelta; // must greater than 0 and positive multiple of tick spacing
+        // needs more than int24 because it can be [-type(uint24).max,type(uint24).max]
+        int32 lowerTickLimit; // if negative also in-range positions may be adjusted
+        int32 upperTickLimit; // if negative also in-range positions may be adjusted
+
+        int32 lowerTickDelta; // this amount is added to current tick (floored to tickspacing) to define lowerTick of new position
+        int32 upperTickDelta; // this amount is added to current tick (floored to tickspacing) to define upperTick of new position
 
         uint64 maxSlippageX64; // max allowed swap slippage including fees, price impact and slippage - from current pool price (to be sure revert bot can not do silly things)
-        uint64 maxGasFeeRewardX64; // max allowed token percentage to be available for covering gas cost of operator (operator chooses which one of the two tokens to receive)
+        uint64 maxGasFeeRewardX64; // max allowed token percentage to be available for covering gas cost of operator (operator chooses which one of the two tokens to receive after swap)
     }
 
     // configured tokens
@@ -80,10 +83,12 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
     /**
      * @notice Sets config for a given NFT - must be owner
+     * To disable a position set everything to default value
      */
     function setConfig(uint256 tokenId, PositionConfig calldata config) external {
 
-        if (config.lowerTickDelta > 0 || config.upperTickDelta <= 0) {
+        // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
+        if (config.lowerTickDelta > config.upperTickDelta) {
             revert InvalidConfig();
         }
 
@@ -140,7 +145,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
         }
 
         PositionConfig storage config = configs[params.tokenId];
-        if (config.upperTickDelta == 0) {
+        if (config.lowerTickDelta == config.upperTickDelta) {
             revert NotConfigured();
         }
 
@@ -164,6 +169,8 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
         
             // check if new range same as old range
+
+            //IMPORTANT this overflows if baseTick + config.lowerTickDelta or baseTick + config.upperTickDelta are outside int24 range
             if (baseTick + config.lowerTickDelta == state.tickLower && baseTick + config.upperTickDelta == state.tickUpper) {
                 revert SameRange();
             }
@@ -184,10 +191,10 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
                 type(uint128).max,
                 type(uint128).max,
                 state.fee,
-                baseTick + config.lowerTickDelta,
-                baseTick + config.upperTickDelta,
+                int24(baseTick + config.lowerTickDelta), // overflow has been checked before
+                int24(baseTick + config.upperTickDelta), // overflow has been checked before
                 state.liquidity,
-                0,
+                0, // slipp
                 0,
                 params.deadline,
                 address(this), // receive leftover tokens to grab fees - and then return rest to owner

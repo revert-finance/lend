@@ -21,17 +21,22 @@ contract RangeAdjustorIntegrationTest is TestBase {
         rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, 0, 1, 0, 0));
     }
 
-    function testInvalidSetConfig() external {
-        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+    function testResetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
         rangeAdjustor.setConfig(TEST_NFT, RangeAdjustor.PositionConfig(0, 0, 0, 0, 0, 0));
+    }
+
+    function testInvalidConfig() external {
+        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT, RangeAdjustor.PositionConfig(0, 0, 1, 0, 0, 0));
     }
 
     function testValidSetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
         RangeAdjustor.PositionConfig memory configIn = RangeAdjustor.PositionConfig(1, -1, 0, 1, 123, 456);
         rangeAdjustor.setConfig(TEST_NFT, configIn);
-        (int24 i1, int24 i2, int24 i3, int24 i4, uint64 i5, uint64 i6) = rangeAdjustor.configs(TEST_NFT);
+        (int32 i1, int32 i2, int32 i3, int32 i4, uint64 i5, uint64 i6) = rangeAdjustor.configs(TEST_NFT);
         assertEq(abi.encode(configIn), abi.encode(RangeAdjustor.PositionConfig(i1, i2, i3, i4, i5, i6)));
     }
 
@@ -48,6 +53,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
 
         // fails when sending NFT
         vm.expectRevert(abi.encodePacked("ERC721: transfer caller is not owner nor approved"));
+        
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 0));
     }
@@ -73,6 +79,19 @@ contract RangeAdjustorIntegrationTest is TestBase {
         vm.expectRevert(RangeAdjustor.NotReady.selector);
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2_A, false, 0, "", block.timestamp, false, 0));
+    }
+
+    function testAdjustOutOfRange() external {
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.setApprovalForAll(address(rangeAdjustor), true);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, type(int32).min, type(int32).max, 0, 0)); // 1% max fee, 1% max slippage
+
+        // will be reverted because range Arithmetic over/underflow
+        vm.expectRevert();
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 0));
     }
 
     function testAdjustWithoutSwap() external {
