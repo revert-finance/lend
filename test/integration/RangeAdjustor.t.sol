@@ -199,28 +199,28 @@ contract RangeAdjustorIntegrationTest is TestBase {
         assertEq(liquidityOld, 0);
     }
 
-    function testMultiAdjust() external {
+    function testDoubleAdjust() external {
                 
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.setApprovalForAll(address(rangeAdjustor), true);
 
-        // bad config so it can be adjusted always
+        // bad config so it can be adjusted multiple times
         vm.prank(TEST_NFT_2_ACCOUNT);
         rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
 
+        // first adjust ok
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 7124618988448545));
 
         uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
         uint tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
 
-        vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(tokenId, false, 0, "", block.timestamp, false, 7124618988448545));
+        // newly minted token
+        assertEq(tokenId, 309207);
 
-        count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
-        tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
-
+        // second ajust leads to same range error
         vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(RangeAdjustor.SameRange.selector);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(tokenId, false, 0, "", block.timestamp, false, 7124618988448545));
     }
 

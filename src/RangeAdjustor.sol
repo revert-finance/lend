@@ -27,6 +27,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     error AdjustStateError();
     error NotConfigured();
     error NotReady();
+    error SameRange();
 
     event PositionConfigured(uint256 indexed tokenId);
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
@@ -161,6 +162,11 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // includes negative modulus fix
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
+        
+            // check if new range same as old range
+            if (baseTick + config.lowerTickDelta == state.tickLower && baseTick + config.upperTickDelta == state.tickUpper) {
+                revert SameRange();
+            }
 
             // before starting process - set context id
             processingTokenId = params.tokenId;

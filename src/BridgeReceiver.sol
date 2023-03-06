@@ -84,7 +84,7 @@ contract BridgeReceiver is ILayerZeroReceiver, Ownable {
         info.amount1 += amount1;
     }
 
-     struct CreatePositionParams {
+    struct CreatePositionParams {
         uint256 tokenId;
         uint256 deadline;
 
