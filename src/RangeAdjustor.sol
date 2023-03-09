@@ -11,10 +11,6 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 import "./V3Utils.sol";
 
-//TODO remove
-import "forge-std/console.sol";
-
-
 /// @title RangeAdjustor
 /// @notice Allows operator of RangeAdjustor contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved for the contract and configured with setConfig method
@@ -29,7 +25,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     error NotReady();
     error SameRange();
 
-    event PositionConfigured(uint256 indexed tokenId);
+    event PositionConfigured(uint256 indexed tokenId, int32 lowerTickLimit, int32 upperTickLimit, int32 lowerTickDelta, int32 upperTickDelta, uint64 maxSlippageX64, uint64 maxGasFeeRewardX64);
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
     event OperatorChanged(address indexed oldOperator, address indexed newOperator);
 
@@ -64,7 +60,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     // configured tokens
     mapping(uint256 => PositionConfig) public configs;
 
-    constructor(V3Utils _v3Utils, address _swapRouter, address _operator)  {
+    constructor(V3Utils _v3Utils, address _operator)  {
         v3Utils = _v3Utils;
         INonfungiblePositionManager npm = _v3Utils.nonfungiblePositionManager();
         nonfungiblePositionManager = npm;
@@ -98,7 +94,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
         }
         configs[tokenId] = config;
 
-        emit PositionConfigured(tokenId);
+        emit PositionConfigured(tokenId, config.lowerTickLimit, config.upperTickLimit, config.lowerTickDelta, config.upperTickDelta, config.maxSlippageX64, config.maxGasFeeRewardX64);
     }
 
     struct AdjustParams {
@@ -169,8 +165,6 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
         
             // check if new range same as old range
-
-            //IMPORTANT this overflows if baseTick + config.lowerTickDelta or baseTick + config.upperTickDelta are outside int24 range
             if (baseTick + config.lowerTickDelta == state.tickLower && baseTick + config.upperTickDelta == state.tickUpper) {
                 revert SameRange();
             }
@@ -191,8 +185,8 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
                 type(uint128).max,
                 type(uint128).max,
                 state.fee,
-                int24(baseTick + config.lowerTickDelta), // overflow has been checked before
-                int24(baseTick + config.upperTickDelta), // overflow has been checked before
+                OZSafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
+                OZSafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
                 state.liquidity,
                 0, // slipp
                 0,
@@ -213,7 +207,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // copy token config for new token
             configs[state.newTokenId] = config;
-            emit PositionConfigured(state.newTokenId);
+            emit PositionConfigured(state.newTokenId, config.lowerTickLimit, config.upperTickLimit, config.lowerTickDelta, config.upperTickDelta, config.maxSlippageX64, config.maxGasFeeRewardX64);
 
             // get new token liquidity
             (,,,,,state.tickLower,state.tickUpper,state.liquidity,,,,) = nonfungiblePositionManager.positions(state.newTokenId);
@@ -262,6 +256,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // delete config for old position
             delete configs[params.tokenId];
+            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0);
 
             // processing of token is finished - reset this to 0
             processingTokenId = 0;

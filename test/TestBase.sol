@@ -106,7 +106,7 @@ abstract contract TestBase is Test {
 
         holder = new NFTHolder(NPM);
         v3utils = new V3Utils(NPM, EX0x);
-        rangeAdjustor = new RangeAdjustor(v3utils, EX0x, OPERATOR_ACCOUNT);
+        rangeAdjustor = new RangeAdjustor(v3utils, OPERATOR_ACCOUNT);
 
         holder.setFlashTransformContract(address(v3utils));
     }

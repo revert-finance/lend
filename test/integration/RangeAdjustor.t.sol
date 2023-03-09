@@ -9,6 +9,12 @@ contract RangeAdjustorIntegrationTest is TestBase {
         _setupBase();
     }
 
+    function testDirectSendNFT() external {
+        vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(abi.encodePacked("ERC721: transfer to non ERC721Receiver implementer")); // NFT manager doesnt resend original error for some reason
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(rangeAdjustor), TEST_NFT);
+    }
+
     function testSetOperator() external {
         assertEq(rangeAdjustor.operator(), OPERATOR_ACCOUNT);
         rangeAdjustor.setOperator(TEST_NFT_ACCOUNT);
@@ -86,10 +92,10 @@ contract RangeAdjustorIntegrationTest is TestBase {
         NPM.setApprovalForAll(address(rangeAdjustor), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, type(int32).min, type(int32).max, 0, 0)); // 1% max fee, 1% max slippage
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, -int32(uint32(type(uint24).max)), int32(uint32(type(uint24).max)), 0, 0)); // 1% max fee, 1% max slippage
 
         // will be reverted because range Arithmetic over/underflow
-        vm.expectRevert();
+        vm.expectRevert(abi.encodePacked("SafeCast: value doesn't fit in 24 bits"));
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 0));
     }
