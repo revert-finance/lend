@@ -121,36 +121,11 @@ contract V3Utils is IERC721Receiver {
         bytes swapAndMintReturnData;
     }
 
-    /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
+    /// @notice Execute instruction on pulled or approved token
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute
-    function execute(uint256 tokenId, Instructions calldata instructions) external
+    function execute(uint256 tokenId, Instructions memory instructions) public
     {
-        // must be approved beforehand
-        nonfungiblePositionManager.safeTransferFrom(
-            msg.sender,
-            address(this),
-            tokenId,
-            abi.encode(instructions)
-        );
-    }
-
-    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. 
-    /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
-
-        // only Uniswap v3 NFTs allowed
-        if (msg.sender != address(nonfungiblePositionManager)) {
-            revert WrongContract();
-        }
-
-        // not allowed to send to itself
-        if (from == address(this)) {
-            revert SelfSend();
-        }
-
-        Instructions memory instructions = abi.decode(data, (Instructions));
-
         (,,address token0,address token1,,,,uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         uint256 amount0;
@@ -219,6 +194,25 @@ contract V3Utils is IERC721Receiver {
         } else {
             revert NotSupportedWhatToDo();
         }
+    }
+
+    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter. 
+    /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
+
+        // only Uniswap v3 NFTs allowed
+        if (msg.sender != address(nonfungiblePositionManager)) {
+            revert WrongContract();
+        }
+
+        // not allowed to send to itself
+        if (from == address(this)) {
+            revert SelfSend();
+        }
+
+        Instructions memory instructions = abi.decode(data, (Instructions));
+
+        execute(tokenId, instructions);
         
         // return token to owner (this line guarantees that token is returned to originating owner)
         nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);

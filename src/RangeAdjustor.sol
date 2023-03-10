@@ -108,6 +108,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     }
 
     struct AdjustState {
+        address operator;
         address owner;
         uint160 sqrtPriceX96;
         uint256 priceX96;
@@ -148,7 +149,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
         AdjustState memory state;
 
         // check if in valid range for move range
-        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+        (,state.operator,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 
         IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
         (state.sqrtPriceX96, state.currentTick,,,,,) = pool.slot0();
@@ -172,8 +173,12 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
             // before starting process - set context id
             processingTokenId = params.tokenId;
 
-            // change range with v3utils
-            bytes memory data = abi.encode(V3Utils.Instructions(
+            // change range with v3utils approve style execution
+            if (state.operator != address(v3Utils)) {
+                nonfungiblePositionManager.approve(address(v3Utils), params.tokenId);
+            }
+               
+            v3Utils.execute(params.tokenId, V3Utils.Instructions(
                 V3Utils.WhatToDo.CHANGE_RANGE,
                 params.swap0To1 ? state.token1 : state.token0,
                 params.swap0To1 ? params.amountIn : 0,
@@ -197,8 +202,11 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
                 "",
                 abi.encode(params.tokenId)
             ));
-            nonfungiblePositionManager.safeTransferFrom(state.owner, address(v3Utils), params.tokenId, data);
-        
+
+            if (state.operator != address(v3Utils)) {
+                nonfungiblePositionManager.approve(state.operator, params.tokenId);      
+            }
+
             // check if processingTokenId was updated - minted token was recieved
             state.newTokenId = processingTokenId;
             if (state.newTokenId == params.tokenId) {
