@@ -184,8 +184,8 @@ contract RangeAdjustor is Ownable {
                 OZSafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
                 OZSafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
                 state.liquidity,
-                0, // slipp
-                0,
+                0, // no add slippage check needed
+                0, // no add slippage check needed
                 params.deadline,
                 address(this), // receive leftover tokens to grab fees - and then return rest to owner
                 state.owner, // send the new NFT to owner
