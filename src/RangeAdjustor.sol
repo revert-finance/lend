@@ -14,7 +14,7 @@ import "./V3Utils.sol";
 /// @title RangeAdjustor
 /// @notice Allows operator of RangeAdjustor contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved for the contract and configured with setConfig method
-contract RangeAdjustor is Ownable, IERC721Receiver {
+contract RangeAdjustor is Ownable {
 
     error Unauthorized();
     error WrongContract();
@@ -35,9 +35,6 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
     V3Utils public immutable v3Utils;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
-
-    // to store current token id while doing adjust()
-    uint256 private processingTokenId;
 
     // operator
     address public operator;
@@ -132,10 +129,6 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function adjust(AdjustParams calldata params) external {
-        // if already in an adjustment - do not allow reentrancy
-        if (processingTokenId != 0) {
-            revert AdjustStateError();
-        }
 
         if (msg.sender != operator) {
             revert Unauthorized();
@@ -157,6 +150,7 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
 
             // calculate with current pool price 
             state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
+
             uint256 minAmountOut = FullMath.mulDiv(Q64 - config.maxSlippageX64, params.swap0To1 ? FullMath.mulDiv(params.amountIn, state.priceX96, Q96) : FullMath.mulDiv(params.amountIn, Q96, state.priceX96), Q64);
             int24 tickSpacing = _getTickSpacing(state.fee);
 
@@ -170,15 +164,12 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
                 revert SameRange();
             }
 
-            // before starting process - set context id
-            processingTokenId = params.tokenId;
-
             // change range with v3utils approve style execution
             if (state.operator != address(v3Utils)) {
                 nonfungiblePositionManager.approve(address(v3Utils), params.tokenId);
             }
                
-            v3Utils.execute(params.tokenId, V3Utils.Instructions(
+            state.newTokenId = v3Utils.execute(params.tokenId, V3Utils.Instructions(
                 V3Utils.WhatToDo.CHANGE_RANGE,
                 params.swap0To1 ? state.token1 : state.token0,
                 params.swap0To1 ? params.amountIn : 0,
@@ -197,20 +188,18 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
                 0,
                 params.deadline,
                 address(this), // receive leftover tokens to grab fees - and then return rest to owner
-                address(this), // recieve the new NFT to register config and then resend
+                state.owner, // send the new NFT to owner
                 false,
                 "",
-                abi.encode(params.tokenId)
+                ""
             ));
+
+            if (state.newTokenId == 0) {
+                revert AdjustStateError();
+            }
 
             if (state.operator != address(v3Utils)) {
                 nonfungiblePositionManager.approve(state.operator, params.tokenId);      
-            }
-
-            // check if processingTokenId was updated - minted token was recieved
-            state.newTokenId = processingTokenId;
-            if (state.newTokenId == params.tokenId) {
-                revert AdjustStateError();
             }
 
             // copy token config for new token
@@ -257,44 +246,14 @@ contract RangeAdjustor is Ownable, IERC721Receiver {
                 SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.balance1);
             }
 
-            // send new position to owner
-            nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId, "");
-
             emit RangeChanged(params.tokenId, state.newTokenId);
 
             // delete config for old position
             delete configs[params.tokenId];
             emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0);
-
-            // processing of token is finished - reset this to 0
-            processingTokenId = 0;
         } else {
             revert NotReady();
         }
-    }
-
-    // recieve new ERC-721 - if all validations pass this updates the processing token to the new token recieved
-    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
-
-        // only Uniswap v3 NFTs allowed
-        if (msg.sender != address(nonfungiblePositionManager)) {
-            revert WrongContract();
-        }
-
-        // get previous token id from contract state
-        uint256 previousTokenId = processingTokenId;
-        uint256 expectedProcessingTokenId = abi.decode(data, (uint256));
-
-        // if not as expected - revert
-        // this is important - it prevents from triggering onERC721Received by a malicious contract before the expected call
-        if (previousTokenId == 0 || previousTokenId != expectedProcessingTokenId) {
-            revert AdjustStateError();
-        }
-      
-        // update current token
-        processingTokenId = tokenId;
-
-        return IERC721Receiver.onERC721Received.selector;
     }
 
     // get pool for token

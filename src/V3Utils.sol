@@ -124,7 +124,7 @@ contract V3Utils is IERC721Receiver {
     /// @notice Execute instruction on pulled or approved token
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute
-    function execute(uint256 tokenId, Instructions memory instructions) public
+    function execute(uint256 tokenId, Instructions memory instructions) public returns (uint newTokenId)
     {
         (,,address token0,address token1,,,,uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
@@ -151,9 +151,6 @@ contract V3Utils is IERC721Receiver {
             }
             emit CompoundFees(tokenId, liquidity, amount0, amount1);            
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
-
-            uint256 newTokenId;
-
             if (instructions.targetToken == token0) {
                 (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", instructions.amountAddMin0, instructions.amountAddMin1, instructions.swapAndMintReturnData), instructions.unwrap);
             } else if (instructions.targetToken == token1) {
@@ -162,7 +159,6 @@ contract V3Utils is IERC721Receiver {
                 // no swap is done here
                 (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", instructions.amountAddMin0, instructions.amountAddMin1, instructions.swapAndMintReturnData), instructions.unwrap);
             }
-
             emit ChangeRange(tokenId, newTokenId);
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
             uint256 targetAmount;
