@@ -10,11 +10,7 @@ contract V3UtilsIntegrationTest is TestBase {
     }
 
     function testUnauthorizedTransfer() external {
-        vm.expectRevert(
-            abi.encodePacked(
-                "ERC721: transfer caller is not owner nor approved"
-            )
-        );
+        vm.expectRevert("ERC721: transfer caller is not owner nor approved");
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
             address(0),
@@ -49,11 +45,7 @@ contract V3UtilsIntegrationTest is TestBase {
 
     function testInvalidInstructions() external {
         // reverts with ERC721Receiver error if Instructions are invalid
-        vm.expectRevert(
-            abi.encodePacked(
-                "ERC721: transfer to non ERC721Receiver implementer"
-            )
-        );
+        vm.expectRevert("ERC721: transfer to non ERC721Receiver implementer");
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.safeTransferFrom(
             TEST_NFT_ACCOUNT,
@@ -111,6 +103,82 @@ contract V3UtilsIntegrationTest is TestBase {
             TEST_NFT,
             abi.encode(inst)
         );
+    }
+
+    function testPermitLogic() external {
+
+        _increaseLiquidity();
+
+        // setup test account
+        uint ownerPrivateKey = uint256(0xc7df1c9e93e7f38b504e5c6a1bc50c55919b300d36aa6a4dcab195ed32b081f3);
+        address owner = vm.addr(ownerPrivateKey);
+
+        // send to test account
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, owner, TEST_NFT);
+
+        (uint nonce, address operator , , , , , , , , , , ) = NPM.positions(TEST_NFT);
+
+        assertEq(operator, address(0));
+        assertEq(nonce, 0);
+
+        bytes32 DOMAIN_SEPARATOR = NPM.DOMAIN_SEPARATOR();
+        bytes32 PERMIT_TYPEHASH = NPM.PERMIT_TYPEHASH();
+        bytes32 hash = keccak256(
+                abi.encodePacked(
+                    "\x19\x01",
+                    DOMAIN_SEPARATOR,
+                    keccak256(
+                        abi.encode(
+                            PERMIT_TYPEHASH,
+                            address(v3utils),
+                            TEST_NFT,
+                            nonce,
+                            block.timestamp
+                        )
+                    )
+                )
+            );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPrivateKey, hash);
+
+        (, , , , , , , uint128 liquidityBefore, , , , ) = NPM.positions(
+            TEST_NFT
+        );
+
+        // swap half of DAI to USDC and add full range
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.CHANGE_RANGE,
+            address(USDC),
+            500000000000000000,
+            400000,
+            _get05DAIToUSDCSwapData(),
+            0,
+            0,
+            "",
+            type(uint128).max, // take all fees
+            type(uint128).max, // take all fees
+            100, // change fee as well
+            MIN_TICK_100,
+            -MIN_TICK_100,
+            liquidityBefore, // take all liquidity
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_ACCOUNT,
+            TEST_NFT_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        // anyone can call this
+        vm.prank(WHALE_ACCOUNT);
+        v3utils.executeWithPermit(TEST_NFT, inst, v, r, s);
+
+        //but only once
+        vm.expectRevert("Unauthorized");
+        v3utils.executeWithPermit(TEST_NFT, inst, v, r, s);
     }
 
     function testTransferWithChangeRange() external {

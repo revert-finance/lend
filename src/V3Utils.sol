@@ -121,6 +121,18 @@ contract V3Utils is IERC721Receiver {
         bytes swapAndMintReturnData;
     }
 
+    /// @notice Execute instruction with EIP712 permit
+    /// @param tokenId Token to process
+    /// @param instructions Instructions to execute
+    /// @param v Signature values for EIP712 permit
+    /// @param r Signature values for EIP712 permit
+    /// @param s Signature values for EIP712 permit
+    function executeWithPermit(uint256 tokenId, Instructions memory instructions, uint8 v, bytes32 r, bytes32 s) public returns (uint newTokenId)
+    {
+        nonfungiblePositionManager.permit(address(this), tokenId, instructions.deadline, v, r, s);
+        execute(tokenId, instructions);
+    }
+
     /// @notice Execute instruction on pulled or approved token
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute

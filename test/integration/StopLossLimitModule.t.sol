@@ -85,7 +85,7 @@ contract StopLossLimitModuleTest is TestBase {
     }
 
     function testPoolSwap() external {
-        (uint amount0, uint amount1) = _addLiquidity();
+        _addLiquidity();
 
          // change to pool swap
         _addToModule(true, TEST_NFT, true, false, true, uint64(Q64 / 100), uint64(Q64 / 100), -276324, type(int24).max);
