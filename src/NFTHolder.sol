@@ -14,6 +14,8 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-periphery/interfaces/external/IWETH9.sol";
 
+import { SafeCast as OZSafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 /// @title NFTHolder
 /// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
 contract NFTHolder is IERC721Receiver, Ownable, Multicall {
@@ -97,17 +99,9 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
         // if flashTransform contract sent token back - special handling
         if (from == flashTransformContract) {
             uint256 flashTokenId = flashTransformedTokenId;
-            // if its called from minting context
+            // if its called from minting context TODO handle this case properly
             if (flashTokenId == 0) {
-                bytes memory returnData;
-                // set owner to caller of minting context
-                (from, returnData) = abi.decode(data, (address, bytes));
-                if (from == address(0)) {
-                    revert InvalidFromAddress();
-                }
-                if (returnData.length > 0) {
-                    initialModules = abi.decode(returnData, (ModuleParams[]));
-                }
+               revert();
             } else {
                 if (tokenId == flashTokenId) {
                      // its the same token - no need to do nothing here -its already registered - welcome back home
@@ -243,6 +237,9 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
     /// @notice Sets new flash transform contract
     function setFlashTransformContract(address _flashTransformContract) external onlyOwner
     {
+        if (flashTransformContract == address(this)) {
+            revert WrongContract();
+        }
         flashTransformContract = _flashTransformContract;
         emit SetFlashTransformContract(_flashTransformContract);
     }
@@ -262,7 +259,7 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
 
     /// @notice flash transforms token - must be returned afterwards
     /// only token owner is allowed to call this!!
-    /// currently used vor v3utils type of operations, data is encoded Instructions for V3Utils
+    /// currently used for v3utils type of operations, data is encoded Instructions for V3Utils
     function flashTransform(uint256 tokenId, bytes calldata data) external {
         if (flashTransformedTokenId > 0) {
             revert FlashTransformInProgress();
@@ -321,8 +318,8 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
             INonfungiblePositionManager.CollectParams(
                 params.tokenId,
                 params.unwrap ? address(this) : params.recipient,
-                amount0 + params.amountFees0Max >= type(uint128).max ? type(uint128).max : _toUint128(amount0 + params.amountFees0Max),
-                amount1 + params.amountFees1Max >= type(uint128).max ? type(uint128).max : _toUint128(amount1 + params.amountFees1Max)
+                amount0 + params.amountFees0Max >= type(uint128).max ? type(uint128).max : OZSafeCast.toUint128(amount0 + params.amountFees0Max),
+                amount1 + params.amountFees1Max >= type(uint128).max ? type(uint128).max : OZSafeCast.toUint128(amount1 + params.amountFees1Max)
             )
         );
 
@@ -467,10 +464,6 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
         } else {
             SafeERC20.safeTransfer(token, to, amount);
         }
-    }
-
-    function _toUint128(uint256 x) private pure returns (uint128 y) {
-        require((y = uint128(x)) == x, "uint128 cast error");
     }
 
     // needed for WETH unwrapping
