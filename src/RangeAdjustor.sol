@@ -70,12 +70,13 @@ contract RangeAdjustor is Ownable {
         nonfungiblePositionManager = npm;
         factory = IUniswapV3Factory(npm.factory());
         operator = _operator;
+        emit OperatorChanged(address(0), _operator);
         if (_maxTWAPTickDifference > uint16(type(int16).max) || _TWAPSeconds == 0) {
             revert InvalidConfig();
         }
         TWAPSeconds = _TWAPSeconds;
         maxTWAPTickDifference = _maxTWAPTickDifference;
-        emit OperatorChanged(address(0), _operator);
+        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
     }
 
     /**
