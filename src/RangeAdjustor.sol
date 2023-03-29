@@ -6,8 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
-
-import "v3-periphery/libraries/LiquidityAmounts.sol";
+import "v3-core/libraries/FullMath.sol";
 
 import "./V3Utils.sol";
 
@@ -45,6 +44,7 @@ contract RangeAdjustor is Ownable {
     V3Utils public immutable v3Utils;
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
+    uint32 public immutable TWAPSeconds;
 
     // operator
     address public operator;
@@ -64,12 +64,14 @@ contract RangeAdjustor is Ownable {
     // configured tokens
     mapping(uint256 => PositionConfig) public configs;
 
-    constructor(V3Utils _v3Utils, address _operator) {
+    
+    constructor(V3Utils _v3Utils, address _operator, uint32 _TWAPSeconds) {
         v3Utils = _v3Utils;
         INonfungiblePositionManager npm = _v3Utils.nonfungiblePositionManager();
         nonfungiblePositionManager = npm;
         factory = IUniswapV3Factory(npm.factory());
         operator = _operator;
+        TWAPSeconds = _TWAPSeconds;
         emit OperatorChanged(address(0), _operator);
     }
 
@@ -116,7 +118,7 @@ contract RangeAdjustor is Ownable {
         bool swap0To1;
         uint256 amountIn; // if this is set to 0 no swap happens
         bytes swapData;
-        uint256 deadline; // for uniswap operations
+        uint256 deadline; // for uniswap operations - operator promises fair value
         bool takeFeeFrom0;
         uint256 feeAmount;
     }
@@ -179,7 +181,7 @@ contract RangeAdjustor is Ownable {
             state.currentTick < state.tickLower - config.lowerTickLimit ||
             state.currentTick >= state.tickUpper + config.upperTickLimit
         ) {
-            // calculate with current pool price
+            // calculate with current pool price (TODO do we need a TWAP oracle here??)
             state.priceX96 = FullMath.mulDiv(
                 state.sqrtPriceX96,
                 state.sqrtPriceX96,
@@ -198,67 +200,101 @@ contract RangeAdjustor is Ownable {
             state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
 
             // includes negative modulus fix
-            int24 baseTick = state.currentTick -
-                (((state.currentTick % tickSpacing) + tickSpacing) %
-                    tickSpacing);
+            int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             // check if new range same as old range
-            if (
-                baseTick + config.lowerTickDelta == state.tickLower &&
-                baseTick + config.upperTickDelta == state.tickUpper
-            ) {
+            if (baseTick + config.lowerTickDelta == state.tickLower &&
+                baseTick + config.upperTickDelta == state.tickUpper) {
                 revert SameRange();
             }
 
-            // change range with v3utils approve style execution
-            if (state.operator != address(v3Utils)) {
-                nonfungiblePositionManager.approve(
-                    address(v3Utils),
-                    params.tokenId
+            // remove position liquidity
+            if (state.liquidity > 0) {
+                nonfungiblePositionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams(
+                        params.tokenId,
+                        state.liquidity,
+                        0,
+                        0,
+                        params.deadline
+                    )
                 );
             }
-
-            state.newTokenId = v3Utils.execute(
-                params.tokenId,
-                V3Utils.Instructions(
-                    V3Utils.WhatToDo.CHANGE_RANGE,
-                    params.swap0To1 ? state.token1 : state.token0,
-                    params.swap0To1 ? params.amountIn : 0,
-                    params.swap0To1 ? minAmountOut : 0,
-                    params.swap0To1 ? params.swapData : bytes(""),
-                    params.swap0To1 ? 0 : params.amountIn,
-                    params.swap0To1 ? 0 : minAmountOut,
-                    params.swap0To1 ? bytes("") : params.swapData,
+            // get everything
+            nonfungiblePositionManager.collect(
+                INonfungiblePositionManager.CollectParams(
+                    params.tokenId,
+                    address(this),
                     type(uint128).max,
-                    type(uint128).max,
-                    state.fee,
-                    OZSafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
-                    OZSafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
-                    state.liquidity,
-                    0, // no add slippage check needed
-                    0, // no add slippage check needed
-                    params.deadline,
-                    address(this), // receive leftover tokens to grab fees - and then return rest to owner
-                    state.owner, // send the new NFT to owner
-                    false,
-                    "",
-                    ""
+                    type(uint128).max
                 )
             );
+
+            state.amount0 = IERC20(state.token0).balanceOf(address(this));
+            state.amount1 = IERC20(state.token1).balanceOf(address(this));
+
+            // max fee in feeToken
+            uint256 totalFeeTokenAmount = params.takeFeeFrom0 ? state.amount0 + FullMath.mulDiv(state.amount1, Q96, state.priceX96) : state.amount1 + FullMath.mulDiv(state.amount0, state.priceX96, Q96);
+
+            // calculate max permited fee amount for this position
+            uint256 maxFeeAmount = FullMath.mulDiv(totalFeeTokenAmount, configs[params.tokenId].maxGasFeeRewardX64, Q64);
+
+            // calculate fee amount which can be sent.. it can be less.. so it is the operators responsibility to do correct swap
+            uint256 effectiveFeeAmount = params.feeAmount > (params.takeFeeFrom0 ? state.amount0 : state.amount1) ? (params.takeFeeFrom0 ? state.amount0 : state.amount1) : params.feeAmount;
+            if (effectiveFeeAmount > maxFeeAmount) {
+                effectiveFeeAmount = maxFeeAmount;
+            }
+
+            // send fee to operator
+            SafeERC20.safeTransfer(IERC20(params.takeFeeFrom0 ? state.token0 : state.token1), operator, effectiveFeeAmount);
+
+            // calculate left tokens to add
+            if (params.takeFeeFrom0) {
+                state.amount0 -= effectiveFeeAmount;
+            } else {
+                state.amount1 -= effectiveFeeAmount;
+            }
+           
+            // approve tokens
+            if (state.amount0 > 0) {
+                SafeERC20.safeApprove(IERC20(state.token0), address(v3Utils), state.amount0);
+            }
+            if (state.amount1 > 0) {
+                SafeERC20.safeApprove(IERC20(state.token1), address(v3Utils), state.amount1);
+            }
+            
+            (state.newTokenId,,,) = v3Utils.swapAndMint(V3Utils.SwapAndMintParams(
+                IERC20(state.token0),
+                IERC20(state.token1), 
+                state.fee, 
+                OZSafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
+                OZSafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
+                state.amount0,
+                state.amount1,
+                state.owner,
+                state.owner,
+                params.deadline,
+                params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
+                params.swap0To1 ? 0 : params.amountIn,
+                params.swap0To1 ? 0 : minAmountOut,
+                params.swap0To1 ? bytes("") : params.swapData,
+                params.swap0To1 ? params.amountIn : 0,
+                params.swap0To1 ? minAmountOut : 0,
+                params.swap0To1 ? params.swapData : bytes(""),
+                0, // no add slippage check needed
+                0, // no add slippage check needed
+                ""
+            ));
 
             if (state.newTokenId == 0) {
                 revert AdjustStateError();
             }
 
-            if (state.operator != address(v3Utils)) {
-                nonfungiblePositionManager.approve(
-                    state.operator,
-                    params.tokenId
-                );
-            }
-
+            //TODO reset approvals needed? v3Utils it our trusted contract after all
+   
             // copy token config for new token
             configs[state.newTokenId] = config;
+
             emit PositionConfigured(
                 state.newTokenId,
                 config.lowerTickLimit,
@@ -268,98 +304,6 @@ contract RangeAdjustor is Ownable {
                 config.maxSlippageX64,
                 config.maxGasFeeRewardX64
             );
-
-            // get new token liquidity
-            (
-                ,
-                ,
-                ,
-                ,
-                ,
-                state.tickLower,
-                state.tickUpper,
-                state.liquidity,
-                ,
-                ,
-                ,
-
-            ) = nonfungiblePositionManager.positions(state.newTokenId);
-
-            // balances (leftover tokens from change range operation
-            state.balance0 = IERC20(state.token0).balanceOf(address(this));
-            state.balance1 = IERC20(state.token1).balanceOf(address(this));
-
-            // position value (position has no fees it has been just created - so only liquidity)
-            (state.amount0, state.amount1) = LiquidityAmounts
-                .getAmountsForLiquidity(
-                    state.sqrtPriceX96,
-                    TickMath.getSqrtRatioAtTick(state.tickLower),
-                    TickMath.getSqrtRatioAtTick(state.tickUpper),
-                    state.liquidity
-                );
-
-            // max fee in feeToken
-            uint256 totalFeeTokenAmount = params.takeFeeFrom0
-                ? state.balance0 +
-                    state.amount0 +
-                    FullMath.mulDiv(
-                        state.balance1 + state.amount1,
-                        Q96,
-                        state.priceX96
-                    )
-                : state.balance1 +
-                    state.amount1 +
-                    FullMath.mulDiv(
-                        state.balance0 + state.amount0,
-                        state.priceX96,
-                        Q96
-                    );
-
-            // calculate max permited fee amount for this position
-            uint256 maxFeeAmount = FullMath.mulDiv(
-                totalFeeTokenAmount,
-                configs[params.tokenId].maxGasFeeRewardX64,
-                Q64
-            );
-
-            // calculate fee amount which can be sent.. it can be less.. so it is the operators responsibility to do correct swap
-            uint256 effectiveFeeAmount = params.feeAmount >
-                (params.takeFeeFrom0 ? state.balance0 : state.balance1)
-                ? (params.takeFeeFrom0 ? state.balance0 : state.balance1)
-                : params.feeAmount;
-            if (effectiveFeeAmount > maxFeeAmount) {
-                effectiveFeeAmount = maxFeeAmount;
-            }
-
-            // send fee to operator
-            if (effectiveFeeAmount > 0) {
-                SafeERC20.safeTransfer(
-                    IERC20(params.takeFeeFrom0 ? state.token0 : state.token1),
-                    operator,
-                    effectiveFeeAmount
-                );
-                if (params.takeFeeFrom0) {
-                    state.balance0 -= effectiveFeeAmount;
-                } else {
-                    state.balance1 -= effectiveFeeAmount;
-                }
-            }
-
-            // return leftover tokens to owner
-            if (state.balance0 > 0) {
-                SafeERC20.safeTransfer(
-                    IERC20(state.token0),
-                    state.owner,
-                    state.balance0
-                );
-            }
-            if (state.balance1 > 0) {
-                SafeERC20.safeTransfer(
-                    IERC20(state.token1),
-                    state.owner,
-                    state.balance1
-                );
-            }
 
             emit RangeChanged(params.tokenId, state.newTokenId);
 

@@ -58,7 +58,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
         rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, 0, 1, 0, 0));
 
         // fails when sending NFT
-        vm.expectRevert(abi.encodePacked("ERC721: approve caller is not owner nor approved for all"));
+        vm.expectRevert(abi.encodePacked("Not approved"));
         
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 0));
