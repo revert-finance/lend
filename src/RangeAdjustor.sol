@@ -22,6 +22,7 @@ contract RangeAdjustor is Ownable {
     error NotConfigured();
     error NotReady();
     error SameRange();
+    error OraclePriceCheckFailed();
 
     event PositionConfigured(
         uint256 indexed tokenId,
@@ -33,10 +34,8 @@ contract RangeAdjustor is Ownable {
         uint64 maxGasFeeRewardX64
     );
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
-    event OperatorChanged(
-        address indexed oldOperator,
-        address indexed newOperator
-    );
+    event OperatorChanged(address indexed oldOperator, address indexed newOperator);
+    event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
 
     uint256 private constant Q64 = 2 ** 64;
     uint256 private constant Q96 = 2 ** 96;
@@ -44,10 +43,11 @@ contract RangeAdjustor is Ownable {
     V3Utils public immutable v3Utils;
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
-    uint32 public immutable TWAPSeconds;
 
-    // operator
+    // configurable by owner
     address public operator;
+    uint32 public TWAPSeconds;
+    uint16 public maxTWAPTickDifference;
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
@@ -64,23 +64,41 @@ contract RangeAdjustor is Ownable {
     // configured tokens
     mapping(uint256 => PositionConfig) public configs;
 
-    
-    constructor(V3Utils _v3Utils, address _operator, uint32 _TWAPSeconds) {
+    constructor(V3Utils _v3Utils, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) {
         v3Utils = _v3Utils;
         INonfungiblePositionManager npm = _v3Utils.nonfungiblePositionManager();
         nonfungiblePositionManager = npm;
         factory = IUniswapV3Factory(npm.factory());
         operator = _operator;
+        if (_maxTWAPTickDifference > uint16(type(int16).max) || _TWAPSeconds == 0) {
+            revert InvalidConfig();
+        }
         TWAPSeconds = _TWAPSeconds;
+        maxTWAPTickDifference = _maxTWAPTickDifference;
         emit OperatorChanged(address(0), _operator);
     }
 
     /**
-     * @notice Admin function to change operator address
+     * @notice Owner controlled function to change operator address
      */
     function setOperator(address _operator) external onlyOwner {
         emit OperatorChanged(operator, _operator);
         operator = _operator;
+    }
+
+    /**
+     * @notice Owner controlled function to increase TWAPSeconds / decrease maxTWAPTickDifference
+     */
+    function setTWAPConfig(uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) external onlyOwner {
+        if (_TWAPSeconds < TWAPSeconds) {
+            revert InvalidConfig();
+        }
+        if (_maxTWAPTickDifference > maxTWAPTickDifference) {
+            revert InvalidConfig();
+        }
+        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
+        TWAPSeconds = _TWAPSeconds;
+        maxTWAPTickDifference = _maxTWAPTickDifference;
     }
 
     /**
@@ -140,6 +158,7 @@ contract RangeAdjustor is Ownable {
         uint256 balance0;
         uint256 balance1;
         uint256 newTokenId;
+        int24 twapTick;
     }
 
     /**
@@ -181,7 +200,16 @@ contract RangeAdjustor is Ownable {
             state.currentTick < state.tickLower - config.lowerTickLimit ||
             state.currentTick >= state.tickUpper + config.upperTickLimit
         ) {
-            // calculate with current pool price (TODO do we need a TWAP oracle here??)
+            // get pool twap tick - if not enough history available this breaks
+            state.twapTick = _getTWAPTick(pool, TWAPSeconds);
+
+            // checks if out of valid range - revert
+            // this allows us to use current price and no remove / add slippage checks later on
+            if (state.twapTick - state.currentTick < -int16(maxTWAPTickDifference) || state.twapTick - state.currentTick > int16(maxTWAPTickDifference)) {
+                revert OraclePriceCheckFailed();
+            }
+
+            // calculate with current pool price
             state.priceX96 = FullMath.mulDiv(
                 state.sqrtPriceX96,
                 state.sqrtPriceX96,
@@ -214,8 +242,8 @@ contract RangeAdjustor is Ownable {
                     INonfungiblePositionManager.DecreaseLiquidityParams(
                         params.tokenId,
                         state.liquidity,
-                        0,
-                        0,
+                        0, // no slippage check needed 
+                        0, // no slippage check needed 
                         params.deadline
                     )
                 );
@@ -281,8 +309,8 @@ contract RangeAdjustor is Ownable {
                 params.swap0To1 ? params.amountIn : 0,
                 params.swap0To1 ? minAmountOut : 0,
                 params.swap0To1 ? params.swapData : bytes(""),
-                0, // no add slippage check needed
-                0, // no add slippage check needed
+                0, // no slippage check needed 
+                0, // no slippage check needed 
                 ""
             ));
 
@@ -290,7 +318,7 @@ contract RangeAdjustor is Ownable {
                 revert AdjustStateError();
             }
 
-            //TODO reset approvals needed? v3Utils it our trusted contract after all
+            // reset approvals not needed - v3Utils it our trusted contract and uses all approv
    
             // copy token config for new token
             configs[state.newTokenId] = config;
@@ -315,6 +343,16 @@ contract RangeAdjustor is Ownable {
         }
     }
 
+    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 0; // from (before)
+        secondsAgos[1] = twapPeriod; // from (before)
+
+        // pool observe may fail when there is not enough history available
+        (int56[] memory tickCumulatives,) = pool.observe(secondsAgos);
+        return int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod)));
+    }
+
     // get pool for token
     function _getPool(
         address tokenA,
@@ -330,18 +368,20 @@ contract RangeAdjustor is Ownable {
             );
     }
 
-    // get tick spacing for fee tier
-    function _getTickSpacing(uint24 fee) internal pure returns (int24) {
+    // get tick spacing for fee tier (cached when possible)
+    function _getTickSpacing(uint24 fee) internal view returns (int24) {
         if (fee == 10000) {
             return 200;
         } else if (fee == 3000) {
             return 60;
         } else if (fee == 500) {
             return 10;
-        } else if (fee == 100) {
-            return 1;
         } else {
-            revert NotSupportedFeeTier();
+            int24 spacing = factory.feeAmountTickSpacing(fee);
+            if (spacing <= 0) {
+                revert NotSupportedFeeTier();
+            }
+            return spacing;
         }
     }
 }

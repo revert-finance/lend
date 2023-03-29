@@ -15,11 +15,30 @@ contract RangeAdjustorIntegrationTest is TestBase {
         NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(rangeAdjustor), TEST_NFT);
     }
 
+    function testSetTWAPSeconds() external {
+        uint16 maxTWAPTickDifference = rangeAdjustor.maxTWAPTickDifference();
+        rangeAdjustor.setTWAPConfig(120, maxTWAPTickDifference);
+        assertEq(rangeAdjustor.TWAPSeconds(), 120);
+
+        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        rangeAdjustor.setTWAPConfig(60, maxTWAPTickDifference);
+    }
+
+    function testSetMaxTWAPTickDifference() external {
+        uint32 TWAPSeconds = rangeAdjustor.TWAPSeconds();
+        rangeAdjustor.setTWAPConfig(TWAPSeconds, 5);
+        assertEq(rangeAdjustor.maxTWAPTickDifference(), 5);
+
+        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        rangeAdjustor.setTWAPConfig(TWAPSeconds, 10);
+    }
+
     function testSetOperator() external {
         assertEq(rangeAdjustor.operator(), OPERATOR_ACCOUNT);
         rangeAdjustor.setOperator(TEST_NFT_ACCOUNT);
         assertEq(rangeAdjustor.operator(), TEST_NFT_ACCOUNT);
     }
+
 
     function testUnauthorizedSetConfig() external {
         vm.expectRevert(RangeAdjustor.Unauthorized.selector);
@@ -247,6 +266,23 @@ contract RangeAdjustorIntegrationTest is TestBase {
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(RangeAdjustor.SameRange.selector);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(tokenId, false, 0, "", block.timestamp, false, 7124618988448545));
+    }
+
+    function testOracleCheck() external {
+
+        // create range adjustor with more strict oracle config    
+        rangeAdjustor = new RangeAdjustor(v3utils, OPERATOR_ACCOUNT, 60 * 30, 4);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.setApprovalForAll(address(rangeAdjustor), true);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
+
+        // OraclePriceCheckFailed
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(RangeAdjustor.OraclePriceCheckFailed.selector);
+        rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 7124618988448545));
     }
 
     function _get03WETHToDAISwapData() internal view returns (bytes memory) {
