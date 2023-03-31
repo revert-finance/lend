@@ -10,7 +10,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../src/V3Utils.sol";
 import "../src/NFTHolder.sol";
-import "../src/RangeAdjustor.sol";
+import "../src/runners/RangeAdjustor.sol";
+import "../src/runners/StopLossLimitor.sol";
 
 import "../src/modules/CompoundorModule.sol";
 import "../src/modules/StopLossLimitModule.sol";
@@ -83,6 +84,7 @@ abstract contract TestBase is Test {
     NFTHolder holder;
     V3Utils v3utils;
     RangeAdjustor rangeAdjustor;
+    StopLossLimitor stopLossLimitor;
 
     CompoundorModule compoundorModule;
     StopLossLimitModule stopLossLimitModule;
@@ -106,7 +108,10 @@ abstract contract TestBase is Test {
 
         holder = new NFTHolder(NPM);
         v3utils = new V3Utils(NPM, EX0x);
+
+        // runners
         rangeAdjustor = new RangeAdjustor(v3utils, OPERATOR_ACCOUNT, 60, 100);
+        stopLossLimitor = new StopLossLimitor(v3utils, OPERATOR_ACCOUNT, 60, 100);
 
         holder.setFlashTransformContract(address(v3utils));
     }

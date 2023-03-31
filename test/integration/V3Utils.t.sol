@@ -16,6 +16,8 @@ contract V3UtilsIntegrationTest is TestBase {
             address(0),
             0,
             0,
+            0,
+            0,
             "",
             0,
             0,
@@ -73,6 +75,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
             address(USDC),
+            0,
+            0,
             1000000000000000001,
             400000,
             _get05DAIToUSDCSwapData(),
@@ -150,6 +154,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
             address(USDC),
+            0,
+            0,
             500000000000000000,
             400000,
             _get05DAIToUSDCSwapData(),
@@ -195,6 +201,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
             address(USDC),
+            0,
+            0,
             500000000000000000,
             400000,
             _get05DAIToUSDCSwapData(),
@@ -238,6 +246,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.COMPOUND_FEES,
             address(0),
+            0,
+            0,
             0,
             0,
             "",
@@ -293,6 +303,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.COMPOUND_FEES,
             address(USDC),
+            0,
+            0,
             500000000000000000,
             400000,
             _get05DAIToUSDCSwapData(),
@@ -354,6 +366,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
             address(USDC),
+            0,
+            0,
             990099009900989844, // uniswap returns 1 less when getting liquidity - this must be traded
             900000,
             _get1DAIToUSDSwapData(),
@@ -415,6 +429,8 @@ contract V3UtilsIntegrationTest is TestBase {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
             address(USDC),
+            0,
+            0,
             990099009900989844, // uniswap returns 1 less when getting liquidity - this must be traded
             900000,
             _get1DAIToUSDSwapData(),

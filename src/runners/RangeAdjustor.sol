@@ -1,28 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
-import "v3-core/interfaces/IUniswapV3Factory.sol";
-import "v3-core/interfaces/IUniswapV3Pool.sol";
-import "v3-core/libraries/TickMath.sol";
-import "v3-core/libraries/FullMath.sol";
-
-import "./V3Utils.sol";
+import "./Runner.sol";
 
 /// @title RangeAdjustor
 /// @notice Allows operator of RangeAdjustor contract (Revert controlled bot) to change range for configured positions
-/// Positions need to be approved for the contract and configured with setConfig method
-contract RangeAdjustor is Ownable {
+/// Positions need to be approved for all NFTs for the contract and configured with setConfig method
+contract RangeAdjustor is Runner {
+
     error Unauthorized();
     error WrongContract();
-    error InvalidConfig();
-    error NotSupportedFeeTier();
     error AdjustStateError();
     error NotConfigured();
     error NotReady();
     error SameRange();
-    error OraclePriceCheckFailed();
 
     event PositionConfigured(
         uint256 indexed tokenId,
@@ -34,20 +25,7 @@ contract RangeAdjustor is Ownable {
         uint64 maxGasFeeRewardX64
     );
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
-    event OperatorChanged(address indexed oldOperator, address indexed newOperator);
-    event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
 
-    uint256 private constant Q64 = 2 ** 64;
-    uint256 private constant Q96 = 2 ** 96;
-
-    V3Utils public immutable v3Utils;
-    INonfungiblePositionManager public immutable nonfungiblePositionManager;
-    IUniswapV3Factory public immutable factory;
-
-    // configurable by owner
-    address public operator;
-    uint32 public TWAPSeconds;
-    uint16 public maxTWAPTickDifference;
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
@@ -64,42 +42,7 @@ contract RangeAdjustor is Ownable {
     // configured tokens
     mapping(uint256 => PositionConfig) public configs;
 
-    constructor(V3Utils _v3Utils, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) {
-        v3Utils = _v3Utils;
-        INonfungiblePositionManager npm = _v3Utils.nonfungiblePositionManager();
-        nonfungiblePositionManager = npm;
-        factory = IUniswapV3Factory(npm.factory());
-        operator = _operator;
-        emit OperatorChanged(address(0), _operator);
-        if (_maxTWAPTickDifference > uint16(type(int16).max) || _TWAPSeconds == 0) {
-            revert InvalidConfig();
-        }
-        TWAPSeconds = _TWAPSeconds;
-        maxTWAPTickDifference = _maxTWAPTickDifference;
-        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
-    }
-
-    /**
-     * @notice Owner controlled function to change operator address
-     */
-    function setOperator(address _operator) external onlyOwner {
-        emit OperatorChanged(operator, _operator);
-        operator = _operator;
-    }
-
-    /**
-     * @notice Owner controlled function to increase TWAPSeconds / decrease maxTWAPTickDifference
-     */
-    function setTWAPConfig(uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) external onlyOwner {
-        if (_TWAPSeconds < TWAPSeconds) {
-            revert InvalidConfig();
-        }
-        if (_maxTWAPTickDifference > maxTWAPTickDifference) {
-            revert InvalidConfig();
-        }
-        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
-        TWAPSeconds = _TWAPSeconds;
-        maxTWAPTickDifference = _maxTWAPTickDifference;
+    constructor(V3Utils _v3Utils, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) Runner(_v3Utils, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
     }
 
     /**
@@ -143,7 +86,6 @@ contract RangeAdjustor is Ownable {
     }
 
     struct AdjustState {
-        address operator;
         address owner;
         uint160 sqrtPriceX96;
         uint256 priceX96;
@@ -182,7 +124,7 @@ contract RangeAdjustor is Ownable {
         // check if in valid range for move range
         (
             ,
-            state.operator,
+            ,
             state.token0,
             state.token1,
             state.fee,
@@ -201,14 +143,8 @@ contract RangeAdjustor is Ownable {
             state.currentTick < state.tickLower - config.lowerTickLimit ||
             state.currentTick >= state.tickUpper + config.upperTickLimit
         ) {
-            // get pool twap tick - if not enough history available this breaks
-            state.twapTick = _getTWAPTick(pool, TWAPSeconds);
-
-            // checks if out of valid range - revert
-            // this allows us to use current price and no remove / add slippage checks later on
-            if (state.twapTick - state.currentTick < -int16(maxTWAPTickDifference) || state.twapTick - state.currentTick > int16(maxTWAPTickDifference)) {
-                revert OraclePriceCheckFailed();
-            }
+           
+            _doTWAPPriceCheck(pool, state.currentTick, TWAPSeconds, maxTWAPTickDifference);
 
             // calculate with current pool price
             state.priceX96 = FullMath.mulDiv(
@@ -217,13 +153,7 @@ contract RangeAdjustor is Ownable {
                 Q96
             );
 
-            uint256 minAmountOut = FullMath.mulDiv(
-                Q64 - config.maxSlippageX64,
-                params.swap0To1
-                    ? FullMath.mulDiv(params.amountIn, state.priceX96, Q96)
-                    : FullMath.mulDiv(params.amountIn, Q96, state.priceX96),
-                Q64
-            );
+            uint256 minAmountOut = _getMinAmountOut(params.amountIn, state.priceX96, config.maxSlippageX64, params.swap0To1);
             int24 tickSpacing = _getTickSpacing(state.fee);
 
             state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
@@ -262,27 +192,7 @@ contract RangeAdjustor is Ownable {
             state.amount0 = IERC20(state.token0).balanceOf(address(this));
             state.amount1 = IERC20(state.token1).balanceOf(address(this));
 
-            // max fee in feeToken
-            uint256 totalFeeTokenAmount = params.takeFeeFrom0 ? state.amount0 + FullMath.mulDiv(state.amount1, Q96, state.priceX96) : state.amount1 + FullMath.mulDiv(state.amount0, state.priceX96, Q96);
-
-            // calculate max permited fee amount for this position
-            uint256 maxFeeAmount = FullMath.mulDiv(totalFeeTokenAmount, configs[params.tokenId].maxGasFeeRewardX64, Q64);
-
-            // calculate fee amount which can be sent.. it can be less.. so it is the operators responsibility to do correct swap
-            uint256 effectiveFeeAmount = params.feeAmount > (params.takeFeeFrom0 ? state.amount0 : state.amount1) ? (params.takeFeeFrom0 ? state.amount0 : state.amount1) : params.feeAmount;
-            if (effectiveFeeAmount > maxFeeAmount) {
-                effectiveFeeAmount = maxFeeAmount;
-            }
-
-            // send fee to operator
-            SafeERC20.safeTransfer(IERC20(params.takeFeeFrom0 ? state.token0 : state.token1), operator, effectiveFeeAmount);
-
-            // calculate left tokens to add
-            if (params.takeFeeFrom0) {
-                state.amount0 -= effectiveFeeAmount;
-            } else {
-                state.amount1 -= effectiveFeeAmount;
-            }
+            (state.amount0, state.amount1) = _removeAndSendFeeToOperator(params.takeFeeFrom0, (params.takeFeeFrom0 ? state.token0 : state.token1), state.amount0, state.amount1, state.priceX96, params.feeAmount, configs[params.tokenId].maxGasFeeRewardX64);
            
             // approve tokens
             if (state.amount0 > 0) {
@@ -342,31 +252,6 @@ contract RangeAdjustor is Ownable {
         } else {
             revert NotReady();
         }
-    }
-
-    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24) {
-        uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = 0; // from (before)
-        secondsAgos[1] = twapPeriod; // from (before)
-
-        // pool observe may fail when there is not enough history available
-        (int56[] memory tickCumulatives,) = pool.observe(secondsAgos);
-        return int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod)));
-    }
-
-    // get pool for token
-    function _getPool(
-        address tokenA,
-        address tokenB,
-        uint24 fee
-    ) internal view returns (IUniswapV3Pool) {
-        return
-            IUniswapV3Pool(
-                PoolAddress.computeAddress(
-                    address(factory),
-                    PoolAddress.getPoolKey(tokenA, tokenB, fee)
-                )
-            );
     }
 
     // get tick spacing for fee tier (cached when possible)

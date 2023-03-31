@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "../TestBase.sol";
+import "../../TestBase.sol";
 
 contract RangeAdjustorIntegrationTest is TestBase {
    
@@ -20,7 +20,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
         rangeAdjustor.setTWAPConfig(120, maxTWAPTickDifference);
         assertEq(rangeAdjustor.TWAPSeconds(), 120);
 
-        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        vm.expectRevert(Runner.InvalidConfig.selector);
         rangeAdjustor.setTWAPConfig(60, maxTWAPTickDifference);
     }
 
@@ -29,7 +29,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
         rangeAdjustor.setTWAPConfig(TWAPSeconds, 5);
         assertEq(rangeAdjustor.maxTWAPTickDifference(), 5);
 
-        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        vm.expectRevert(Runner.InvalidConfig.selector);
         rangeAdjustor.setTWAPConfig(TWAPSeconds, 10);
     }
 
@@ -52,7 +52,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
     }
 
     function testInvalidConfig() external {
-        vm.expectRevert(RangeAdjustor.InvalidConfig.selector);
+        vm.expectRevert(Runner.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         rangeAdjustor.setConfig(TEST_NFT, RangeAdjustor.PositionConfig(0, 0, 1, 0, 0, 0));
     }
@@ -281,7 +281,7 @@ contract RangeAdjustorIntegrationTest is TestBase {
 
         // OraclePriceCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(RangeAdjustor.OraclePriceCheckFailed.selector);
+        vm.expectRevert(Runner.OraclePriceCheckFailed.selector);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 7124618988448545));
     }
 
