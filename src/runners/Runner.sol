@@ -20,6 +20,8 @@ abstract contract Runner is Ownable {
     error NotSupportedFeeTier();
     error OraclePriceCheckFailed();
     error InvalidConfig();
+    error EtherSendFailed();
+    error NotWETH();
 
     event OperatorChanged(address indexed oldOperator, address indexed newOperator);
     event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
@@ -30,6 +32,7 @@ abstract contract Runner is Ownable {
     V3Utils public immutable v3Utils;
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
+    IWETH9 immutable public weth;
 
     // configurable by owner
     address public operator;
@@ -41,6 +44,7 @@ abstract contract Runner is Ownable {
         v3Utils = _v3Utils;
         INonfungiblePositionManager npm = _v3Utils.nonfungiblePositionManager();
         nonfungiblePositionManager = npm;
+        weth = IWETH9(npm.WETH9());
         factory = IUniswapV3Factory(npm.factory());
         operator = _operator;
         emit OperatorChanged(address(0), _operator);
@@ -136,7 +140,7 @@ abstract contract Runner is Ownable {
         }
 
         // send fee to operator
-        SafeERC20.safeTransfer(IERC20(feeToken), operator, effectiveFeeAmount);
+        _transferToken(operator, IERC20(feeToken), effectiveFeeAmount, true);
 
         emit FeePaid(feeToken, effectiveFeeAmount, operator);
 
@@ -148,5 +152,25 @@ abstract contract Runner is Ownable {
         }
 
         return (amount0, amount1);
+    }
+
+    // transfers token (or unwraps WETH and sends ETH)
+    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
+        if (address(weth) == address(token) && unwrap) {
+            weth.withdraw(amount);
+            (bool sent, ) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            SafeERC20.safeTransfer(token, to, amount);
+        }
+    }
+
+    // needed for WETH unwrapping
+    receive() external payable {
+        if (msg.sender != address(weth)) {
+            revert NotWETH();
+        }
     }
 }

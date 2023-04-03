@@ -133,9 +133,9 @@ contract RangeAdjustorIntegrationTest is TestBase {
         uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
         assertEq(count, 4);
 
-        uint operatorBalanceBefore = WETH_ERC20.balanceOf(OPERATOR_ACCOUNT);
+        uint operatorBalanceBefore = OPERATOR_ACCOUNT.balance;
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
-        uint ownerWETHBalanceBefore = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 1000000000)); // max fee with 1% is 7124618988448545
@@ -146,11 +146,11 @@ contract RangeAdjustorIntegrationTest is TestBase {
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 0, "", block.timestamp, false, 1000000000));
 
         // fee sent to operator
-        assertEq(WETH_ERC20.balanceOf(OPERATOR_ACCOUNT) - operatorBalanceBefore, 1000000000);
+        assertEq(OPERATOR_ACCOUNT.balance - operatorBalanceBefore, 1000000000);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 0); // all was added to position
-        assertEq(WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT) - ownerWETHBalanceBefore, 429435809185194946); // leftover + fee + deposited = total in old position
+        assertEq(TEST_NFT_2_ACCOUNT.balance - ownerWETHBalanceBefore, 429435809185194946); // leftover + fee + deposited = total in old position
 
         count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
         assertEq(count, 5);
@@ -200,19 +200,19 @@ contract RangeAdjustorIntegrationTest is TestBase {
         vm.prank(TEST_NFT_2_ACCOUNT);
         rangeAdjustor.setConfig(TEST_NFT_2, RangeAdjustor.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
        
-        uint operatorBalanceBefore = WETH_ERC20.balanceOf(OPERATOR_ACCOUNT);
+        uint operatorBalanceBefore = OPERATOR_ACCOUNT.balance;
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
-        uint ownerWETHBalanceBefore = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustor.adjust(RangeAdjustor.AdjustParams(TEST_NFT_2, false, 300000000000000000, _get03WETHToDAISwapData(), block.timestamp, false, 1000000000)); // max fee with 1% is 7124618988448545
 
         // fee sent to operator
-        assertEq(WETH_ERC20.balanceOf(OPERATOR_ACCOUNT) - operatorBalanceBefore, 1000000000);
+        assertEq(OPERATOR_ACCOUNT.balance - operatorBalanceBefore, 1000000000);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 0); // all was added to position
-        assertEq(WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT) - ownerWETHBalanceBefore, 16216592418878959); // leftover + fee + deposited = total in old position
+        assertEq(TEST_NFT_2_ACCOUNT.balance - ownerWETHBalanceBefore, 16216592418878959); // leftover + fee + deposited = total in old position
 
         uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
 

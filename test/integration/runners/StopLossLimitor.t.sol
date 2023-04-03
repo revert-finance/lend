@@ -117,9 +117,9 @@ contract StopLossLimitorIntegrationTest is TestBase {
         vm.prank(TEST_NFT_2_ACCOUNT);
         stopLossLimitor.setConfig(TEST_NFT_2, StopLossLimitor.PositionConfig(true, false, false, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
 
-        uint operatorBalanceBefore = WETH_ERC20.balanceOf(OPERATOR_ACCOUNT);
+        uint operatorBalanceBefore = OPERATOR_ACCOUNT.balance;
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
-        uint ownerWETHBalanceBefore = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         // is not runnable with swap
         vm.prank(OPERATOR_ACCOUNT);
@@ -135,11 +135,11 @@ contract StopLossLimitorIntegrationTest is TestBase {
         stopLossLimitor.run(StopLossLimitor.RunParams(TEST_NFT_2, 0, "", block.timestamp, 1000000000));
 
         // fee sent to operator
-        assertEq(WETH_ERC20.balanceOf(OPERATOR_ACCOUNT) - operatorBalanceBefore, 1000000000);
+        assertEq(OPERATOR_ACCOUNT.balance - operatorBalanceBefore, 1000000000);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 311677619940061890346); // all available
-        assertEq(WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT) - ownerWETHBalanceBefore, 506903060556612041 - 1000000000); // all available
+        assertEq(TEST_NFT_2_ACCOUNT.balance - ownerWETHBalanceBefore, 506903060556612041 - 1000000000); // all available
     }
 
     function testStopLoss() external {
@@ -154,7 +154,7 @@ contract StopLossLimitorIntegrationTest is TestBase {
 
         uint operatorBalanceBefore = DAI.balanceOf(OPERATOR_ACCOUNT);
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
-        uint ownerWETHBalanceBefore = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         // is not runnable without swap
         vm.prank(OPERATOR_ACCOUNT);
@@ -174,7 +174,7 @@ contract StopLossLimitorIntegrationTest is TestBase {
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 1081354966761116147203); // all available
-        assertEq(WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT) - ownerWETHBalanceBefore, 0); // all available
+        assertEq(TEST_NFT_2_ACCOUNT.balance - ownerWETHBalanceBefore, 0); // all available
     }
 
     

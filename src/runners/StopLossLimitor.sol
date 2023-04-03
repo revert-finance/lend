@@ -3,8 +3,6 @@ pragma solidity ^0.8.0;
 
 import "./Runner.sol";
 
-import "forge-std/console.sol";
-
 /// @title StopLossLimitor
 /// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. 
 /// A revert controlled bot is responsible for the execution of optimized swaps
@@ -14,7 +12,7 @@ contract StopLossLimitor is Runner {
     error NotConfigured();
     error NotReady();
     error SwapWrong();
-
+    
     event PositionConfigured(
         uint256 indexed tokenId,
         bool isActive,
@@ -202,10 +200,10 @@ contract StopLossLimitor is Runner {
 
         // send rest to owner
         if (state.amount0 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token0), state.owner, state.amount0);
+            _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
         if (state.amount1 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token1), state.owner, state.amount1);
+            _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
         }
 
         emit StopLossLimitExecuted(params.tokenId, state.amount0, state.amount1);

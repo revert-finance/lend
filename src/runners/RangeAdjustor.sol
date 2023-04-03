@@ -98,6 +98,7 @@ contract RangeAdjustor is Runner {
         int24 currentTick;
         uint256 amount0;
         uint256 amount1;
+        uint256 value;
         uint256 balance0;
         uint256 balance1;
         uint256 newTokenId;
@@ -194,15 +195,25 @@ contract RangeAdjustor is Runner {
 
             (state.amount0, state.amount1) = _removeAndSendFeeToOperator(params.takeFeeFrom0, (params.takeFeeFrom0 ? state.token0 : state.token1), state.amount0, state.amount1, state.priceX96, params.feeAmount, configs[params.tokenId].maxGasFeeRewardX64);
            
-            // approve tokens
+            // approve tokens or unwrap WETH
             if (state.amount0 > 0) {
-                SafeERC20.safeApprove(IERC20(state.token0), address(v3Utils), state.amount0);
+                if (state.token0 == address(weth)) {
+                    weth.withdraw(state.amount0);
+                    state.value = state.amount0;
+                } else {
+                    SafeERC20.safeApprove(IERC20(state.token0), address(v3Utils), state.amount0);
+                }
             }
             if (state.amount1 > 0) {
-                SafeERC20.safeApprove(IERC20(state.token1), address(v3Utils), state.amount1);
+                if (state.token1 == address(weth)) {
+                    weth.withdraw(state.amount1);
+                    state.value = state.amount1;
+                } else {
+                    SafeERC20.safeApprove(IERC20(state.token1), address(v3Utils), state.amount1);
+                }
             }
-            
-            (state.newTokenId,,,) = v3Utils.swapAndMint(V3Utils.SwapAndMintParams(
+
+            (state.newTokenId,,,) = v3Utils.swapAndMint{value: state.value}(V3Utils.SwapAndMintParams(
                 IERC20(state.token0),
                 IERC20(state.token1), 
                 state.fee, 
@@ -229,7 +240,7 @@ contract RangeAdjustor is Runner {
                 revert AdjustStateError();
             }
 
-            // reset approvals not needed - v3Utils it our trusted contract and uses all approv
+            // reset approvals not needed - v3Utils it our trusted contract and uses all approved amount
    
             // copy token config for new token
             configs[state.newTokenId] = config;
