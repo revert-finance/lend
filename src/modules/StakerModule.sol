@@ -15,14 +15,14 @@ contract StakerModule is Module {
 
     bool public immutable override needsCheckOnCollect = true;
 
-    constructor(NFTHolder _holder) Module(_holder) {
+    constructor(INonfungiblePositionManager _npm) Module(_npm) {
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder(tokenId) external {
         // TODO init deposit struct - analog to onERC721Received in v3staker
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
         // TODO analog to withdrawToken in v3staker
     }
 

@@ -40,8 +40,8 @@ contract LockModuleTest is TestBase {
         uint lockTime = 300;
 
         LockModule.PositionConfig memory config = LockModule.PositionConfig(uint32(block.timestamp + lockTime));
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(config));
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(config));
         
         _addLiquidityAndDecreasePartial();
 
@@ -55,20 +55,20 @@ contract LockModuleTest is TestBase {
 
         // allow collect fees
         vm.prank(TEST_NFT_ACCOUNT);
-        (uint amount0, uint amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
+        (uint amount0, uint amount1, ) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(TEST_NFT, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
         assertEq(amount0, 499999999999999566);
         assertEq(amount1, 0);
 
         // don't allow remove liquidity
         vm.prank(TEST_NFT_ACCOUNT);
         vm.expectRevert(LockModule.IsLocked.selector);
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(TEST_NFT, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
 
         // goto releasetime
         vm.warp(block.timestamp + lockTime);
 
         // now allowed
         vm.prank(TEST_NFT_ACCOUNT);
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(TEST_NFT, 1, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
     }
 }

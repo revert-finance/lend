@@ -6,6 +6,7 @@ import "./Runner.sol";
 /// @title StopLossLimitor
 /// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. 
 /// A revert controlled bot is responsible for the execution of optimized swaps
+/// Positions need to be approved for all NFTs for the contract and configured with setConfig method
 contract StopLossLimitor is Runner {
 
     error Unauthorized();
@@ -111,6 +112,7 @@ contract StopLossLimitor is Runner {
         uint160 sqrtPriceX96;
         uint256 priceX96;
         uint256 minAmountOut;
+        address operator;
     }
 
     /**
@@ -131,7 +133,7 @@ contract StopLossLimitor is Runner {
         RunState memory state;
 
         // get position info
-        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) = nonfungiblePositionManager.positions(params.tokenId);
+        (,state.operator,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) = nonfungiblePositionManager.positions(params.tokenId);
         state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
 
         state.pool = _getPool(state.token0, state.token1, state.fee);
@@ -177,18 +179,19 @@ contract StopLossLimitor is Runner {
             params.deadline,
             address(this), // recieve tokens to this contract so fee can be collected
             state.owner, // no nft is minted so this doesn't matter
-            false,
+            false, // get them wrapped
             "",
             ""
         );
 
-        // initiate v3utils flow (can be replaced with temporary operator assignment)
-        nonfungiblePositionManager.safeTransferFrom(
-            state.owner,
-            address(v3Utils),
-            params.tokenId,
-            abi.encode(inst)
-        );
+        // initiate v3utils flow - with operator approval
+        if (state.operator != address(v3Utils)) {
+            nonfungiblePositionManager.approve(address(v3Utils), params.tokenId);
+        }
+        v3Utils.execute(params.tokenId, inst);
+        if (state.operator != address(v3Utils)) {
+            nonfungiblePositionManager.approve(state.operator, params.tokenId);
+        }
 
         // tokens are now available
         state.amount0 = IERC20(state.token0).balanceOf(address(this));
@@ -196,9 +199,10 @@ contract StopLossLimitor is Runner {
 
         bool takeFeeFrom0 = !state.isAbove && !state.isSwap || state.isAbove && state.isSwap;
 
+        // handle requested fee...
         (state.amount0, state.amount1) = _removeAndSendFeeToOperator(takeFeeFrom0, (takeFeeFrom0 ? state.token0 : state.token1), state.amount0, state.amount1, state.priceX96, params.feeAmount, configs[params.tokenId].maxGasFeeRewardX64);
 
-        // send rest to owner
+        // ... and send rest to owner
         if (state.amount0 > 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }

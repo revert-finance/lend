@@ -9,7 +9,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../src/V3Utils.sol";
-import "../src/NFTHolder.sol";
+import "../src/Holder.sol";
 import "../src/runners/RangeAdjustor.sol";
 import "../src/runners/StopLossLimitor.sol";
 
@@ -81,7 +81,7 @@ abstract contract TestBase is Test {
 
     uint256 mainnetFork;
 
-    NFTHolder holder;
+    Holder holder;
     V3Utils v3utils;
     RangeAdjustor rangeAdjustor;
     StopLossLimitor stopLossLimitor;
@@ -106,7 +106,7 @@ abstract contract TestBase is Test {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
 
-        holder = new NFTHolder(NPM);
+        holder = new Holder(NPM);
         v3utils = new V3Utils(NPM, EX0x);
 
         // runners
@@ -117,21 +117,22 @@ abstract contract TestBase is Test {
     }
 
     function _setupCompoundorModule(uint blocking) internal returns (uint8) {
-        compoundorModule = new CompoundorModule(holder);
+        compoundorModule = new CompoundorModule(NPM);
+        compoundorModule.setHolder(holder);
         return holder.addModule(compoundorModule, blocking);
     }
 
     function _setupStopLossLimitModule(uint blocking) internal returns (uint8) {
-        stopLossLimitModule = new StopLossLimitModule(holder, EX0x);
-
+        stopLossLimitModule = new StopLossLimitModule(NPM, EX0x);
+        stopLossLimitModule.setHolder(holder);
         assertEq(address(stopLossLimitModule.factory()), FACTORY);
 
         return holder.addModule(stopLossLimitModule, blocking);
     }
 
     function _setupLockModule(uint blocking) internal returns (uint8) {
-        lockModule = new LockModule(holder);
-
+        lockModule = new LockModule(NPM);
+        lockModule.setHolder(holder);
         assertEq(address(lockModule.factory()), FACTORY);
 
         return holder.addModule(lockModule, blocking);
@@ -176,7 +177,8 @@ abstract contract TestBase is Test {
         comptroller._supportMarket(cTokenWETH);
         comptroller._setCollateralFactor(cTokenWETH, fiftyPercent);
 
-        collateralModule = new CollateralModule(holder, address(comptroller), 60);
+        collateralModule = new CollateralModule(NPM, address(comptroller), 60);
+        collateralModule.setHolder(holder);
 
         // link module to comptroller
         comptroller._setCollateralModule(collateralModule);

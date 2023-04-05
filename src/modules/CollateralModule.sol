@@ -18,7 +18,7 @@ import 'v3-core/libraries/FixedPoint128.sol';
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
-import "../NFTHolder.sol";
+import "../Holder.sol";
 import "./Module.sol";
 import "./ICollateralModule.sol";
 
@@ -70,7 +70,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     bool public immutable override needsCheckOnCollect = true;
 
-    constructor(NFTHolder _holder, address _comptroller, uint16 _secondsUntilMax) Module(_holder) {
+    constructor(INonfungiblePositionManager _npm, address _comptroller, uint16 _secondsUntilMax) Module(_npm) {
         comptroller = _comptroller;
         secondsUntilMax = _secondsUntilMax;
     }
@@ -246,7 +246,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         address owner = holder.tokenOwners(params.tokenId);
 
         // this is done without collateral check here - it is done at the end of call
-        (uint256 amount0, uint256 amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, false, address(this), ""));
+        (uint256 amount0, uint256 amount1, ) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, false, address(this), ""));
 
         CErc20 cToken0 = _getCToken(state.token0);
         CErc20 cToken1 = _getCToken(state.token1);
@@ -304,7 +304,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
         // if position internal values are seized
         if (seizeLiquidity > 0 || seizeFeesToken0 > 0 || seizeFeesToken1 > 0) {
-            holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, false, liquidator, ""));
+            holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, false, liquidator, ""));
         }
 
         // if ctokens are seized
@@ -407,7 +407,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             
             bool isToken0 = state.tick < state.tickLower;
 
-            (state.amount0, state.amount1,) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, state.liquidity, 0, 0, isToken0 ? type(uint128).max : 0, isToken0 ? 0 : type(uint128).max, block.timestamp, false, address(this), ""));
+            (state.amount0, state.amount1,) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, state.liquidity, 0, 0, isToken0 ? type(uint128).max : 0, isToken0 ? 0 : type(uint128).max, block.timestamp, false, address(this), ""));
             
             state.amount = isToken0 ? state.amount0 : state.amount1;
             state.token = isToken0 ? state.token0 : state.token1;
@@ -575,6 +575,39 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, FixedPoint128.Q128);
     }
 
+    // checks for how many block pool is in given condition (below or above tick)
+    function _checkNumberOfBlocks(IUniswapV3Pool pool, uint16 secondsUntilMax, uint8 checkIntervals, int24 checkTick, bool isAbove) internal view returns (uint8) {
+
+        uint16 blockTime = secondsUntilMax / checkIntervals; 
+
+        uint32[] memory secondsAgos = new uint32[](checkIntervals + 1);
+        uint8 i;
+        for (; i <= checkIntervals; i++) {
+            secondsAgos[i] = i * blockTime;
+        }
+
+        int56 checkTickMul = int16(blockTime) * checkTick;
+
+        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
+            i = 0;
+            for (; i < checkIntervals; i++) {
+                if (isAbove) {
+                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) <= checkTickMul) {
+                        return i;
+                    }
+                } else {
+                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) >= checkTickMul) {
+                        return i;
+                    }
+                }
+            }
+        } catch {
+            revert NotEnoughHistory();
+        }
+
+        return checkIntervals;
+    }
+
     function _getFeeGrowthInside(
         IUniswapV3Pool pool,
         int24 tickLower,
@@ -612,7 +645,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
-    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder external {
+    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder(tokenId) external {
 
         PositionConfigParams memory params = abi.decode(data, (PositionConfigParams));
 
@@ -634,7 +667,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         _checkCollateral(owner);
     }
 
-    function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
+    function withdrawToken(uint256 tokenId, address owner) override onlyHolder(tokenId) external {
         // special case - if in range and lent - forces unlending sends tokens to caller
         _unlend(tokenId, true, owner, true);
         _checkCollateralWithoutToken(owner, tokenId);

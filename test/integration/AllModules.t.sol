@@ -28,23 +28,23 @@ contract AllModulesTest is TestBase {
 
     function testBlocked() external {
         
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](4);
-        params[0] = NFTHolder.ModuleParams(compoundorModuleIndex, "");
-        params[1] = NFTHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
-        params[2] = NFTHolder.ModuleParams(lockModuleIndex, abi.encode(LockModule.PositionConfig(0)));
-        params[3] = NFTHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](4);
+        params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
+        params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
+        params[2] = IHolder.ModuleParams(lockModuleIndex, abi.encode(LockModule.PositionConfig(0)));
+        params[3] = IHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
 
         vm.prank(TEST_NFT_3_ACCOUNT);
-        vm.expectRevert(NFTHolder.ModuleBlocked.selector);
+        vm.expectRevert(Holder.ModuleBlocked.selector);
         NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
     }
 
     function testCompleteExample() external {
            
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](3);
-        params[0] = NFTHolder.ModuleParams(compoundorModuleIndex, "");
-        params[1] = NFTHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
-        params[2] = NFTHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(true)));
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](3);
+        params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
+        params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
+        params[2] = IHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(true)));
 
         // add NFTs
         vm.prank(TEST_NFT_ACCOUNT);
@@ -107,7 +107,7 @@ contract AllModulesTest is TestBase {
 
         // before removing execute stop loss while collateral
         vm.prank(TEST_NFT_2_ACCOUNT);
-        holder.addTokenToModule(TEST_NFT_2_B, NFTHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(true, true, true, type(uint64).max, type(uint64).max, 192179, 193380))));
+        holder.addTokenToModule(TEST_NFT_2_B, IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(true, true, true, type(uint64).max, type(uint64).max, 192179, 193380))));
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2_B, ""));
 
         // all was removed by stop loss module - so 0 liquidity left

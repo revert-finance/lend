@@ -33,8 +33,8 @@ contract StopLossLimitModuleTest is TestBase {
                 token1TriggerTick
             );
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(config));
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(config));
 
         if (firstTime) {
             vm.prank(TEST_NFT_ACCOUNT);

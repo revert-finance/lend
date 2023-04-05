@@ -2,18 +2,18 @@
 pragma solidity ^0.8.0;
 
 import "./../../../src/modules/IModule.sol";
-import "./../../../src/NFTHolder.sol";
+import "./../../../src/Holder.sol";
 
 contract TestModule is IModule {
 
     error CheckCollectError();
 
-    NFTHolder holder;
+    Holder holder;
     bool checkOnCollectResponse;
 
     bool public immutable override needsCheckOnCollect = true;
 
-    constructor(NFTHolder _holder, bool _checkOnCollectResponse) {
+    constructor(Holder _holder, bool _checkOnCollectResponse) {
         holder = _holder;
         checkOnCollectResponse = _checkOnCollectResponse;
     }
@@ -35,7 +35,7 @@ contract TestModule is IModule {
     }
 
     function triggerCollectForTesting(uint256 tokenId) external {
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
     }
 
 }

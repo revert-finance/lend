@@ -42,7 +42,7 @@ contract StopLossLimitModule is Module {
 
     bool public immutable override needsCheckOnCollect = false;
 
-    constructor(NFTHolder _holder, address _swapRouter) Module(_holder) {
+    constructor(INonfungiblePositionManager _npm, address _swapRouter) Module(_npm) {
         swapRouter = _swapRouter;
     }
 
@@ -160,7 +160,7 @@ contract StopLossLimitModule is Module {
         state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
        
         // decrease full liquidity for given position (one sided only) - and return fees as well
-        (state.amount0, state.amount1, ) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
+        (state.amount0, state.amount1, ) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
 
         // swap to other token
         if (state.isSwap) {
@@ -180,7 +180,7 @@ contract StopLossLimitModule is Module {
                 (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
             } else {
                 state.amountInDelta = state.swapAmount;
-                state.amountOutDelta = _poolSwap(state.pool, state.token0, state.token1, state.fee, !state.isAbove, state.swapAmount, state.amountOutMin);
+                state.amountOutDelta = 0;
             }
 
             state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
@@ -213,7 +213,7 @@ contract StopLossLimitModule is Module {
         emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder(tokenId) external {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
         (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
@@ -223,18 +223,20 @@ contract StopLossLimitModule is Module {
             revert ConfigError();
         }
 
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
 
         // prepare pool to be ready with enough observations
-        (,,,,uint16 observationCardinalityNext,,) = pool.slot0();
-        if (observationCardinalityNext < TWAPSeconds) {
-            pool.increaseObservationCardinalityNext(uint16(TWAPSeconds)); // TODO what number to use here - can be less than TWAPSeconds
-        }
+
+        
+        //IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        //(,,,,uint16 observationCardinalityNext,,) = pool.slot0();
+        //if (observationCardinalityNext < TWAPSeconds) {
+        //    pool.increaseObservationCardinalityNext(uint16(TWAPSeconds)); // TODO what number to use here - can be less than TWAPSeconds
+        //}
         
         positionConfigs[tokenId] = config;
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
          delete positionConfigs[tokenId];
     }
 }

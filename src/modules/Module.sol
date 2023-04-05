@@ -1,36 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-
 import "forge-std/console.sol";
 
 import "./IModule.sol";
-import "../NFTHolder.sol";
+import "../IHolder.sol";
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import { SafeCast as OZSafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
 import "v3-core/libraries/TickMath.sol";
 import 'v3-core/libraries/SafeCast.sol';
-import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-periphery/interfaces/external/IWETH9.sol";
 
 // base functionality for modules
-abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
-
-    using SafeCast for uint256;
+abstract contract Module is IModule, Ownable {
 
     uint256 constant Q64 = 2**64;
     uint256 constant Q96 = 2**96;
 
     // errors
+    error HolderAlreadySet();
     error SwapFailed();
     error SlippageError();
     error TWAPCheckFailed();
@@ -39,24 +36,90 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     error EtherSendFailed();
     error NotEnoughHistory();
 
-    NFTHolder public immutable holder;
+    IHolder public holder;
     IWETH9 public immutable weth;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
     IUniswapV3Factory public immutable factory;
     
-    constructor(NFTHolder _holder) {
-        INonfungiblePositionManager npm = _holder.nonfungiblePositionManager();
-        holder = _holder;
+    constructor(INonfungiblePositionManager npm) {
         nonfungiblePositionManager = npm;
         weth = IWETH9(npm.WETH9());
         factory = IUniswapV3Factory(npm.factory());
     }
 
-    modifier onlyHolder() {
-        if (msg.sender != address(holder)) {
+    // sets holder contract as soon as deployed
+    function setHolder(IHolder _holder) onlyOwner external {
+        if (address(holder) != address(0)) {
+            revert HolderAlreadySet();
+        }
+        holder = _holder;
+    }
+
+    // used to check if a valid caller
+    modifier onlyHolder(uint tokenId) {
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        // if position in holder contract - must be called from there
+        if (msg.sender != owner) {
             revert Unauthorized();
         }
         _;
+    }
+
+    // helper to get owner of position
+    function _getOwner(uint tokenId) internal returns (address owner) {
+        IHolder _holder = holder;
+        if (address(_holder) != address(0)) {
+            owner = _holder.tokenOwners(tokenId);
+        }
+        if (owner == address(0)) {
+            owner = nonfungiblePositionManager.ownerOf(tokenId);
+        }
+    }
+
+    // decrease liquidity and collect
+    // if this module has an assigned holder contract and position is in holder - holder must do decreaseLiquidityAndCollect
+    function _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams memory params) internal returns (uint256 amount0, uint256 amount1, bytes memory callbackReturnData) {
+        
+        IHolder _holder = holder;
+
+        // if position is in holder - holder is responsible
+        if (nonfungiblePositionManager.ownerOf(params.tokenId) == address(_holder)) {
+            _holder.decreaseLiquidityAndCollect(params);
+        } else {
+            if (params.liquidity > 0) {
+                (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams(
+                        params.tokenId,
+                        params.liquidity,
+                        params.amount0Min,
+                        params.amount1Min,
+                        params.deadline
+                    )
+                );
+            }
+
+            (amount0, amount1) = nonfungiblePositionManager.collect(
+                INonfungiblePositionManager.CollectParams(
+                    params.tokenId,
+                    params.unwrap ? address(this) : params.recipient,
+                    amount0 + params.amountFees0Max >= type(uint128).max ? type(uint128).max : OZSafeCast.toUint128(amount0 + params.amountFees0Max),
+                    amount1 + params.amountFees1Max >= type(uint128).max ? type(uint128).max : OZSafeCast.toUint128(amount1 + params.amountFees1Max)
+                )
+            );
+
+            // if needs unwrapping - tokens are first recieved in this contract and then resent
+            if (params.unwrap) {
+                (,,address token0, address token1, , , , , , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+                if (amount0 > 0) {
+                    _transferToken(params.recipient, IERC20(token0), amount0, true);
+                }
+                if (amount1 > 0) {
+                    _transferToken(params.recipient, IERC20(token1), amount1, true);
+                }
+            }
+
+            callbackReturnData = decreaseLiquidityAndCollectCallback(params.tokenId, amount0, amount1, params.callbackData);
+        }
     }
 
     // helper method to get pool for token
@@ -101,40 +164,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
             return (int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod))), true);
         } catch {
             return (0, false);
-        } 
-    }
-
-    // checks for how many block pool is in given condition (below or above tick)
-    function _checkNumberOfBlocks(IUniswapV3Pool pool, uint16 secondsUntilMax, uint8 checkIntervals, int24 checkTick, bool isAbove) internal view returns (uint8) {
-
-        uint16 blockTime = secondsUntilMax / checkIntervals; 
-
-        uint32[] memory secondsAgos = new uint32[](checkIntervals + 1);
-        uint8 i;
-        for (; i <= checkIntervals; i++) {
-            secondsAgos[i] = i * blockTime;
         }
-
-        int56 checkTickMul = int16(blockTime) * checkTick;
-
-        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            i = 0;
-            for (; i < checkIntervals; i++) {
-                if (isAbove) {
-                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) <= checkTickMul) {
-                        return i;
-                    }
-                } else {
-                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) >= checkTickMul) {
-                        return i;
-                    }
-                }
-            }
-        } catch {
-            revert NotEnoughHistory();
-        }
-
-        return checkIntervals;
     }
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
@@ -162,7 +192,7 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
 
     // general swap function which uses external router with off-chain calculated swap instructions
     // does price difference check with amountOutMin param (calculated based on oracle verified price)
-    // NOTE: can be only called from trusted context (nft owner / contract owner) because otherwise swapData can be manipulated to return always amountOutMin
+    // NOTE: can be only called from (partially) trusted context (nft owner / contract owner / operator) because otherwise swapData can be manipulated to return always amountOutMin
     // returns new token amounts after swap
     function _swap(address swapRouter, IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 amountOutMin, bytes memory swapData) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
         if (amountIn > 0 && swapData.length > 0) {
@@ -197,51 +227,20 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
         }
     }
 
-    // general swap function which uses given pool to swap amount available in the contract
-    // returns new token amounts after swap
-    function _poolSwap(IUniswapV3Pool pool, address token0, address token1, uint24 fee, bool zeroForOne, uint256 amountIn, uint256 minAmountOut) internal returns (uint256 amountOut) {
-        
-        (int256 amount0, int256 amount1) = pool.swap(
-                address(this),
-                zeroForOne,
-                amountIn.toInt256(),
-                (zeroForOne ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
-                abi.encode(zeroForOne ? token0 : token1, zeroForOne ? token1 : token0, fee)
-            );
-
-        amountOut = uint256(-(zeroForOne ? amount1 : amount0));
-
-        if (amountOut < minAmountOut) {
-            revert SlippageError();
-        }
-    }
-
-    // swap callback function where amount for swap is payed - @inheritdoc IUniswapV3SwapCallback
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
-
-        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
-
-        // check if really called from pool
-        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(data, (address, address, uint24));
-        if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
-            revert Unauthorized();
-        }
-
-        // transfer needed amount of tokenIn
-        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
-    }
-
     // transfers token (or unwraps WETH and sends ETH)
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
-            (bool sent, ) = to.call{value: amount}("");
-            if (!sent) {
-                revert EtherSendFailed();
+            if (to != address(this)) {
+                (bool sent, ) = to.call{value: amount}("");
+                if (!sent) {
+                    revert EtherSendFailed();
+                }
             }
         } else {
-            SafeERC20.safeTransfer(token, to, amount);
+            if (to != address(this)) {
+                SafeERC20.safeTransfer(token, to, amount);
+            }
         }
     }
 
@@ -253,8 +252,8 @@ abstract contract Module is IModule, Ownable, IUniswapV3SwapCallback {
     }
 
     // IModule default empty implementations
-    function addToken(uint256 tokenId, address, bytes calldata data) override virtual onlyHolder external { }
-    function withdrawToken(uint256 tokenId, address) override virtual onlyHolder external { }
+    function addToken(uint256 tokenId, address, bytes calldata data) override virtual external { }
+    function withdrawToken(uint256 tokenId, address) override virtual external { }
     function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override virtual external  { }
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes calldata data) override virtual external returns (bytes memory returnData) { }
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override virtual public returns (bytes memory returnData) { }
 }

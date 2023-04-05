@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../TestBase.sol";
 
-contract NFTHolderTest is TestBase {
+contract HolderTest is TestBase {
    
     function setUp() external {
         _setupBase();
@@ -25,7 +25,7 @@ contract NFTHolderTest is TestBase {
 
         // withdraw all fees
         vm.prank(TEST_NFT_4_ACCOUNT);
-        (uint256 amount0, uint256 amount1,) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_4, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
+        (uint256 amount0, uint256 amount1,) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_4, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
 
         uint balance0After = USDC.balanceOf(address(this));
         uint balance1After = WETH_ERC20.balanceOf(address(this));
@@ -46,7 +46,7 @@ contract NFTHolderTest is TestBase {
 
         // withdraw all fees
         vm.prank(TEST_NFT_4_ACCOUNT);
-        (uint256 amount0, uint256 amount1,) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_4, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, true, address(this), ""));
+        (uint256 amount0, uint256 amount1,) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(TEST_NFT_4, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, true, address(this), ""));
 
         uint balance0After = USDC.balanceOf(address(this));
         uint balance1After = address(this).balance;

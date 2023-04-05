@@ -4,21 +4,21 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "./../../src/NFTHolder.sol";
+import "./../../src/Holder.sol";
 
 import "./mock/WETH9.sol";
 import "./mock/TestModule.sol";
 import "./mock/TestNFT.sol";
 import "./mock/TestFlashTransform.sol";
 
-contract NFTHolderUnitTest is Test, IERC721Receiver {
+contract HolderUnitTest is Test, IERC721Receiver {
 
-    // copy-pasted events from NFTHolder - needed to be testable
+    // copy-pasted events from Holder - needed to be testable
     event AddedModule(uint8 index, IModule implementation);
     event SetModuleBlocking(uint8 index, uint blocking);
 
     TestNFT testNFT;
-    NFTHolder holder;
+    Holder holder;
     WETH9 weth9;
     uint tokenId;
     TestModule module1;
@@ -42,7 +42,7 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
 
         nonfungiblePositionManager = INonfungiblePositionManager(address(testNFT));
 
-        holder = new NFTHolder(nonfungiblePositionManager);
+        holder = new Holder(nonfungiblePositionManager);
 
         module1 = new TestModule(holder, true);
         module2 = new TestModule(holder, false);
@@ -101,23 +101,23 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, "");
 
         // can't add to blocked module
-        vm.expectRevert(NFTHolder.ModuleBlocked.selector);
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(moduleIndex, ""));
+        vm.expectRevert(Holder.ModuleBlocked.selector);
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(moduleIndex, ""));
 
         holder.setModuleBlocking(moduleIndex, 0);
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(moduleIndex, ""));
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(moduleIndex, ""));
 
         uint8 module2Index = holder.addModule(module2, (1 << moduleIndex));
 
         // can't add to module blocked by other active module
-        vm.expectRevert(NFTHolder.ModuleBlocked.selector);
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
+        vm.expectRevert(Holder.ModuleBlocked.selector);
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(module2Index, ""));
 
         // remove from blocking module
         holder.removeTokenFromModule(tokenId, moduleIndex);
 
         // now can be added to new module
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(module2Index, ""));
     }
 
     function testMaxNfts() external {
@@ -131,7 +131,7 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         uint id = testNFT.mint();
 
         // can't add one more
-        vm.expectRevert(NFTHolder.MaxTokensReached.selector);
+        vm.expectRevert(Holder.MaxTokensReached.selector);
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), id, "");
     }
 
@@ -154,7 +154,7 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         uint balanceBefore = testNFT.balanceOf(address(holder));
 
         testNFT.approve(address(holder), tokenId);
-        NFTHolder.ModuleParams[] memory initialModules;
+        IHolder.ModuleParams[] memory initialModules;
         holder.addToken(tokenId, initialModules);
 
         uint balanceAfter = testNFT.balanceOf(address(holder));
@@ -166,8 +166,8 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
 
         uint8 moduleIndex = holder.addModule(module1, 0);
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, "");
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, "");
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, abi.encode(params));
         assertEq(holder.tokenOwners(tokenId), address(this));
         assertEq(holder.tokenModules(tokenId), 1 << moduleIndex);
@@ -178,9 +178,9 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         uint8 moduleIndex = holder.addModule(module1, 0);
         uint8 moduleIndex2 = holder.addModule(module2, 0);
 
-        NFTHolder.ModuleParams[] memory initialModules = new NFTHolder.ModuleParams[](2);
-        initialModules[0] = NFTHolder.ModuleParams(moduleIndex, "");
-        initialModules[1] = NFTHolder.ModuleParams(moduleIndex2, "");
+        IHolder.ModuleParams[] memory initialModules = new IHolder.ModuleParams[](2);
+        initialModules[0] = IHolder.ModuleParams(moduleIndex, "");
+        initialModules[1] = IHolder.ModuleParams(moduleIndex2, "");
 
         testNFT.approve(address(holder), tokenId);       
         holder.addToken(tokenId, initialModules);
@@ -193,19 +193,19 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         TestNFT otherNFT = new TestNFT();
         uint otherTokenId = otherNFT.mint();
 
-        vm.expectRevert(NFTHolder.WrongContract.selector);
+        vm.expectRevert(Holder.WrongContract.selector);
         otherNFT.safeTransferFrom(address(this), address(holder), otherTokenId, "");
     }
 
     function testUnauthorizedWithdraw() external {
-        vm.expectRevert(NFTHolder.Unauthorized.selector);
+        vm.expectRevert(Holder.Unauthorized.selector);
         holder.withdrawToken(123, address(this), "");
     }
 
     function testIllegalWithdraw() external {
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, "");
 
-        vm.expectRevert(NFTHolder.InvalidWithdrawTarget.selector);
+        vm.expectRevert(Holder.InvalidWithdrawTarget.selector);
         holder.withdrawToken(tokenId, address(holder), "");
     }
 
@@ -222,8 +222,8 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
 
         assertEq(holder.tokenModules(tokenId), 0);
 
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(1, ""));
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(255, ""));
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(1, ""));
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(255, ""));
 
         assertEq(holder.tokenModules(tokenId), (1 << 1) + (1 << 255));
 
@@ -255,31 +255,31 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         uint8 module2Index = holder.addModule(module2, 0);
         
         // register for first module
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, "");
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, "");
         nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), tokenId, abi.encode(params));
 
         // enabled module - ok
         module1.triggerCollectForTesting(tokenId);
 
         // not enabled module - nok
-        vm.expectRevert(NFTHolder.Unauthorized.selector);
+        vm.expectRevert(Holder.Unauthorized.selector);
         module2.triggerCollectForTesting(tokenId);
 
         // owner - ok
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
 
         // other account - nok
-        vm.expectRevert(NFTHolder.Unauthorized.selector);
+        vm.expectRevert(Holder.Unauthorized.selector);
         vm.prank(address(holder)); // dummy account
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
 
         // register for module which blocks withdrawals 
-        holder.addTokenToModule(tokenId, NFTHolder.ModuleParams(module2Index, ""));
+        holder.addTokenToModule(tokenId, IHolder.ModuleParams(module2Index, ""));
 
         // owner - nok anymore
         vm.expectRevert(TestModule.CheckCollectError.selector);
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
 
         // enabled module - nok anymore
         vm.expectRevert(TestModule.CheckCollectError.selector);
@@ -292,7 +292,7 @@ contract NFTHolderUnitTest is Test, IERC721Receiver {
         holder.removeTokenFromModule(tokenId, module2Index);
 
         // ok again
-        holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
+        holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
     }
 
     function testTransform() external {

@@ -7,7 +7,7 @@ interface IModule {
     function checkOnCollect(uint256 tokenId, address owner, uint128 liquidity, uint256 amount0, uint256 amount1) external;
 
     // callback which allows using the decreased liquidity before other modules are checked
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes calldata data) external returns (bytes memory returnData);
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) external returns (bytes memory returnData);
 
     function needsCheckOnCollect() external returns (bool);
 }

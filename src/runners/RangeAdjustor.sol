@@ -26,7 +26,6 @@ contract RangeAdjustor is Runner {
     );
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
 
-
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
     struct PositionConfig {

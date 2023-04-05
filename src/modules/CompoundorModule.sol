@@ -7,15 +7,15 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
-import "v3-core/interfaces/IUniswapV3Factory.sol";
-import "v3-core/interfaces/IUniswapV3Pool.sol";
-import "v3-core/libraries/TickMath.sol";
+import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 /// @title CompoundorModule
 /// @notice Adds auto-compounding capability (improved logic from old compoundor)
-contract CompoundorModule is Module, ReentrancyGuard, Multicall {
+contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapCallback {
+
+    using OZSafeCast for uint256;
 
     // config changes
     event RewardUpdated(address account, uint64 totalRewardX64, uint64 compounderRewardX64);
@@ -50,9 +50,15 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
     // balances
     mapping(address => mapping(address => uint256)) public accountBalances;
 
+    
+    struct PositionConfig {
+        bool isActive;
+    }
+    mapping (uint256 => PositionConfig) positionConfigs;
+
     bool public immutable override needsCheckOnCollect = false;
 
-    constructor(NFTHolder _holder) Module(_holder) {
+    constructor(INonfungiblePositionManager _npm) Module(_npm) {
     }
 
     /**
@@ -119,7 +125,6 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
         bool doSwap;
     }
 
-
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
@@ -128,23 +133,20 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
-    function autoCompound(AutoCompoundParams memory params)  
-        external 
-        nonReentrant 
-        returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) 
+    function autoCompound(AutoCompoundParams memory params) external nonReentrant returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) 
     {
-        address tokenOwner = holder.tokenOwners(params.tokenId);
+        address tokenOwner = _getOwner(params.tokenId);
         require(tokenOwner != address(0), "!found");
 
         // collects ONLY fees - NO liquidity
-        (,,bytes memory callbackReturnData) = holder.decreaseLiquidityAndCollect(NFTHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), abi.encode(msg.sender, tokenOwner, params)));
+        (,,bytes memory callbackReturnData) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), abi.encode(msg.sender, tokenOwner, params)));
 
         // handle return values - from callback return data
         (reward0, reward1, compounded0, compounded1) = abi.decode(callbackReturnData, (uint256, uint256, uint256, uint256));        
     }
 
     // callback function which is called directly after fees are available - but before checking other modules (e.g. to be able to compound and LATER check collateral)
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes calldata data) override onlyHolder external returns (bytes memory returnData) { 
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolder(tokenId) public returns (bytes memory returnData) { 
         
         // local vars
         AutoCompoundState memory state;    
@@ -466,8 +468,48 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall {
     }
 
     // IModule needed functions
-    function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder external { 
+    function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder(tokenId) external { 
         (,,address token0, address token1, uint24 fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         _checkApprovals(IERC20(token0), IERC20(token1));
+        positionConfigs[tokenId] = PositionConfig(true);
+    }
+
+    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
+         delete positionConfigs[tokenId];
+    }
+
+    // general swap function which uses given pool to swap amount available in the contract
+    // returns new token amounts after swap
+    function _poolSwap(IUniswapV3Pool pool, address token0, address token1, uint24 fee, bool zeroForOne, uint256 amountIn, uint256 minAmountOut) internal returns (uint256 amountOut) {
+        
+        (int256 amount0, int256 amount1) = pool.swap(
+                address(this),
+                zeroForOne,
+                amountIn.toInt256(),
+                (zeroForOne ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
+                abi.encode(zeroForOne ? token0 : token1, zeroForOne ? token1 : token0, fee)
+            );
+
+        amountOut = uint256(-(zeroForOne ? amount1 : amount0));
+
+        if (amountOut < minAmountOut) {
+            revert SlippageError();
+        }
+    }
+
+    // swap callback function where amount for swap is payed - @inheritdoc IUniswapV3SwapCallback
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+
+        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
+
+        // check if really called from pool
+        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(data, (address, address, uint24));
+        if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
+            revert Unauthorized();
+        }
+
+        // transfer needed amount of tokenIn
+        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
     }
 }

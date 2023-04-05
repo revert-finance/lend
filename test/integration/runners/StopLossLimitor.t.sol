@@ -77,7 +77,7 @@ contract StopLossLimitorIntegrationTest is TestBase {
         stopLossLimitor.setConfig(TEST_NFT_2, StopLossLimitor.PositionConfig(true, false, false, -84121, -78240, 0, 0));
 
         // fails when sending NFT
-        vm.expectRevert(abi.encodePacked("ERC721: transfer caller is not owner nor approved"));
+        vm.expectRevert(abi.encodePacked("ERC721: approve caller is not owner nor approved for all"));
         
         vm.prank(OPERATOR_ACCOUNT);
         stopLossLimitor.run(StopLossLimitor.RunParams(TEST_NFT_2, 0, "", block.timestamp, 0));

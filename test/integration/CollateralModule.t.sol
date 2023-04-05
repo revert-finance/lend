@@ -28,8 +28,8 @@ contract CollateralModuleTest is TestBase {
         data.owner = TEST_NFT_3_ACCOUNT;
         data.tokenId = TEST_NFT_3;
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
 
         vm.prank(data.owner);
         NPM.safeTransferFrom(
@@ -58,8 +58,8 @@ contract CollateralModuleTest is TestBase {
         data.owner = TEST_NFT_2_ACCOUNT;
         data.tokenId = TEST_NFT_2;
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(lendable)));
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(lendable)));
 
         vm.prank(data.owner);
         NPM.safeTransferFrom(

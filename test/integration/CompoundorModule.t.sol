@@ -16,8 +16,8 @@ contract CompoundorModuleTest is TestBase {
 
         vm.prank(TEST_NFT_3_ACCOUNT);
 
-        NFTHolder.ModuleParams[] memory params = new NFTHolder.ModuleParams[](1);
-        params[0] = NFTHolder.ModuleParams(moduleIndex, "");
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, "");
 
         NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
     }
@@ -124,8 +124,8 @@ contract CompoundorModuleTest is TestBase {
     function testFailInitiateAndAddToCompound() external {
         
         // instructions to add to compoundor compoundorModule
-        NFTHolder.ModuleParams[] memory moduleParams = new NFTHolder.ModuleParams[](1);
-        moduleParams[0] = NFTHolder.ModuleParams(moduleIndex, "");
+        IHolder.ModuleParams[] memory moduleParams = new IHolder.ModuleParams[](1);
+        moduleParams[0] = IHolder.ModuleParams(moduleIndex, "");
 
         // add one sided position
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(

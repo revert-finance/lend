@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "./IHolder.sol";
 import "./modules/IModule.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -16,9 +17,9 @@ import "v3-periphery/interfaces/external/IWETH9.sol";
 
 import { SafeCast as OZSafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-/// @title NFTHolder
+/// @title Holder
 /// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
-contract NFTHolder is IERC721Receiver, Ownable, Multicall {
+contract Holder is IHolder, Ownable, Multicall {
     uint256 public constant MAX_TOKENS_PER_ADDRESS = 20;
 
     /// @notice Wrapped native token address
@@ -64,24 +65,13 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
     address public flashTransformContract; // contract which is allowed to do flash transforms
     uint256 flashTransformedTokenId; // store tokenid which is flash transformed
 
-    struct Module {
-        IModule implementation; // 160 bits
-        uint256 blocking; // bitmap of modules which when active for the position don't allow the position to enter this module - if module is blocking itself -> deactivated
-    }
-
-    uint8 public modulesCount;
+    uint8 public override modulesCount;
     mapping(uint8 => Module) public modules;
-    mapping(address => uint8) public modulesIndex;
+    mapping(address => uint8) public override modulesIndex;
 
-    mapping(uint256 => address) public tokenOwners;
-    mapping(uint256 => uint256) public tokenModules;
+    mapping(uint256 => address) public override tokenOwners;
+    mapping(uint256 => uint256) public override tokenModules;
     mapping(address => uint256[]) public accountTokens;
-
-    // generic module params
-    struct ModuleParams {
-        uint8 index;
-        bytes data; // custom data to be passed to module on add / update
-    }
 
     function onERC721Received(
         address,
@@ -242,19 +232,6 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
         }
         flashTransformContract = _flashTransformContract;
         emit SetFlashTransformContract(_flashTransformContract);
-    }
-
-    struct DecreaseLiquidityAndCollectParams {
-        uint256 tokenId;
-        uint128 liquidity; // set to exact liquidity to be removed - 0 if only collect fees
-        uint256 amount0Min;
-        uint256 amount1Min;
-        uint128 amountFees0Max; // set to uint128.max for all fees (+ all liquidity removed)
-        uint128 amountFees1Max; // set to uint128.max for all fees (+ all liquidity removed)
-        uint256 deadline;
-        bool unwrap;
-        address recipient;
-        bytes callbackData; // data which is sent to callback
     }
 
     /// @notice flash transforms token - must be returned afterwards
@@ -457,12 +434,16 @@ contract NFTHolder is IERC721Receiver, Ownable, Multicall {
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
-            (bool sent, ) = to.call{value: amount}("");
-            if (!sent) {
-                revert EtherSendFailed();
+            if (to != address(this)) {
+                (bool sent, ) = to.call{value: amount}("");
+                if (!sent) {
+                    revert EtherSendFailed();
+                }
             }
         } else {
-            SafeERC20.safeTransfer(token, to, amount);
+            if (to != address(this)) {
+                SafeERC20.safeTransfer(token, to, amount);
+            }
         }
     }
 
