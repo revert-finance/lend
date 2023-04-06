@@ -8,14 +8,17 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
 /// @title StopLossLimitModule
-/// @notice Lets a v3 position to be automatically removed or swapped to the oposite token when it reaches a certain tick. 
-/// A revert controlled bot is responsible for the execution of optimized swaps
-/// Non-swap or pool-swap (if allowed by owner) operations can be called by anyone
+/// @notice Lets a v3 position to be automatically removed or swapped to the opposite token when it reaches a certain tick. 
+/// A revert controlled bot is responsible for the execution of optimized swaps (using external swap router)
+/// Positions need to be in holder or approved for all NFTs for the contract and configured with addToken method
 contract StopLossLimitModule is Module {
 
-    // events
-    event SwapRouterUpdated(address account, address swapRouter);
-    event RewardUpdated(address account, uint64 protocolRewardX64);
+    // admin events
+    event OperatorChanged(address newOperator);
+    event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
+    event SwapRouterChanged(address newSwapRouter);
+
+    // user events
     event Executed(
         address account,
         bool isSwap,
@@ -25,8 +28,19 @@ contract StopLossLimitModule is Module {
         address token0,
         address token1
     );
+    event PositionConfigured(
+        uint256 indexed tokenId,
+        bool isActive,
+        bool token0Swap,
+        bool token1Swap,
+        uint64 token0SlippageX64,
+        uint64 token1SlippageX64,
+        int24 token0TriggerTick,
+        int24 token1TriggerTick
+    );
 
     // errors 
+    error InvalidConfig();
     error NotFound();
     error NoLiquidity();
     error NotConfigured();
@@ -35,24 +49,40 @@ contract StopLossLimitModule is Module {
     error OnlyContractOwnerCanSwap();
     error ConfigError();
 
-    uint32 public maxTWAPTickDifference = 100; // 1%
-    uint32 public TWAPSeconds = 60;
-    uint64 public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
+    // configurable by owner
+    address public operator;
+    uint32 public TWAPSeconds;
+    uint16 public maxTWAPTickDifference;
     address public swapRouter;
+
+    //TODO make configurable
+    uint64 immutable public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
 
     bool public immutable override needsCheckOnCollect = false;
 
-    constructor(INonfungiblePositionManager _npm, address _swapRouter) Module(_npm) {
+    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) Module(_npm) {
         swapRouter = _swapRouter;
+        emit SwapRouterChanged(_swapRouter);
+
+        operator = _operator;
+        emit OperatorChanged(_operator);
+
+        if (_maxTWAPTickDifference > uint16(type(int16).max) || _TWAPSeconds == 0) {
+            revert InvalidConfig();
+        }
+        TWAPSeconds = _TWAPSeconds;
+        maxTWAPTickDifference = _maxTWAPTickDifference;
+        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
     }
 
     struct PositionConfig {
+
+        // if position is active
+        bool isActive;
+
         // should swap token to other token when triggered
         bool token0Swap;
         bool token1Swap;
-
-        // should a swap in the same pool be allowed (for decentralized keepers)
-        bool allowPoolSwap;
 
         // max price difference from current pool price for swap / Q64
         uint64 token0SlippageX64;
@@ -63,15 +93,58 @@ contract StopLossLimitModule is Module {
         int24 token1TriggerTick;
     }
 
-    mapping (uint256 => PositionConfig) positionConfigs;
+    mapping (uint256 => PositionConfig) public positionConfigs;
+
+    /**
+     * @notice Owner controlled function to change swap router (onlyOwner)
+     * @param _swapRouter new swap router
+     */
+    function setSwapRouter(address _swapRouter) external onlyOwner {
+        emit SwapRouterChanged(_swapRouter);
+        swapRouter = _swapRouter;
+    }
+
+    /**
+     * @notice Owner controlled function to change operator address
+     * @param _operator new operator
+     */
+    function setOperator(address _operator) external onlyOwner {
+        emit OperatorChanged(_operator);
+        operator = _operator;
+    }
+
+    /**
+     * @notice Owner controlled function to increase TWAPSeconds / decrease maxTWAPTickDifference
+     */
+    function setTWAPConfig(uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) external onlyOwner {
+        if (_TWAPSeconds < TWAPSeconds) {
+            revert InvalidConfig();
+        }
+        if (_maxTWAPTickDifference > maxTWAPTickDifference) {
+            revert InvalidConfig();
+        }
+        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
+        TWAPSeconds = _TWAPSeconds;
+        maxTWAPTickDifference = _maxTWAPTickDifference;
+    }
+
+    /**
+     * @notice Withdraws token balance for a address and token
+     * @param token Address of token to withdraw
+     * @param to Address to send t
+     */
+    function withdrawBalance(address token, address to) external onlyOwner {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (balance > 0) {
+            _transferToken(to, IERC20(token), balance, true);
+        }
+    }
 
     /// @notice params for execute()
     struct ExecuteParams {
-        // tokenid to process
-        uint256 tokenId;
-
-        // if its a swap order and caller is contract owner - can include optimized swap data
-        bytes swapData;
+        uint256 tokenId; // tokenid to process
+        bytes swapData; // if its a swap order - must include swap data
+        uint256 deadline; // for uniswap operations - operator promises fair value
     }
 
     struct ExecuteState {
@@ -93,51 +166,23 @@ contract StopLossLimitModule is Module {
         int24 tick;
         bool isSwap;
         bool isAbove;
-        bool isContractOwner;
         address owner;
     }
 
-    /**
-     * @notice Management method to change swap router (onlyOwner)
-     * @param _swapRouter new swap router
-     */
-    function setSwapRouter(address _swapRouter) external onlyOwner {
-        require(_swapRouter != address(0), "!swapRouter");
-        swapRouter = _swapRouter;
-        emit SwapRouterUpdated(msg.sender, _swapRouter);
-    }
-
-    /**
-     * @notice Management method to lower reward (onlyOwner)
-     * @param _protocolRewardX64 new reward (can't be higher than current reward)
-     */
-    function setReward(uint64 _protocolRewardX64) external onlyOwner {
-        require(_protocolRewardX64 <= protocolRewardX64, ">protocolRewardX64");
-        protocolRewardX64 = _protocolRewardX64;
-        emit RewardUpdated(msg.sender, _protocolRewardX64);
-    }
-
-    /**
-     * @notice Withdraws token balance for a address and token
-     * @param token Address of token to withdraw
-     * @param to Address to send t
-     */
-    function withdrawBalance(address token, address to) external onlyOwner {
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance > 0) {
-            _transferToken(to, IERC20(token), balance, true);
-        }
-    }
-
-
-    // function which can be executed by contract owner only (atm) when position is in certain state
+    // function which can be executed by operator account only when position is in certain state
+    // operator decides if it makes sense to execute it based on current gas price
     function execute(ExecuteParams memory params) external {
 
+        if (msg.sender != operator) {
+            revert Unauthorized();
+        }
+
         ExecuteState memory state;
-
-        state.isContractOwner = owner() == msg.sender;
-
         PositionConfig storage config = positionConfigs[params.tokenId];
+
+        if (!config.isActive) {
+            revert NotConfigured();
+        }
 
         // get position info
         (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
@@ -155,20 +200,16 @@ contract StopLossLimitModule is Module {
             revert NotInCondition();
         }
     
-        // check how many intervals already are in correct state
         state.isAbove = state.tick > config.token1TriggerTick;
         state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
        
         // decrease full liquidity for given position (one sided only) - and return fees as well
-        (state.amount0, state.amount1, ) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), ""));
+        (state.amount0, state.amount1, ) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, params.deadline, false, address(this), ""));
 
         // swap to other token
         if (state.isSwap) {
-            if (params.swapData.length == 0 && !config.allowPoolSwap) {
+            if (params.swapData.length == 0) {
                 revert MissingSwapData();
-            }
-            if (params.swapData.length > 0 && !state.isContractOwner) {
-                revert OnlyContractOwnerCanSwap();
             }
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
@@ -176,57 +217,56 @@ contract StopLossLimitModule is Module {
             // checks if price in valid oracle range and calculates amountOutMin
             (state.amountOutMin,,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
 
-            if (params.swapData.length > 0) {
-                (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
-            } else {
-                state.amountInDelta = state.swapAmount;
-                state.amountOutDelta = 0;
-            }
+            (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData);
 
             state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
             state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
         }
      
+        // protocol reward is grabbed from both tokens and kept in contract for later retrieval
         state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
         state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
 
-        // send final tokens to position owner - if any
-        state.owner = holder.tokenOwners(params.tokenId);
+        state.owner = _getOwner(params.tokenId);
         if (state.amount0 - state.protocolReward0 > 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0 - state.protocolReward0, true);
         }
         if (state.amount1 - state.protocolReward1 > 0) {
             _transferToken(state.owner, IERC20(state.token1), state.amount1 - state.protocolReward1, true);
         }
-        
-        // if caller not contract owner - directly send rewards - otherwise keep in contract for withdrawal when needed
-        if (!state.isContractOwner) {
-            if (state.protocolReward0 > 0) {
-                _transferToken(msg.sender, IERC20(state.token0), state.protocolReward0, true);
-            }
-            if (state.protocolReward1 > 0) {
-                _transferToken(msg.sender, IERC20(state.token1), state.protocolReward1, true);
-            }
-        }
 
         // log event
         emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder(tokenId) external {
-        PositionConfig memory config = abi.decode(data, (PositionConfig));
+    // function to configure module for position which is not in holder
+    function addTokenDirect(uint256 tokenId, PositionConfig memory config) external {
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (owner == address(holder) || owner != msg.sender) {
+            revert Unauthorized();
+        }
+        _addToken(tokenId, config);
+    }
 
+    // function to set config for token - can be only called from holder
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
+        PositionConfig memory config = abi.decode(data, (PositionConfig));
+        _addToken(tokenId, config);
+    }
+
+    function _addToken(uint tokenId, PositionConfig memory config) internal {
         (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
-        // trigger ticks have to be on the correct side of position range
-        if (tickLower <= config.token0TriggerTick || tickUpper > config.token1TriggerTick) {
-            revert ConfigError();
+        if (config.isActive) {
+            // trigger ticks have to be on the correct side of position range
+            (,,,,, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
+            if (tickLower <= config.token0TriggerTick || tickUpper > config.token1TriggerTick) {
+                revert InvalidConfig();
+            }
         }
 
-
-        // prepare pool to be ready with enough observations
-
-        
+        // TODO decide if this is needed here?
+        // prepare pool to be ready with enough observation
         //IUniswapV3Pool pool = _getPool(token0, token1, fee);
         //(,,,,uint16 observationCardinalityNext,,) = pool.slot0();
         //if (observationCardinalityNext < TWAPSeconds) {
@@ -234,9 +274,31 @@ contract StopLossLimitModule is Module {
         //}
         
         positionConfigs[tokenId] = config;
+
+        emit PositionConfigured(
+            tokenId,
+            config.isActive,
+            config.token0Swap,
+            config.token1Swap,
+            config.token0SlippageX64,
+            config.token1SlippageX64,
+            config.token0TriggerTick,
+            config.token1TriggerTick
+        );
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
+
+         emit PositionConfigured(
+            tokenId,
+            false,
+            false,
+            false,
+            0,
+            0,
+            0,
+            0
+         );
     }
 }

@@ -645,7 +645,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
-    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder(tokenId) external {
+    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder external {
 
         PositionConfigParams memory params = abi.decode(data, (PositionConfigParams));
 
@@ -667,7 +667,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         _checkCollateral(owner);
     }
 
-    function withdrawToken(uint256 tokenId, address owner) override onlyHolder(tokenId) external {
+    function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
         // special case - if in range and lent - forces unlending sends tokens to caller
         _unlend(tokenId, true, owner, true);
         _checkCollateralWithoutToken(owner, tokenId);

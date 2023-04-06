@@ -18,11 +18,11 @@ contract StakerModule is Module {
     constructor(INonfungiblePositionManager _npm) Module(_npm) {
     }
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder(tokenId) external {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
         // TODO init deposit struct - analog to onERC721Received in v3staker
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
         // TODO analog to withdrawToken in v3staker
     }
 

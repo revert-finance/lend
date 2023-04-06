@@ -26,7 +26,7 @@ contract LockModule is Module {
 
     bool public immutable override needsCheckOnCollect = true;
 
-    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder(tokenId) external {
+    function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
         // if locked can not be changed
@@ -37,7 +37,7 @@ contract LockModule is Module {
         positionConfigs[tokenId] = config;
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
         if (block.timestamp < positionConfigs[tokenId].releaseTime) {
             revert IsLocked();
         }

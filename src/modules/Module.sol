@@ -56,10 +56,8 @@ abstract contract Module is IModule, Ownable {
     }
 
     // used to check if a valid caller
-    modifier onlyHolder(uint tokenId) {
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
-        // if position in holder contract - must be called from there
-        if (msg.sender != owner) {
+    modifier onlyHolder() {
+        if (msg.sender != address(holder)) {
             revert Unauthorized();
         }
         _;
@@ -144,10 +142,10 @@ abstract contract Module is IModule, Ownable {
 
     // Checks if there was not more tick difference
     // returns false if not enough data available or tick difference >= maxDifference
-    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint32 maxDifference) internal view returns (bool) {
+    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference) internal view returns (bool) {
         (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
         if (twapOk) {
-            return twapTick > currentTick && (uint48(int48(twapTick - currentTick)) < maxDifference) || twapTick <= currentTick && (uint48(int48(twapTick - currentTick)) < maxDifference);
+            return twapTick - currentTick >= -int16(maxDifference) && twapTick - currentTick <= int16(maxDifference);
         } else {
             return false;
         }
@@ -169,7 +167,7 @@ abstract contract Module is IModule, Ownable {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint256 amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint32 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint256 amountOutMin, uint160 sqrtPriceX96, uint256 priceX96) {
+    function _validateSwap(bool swap0For1, uint256 amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint16 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint256 amountOutMin, uint160 sqrtPriceX96, uint256 priceX96) {
         
         // get current price and tick
         int24 currentTick;

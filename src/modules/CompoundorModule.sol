@@ -44,7 +44,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
     // changable config values
     uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
     uint64 public compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
-    uint32 public maxTWAPTickDifference = 100; // 1%
+    uint16 public maxTWAPTickDifference = 100; // 1%
     uint32 public TWAPSeconds = 60;
 
     // balances
@@ -78,7 +78,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
      * @notice Management method to change the max tick difference from twap to allow swaps (onlyOwner)
      * @param _maxTWAPTickDifference new max tick difference
      */
-    function setTWAPConfig(uint32 _maxTWAPTickDifference, uint32 _TWAPSeconds) external onlyOwner {
+    function setTWAPConfig(uint16 _maxTWAPTickDifference, uint32 _TWAPSeconds) external onlyOwner {
         maxTWAPTickDifference = _maxTWAPTickDifference;
         TWAPSeconds = _TWAPSeconds;
         emit TWAPConfigUpdated(msg.sender, _maxTWAPTickDifference, _TWAPSeconds);
@@ -146,7 +146,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
     }
 
     // callback function which is called directly after fees are available - but before checking other modules (e.g. to be able to compound and LATER check collateral)
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolder(tokenId) public returns (bytes memory returnData) { 
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolder public returns (bytes memory returnData) { 
         
         // local vars
         AutoCompoundState memory state;    
@@ -467,14 +467,23 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
         }
     }
 
+    // function to configure module for position which is not in holder
+    function addTokenDirect(uint256 tokenId, bool active) external {
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (owner == address(holder) || owner != msg.sender) {
+            revert Unauthorized();
+        }
+        positionConfigs[tokenId] = PositionConfig(active);
+    }
+
     // IModule needed functions
-    function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder(tokenId) external { 
+    function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder external { 
         (,,address token0, address token1, uint24 fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         _checkApprovals(IERC20(token0), IERC20(token1));
         positionConfigs[tokenId] = PositionConfig(true);
     }
 
-    function withdrawToken(uint256 tokenId, address) override onlyHolder(tokenId) external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
     }
 

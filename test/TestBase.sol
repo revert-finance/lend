@@ -11,7 +11,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../src/V3Utils.sol";
 import "../src/Holder.sol";
 import "../src/runners/RangeAdjustor.sol";
-import "../src/runners/StopLossLimitor.sol";
 
 import "../src/modules/CompoundorModule.sol";
 import "../src/modules/StopLossLimitModule.sol";
@@ -84,7 +83,6 @@ abstract contract TestBase is Test {
     Holder holder;
     V3Utils v3utils;
     RangeAdjustor rangeAdjustor;
-    StopLossLimitor stopLossLimitor;
 
     CompoundorModule compoundorModule;
     StopLossLimitModule stopLossLimitModule;
@@ -111,7 +109,6 @@ abstract contract TestBase is Test {
 
         // runners
         rangeAdjustor = new RangeAdjustor(v3utils, OPERATOR_ACCOUNT, 60, 100);
-        stopLossLimitor = new StopLossLimitor(v3utils, OPERATOR_ACCOUNT, 60, 100);
 
         holder.setFlashTransformContract(address(v3utils));
     }
@@ -123,7 +120,7 @@ abstract contract TestBase is Test {
     }
 
     function _setupStopLossLimitModule(uint blocking) internal returns (uint8) {
-        stopLossLimitModule = new StopLossLimitModule(NPM, EX0x);
+        stopLossLimitModule = new StopLossLimitModule(NPM, EX0x, OPERATOR_ACCOUNT, 60, 100);
         stopLossLimitModule.setHolder(holder);
         assertEq(address(stopLossLimitModule.factory()), FACTORY);
 

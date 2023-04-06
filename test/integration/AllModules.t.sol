@@ -108,7 +108,7 @@ contract AllModulesTest is TestBase {
         // before removing execute stop loss while collateral
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.addTokenToModule(TEST_NFT_2_B, IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(true, true, true, type(uint64).max, type(uint64).max, 192179, 193380))));
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2_B, ""));
+        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2_B, "", block.timestamp));
 
         // all was removed by stop loss module - so 0 liquidity left
         (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
