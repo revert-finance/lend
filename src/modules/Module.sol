@@ -201,7 +201,7 @@ abstract contract Module is IModule, Ownable {
             (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
 
             // approve needed amount
-            tokenIn.approve(allowanceTarget, amountIn);
+            SafeERC20.safeApprove(tokenIn, allowanceTarget, amountIn);
 
             // execute swap
             (bool success,) = swapRouter.call(data);
@@ -210,7 +210,7 @@ abstract contract Module is IModule, Ownable {
             }
 
             // remove any remaining allowance
-            tokenIn.approve(allowanceTarget, 0);
+            SafeERC20.safeApprove(tokenIn, allowanceTarget, 0);
 
             uint256 balanceInAfter = tokenIn.balanceOf(address(this));
             uint256 balanceOutAfter = tokenOut.balanceOf(address(this));

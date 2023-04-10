@@ -223,20 +223,22 @@ contract StopLossLimitModule is Module {
             state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
         }
      
-        // protocol reward is grabbed from both tokens and kept in contract for later retrieval
+        // protocol reward is removed from both token amounts and kept in contract for later retrieval
         state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
         state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
+        state.amount0 -= state.protocolReward0;
+        state.amount1 -= state.protocolReward1;
 
         state.owner = _getOwner(params.tokenId);
-        if (state.amount0 - state.protocolReward0 > 0) {
-            _transferToken(state.owner, IERC20(state.token0), state.amount0 - state.protocolReward0, true);
+        if (state.amount0 > 0) {
+            _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
-        if (state.amount1 - state.protocolReward1 > 0) {
-            _transferToken(state.owner, IERC20(state.token1), state.amount1 - state.protocolReward1, true);
+        if (state.amount1 > 0) {
+            _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
         }
 
         // log event
-        emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0 - state.protocolReward0, state.amount1 - state.protocolReward1, state.token0, state.token1);
+        emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0, state.amount1, state.token0, state.token1);
     }
 
     // function to configure module for position which is not in holder

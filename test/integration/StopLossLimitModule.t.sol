@@ -264,7 +264,7 @@ contract StopLossLimitModuleTest is TestBase {
         vm.prank(TEST_NFT_2_ACCOUNT);
         stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, uint64(Q64 / 100), uint64(Q64 / 100), -84121, -78240));
 
-        // OraclePriceCheckFailed
+        // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(Module.TWAPCheckFailed.selector);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));

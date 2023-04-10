@@ -10,12 +10,12 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../src/V3Utils.sol";
 import "../src/Holder.sol";
-import "../src/runners/RangeAdjustor.sol";
 
 import "../src/modules/CompoundorModule.sol";
 import "../src/modules/StopLossLimitModule.sol";
 import "../src/modules/LockModule.sol";
 import "../src/modules/CollateralModule.sol";
+import "../src/modules/RangeAdjustModule.sol";
 
 import "../src/compound/Unitroller.sol";
 import "../src/compound/Comptroller.sol";
@@ -82,13 +82,12 @@ abstract contract TestBase is Test {
 
     Holder holder;
     V3Utils v3utils;
-    RangeAdjustor rangeAdjustor;
 
     CompoundorModule compoundorModule;
     StopLossLimitModule stopLossLimitModule;
     LockModule lockModule;
-
     CollateralModule collateralModule;
+    RangeAdjustModule rangeAdjustModule;
 
     ChainlinkOracle oracle;
     Unitroller unitroller;
@@ -106,9 +105,6 @@ abstract contract TestBase is Test {
 
         holder = new Holder(NPM);
         v3utils = new V3Utils(NPM, EX0x);
-
-        // runners
-        rangeAdjustor = new RangeAdjustor(v3utils, OPERATOR_ACCOUNT, 60, 100);
 
         holder.setFlashTransformContract(address(v3utils));
     }
@@ -185,5 +181,13 @@ abstract contract TestBase is Test {
         collateralModule.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
 
         return holder.addModule(collateralModule, blocking);
+    }
+
+    function _setupRangeAdjustModule(uint blocking) internal returns (uint8) {
+        rangeAdjustModule = new RangeAdjustModule(NPM, EX0x, OPERATOR_ACCOUNT, 60, 100);
+        rangeAdjustModule.setHolder(holder);
+        assertEq(address(rangeAdjustModule.factory()), FACTORY);
+
+        return holder.addModule(rangeAdjustModule, blocking);
     }
 }
