@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "forge-std/console.sol";
-
 import "./IModule.sol";
 import "../IHolder.sol";
 
@@ -27,6 +25,7 @@ abstract contract Module is IModule, Ownable {
     uint256 constant Q96 = 2**96;
 
     // errors
+    error InvalidConfig();
     error HolderAlreadySet();
     error SwapFailed();
     error SlippageError();
@@ -82,7 +81,7 @@ abstract contract Module is IModule, Ownable {
 
         // if position is in holder - holder is responsible
         if (nonfungiblePositionManager.ownerOf(params.tokenId) == address(_holder)) {
-            _holder.decreaseLiquidityAndCollect(params);
+            (amount0, amount1, callbackReturnData) = _holder.decreaseLiquidityAndCollect(params);
         } else {
             if (params.liquidity > 0) {
                 (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(

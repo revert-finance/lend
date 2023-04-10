@@ -143,6 +143,7 @@ contract StopLossLimitModuleTest is TestBase {
 
         // execute stop loss order - with swap
         uint swapBalanceBefore = USDC.balanceOf(TEST_NFT_ACCOUNT);
+        uint swapBalanceBeforeDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
         vm.prank(OPERATOR_ACCOUNT);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, _getDAIToUSDSwapData(), block.timestamp));
         uint swapBalanceAfter = USDC.balanceOf(TEST_NFT_ACCOUNT);
@@ -164,20 +165,20 @@ contract StopLossLimitModuleTest is TestBase {
 
     function testSetTWAPSeconds() external {
         uint16 maxTWAPTickDifference = stopLossLimitModule.maxTWAPTickDifference();
-        stopLossLimitModule.setTWAPConfig(120, maxTWAPTickDifference);
+        stopLossLimitModule.setTWAPConfig(maxTWAPTickDifference, 120);
         assertEq(stopLossLimitModule.TWAPSeconds(), 120);
 
-        vm.expectRevert(StopLossLimitModule.InvalidConfig.selector);
-        stopLossLimitModule.setTWAPConfig(60, maxTWAPTickDifference);
+        vm.expectRevert(Module.InvalidConfig.selector);
+        stopLossLimitModule.setTWAPConfig(maxTWAPTickDifference, 60);
     }
 
     function testSetMaxTWAPTickDifference() external {
         uint32 TWAPSeconds = stopLossLimitModule.TWAPSeconds();
-        stopLossLimitModule.setTWAPConfig(TWAPSeconds, 5);
+        stopLossLimitModule.setTWAPConfig(5, TWAPSeconds);
         assertEq(stopLossLimitModule.maxTWAPTickDifference(), 5);
 
-        vm.expectRevert(StopLossLimitModule.InvalidConfig.selector);
-        stopLossLimitModule.setTWAPConfig(TWAPSeconds, 10);
+        vm.expectRevert(Module.InvalidConfig.selector);
+        stopLossLimitModule.setTWAPConfig(10, TWAPSeconds);
     }
 
     function testSetOperator() external {
@@ -199,7 +200,7 @@ contract StopLossLimitModuleTest is TestBase {
     }
 
     function testInvalidConfig() external {
-        vm.expectRevert(StopLossLimitModule.InvalidConfig.selector);
+        vm.expectRevert(Module.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         stopLossLimitModule.addTokenDirect(TEST_NFT, StopLossLimitModule.PositionConfig(true, false, false,  0, 0, 800000, -800000));
     }

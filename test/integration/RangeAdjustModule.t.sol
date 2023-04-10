@@ -20,20 +20,20 @@ contract RangeAdjustModuleTest is TestBase {
 
     function testSetTWAPSeconds() external {
         uint16 maxTWAPTickDifference = rangeAdjustModule.maxTWAPTickDifference();
-        rangeAdjustModule.setTWAPConfig(120, maxTWAPTickDifference);
+        rangeAdjustModule.setTWAPConfig(maxTWAPTickDifference, 120);
         assertEq(rangeAdjustModule.TWAPSeconds(), 120);
 
-        vm.expectRevert(RangeAdjustModule.InvalidConfig.selector);
-        rangeAdjustModule.setTWAPConfig(60, maxTWAPTickDifference);
+        vm.expectRevert(Module.InvalidConfig.selector);
+        rangeAdjustModule.setTWAPConfig(maxTWAPTickDifference, 60);
     }
 
     function testSetMaxTWAPTickDifference() external {
         uint32 TWAPSeconds = rangeAdjustModule.TWAPSeconds();
-        rangeAdjustModule.setTWAPConfig(TWAPSeconds, 5);
+        rangeAdjustModule.setTWAPConfig(5, TWAPSeconds);
         assertEq(rangeAdjustModule.maxTWAPTickDifference(), 5);
 
-        vm.expectRevert(RangeAdjustModule.InvalidConfig.selector);
-        rangeAdjustModule.setTWAPConfig(TWAPSeconds, 10);
+        vm.expectRevert(Module.InvalidConfig.selector);
+        rangeAdjustModule.setTWAPConfig(10, TWAPSeconds);
     }
 
     function testSetOperator() external {
@@ -55,7 +55,7 @@ contract RangeAdjustModuleTest is TestBase {
     }
 
     function testInvalidConfig() external {
-        vm.expectRevert(RangeAdjustModule.InvalidConfig.selector);
+        vm.expectRevert(Module.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         rangeAdjustModule.addTokenDirect(TEST_NFT, RangeAdjustModule.PositionConfig(0, 0, 1, 0, 0, 0));
     }

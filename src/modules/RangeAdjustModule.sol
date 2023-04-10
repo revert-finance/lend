@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./Module.sol";
+import "./OperatorModule.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -10,12 +10,7 @@ import 'v3-core/libraries/FullMath.sol';
 /// @title RangeAdjustModule
 /// @notice Allows operator of RangeAdjustModule contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved for all NFTs for the contract and configured with setConfig method
-contract RangeAdjustModule is Module {
-
-    // admin events
-    event OperatorChanged(address newOperator);
-    event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
-    event SwapRouterChanged(address newSwapRouter);
+contract RangeAdjustModule is OperatorModule {
 
     // user events
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
@@ -30,7 +25,6 @@ contract RangeAdjustModule is Module {
     );
 
     // errors 
-    error InvalidConfig();
     error WrongContract();
     error AdjustStateError();
     error NotConfigured();
@@ -38,30 +32,11 @@ contract RangeAdjustModule is Module {
     error SameRange();
     error NotSupportedFeeTier();
 
-    // configurable by owner
-    address public operator;
-    uint32 public TWAPSeconds;
-    uint16 public maxTWAPTickDifference;
-    address public swapRouter;
-
-    //TODO make configurable
     uint64 immutable public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
 
     bool public immutable override needsCheckOnCollect = false;
 
-    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) Module(_npm) {
-        swapRouter = _swapRouter;
-        emit SwapRouterChanged(_swapRouter);
-
-        operator = _operator;
-        emit OperatorChanged(_operator);
-
-        if (_maxTWAPTickDifference > uint16(type(int16).max) || _TWAPSeconds == 0) {
-            revert InvalidConfig();
-        }
-        TWAPSeconds = _TWAPSeconds;
-        maxTWAPTickDifference = _maxTWAPTickDifference;
-        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
+    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) OperatorModule(_npm, _swapRouter, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
     }
 
     // defines when and how a position can be changed by operator
@@ -78,39 +53,6 @@ contract RangeAdjustModule is Module {
 
     // configured tokens
     mapping (uint256 => PositionConfig) public positionConfigs;
-
-    /**
-     * @notice Owner controlled function to change swap router (onlyOwner)
-     * @param _swapRouter new swap router
-     */
-    function setSwapRouter(address _swapRouter) external onlyOwner {
-        emit SwapRouterChanged(_swapRouter);
-        swapRouter = _swapRouter;
-    }
-
-    /**
-     * @notice Owner controlled function to change operator address
-     * @param _operator new operator
-     */
-    function setOperator(address _operator) external onlyOwner {
-        emit OperatorChanged(_operator);
-        operator = _operator;
-    }
-
-    /**
-     * @notice Owner controlled function to increase TWAPSeconds / decrease maxTWAPTickDifference
-     */
-    function setTWAPConfig(uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) external onlyOwner {
-        if (_TWAPSeconds < TWAPSeconds) {
-            revert InvalidConfig();
-        }
-        if (_maxTWAPTickDifference > maxTWAPTickDifference) {
-            revert InvalidConfig();
-        }
-        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
-        TWAPSeconds = _TWAPSeconds;
-        maxTWAPTickDifference = _maxTWAPTickDifference;
-    }
 
     /**
      * @notice Withdraws token balance for a address and token
@@ -240,11 +182,6 @@ contract RangeAdjustModule is Module {
 
             // TODO handle adding newly created position to same modules somehow
             nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId);
-  
-            
-
-
-            // reset approvals not needed - nonfungiblePositionManager is trusted contract and uses all approved amount
 
             // send leftover to owner
             if (state.amount0 - state.protocolReward0 - state.balance0 > 0) {
