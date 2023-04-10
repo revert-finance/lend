@@ -17,6 +17,8 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
 
     using OZSafeCast for uint256;
 
+    error NotConfigured();
+
     // config changes
     event RewardUpdated(address account, uint64 totalRewardX64, uint64 compounderRewardX64);
     event TWAPConfigUpdated(address account, uint32 maxTWAPTickDifference, uint32 TWAPSeconds);
@@ -25,6 +27,12 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
     event BalanceAdded(address account, address token, uint256 amount);
     event BalanceRemoved(address account, address token, uint256 amount);
     event BalanceWithdrawn(address account, address token, address to, uint256 amount);
+
+    // position configuration event
+    event PositionConfigured(
+        uint256 indexed tokenId,
+        bool isActive
+    );
 
     // autocompound event
     event AutoCompounded(
@@ -49,7 +57,6 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
 
     // balances
     mapping(address => mapping(address => uint256)) public accountBalances;
-
     
     struct PositionConfig {
         bool isActive;
@@ -135,11 +142,15 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
      */
     function autoCompound(AutoCompoundParams memory params) external nonReentrant returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) 
     {
-        address tokenOwner = _getOwner(params.tokenId);
-        require(tokenOwner != address(0), "!found");
+        PositionConfig storage config = positionConfigs[params.tokenId];
+        if (!config.isActive) {
+            revert NotConfigured();
+        }
+
+        address owner = _getOwner(params.tokenId);
 
         // collects ONLY fees - NO liquidity
-        (,,bytes memory callbackReturnData) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), abi.encode(msg.sender, tokenOwner, params)));
+        (,,bytes memory callbackReturnData) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), abi.encode(msg.sender, owner, params)));
 
         // handle return values - from callback return data
         (reward0, reward1, compounded0, compounded1) = abi.decode(callbackReturnData, (uint256, uint256, uint256, uint256));        
@@ -474,6 +485,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
             revert Unauthorized();
         }
         positionConfigs[tokenId] = PositionConfig(active);
+        emit PositionConfigured(tokenId, active);
     }
 
     // IModule needed functions
@@ -481,10 +493,12 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
         (,,address token0, address token1, uint24 fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         _checkApprovals(IERC20(token0), IERC20(token1));
         positionConfigs[tokenId] = PositionConfig(true);
+        emit PositionConfigured(tokenId, true);
     }
 
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
+         emit PositionConfigured(tokenId, false);
     }
 
     // general swap function which uses given pool to swap amount available in the contract
