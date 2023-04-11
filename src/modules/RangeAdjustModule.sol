@@ -155,8 +155,7 @@ contract RangeAdjustModule is OperatorModule {
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             // check if new range same as old range
-            if (baseTick + config.lowerTickDelta == state.tickLower &&
-                baseTick + config.upperTickDelta == state.tickUpper) {
+            if (baseTick + config.lowerTickDelta == state.tickLower && baseTick + config.upperTickDelta == state.tickUpper) {
                 revert SameRange();
             }
 
@@ -184,7 +183,8 @@ contract RangeAdjustModule is OperatorModule {
             (state.owner, state.currentOwner) = _getOwners(params.tokenId);
 
             // send it to current owner - if its holder it is added for real owner
-            nonfungiblePositionManager.safeTransferFrom(address(this), state.currentOwner, state.newTokenId, abi.encode(state.owner));
+            // send previous token id to reciever in data (so holder can assign and copy config)
+            nonfungiblePositionManager.safeTransferFrom(address(this), state.currentOwner, state.newTokenId, abi.encode(params.tokenId));
 
             // send leftover to owner
             if (state.amount0 - state.protocolReward0 - state.balance0 > 0) {
@@ -195,21 +195,24 @@ contract RangeAdjustModule is OperatorModule {
             }
 
             // copy token config for new token
-            positionConfigs[state.newTokenId] = config;
-            emit PositionConfigured(
-                state.newTokenId,
-                config.lowerTickLimit,
-                config.upperTickLimit,
-                config.lowerTickDelta,
-                config.upperTickDelta,
-                config.token0SlippageX64,
-                config.token1SlippageX64
-            );
-            emit RangeChanged(params.tokenId, state.newTokenId);
+            if (state.currentOwner != address(holder)) {
+                positionConfigs[state.newTokenId] = config;
+                emit PositionConfigured(
+                    state.newTokenId,
+                    config.lowerTickLimit,
+                    config.upperTickLimit,
+                    config.lowerTickDelta,
+                    config.upperTickDelta,
+                    config.token0SlippageX64,
+                    config.token1SlippageX64
+                );
 
-            // delete config for old position
-            delete positionConfigs[params.tokenId];
-            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0);
+                // delete config for old position
+                delete positionConfigs[params.tokenId];
+                emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0);
+            }
+
+            emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
             revert NotReady();
         }

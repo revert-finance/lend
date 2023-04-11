@@ -89,8 +89,11 @@ contract Holder is IHolder, Ownable, Multicall {
         // if token was recieved from module
         uint moduleIndex = modulesIndex[from];
         if (moduleIndex > 0) {
-            uint previousId = abi.decode(data, (uint256));
+            uint256 previousId = abi.decode(data, (uint256));
             from = tokenOwners[previousId];
+            if (from == address(0)) {
+                revert TokenNotInModule();
+            }
             initialModules = _cloneConfig(previousId);
         } else if (from == flashTransformContract) {
             // if flashTransform contract sent token back - special handling

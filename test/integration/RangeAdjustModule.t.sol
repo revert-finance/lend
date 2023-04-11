@@ -277,6 +277,27 @@ contract RangeAdjustModuleTest is TestBase {
         rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(tokenId, false, 0, "", block.timestamp));
     }
 
+    function testModuleAdjust() external {
+
+        RangeAdjustModule.PositionConfig memory config = RangeAdjustModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100));
+
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(config));
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.safeTransferFrom(
+            TEST_NFT_2_ACCOUNT,
+            address(holder),
+            TEST_NFT_2,
+            abi.encode(params)
+        );
+            
+        vm.prank(OPERATOR_ACCOUNT);
+        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+
+        // TODO check if added correctly / owner / module config for new position
+    }
+
     function testOracleCheck() external {
 
         // create range adjustor with more strict oracle config    
