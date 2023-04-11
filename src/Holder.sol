@@ -477,6 +477,7 @@ contract Holder is IHolder, Ownable, Multicall {
         while (mod > 0) {
             if (mod & (1 << index) != 0) {
                 configs[--total] = ModuleParams(index, modules[index].implementation.getConfig(tokenId));
+                mod -= (1 << index);
             }
             index++;
         }
