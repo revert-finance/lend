@@ -613,11 +613,9 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      * @param liquidator The address repaying the borrow and seizing the collateral
      * @param borrower The address of the borrower
      * @param tokenId Seize tokens details
+     * @param seizeLiquidity Seize tokens details
      * @param seizeFeesToken0 Seize tokens details
      * @param seizeFeesToken1 Seize tokens details
-     * @param seizeLiquidity Seize tokens details
-     * @param seizeCToken0 Seize tokens details
-     * @param seizeCToken1 Seize tokens details
      */
     function seizeAllowedUniV3(
         address module,
@@ -627,9 +625,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         uint256 tokenId,
         uint256 seizeLiquidity,
         uint256 seizeFeesToken0,
-        uint256 seizeFeesToken1,
-        uint256 seizeCToken0,
-        uint256 seizeCToken1) external override returns (uint256) {
+        uint256 seizeFeesToken1) external override returns (uint256) {
         // Pausing is a very serious situation - we revert to sound the alarms
         require(!seizeGuardianPaused, "seize is paused");
 
@@ -638,8 +634,6 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         seizeFeesToken0;
         seizeFeesToken1;
         seizeLiquidity;
-        seizeCToken0;
-        seizeCToken1;
 
         // check that the borrow token is listed in comptroller market
         if (!markets[cTokenBorrowed].isListed) {
@@ -902,32 +896,20 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             if (vars.oracle1PriceMantissa == 0) {
                 return (Error.PRICE_ERROR, 0, 0);
             }                   
-            (, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getPositionBreakdown(vars.tokenId, vars.oraclePriceMantissa, vars.oracle1PriceMantissa);
+            (, vars.amount0, vars.amount1, vars.fees0, vars.fees1) = collateralModule.getPositionBreakdown(vars.tokenId, vars.oraclePriceMantissa, vars.oracle1PriceMantissa);
 
-            if (vars.amount0 + vars.fees0 > 0 || vars.cAmount0 > 0) {
+            if (vars.amount0 + vars.fees0 > 0) {
                 vars.collateralFactor = Exp({mantissa: markets[address(vars.asset)].collateralFactorMantissa});
                 vars.oraclePrice = Exp({mantissa: vars.oraclePriceMantissa});  
                 if (vars.amount0 + vars.fees0 > 0) {
                     vars.sumCollateral = mul_ScalarTruncateAddUInt(mul_(vars.collateralFactor, vars.oraclePrice), vars.amount0 + vars.fees0, vars.sumCollateral);
                 }
-                if (vars.cAmount0 > 0) {
-                    vars.exchangeRateMantissa = vars.asset.exchangeRateStored();
-                    vars.exchangeRate = Exp({mantissa: vars.exchangeRateMantissa});
-                    vars.tokensToDenom = mul_(mul_(vars.collateralFactor, vars.exchangeRate), vars.oraclePrice);
-                    vars.sumCollateral = mul_ScalarTruncateAddUInt(vars.tokensToDenom, vars.cAmount0, vars.sumCollateral);
-                }
             }
-            if (vars.amount1 + vars.fees1 > 0 || vars.cAmount1 > 0) {
+            if (vars.amount1 + vars.fees1 > 0) {
                 vars.collateralFactor = Exp({mantissa: markets[address(vars.asset1)].collateralFactorMantissa});
                 vars.oraclePrice = Exp({mantissa: vars.oracle1PriceMantissa});  
                 if (vars.amount1 + vars.fees1 > 0) {
                     vars.sumCollateral = mul_ScalarTruncateAddUInt(mul_(vars.collateralFactor, vars.oraclePrice), vars.amount1 + vars.fees1, vars.sumCollateral);
-                }
-                if (vars.cAmount1 > 0) {
-                    vars.exchangeRateMantissa = vars.asset1.exchangeRateStored();
-                    vars.exchangeRate = Exp({mantissa: vars.exchangeRateMantissa});
-                    vars.tokensToDenom = mul_(mul_(vars.collateralFactor, vars.exchangeRate), vars.oraclePrice);
-                    vars.sumCollateral = mul_ScalarTruncateAddUInt(vars.tokensToDenom, vars.cAmount1, vars.sumCollateral);
                 }
             } 
         }
@@ -1069,8 +1051,6 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             uint256,
             uint256,
             uint256,
-            uint256,
-            uint256,
             uint256
         )
     {
@@ -1094,10 +1074,10 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         vars.oraclePriceMantissa1 = oracle.getUnderlyingPrice(vars.cToken1);
 
         if (vars.priceBorrowedMantissa == 0 || vars.oraclePriceMantissa0 == 0 || vars.oraclePriceMantissa1 == 0) {
-            return (uint256(Error.PRICE_ERROR), 0, 0, 0, 0, 0);
+            return (uint256(Error.PRICE_ERROR), 0, 0, 0);
         }
 
-        (vars.liquidity, vars.amount0, vars.amount1, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1) = collateralModule.getPositionBreakdown(collateralTokenId, vars.oraclePriceMantissa0, vars.oraclePriceMantissa1);
+        (vars.liquidity, vars.amount0, vars.amount1, vars.fees0, vars.fees1) = collateralModule.getPositionBreakdown(collateralTokenId, vars.oraclePriceMantissa0, vars.oraclePriceMantissa1);
 
         vars.borrowValue = mul_(
             mul_(Exp({ mantissa: liquidationIncentiveMantissa }), Exp({ mantissa: vars.priceBorrowedMantissa })),
@@ -1111,34 +1091,22 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             mul_(Exp({ mantissa: vars.oraclePriceMantissa0 }), vars.fees0),
             mul_(Exp({ mantissa: vars.oraclePriceMantissa1 }), vars.fees1)
         );
-        vars.cTokenValue = Exp({ mantissa: 0 });
-        if (vars.cAmount0 > 0) {
-            vars.cTokenValue = add_(mul_(mul_(Exp({mantissa: vars.cToken0.exchangeRateStored() }), Exp({ mantissa: vars.oraclePriceMantissa0 })), vars.cAmount0), vars.cTokenValue);
-        }
-        if (vars.cAmount1 > 0) {
-            vars.cTokenValue = add_(mul_(mul_(Exp({mantissa: vars.cToken1.exchangeRateStored() }), Exp({ mantissa: vars.oraclePriceMantissa1 })), vars.cAmount1), vars.cTokenValue);
-        }
 
         // not enough collateral available in this position
         require(
-            lessThanOrEqualExp(vars.borrowValue, add_(add_(vars.feeValue, vars.liquidityValue), vars.cTokenValue)),
+            lessThanOrEqualExp(vars.borrowValue, add_(vars.feeValue, vars.liquidityValue)),
             "borrowValue greater than total collateral"
         );
 
-        if (lessThanExp(vars.borrowValue, vars.cTokenValue)) {
-            // only return from cTokens
-            vars.cAmount0 = mul_ScalarTruncate(div_(vars.borrowValue, vars.cTokenValue), vars.cAmount0);
-            vars.cAmount1 = mul_ScalarTruncate(div_(vars.borrowValue, vars.cTokenValue), vars.cAmount1);
-            return (uint256(Error.NO_ERROR), 0, 0, 0, vars.cAmount0, vars.cAmount1);
-        } else if (lessThanExp(vars.borrowValue, add_(vars.cTokenValue, vars.feeValue))) {
+        if (lessThanExp(vars.borrowValue, vars.feeValue)) {
             // return from cTokens and fees
-            vars.fees0 = mul_ScalarTruncate(div_(sub_(vars.borrowValue, vars.cTokenValue), vars.feeValue), vars.fees0);
-            vars.fees1 = mul_ScalarTruncate(div_(sub_(vars.borrowValue, vars.cTokenValue), vars.feeValue), vars.fees1);
-            return (uint256(Error.NO_ERROR), 0, vars.fees1, vars.fees0, vars.cAmount0, vars.cAmount1);
+            vars.fees0 = mul_ScalarTruncate(div_(vars.borrowValue, vars.feeValue), vars.fees0);
+            vars.fees1 = mul_ScalarTruncate(div_(vars.borrowValue, vars.feeValue), vars.fees1);
+            return (uint256(Error.NO_ERROR), 0, vars.fees1, vars.fees0);
         } else {
             // return from cTokens and fees and liquidity  
-            vars.liquidity = mul_ScalarTruncate(div_(sub_(sub_(vars.borrowValue, vars.cTokenValue), vars.feeValue), vars.liquidityValue), vars.liquidity);
-            return (uint256(Error.NO_ERROR), vars.liquidity, vars.fees0, vars.fees1, vars.cAmount0, vars.cAmount1);
+            vars.liquidity = mul_ScalarTruncate(div_(sub_(vars.borrowValue, vars.feeValue), vars.liquidityValue), vars.liquidity);
+            return (uint256(Error.NO_ERROR), vars.liquidity, vars.fees0, vars.fees1);
         }
     }
 

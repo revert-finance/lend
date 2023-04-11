@@ -868,9 +868,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
             uint256 amountSeizeError,
             uint256 seizeLiquidity,
             uint256 seizeFeesToken0,
-            uint256 seizeFeesToken1,
-            uint256 seizeCToken0,
-            uint256 seizeCToken1
+            uint256 seizeFeesToken1
         ) = comptroller.liquidateCalculateSeizeTokensUniV3(address(this), collateralTokenId, actualRepayAmount);
 
         require(amountSeizeError == NO_ERROR, "LIQUIDATE_COMPTROLLER_CALCULATE_AMOUNT_SEIZE_FAILED");
@@ -882,9 +880,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
             collateralTokenId,
             seizeLiquidity,
             seizeFeesToken0,
-            seizeFeesToken1,
-            seizeCToken0,
-            seizeCToken1
+            seizeFeesToken1
         );
 
         /* We emit a LiquidateBorrow event */
@@ -895,9 +891,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
             collateralTokenId,
             seizeLiquidity,
             seizeFeesToken0,
-            seizeFeesToken1,
-            seizeCToken0,
-            seizeCToken1
+            seizeFeesToken1
         );
         return (NO_ERROR, actualRepayAmount);
     }

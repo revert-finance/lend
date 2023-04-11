@@ -75,9 +75,7 @@ abstract contract ComptrollerInterface {
         uint256 tokenId,
         uint256 seizeLiquidity,
         uint256 seizeFeesToken0,
-        uint256 seizeFeesToken1,
-        uint256 seizeCToken0,
-        uint256 seizeCToken1
+        uint256 seizeFeesToken1
     ) virtual external returns (uint256);
 
     function seizeVerify(
@@ -101,8 +99,6 @@ abstract contract ComptrollerInterface {
         address cTokenBorrowed,
         uint collateralTokenId,
         uint repayAmount) virtual external view returns (
-            uint256,
-            uint256,
             uint256,
             uint256,
             uint256,

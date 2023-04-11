@@ -45,34 +45,12 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     }
     mapping (address => PoolConfig) poolConfigs;
 
-    struct PositionConfigParams {
-        bool isLendable;
-    }
-
-    // how many intervals need to pass until max fee is payed
-    uint8 public constant CHECK_INTERVALS = 10;
-
-    // seconds elapsed after which max reward is payed to keeper (can vary between chains)
-    uint16 public immutable secondsUntilMax;
-
-    struct PositionConfig {
-        bool isLendable; // enable lending automation for this position
-        int24 lendMinBufferTicks; // how many ticks min away to be able to be lent by anyone
-        int24 unlendMaxBufferTicks; // how many ticks max away to be able to be unlent by anyone
-        uint64 minFeeX64; // min percentage of position to pay for fee (lend / unlend)
-        uint64 maxFeeX64; // max percentage of position to pay for fee (lend / unlend)
-        bool isCToken0;
-        uint256 cTokenAmount;
-    }
-    mapping (uint256 => PositionConfig) public positionConfigs;
-
     address public immutable comptroller;
 
     bool public immutable override needsCheckOnCollect = true;
 
-    constructor(INonfungiblePositionManager _npm, address _comptroller, uint16 _secondsUntilMax) Module(_npm) {
+    constructor(INonfungiblePositionManager _npm, address _comptroller) Module(_npm) {
         comptroller = _comptroller;
-        secondsUntilMax = _secondsUntilMax;
     }
 
     /// @notice Management method to configure a pool
@@ -130,9 +108,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     // returns token breakdown using given oracle prices for both tokens
     // returns corresponding ctoken balance if lent out
     // reverts if prices deviate to much from pool TODO check if better use error code (compound style)
-    function getPositionBreakdown(uint256 tokenId, uint256 price0, uint256 price1) external override view returns (uint128 liquidity, uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1, uint256 cAmount0, uint256 cAmount1) {
-
-        PositionConfig storage positionConfig = positionConfigs[tokenId];
+    function getPositionBreakdown(uint256 tokenId, uint256 price0, uint256 price1) external override view returns (uint128 liquidity, uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) {
 
         PositionState memory position = _getPositionState(tokenId);
 
@@ -145,15 +121,6 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
         // calculate position amounts (incl uncollected fees)
         (amount0, amount1, fees0, fees1) = _getAmounts(position, oracleSqrtPriceX96, tick);
-
-        // if it is lent out - set corresponding ctoken amounts
-        if (positionConfig.cTokenAmount > 0) {
-            if (positionConfig.isCToken0) {
-                cAmount0 = positionConfig.cTokenAmount;
-            } else {
-                cAmount1 = positionConfig.cTokenAmount;
-            }
-        }
 
         PoolConfig storage poolConfig = poolConfigs[address(position.pool)];
 
@@ -278,7 +245,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     }
 
 
-    function seizePositionAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1, uint256 seizeCToken0, uint256 seizeCToken1) external override {
+    function seizePositionAssets(address liquidator, address borrower, uint256 tokenId, uint256 seizeLiquidity, uint256 seizeFeesToken0, uint256 seizeFeesToken1) external override {
         
         if (holder.tokenOwners(tokenId) != borrower) {
             revert OwnerNotBorrower();
@@ -293,9 +260,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             tokenId,
             seizeLiquidity,
             seizeFeesToken0,
-            seizeFeesToken1,
-            seizeCToken0,
-            seizeCToken1
+            seizeFeesToken1
         );
 
         if (err > 0) {
@@ -305,217 +270,6 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         // if position internal values are seized
         if (seizeLiquidity > 0 || seizeFeesToken0 > 0 || seizeFeesToken1 > 0) {
             holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, _toUint128(seizeLiquidity), 0, 0, _toUint128(seizeFeesToken0), _toUint128(seizeFeesToken1), block.timestamp, false, liquidator, ""));
-        }
-
-        // if ctokens are seized
-        if (seizeCToken0 > 0 || seizeCToken1 > 0) {
-            (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-            if (seizeCToken0 > 0) {
-                uint256 amount = _redeem(IERC20(token0), seizeCToken0);
-                _transferToken(liquidator, IERC20(token0), amount, true);
-            }
-            if (seizeCToken1 > 0) {
-                uint256 amount = _redeem(IERC20(token1), seizeCToken1);
-                _transferToken(liquidator, IERC20(token1), amount, true);
-            }
-        }
-    }
-
-    function _redeem(IERC20 token, uint256 amount) internal returns (uint256) {
-        CErc20 cToken = _getCToken(address(token));
-        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
-        // reverts if any problem
-        cToken.redeem(amount);
-        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
-        return balanceAfter - balanceBefore;
-    }
-
-    /// @notice function for keeper to set position in lent state
-    /// can only be called when in correct range - pays bounty to msg.sender - increasing bounty auction style
-    /// when called by owner no fees - no range check
-    function lend(uint256 tokenId) external {
-        PositionConfig storage positionConfig = positionConfigs[tokenId];
-        if (!positionConfig.isLendable || positionConfig.cTokenAmount > 0) {
-            revert NotAllowed();
-        }
-        bool isOwner = holder.tokenOwners(tokenId) == msg.sender;
-        _lend(tokenId, isOwner);
-    }
-
-    /// @notice function for keeper to set position in unlent state
-    /// can only be called when in correct range - pays bounty to msg.sender - increasing bounty auction style
-    /// when called by owner no fees - no range check
-    function unlend(uint256 tokenId) external {
-        PositionConfig storage positionConfig = positionConfigs[tokenId];
-        if (positionConfig.cTokenAmount == 0) {
-            revert NotAllowed();
-        }
-        address owner = holder.tokenOwners(tokenId);
-        _unlend(tokenId, owner == msg.sender, owner, false);
-    }
-
-    // calculate fee considering tick position history
-    function _calculateFeeX64(uint64 minFeeX64, uint64 maxFeeX64, int24 checkTick, bool above, IUniswapV3Pool pool) internal returns (uint64) {
-        uint8 numberOfBlocks = _checkNumberOfBlocks(pool, secondsUntilMax, CHECK_INTERVALS, checkTick, above);
-        return minFeeX64 + (maxFeeX64 - minFeeX64) * numberOfBlocks / CHECK_INTERVALS;
-    }
-
-    struct LendState {
-        address token0;
-        address token1;
-        IUniswapV3Pool pool;
-        uint128 liquidity;
-        int24 tick;
-        int24 tickLower;
-        int24 tickUpper;
-        uint64 feeX64;
-        uint256 amount;
-        address token;
-        uint256 amount0;
-        uint256 amount1;
-        uint256 fee;
-    }
-
-    // removes liquidity from position and mints ctokens
-    function _lend(uint256 tokenId, bool isOwner) internal {
-
-        LendState memory state;
-
-        PositionConfig storage positionConfig = positionConfigs[tokenId];
-
-        // not lendale or already lent - ok
-        if (!positionConfig.isLendable || positionConfig.cTokenAmount > 0) {
-            return;
-        }
-
-        // get position info
-        (state.token0, state.token1, state.pool, state.liquidity, state.tick, state.tickLower, state.tickUpper) =  _getTokensPoolLiquidityAndTicks(tokenId);
-
-        // if !isOwner can be only done when in certain range
-        if (!isOwner) {
-            if (state.tick < state.tickLower - positionConfig.lendMinBufferTicks) {
-                state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickLower - positionConfig.lendMinBufferTicks, false, state.pool);
-            } else if (state.tick >= state.tickUpper + positionConfig.lendMinBufferTicks) {
-                state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickUpper + positionConfig.lendMinBufferTicks, true, state.pool);
-            } else {
-                revert PositionNotInValidTick();
-            }
-        }
-
-        // collect all oneside liquidity+fees if out of range
-        if (state.tick < state.tickLower || state.tick >= state.tickUpper) {
-            
-            bool isToken0 = state.tick < state.tickLower;
-
-            (state.amount0, state.amount1,) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, state.liquidity, 0, 0, isToken0 ? type(uint128).max : 0, isToken0 ? 0 : type(uint128).max, block.timestamp, false, address(this), ""));
-            
-            state.amount = isToken0 ? state.amount0 : state.amount1;
-            state.token = isToken0 ? state.token0 : state.token1;
-
-            state.fee = state.amount * state.feeX64 / Q64;
-            CErc20 cToken = _getCToken(state.token);
-            IERC20(state.token).approve(address(cToken), state.amount - state.fee);
-            uint256 cAmountBefore = cToken.balanceOf(address(this));
-            cToken.mint(state.amount - state.fee);
-            uint256 cAmountAfter = cToken.balanceOf(address(this));
-            positionConfig.cTokenAmount = cAmountAfter - cAmountBefore;
-            positionConfig.isCToken0 = isToken0;
-            if (state.fee > 0) {
-                SafeERC20.safeTransfer(IERC20(state.token), msg.sender, state.fee);
-            }
-        } else {
-            // position in range - do nothing
-        }
-    }
-
-    struct UnlendState {
-        address token0;
-        address token1;
-        IUniswapV3Pool pool;
-        int24 tick;
-        int24 tickLower;
-        int24 tickUpper;
-        uint64 feeX64;
-        uint256 amount;
-        uint256 addedAmount0;
-        uint256 addedAmount1;
-        uint256 fee;
-        address token;
-    }
-
-    // redeems ctokens and adds liquidity to position - if isForceWithdraw set and can't add liquidity - returns tokens from full liquidity to owner
-    function _unlend(uint256 tokenId, bool isOwnerCalling, address owner, bool isForceWithdraw) internal {
-
-        UnlendState memory state;
-
-        PositionConfig storage positionConfig = positionConfigs[tokenId];
-        
-        // nothing lent - ok
-        if (positionConfig.cTokenAmount == 0) {
-            return;
-        }
-
-        // get position info
-        (state.token0, state.token1, state.pool, , state.tick, state.tickLower, state.tickUpper) =  _getTokensPoolLiquidityAndTicks(tokenId);
-
-        // if payFees can be only done when in certain range
-        if (!isOwnerCalling) {
-            if (state.tick >= state.tickLower - positionConfig.unlendMaxBufferTicks && state.tick < state.tickLower) {
-                state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickLower - positionConfig.lendMinBufferTicks, true, state.pool);
-            } else if (state.tick < state.tickUpper + positionConfig.unlendMaxBufferTicks && state.tick >= state.tickUpper) {
-                state.feeX64 = _calculateFeeX64(positionConfig.minFeeX64, positionConfig.maxFeeX64, state.tickUpper + positionConfig.unlendMaxBufferTicks, false, state.pool);
-            } else {
-                revert PositionNotInValidTick();
-            }
-        }
-
-        // collect all onsided liquidity if out of range
-        if (state.tick < state.tickLower || state.tick >= state.tickUpper) {
-
-            bool isToken0 = state.tick < state.tickLower;
-
-            if (!positionConfig.isCToken0 && isToken0 || positionConfig.isCToken0 && !isToken0) {
-                revert PositionNotInValidTick();
-            }
-
-            state.amount = _redeem(IERC20(isToken0 ? state.token0 : state.token1), positionConfig.cTokenAmount);
-            state.fee = state.amount * state.feeX64 / Q64;
-            state.token = isToken0 ? state.token0 : state.token1;
-
-            IERC20(state.token).approve(address(nonfungiblePositionManager), state.amount - state.fee);
-            (,state.addedAmount0,state.addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(
-                tokenId, 
-                isToken0 ? state.amount - state.fee : 0, 
-                isToken0 ? 0 : state.amount - state.fee, 
-                0,
-                0, 
-                block.timestamp
-            ));
-
-            positionConfig.cTokenAmount = 0;
-
-            // sometimes uniswap doesnt add complete amount - return leftover tokens to owner
-            if ((isToken0 ? state.addedAmount0 : state.addedAmount1) < state.amount - state.fee) {
-                _transferToken(owner, IERC20(state.token), state.amount - state.fee - (isToken0 ? state.addedAmount0 : state.addedAmount1), true);
-            }
-            if (state.fee > 0) {
-                _transferToken(msg.sender, IERC20(state.token), state.fee, true);
-            }
-        } else {
-            // if owner wants to unlend because of withdrawing position - special force handling - sends all tokens to owner
-            if (isForceWithdraw) {
-                if (positionConfig.isCToken0) {
-                    state.amount = _redeem(IERC20(state.token0), positionConfig.cTokenAmount);
-                    _transferToken(owner, IERC20(state.token0), state.amount, true);
-                } else {
-                    state.amount = _redeem(IERC20(state.token1), positionConfig.cTokenAmount);
-                    _transferToken(owner, IERC20(state.token1), state.amount, true);
-                }
-                positionConfig.cTokenAmount = 0;
-            } else {
-                // can only unlend when position one-sided
-                revert PositionNotInValidTick();
-            }
         }
     }
 
@@ -575,39 +329,6 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, FixedPoint128.Q128);
     }
 
-    // checks for how many block pool is in given condition (below or above tick)
-    function _checkNumberOfBlocks(IUniswapV3Pool pool, uint16 secondsUntilMax, uint8 checkIntervals, int24 checkTick, bool isAbove) internal view returns (uint8) {
-
-        uint16 blockTime = secondsUntilMax / checkIntervals; 
-
-        uint32[] memory secondsAgos = new uint32[](checkIntervals + 1);
-        uint8 i;
-        for (; i <= checkIntervals; i++) {
-            secondsAgos[i] = i * blockTime;
-        }
-
-        int56 checkTickMul = int16(blockTime) * checkTick;
-
-        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            i = 0;
-            for (; i < checkIntervals; i++) {
-                if (isAbove) {
-                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) <= checkTickMul) {
-                        return i;
-                    }
-                } else {
-                    if ((tickCumulatives[i] - tickCumulatives[i + 1]) >= checkTickMul) {
-                        return i;
-                    }
-                }
-            }
-        } catch {
-            revert NotEnoughHistory();
-        }
-
-        return checkIntervals;
-    }
-
     function _getFeeGrowthInside(
         IUniswapV3Pool pool,
         int24 tickLower,
@@ -647,8 +368,6 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder external {
 
-        PositionConfigParams memory params = abi.decode(data, (PositionConfigParams));
-
         (, , address token0, address token1, uint24 fee , , , , , , ,) = nonfungiblePositionManager.positions(tokenId);
 
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
@@ -656,20 +375,9 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         if (!poolConfigs[address(pool)].isActive) {
             revert PoolNotActive();
         }
-
-        // update status
-        positionConfigs[tokenId].isLendable = params.isLendable;
-        if (!params.isLendable) {
-            _unlend(tokenId, true, owner, false);
-        } else if (params.isLendable) {
-            _lend(tokenId, true);
-        }
-        _checkCollateral(owner);
     }
 
     function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
-        // special case - if in range and lent - forces unlending sends tokens to caller
-        _unlend(tokenId, true, owner, true);
         _checkCollateralWithoutToken(owner, tokenId);
     }
 

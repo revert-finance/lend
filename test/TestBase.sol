@@ -58,7 +58,7 @@ abstract contract TestBase is Test {
    
     uint256 constant TEST_NFT_2 = 7;  // DAI/WETH 0.3% - one sided only WETH - with liquidity and fees (-84120/-78240)
     uint256 constant TEST_NFT_2_A = 126; // DAI/USDC 0.05% - in range (-276330/-276320)
-    uint256 constant TEST_NFT_2_B = 37; // USDC/WETH 0.3% - out of range (192180/193380)
+    uint256 constant TEST_NFT_2_B = 37; // USDC/WETH 0.3% - out of range (192180/193380) no fees
     address constant TEST_NFT_2_ACCOUNT = 0x3b8ccaa89FcD432f1334D35b10fF8547001Ce3e5;
     address constant TEST_NFT_2_POOL = 0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8;
 
@@ -170,7 +170,7 @@ abstract contract TestBase is Test {
         comptroller._supportMarket(cTokenWETH);
         comptroller._setCollateralFactor(cTokenWETH, fiftyPercent);
 
-        collateralModule = new CollateralModule(NPM, address(comptroller), 60);
+        collateralModule = new CollateralModule(NPM, address(comptroller));
         collateralModule.setHolder(holder);
 
         // link module to comptroller

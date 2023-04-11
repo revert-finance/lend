@@ -19,8 +19,6 @@ contract CollateralModuleTest is TestBase {
         uint amount1; 
         uint fees0; 
         uint fees1; 
-        uint cAmount0; 
-        uint cAmount1;
     }
 
     function _preparePositionCollateralDAIUSDCInRangeWithFees() internal returns (PositionData memory data) {
@@ -29,7 +27,7 @@ contract CollateralModuleTest is TestBase {
         data.tokenId = TEST_NFT_3;
 
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
-        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        params[0] = IHolder.ModuleParams(moduleIndex, "");
 
         vm.prank(data.owner);
         NPM.safeTransferFrom(
@@ -42,24 +40,22 @@ contract CollateralModuleTest is TestBase {
         (uint[] memory tokenIds,,) = collateralModule.getPositionsOfOwner(data.owner);
         assertEq(tokenIds.length, 1);
 
-        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = collateralModule.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1) = collateralModule.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenUSDC));
 
         assertEq(data.liquidity, 12922419498089422291);
         assertEq(data.amount0, 37792545112113042069479);
         assertEq(data.amount1, 39622351929);
         assertEq(data.fees0, 363011977924869600719);
         assertEq(data.fees1, 360372013);
-        assertEq(data.cAmount0, 0);
-        assertEq(data.cAmount1, 0);
     }
 
-    function _preparePositionCollateralDAIWETHOutOfRangeWithFees(bool lendable) internal returns (PositionData memory data) {
+    function _preparePositionCollateralDAIWETHOutOfRangeWithFees() internal returns (PositionData memory data) {
 
         data.owner = TEST_NFT_2_ACCOUNT;
         data.tokenId = TEST_NFT_2;
 
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
-        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(CollateralModule.PositionConfigParams(lendable)));
+        params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(""));
 
         vm.prank(data.owner);
         NPM.safeTransferFrom(
@@ -72,27 +68,13 @@ contract CollateralModuleTest is TestBase {
         (uint[] memory tokenIds,,) = collateralModule.getPositionsOfOwner(data.owner);
         assertEq(tokenIds.length, 1);
 
-        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1, data.cAmount0, data.cAmount1) = collateralModule.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
-
-        if (lendable) {
-            // if lent all liquidity is moved to ctoken, only other fee token may be still available
-            assertEq(data.liquidity, 0);
-            assertEq(data.amount0, 0);
-            assertEq(data.amount1, 0);
-            assertEq(data.fees0, 311677619940061890346);
-            assertEq(data.fees1, 0);
-            assertEq(data.cAmount0, 0);
-            assertEq(data.cAmount1, 506903060556612041);
-        } else {
-            // original onesided position
-            assertEq(data.liquidity, 80059851033970806503);
-            assertEq(data.amount0, 0);
-            assertEq(data.amount1, 407934143575036696);
-            assertEq(data.fees0, 311677619940061890346);
-            assertEq(data.fees1, 98968916981575345);
-            assertEq(data.cAmount0, 0);
-            assertEq(data.cAmount1, 0);
-        }
+        (data.liquidity, data.amount0, data.amount1, data.fees0, data.fees1) = collateralModule.getPositionBreakdown(data.tokenId, oracle.getUnderlyingPrice(cTokenDAI), oracle.getUnderlyingPrice(cTokenWETH));
+        
+        assertEq(data.liquidity, 80059851033970806503);
+        assertEq(data.amount0, 0);
+        assertEq(data.amount1, 407934143575036696);
+        assertEq(data.fees0, 311677619940061890346);
+        assertEq(data.fees1, 98968916981575345);
     }
 
     function _prepareAvailableUSDC(uint amount) internal {
@@ -212,47 +194,17 @@ contract CollateralModuleTest is TestBase {
         holder.withdrawToken(data.tokenId, data.owner, "");
     }
 
-    function testGetCollateralValueNotLent() external {
+    function testGetCollateralValue2() external {
 
         uint err;
         uint liquidity;
         uint shortfall;
 
-        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees(false);
+        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees();
         (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
         assertEq(err, 0);
         assertEq(liquidity, 540729630887579142348);
         assertEq(shortfall, 0);     
-    }
-
-    function testGetCollateralValueLent() external {
-
-        uint err;
-        uint liquidity;
-        uint shortfall;
-
-        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees(true);
-        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
-        assertEq(err, 0);
-        assertEq(liquidity, 540729630887579142348);
-        assertEq(shortfall, 0);     
-    }
-
-    function testLendingWithKeeper() external {
-        PositionData memory data = _preparePositionCollateralDAIWETHOutOfRangeWithFees(true);
-
-        // owner may unlend always
-        vm.prank(data.owner);
-        collateralModule.unlend(data.tokenId);
-
-        // other account only may lend because "enough out of range"
-        vm.prank(WHALE_ACCOUNT);
-        collateralModule.lend(data.tokenId);
-
-        // may not unlend because not enough close to "in range" - with default config
-        vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(CollateralModule.PositionNotInValidTick.selector);
-        collateralModule.unlend(data.tokenId);
     }
 
     function testGrowShrinkPositionWithBorrowing() external {
@@ -348,22 +300,18 @@ contract CollateralModuleTest is TestBase {
         uint256 liquidity;
         uint256 fees0;
         uint256 fees1;
-        uint256 cToken0;
-        uint256 cToken1;
 
         uint repayAmount = 39078000000 / 2;
 
         err = comptroller.liquidateBorrowAllowedUniV3(address(cTokenUSDC), data.tokenId, WHALE_ACCOUNT, data.owner, repayAmount);
         assertEq(err, 0);
 
-        (err, liquidity, fees0, fees1, cToken0, cToken1) = comptroller.liquidateCalculateSeizeTokensUniV3(address(cTokenUSDC), data.tokenId, repayAmount);
+        (err, liquidity, fees0, fees1) = comptroller.liquidateCalculateSeizeTokensUniV3(address(cTokenUSDC), data.tokenId, repayAmount);
        
         assertEq(err, 0);
         assertEq(liquidity, 3430081225379852442);
         assertEq(fees0, 363011977924869600719);
         assertEq(fees1, 360372013);
-        assertEq(cToken0, 0);
-        assertEq(cToken1, 0);
 
         // whale executing liquidation
         vm.prank(WHALE_ACCOUNT);   

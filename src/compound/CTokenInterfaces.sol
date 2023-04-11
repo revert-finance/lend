@@ -160,9 +160,7 @@ abstract contract CTokenInterface is CTokenStorage {
         uint256 tokenId,
         uint256 seizeLiquidity,
         uint256 seizeFeesToken0,
-        uint256 seizeFeesToken1,
-        uint256 seizeCToken0,
-        uint256 seizeCToken1
+        uint256 seizeFeesToken1
     );
 
     /*** Admin Events ***/

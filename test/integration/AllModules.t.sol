@@ -32,7 +32,7 @@ contract AllModulesTest is TestBase {
         params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
         params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
         params[2] = IHolder.ModuleParams(lockModuleIndex, abi.encode(LockModule.PositionConfig(0)));
-        params[3] = IHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(false)));
+        params[3] = IHolder.ModuleParams(collateralModuleIndex, "");
 
         vm.prank(TEST_NFT_3_ACCOUNT);
         vm.expectRevert(Holder.ModuleBlocked.selector);
@@ -44,7 +44,7 @@ contract AllModulesTest is TestBase {
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](3);
         params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
         params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
-        params[2] = IHolder.ModuleParams(collateralModuleIndex, abi.encode(CollateralModule.PositionConfigParams(true)));
+        params[2] = IHolder.ModuleParams(collateralModuleIndex, "");
 
         // add NFTs
         vm.prank(TEST_NFT_ACCOUNT);
@@ -64,17 +64,9 @@ contract AllModulesTest is TestBase {
 
         // test simple autocompound without swap with other active modules
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
-
-        // reverting autocompound case - all compoundable tokens were lent out because out of range and lendable - so nothing to compound
-        vm.expectRevert();
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2, CompoundorModule.RewardConversion.NONE, false, false)); 
-
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_A, CompoundorModule.RewardConversion.NONE, false, false)); 
-
-        // reverting autocompound case - all compoundable tokens were lent out because out of range and lendable - so nothing to compound
-        vm.expectRevert();
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_B, CompoundorModule.RewardConversion.NONE, false, false)); 
-
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.NONE, false, false));
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_4, CompoundorModule.RewardConversion.NONE, false, false));
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_5, CompoundorModule.RewardConversion.NONE, false, false));
@@ -86,24 +78,20 @@ contract AllModulesTest is TestBase {
         // withdrawing collateral one by one for TEST_NFT_2_ACCOUNT (lent and unlent positions)
         uint liquidity;
         (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
-        assertEq(liquidity, 557475755488254604735);
+        assertEq(liquidity, 396930312569658899933);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.withdrawToken(TEST_NFT_2, TEST_NFT_2_ACCOUNT, "");
         (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
-        assertEq(liquidity, 16746124600675462387);
+        assertEq(liquidity, 13593085210818182898);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
         holder.withdrawToken(TEST_NFT_2_A, TEST_NFT_2_ACCOUNT, "");
         (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
-        assertEq(liquidity, 11859265196055707387);
-
-        // unlend by owner
-        vm.prank(TEST_NFT_2_ACCOUNT);
-        collateralModule.unlend(TEST_NFT_2_B);
+        assertEq(liquidity, 8706225806198427898);
 
         (,liquidity,) = comptroller.getAccountLiquidity(TEST_NFT_2_ACCOUNT);
-        assertEq(liquidity, 11859265196055098557);
+        assertEq(liquidity, 8706225806198427898);
 
         // before removing execute stop loss while collateral
         vm.prank(TEST_NFT_2_ACCOUNT);
