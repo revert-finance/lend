@@ -63,13 +63,16 @@ abstract contract Module is IModule, Ownable {
     }
 
     // helper to get owner of position
-    function _getOwner(uint tokenId) internal returns (address owner) {
+    function _getOwners(uint tokenId) internal returns (address owner, address currentOwner) {
         IHolder _holder = holder;
         if (address(_holder) != address(0)) {
             owner = _holder.tokenOwners(tokenId);
         }
         if (owner == address(0)) {
             owner = nonfungiblePositionManager.ownerOf(tokenId);
+            currentOwner = owner;
+        } else {
+            currentOwner = address(_holder);
         }
     }
 

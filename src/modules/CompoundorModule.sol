@@ -147,7 +147,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
             revert NotConfigured();
         }
 
-        address owner = _getOwner(params.tokenId);
+        (address owner, ) = _getOwners(params.tokenId);
 
         // collects ONLY fees - NO liquidity
         (,,bytes memory callbackReturnData) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, 0, 0, 0, type(uint128).max, type(uint128).max, block.timestamp, false, address(this), abi.encode(msg.sender, owner, params)));
@@ -499,6 +499,10 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
          delete positionConfigs[tokenId];
          emit PositionConfigured(tokenId, false);
+    }
+
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return abi.encode(positionConfigs[tokenId]);
     }
 
     // general swap function which uses given pool to swap amount available in the contract

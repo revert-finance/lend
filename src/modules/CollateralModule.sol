@@ -385,6 +385,10 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         _checkCollateral(owner);
     }
 
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return bytes("");
+    }
+
     function _checkCollateral(address owner) internal {
         (uint256 err,,uint256 shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
         if (err > 0 || shortfall > 0) {

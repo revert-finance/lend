@@ -86,8 +86,14 @@ contract Holder is IHolder, Ownable, Multicall {
 
         ModuleParams[] memory initialModules;
 
-        // if flashTransform contract sent token back - special handling
-        if (from == flashTransformContract) {
+        // if token was recieved from module
+        uint moduleIndex = modulesIndex[from];
+        if (moduleIndex > 0) {
+            uint previousId = abi.decode(data, (uint256));
+            from = tokenOwners[previousId];
+            initialModules = _cloneConfig(previousId);
+        } else if (from == flashTransformContract) {
+            // if flashTransform contract sent token back - special handling
             uint256 flashTokenId = flashTransformedTokenId;
             // if its called from minting context TODO handle this case properly
             if (flashTokenId == 0) {
@@ -444,6 +450,32 @@ contract Holder is IHolder, Ownable, Multicall {
             if (to != address(this)) {
                 SafeERC20.safeTransfer(token, to, amount);
             }
+        }
+    }
+
+    // gets all registered modules for a token and assembles configuration array
+    function _cloneConfig(uint256 tokenId) internal returns (ModuleParams[] memory configs) {
+        // get all registered modules
+        uint256 mod = tokenModules[tokenId];
+        uint8 index = 1;
+        uint8 total;
+        while (mod > 0) {
+            if (mod & (1 << index) != 0) {
+                total++;
+                mod -= (1 << index);
+            }
+            index++;
+        }
+    
+        configs = new ModuleParams[](total);
+
+        mod = tokenModules[tokenId];
+        index = 1;
+        while (mod > 0) {
+            if (mod & (1 << index) != 0) {
+                configs[--total] = ModuleParams(index, modules[index].implementation.getConfig(tokenId));
+            }
+            index++;
         }
     }
 

@@ -31,4 +31,8 @@ contract StakerModule is Module {
             // TODO unstake automatically from all stakes (needs fast and limited iteration logic because liquidation may depend on this)
         }
     }
+
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return abi.encode(bytes(""));
+    }
 }

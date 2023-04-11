@@ -6,6 +6,8 @@ interface IModule {
     function withdrawToken(uint256 tokenId, address owner) external;
     function checkOnCollect(uint256 tokenId, address owner, uint128 liquidity, uint256 amount0, uint256 amount1) external;
 
+    function getConfig(uint256 tokenId) external view returns (bytes memory config);
+
     // callback which allows using the decreased liquidity before other modules are checked
     function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) external returns (bytes memory returnData);
 

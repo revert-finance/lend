@@ -171,7 +171,7 @@ contract StopLossLimitModule is OperatorModule {
         state.amount0 -= state.protocolReward0;
         state.amount1 -= state.protocolReward1;
 
-        state.owner = _getOwner(params.tokenId);
+        (state.owner, ) = _getOwners(params.tokenId);
         if (state.amount0 > 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
@@ -244,5 +244,9 @@ contract StopLossLimitModule is OperatorModule {
             0,
             0
          );
+    }
+
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return abi.encode(positionConfigs[tokenId]);
     }
 }

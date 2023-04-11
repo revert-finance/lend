@@ -77,6 +77,7 @@ contract RangeAdjustModule is OperatorModule {
 
     struct ExecuteState {
         address owner;
+        address currentOwner;
         IUniswapV3Pool pool;
         uint160 sqrtPriceX96;
         uint256 priceX96;
@@ -132,6 +133,8 @@ contract RangeAdjustModule is OperatorModule {
             // decrease full liquidity for given position - and return fees as well
             (state.amount0, state.amount1, ) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, params.deadline, false, address(this), ""));
 
+            // TODO use callback style handling
+
             // check oracle for swap
             (state.amountOutMin,,) = _validateSwap(params.swap0To1, params.amountIn, state.pool, TWAPSeconds, maxTWAPTickDifference, params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64);
 
@@ -178,10 +181,10 @@ contract RangeAdjustModule is OperatorModule {
             SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
             SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
             
-            state.owner = _getOwner(params.tokenId);
+            (state.owner, state.currentOwner) = _getOwners(params.tokenId);
 
-            // TODO handle adding newly created position to same modules somehow
-            nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId);
+            // send it to current owner - if its holder it is added for real owner
+            nonfungiblePositionManager.safeTransferFrom(address(this), state.currentOwner, state.newTokenId, abi.encode(state.owner));
 
             // send leftover to owner
             if (state.amount0 - state.protocolReward0 - state.balance0 > 0) {
@@ -277,5 +280,9 @@ contract RangeAdjustModule is OperatorModule {
             }
             return spacing;
         }
+    }
+
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return abi.encode(positionConfigs[tokenId]);
     }
 }

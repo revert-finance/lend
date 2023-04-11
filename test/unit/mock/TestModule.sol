@@ -38,4 +38,8 @@ contract TestModule is IModule {
         holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(tokenId, 0, 0, 0, 0, 0, 0, false, address(this), ""));
     }
 
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return bytes("");
+    }
+
 }

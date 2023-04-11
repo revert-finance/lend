@@ -48,4 +48,8 @@ contract LockModule is Module {
             revert IsLocked();
         }
     }
+
+    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+        return abi.encode(positionConfigs[tokenId]);
+    }
 }
