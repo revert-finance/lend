@@ -43,6 +43,7 @@ contract StopLossLimitModule is OperatorModule {
     error OnlyContractOwnerCanSwap();
     error ConfigError();
 
+    // TODO do we want this to be fixed or decreasable?
     uint64 immutable public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
 
     bool public immutable override needsCheckOnCollect = false;

@@ -32,6 +32,7 @@ contract RangeAdjustModule is OperatorModule {
     error SameRange();
     error NotSupportedFeeTier();
 
+    // TODO do we want this to be fixed or decreasable?
     uint64 immutable public protocolRewardX64 = uint64(Q64 / 200); // 0.5%
 
     bool public immutable override needsCheckOnCollect = false;
@@ -75,33 +76,6 @@ contract RangeAdjustModule is OperatorModule {
         uint256 deadline; // for uniswap operations - operator promises fair value
     }
 
-    struct ExecuteState {
-        address owner;
-        address currentOwner;
-        IUniswapV3Pool pool;
-        uint160 sqrtPriceX96;
-        uint256 priceX96;
-        address token0;
-        address token1;
-        uint24 fee;
-        int24 tickLower;
-        int24 tickUpper;
-        uint128 liquidity;
-        int24 currentTick;
-        uint256 amount0;
-        uint256 amount1;
-        uint256 protocolReward0;
-        uint256 protocolReward1;
-        uint256 amountOutMin;
-        uint256 amountInDelta;
-        uint256 amountOutDelta;
-        uint256 value;
-        uint256 balance0;
-        uint256 balance1;
-        uint256 newTokenId;
-        int24 twapTick;
-    }
-
     /**
      * @notice Adjust token (must be in correct state)
      * Can be called only from configured operator account
@@ -113,43 +87,83 @@ contract RangeAdjustModule is OperatorModule {
             revert Unauthorized();
         }
 
-        PositionConfig storage config = positionConfigs[params.tokenId];
+          // get position info
+        (,, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+
+
+        // decrease full liquidity for given position - and return fees as well
+        _decreaseLiquidityAndCollect(
+            IHolder.DecreaseLiquidityAndCollectParams(
+                params.tokenId, 
+                liquidity, 
+                0, 
+                0, 
+                type(uint128).max, 
+                type(uint128).max, 
+                params.deadline, 
+                false, 
+                address(this), 
+                abi.encode(token0, token1, fee, tickLower, tickUpper, params) // pass context to callback
+            )
+        );
+    }
+
+    struct ExecuteState {
+        address owner;
+        address currentOwner;
+        IUniswapV3Pool pool;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        int24 currentTick;
+
+        uint256 protocolReward0;
+        uint256 protocolReward1;
+        uint256 amountOutMin;
+        uint256 amountInDelta;
+        uint256 amountOutDelta;
+
+        uint256 balance0;
+        uint256 balance1;
+        uint256 newTokenId;
+    }
+
+    // callback function which is called directly after fees are available - but before checking other modules (e.g. to be able to adjust range and LATER check collateral)
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolderOrSelf external returns (bytes memory returnData) { 
+
+        PositionConfig storage config = positionConfigs[tokenId];
         if (config.lowerTickDelta == config.upperTickDelta) {
             revert NotConfigured();
         }
 
         ExecuteState memory state;
+        ExecuteParams memory params;
 
-        // get position info
-        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+        (state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, params) = abi.decode(data, (address, address, uint24, int24, int24, ExecuteParams));
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.currentTick, , , , , ) = state.pool.slot0();
-
+        (, state.currentTick, , , , , ) = state.pool.slot0();
 
         if (state.currentTick < state.tickLower - config.lowerTickLimit || state.currentTick >= state.tickUpper + config.upperTickLimit) {
-
-            // decrease full liquidity for given position - and return fees as well
-            (state.amount0, state.amount1, ) = _decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, state.liquidity, 0, 0, type(uint128).max, type(uint128).max, params.deadline, false, address(this), ""));
-
-            // TODO use callback style handling
 
             // check oracle for swap
             (state.amountOutMin,,) = _validateSwap(params.swap0To1, params.amountIn, state.pool, TWAPSeconds, maxTWAPTickDifference, params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64);
 
             (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1), params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0), params.amountIn, state.amountOutMin, params.swapData);
 
-            state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
-            state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+            amount0 = params.swap0To1 ? amount0 - state.amountInDelta : amount0 + state.amountOutDelta;
+            amount1 = params.swap0To1 ? amount1 + state.amountOutDelta : amount1 - state.amountInDelta;
 
             // protocol reward is removed from both token amounts and kept in contract for later retrieval
-            state.protocolReward0 = state.amount0 * protocolRewardX64 / Q64;
-            state.protocolReward1 = state.amount1 * protocolRewardX64 / Q64;
+            state.protocolReward0 = amount0 * protocolRewardX64 / Q64;
+            state.protocolReward1 = amount1 * protocolRewardX64 / Q64;
 
             // approve npm 
-            SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), state.amount0 - state.protocolReward0);
-            SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), state.amount1 - state.protocolReward1);
+            SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), amount0 - state.protocolReward0);
+            SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), amount1 - state.protocolReward1);
 
             int24 tickSpacing = _getTickSpacing(state.fee);
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
@@ -166,8 +180,8 @@ contract RangeAdjustModule is OperatorModule {
                     state.fee, 
                     OZSafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
                     OZSafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
-                    state.amount0 - state.protocolReward0,
-                    state.amount1 - state.protocolReward1, 
+                    amount0 - state.protocolReward0,
+                    amount1 - state.protocolReward1, 
                     0,
                     0,
                     address(this), // is sent to real recipient aftwards
@@ -187,11 +201,11 @@ contract RangeAdjustModule is OperatorModule {
             nonfungiblePositionManager.safeTransferFrom(address(this), state.currentOwner, state.newTokenId, abi.encode(params.tokenId));
 
             // send leftover to owner
-            if (state.amount0 - state.protocolReward0 - state.balance0 > 0) {
-                _transferToken(state.owner, IERC20(state.token0), state.amount0 - state.protocolReward0 - state.balance0, true);
+            if (amount0 - state.protocolReward0 - state.balance0 > 0) {
+                _transferToken(state.owner, IERC20(state.token0), amount0 - state.protocolReward0 - state.balance0, true);
             }
-            if (state.amount1 - state.protocolReward1 - state.balance1 > 0) {
-                _transferToken(state.owner, IERC20(state.token1), state.amount1 - state.protocolReward1 - state.balance1, true);
+            if (amount1 - state.protocolReward1 - state.balance1 > 0) {
+                _transferToken(state.owner, IERC20(state.token1), amount1 - state.protocolReward1 - state.balance1, true);
             }
 
             // copy token config for new token
@@ -213,6 +227,7 @@ contract RangeAdjustModule is OperatorModule {
             }
 
             emit RangeChanged(params.tokenId, state.newTokenId);
+
         } else {
             revert NotReady();
         }

@@ -62,6 +62,14 @@ abstract contract Module is IModule, Ownable {
         _;
     }
 
+    // used to check if a valid caller
+    modifier onlyHolderOrSelf() {
+        if (msg.sender != address(holder) && msg.sender != address(this)) {
+            revert Unauthorized();
+        }
+        _;
+    }
+
     // helper to get owner of position
     function _getOwners(uint tokenId) internal returns (address owner, address currentOwner) {
         IHolder _holder = holder;
@@ -118,7 +126,7 @@ abstract contract Module is IModule, Ownable {
                 }
             }
 
-            callbackReturnData = decreaseLiquidityAndCollectCallback(params.tokenId, amount0, amount1, params.callbackData);
+            callbackReturnData = this.decreaseLiquidityAndCollectCallback(params.tokenId, amount0, amount1, params.callbackData);
         }
     }
 
@@ -255,5 +263,5 @@ abstract contract Module is IModule, Ownable {
     function addToken(uint256 tokenId, address, bytes calldata data) override virtual external { }
     function withdrawToken(uint256 tokenId, address) override virtual external { }
     function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override virtual external  { }
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override virtual public returns (bytes memory returnData) { }
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override virtual external returns (bytes memory returnData) { }
 }

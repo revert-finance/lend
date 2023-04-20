@@ -10,6 +10,7 @@ import 'v3-core/libraries/FullMath.sol';
 
 /// @title StakerModule
 /// @notice Fork of Univ3staker which is compatible with all other modules.
+/// TODO do we want to build this? it will need some adjustments to the core staker contract
 contract StakerModule is Module {
 
 

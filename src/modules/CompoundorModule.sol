@@ -157,7 +157,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
     }
 
     // callback function which is called directly after fees are available - but before checking other modules (e.g. to be able to compound and LATER check collateral)
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolder public returns (bytes memory returnData) { 
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolderOrSelf external returns (bytes memory returnData) { 
         
         // local vars
         AutoCompoundState memory state;    
