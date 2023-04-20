@@ -37,9 +37,8 @@ contract Holder is IHolder, Ownable, Multicall {
     error ModuleAlreadyRegistered();
     error TokenNotReturned();
     error TokenHasOperator();
-    error v3UtilsTransformNotConfigured();
-    error v3UtilsTransformInProgress();
-    error Nov3UtilsTransformInProgress();
+    error v3UtilsNotConfigured();
+    error v3UtilsInProgress();
     error DirectMintingNotAllowed();
     error TokenNotInModule();
     error InvalidWithdrawTarget();
@@ -265,7 +264,7 @@ contract Holder is IHolder, Ownable, Multicall {
     /// data is encoded Instructions for V3Utils
     function v3UtilsTransform(uint256 tokenId, bytes calldata data) external {
         if (transformTokenId > 0) {
-            revert v3UtilsTransformInProgress();
+            revert v3UtilsInProgress();
         }
         transformTokenId = tokenId;
 
@@ -275,7 +274,7 @@ contract Holder is IHolder, Ownable, Multicall {
         }
 
         if (v3Utils == address(0)) {
-            revert v3UtilsTransformNotConfigured();
+            revert v3UtilsNotConfigured();
         }
         
         // do transfer to flash transform contract

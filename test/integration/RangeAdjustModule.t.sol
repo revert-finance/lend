@@ -295,7 +295,21 @@ contract RangeAdjustModuleTest is TestBase {
         vm.prank(OPERATOR_ACCOUNT);
         rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
 
-        // TODO check if added correctly / owner / module config for new position
+        uint count = holder.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint tokenId = holder.accountTokens(TEST_NFT_2_ACCOUNT, count - 1);
+
+        assertEq(tokenId, 309207);
+        assertEq(holder.tokenOwners(TEST_NFT_2), holder.tokenOwners(tokenId));
+        assertEq(holder.tokenModules(TEST_NFT_2), holder.tokenModules(tokenId));
+
+        // test if config was copied properly
+        (int32 lowerTickLimit, int32 upperTickLimit, int32 lowerTickDelta, int32 upperTickDelta, uint64 token0SlippageX64, uint64 token1SlippageX64) = rangeAdjustModule.positionConfigs(tokenId);
+        assertEq(lowerTickLimit, config.lowerTickLimit);
+        assertEq(upperTickLimit, config.upperTickLimit);
+        assertEq(lowerTickDelta, config.lowerTickDelta);
+        assertEq(upperTickDelta, config.upperTickDelta);
+        assertEq(token0SlippageX64, config.token0SlippageX64);
+        assertEq(token1SlippageX64, config.token1SlippageX64);
     }
 
     function testOracleCheck() external {
