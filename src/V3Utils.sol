@@ -444,7 +444,7 @@ contract V3Utils is IERC721Receiver {
         // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
 
-        // special call for minting from v3utils to holder - if holder updates v3utils reference this will fail with FutureOwnerNotRegistered()
+        // special call for minting from v3utils to holder - if holder updates v3utils reference or method doesnt exist on recipientNFT this will fail with FutureOwnerNotRegistered()
         if (params.doRegisterCall) {
             (bool success, ) = params.recipientNFT.call(abi.encodeWithSignature("registerFutureOwner(address)", msg.sender));
             if (!success) {

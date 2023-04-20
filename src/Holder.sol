@@ -124,14 +124,11 @@ contract Holder is IHolder, Ownable, Multicall {
                     // its another token - assume it belongs to flash transformed tokens owner
                     from = tokenOwners[transformedTokenId];
                 }
-                if (data.length > 0) {
-                    initialModules = abi.decode(data, (ModuleParams[]));
-                }
             }
-        } else {
-            if (data.length > 0) {
-                initialModules = abi.decode(data, (ModuleParams[]));
-            }
+        }
+
+        if (moduleIndex == 0 && data.length > 0) {
+            initialModules = abi.decode(data, (ModuleParams[]));
         }
 
         _addToken(tokenId, from, initialModules);

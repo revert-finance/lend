@@ -120,8 +120,8 @@ contract CompoundorModuleTest is TestBase {
         assertEq(USDC.balanceOf(WHALE_ACCOUNT) - balanceBefore, storedReward1);
     }
 
-    // TODO fix this test... needs new mechanism in holder to mint directly
-    function testFailInitiateAndAddToCompound() external {
+    // mint directly to module
+    function testInitiateAndAddToCompound() external {
         
         // instructions to add to compoundor compoundorModule
         IHolder.ModuleParams[] memory moduleParams = new IHolder.ModuleParams[](1);
@@ -148,7 +148,7 @@ contract CompoundorModuleTest is TestBase {
             "",
             0,
             0,
-            false,
+            true,
             abi.encode(moduleParams)
         );
 
