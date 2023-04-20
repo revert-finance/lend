@@ -14,7 +14,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 
 /// @title IHolder
-/// @notice Main container contract for v3 positions, manages modules and access to the v3 positions based on active modules.
+/// @notice The main container contract for managing Uniswap V3 positions. This interface controls modules and access to V3 positions based on active modules.
 interface IHolder is IERC721Receiver {
 
     struct Module {
@@ -42,10 +42,12 @@ interface IHolder is IERC721Receiver {
     function getModuleTokensForOwner(address owner, address module) external view returns (uint256[] memory tokens);
     function addTokenToModule(uint256 tokenId, ModuleParams calldata params) external;
     function removeTokenFromModule(uint256 tokenId, uint8 moduleIndex) external;
-    function addModule( IModule implementation, uint256 blocking) external returns (uint8);
-    function setModuleBlocking(uint8 moduleIndex, uint256 blocking) external;
 
+    // helper method for direct minting from v3utils
     function registerFutureOwner(address owner) external;
+
+    // method to use v3utils to transform position
+    function v3UtilsTransform(uint256 tokenId, bytes calldata data) external;
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;

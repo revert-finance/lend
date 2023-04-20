@@ -8,8 +8,8 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
 /// @title LockModule
-/// @notice Lets a v3 position to be locked for a certain time (but allows removal of fees at any time)
-/// can NOT be used together with CollateralModule (set blocking config)
+/// @notice This contract allows locking a Uniswap V3 position for a specified time, while permitting fee withdrawals at any time.
+/// It cannot be used in conjunction with the CollateralModule (set blocking config).
 contract LockModule is Module {
   
     // errors 
@@ -26,6 +26,9 @@ contract LockModule is Module {
 
     bool public immutable override needsCheckOnCollect = true;
 
+    /// @notice Adds a token
+    /// @param tokenId The token ID of the position.
+    /// @param data The configuration data for the locked position.
     function addToken(uint256 tokenId, address, bytes calldata data) override onlyHolder external {
         PositionConfig memory config = abi.decode(data, (PositionConfig));
 
@@ -37,18 +40,26 @@ contract LockModule is Module {
         positionConfigs[tokenId] = config;
     }
 
+    /// @notice Withdraws a token
+    /// @param tokenId The token ID of the position.
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
         if (block.timestamp < positionConfigs[tokenId].releaseTime) {
             revert IsLocked();
         }
     }
 
+    /// @notice Checks if this module allows collect
+    /// @param tokenId The token ID of the position.
+    /// @param liquidity The amount of liquidity to be collected.
     function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override external  {
         if (liquidity > 0 && block.timestamp < positionConfigs[tokenId].releaseTime) {
             revert IsLocked();
         }
     }
 
+    /// @notice Returns the configuration of a locked position.
+    /// @param tokenId The token ID of the position.
+    /// @return config The configuration data for the locked position.
     function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
         return abi.encode(positionConfigs[tokenId]);
     }
