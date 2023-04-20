@@ -106,7 +106,7 @@ abstract contract TestBase is Test {
         holder = new Holder(NPM);
         v3utils = new V3Utils(NPM, EX0x);
 
-        holder.setFlashTransformContract(address(v3utils));
+        holder.setV3Utils(address(v3utils));
     }
 
     function _setupCompoundorModule(uint blocking) internal returns (uint8) {

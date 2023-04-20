@@ -5,7 +5,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-contract TestFlashTransform is IERC721Receiver {
+contract TestV3Utils is IERC721Receiver {
    
     error WrongContract();
 

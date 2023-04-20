@@ -45,6 +45,8 @@ interface IHolder is IERC721Receiver {
     function addModule( IModule implementation, uint256 blocking) external returns (uint8);
     function setModuleBlocking(uint8 moduleIndex, uint256 blocking) external;
 
+    function registerFutureOwner(address owner) external;
+
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;
         uint128 liquidity; // set to exact liquidity to be removed - 0 if only collect fees
@@ -57,6 +59,5 @@ interface IHolder is IERC721Receiver {
         address recipient;
         bytes callbackData; // data which is sent to callback
     }
-
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1, bytes memory callbackReturnData);
 }

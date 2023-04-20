@@ -41,6 +41,7 @@ contract V3Utils is IERC721Receiver {
     error TooMuchEtherSent();
     error NoEtherToken();
     error NotWETH();
+    error FutureOwnerNotRegistered();
 
     // events
     event CompoundFees(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
@@ -170,12 +171,12 @@ contract V3Utils is IERC721Receiver {
             emit CompoundFees(tokenId, liquidity, amount0, amount1);            
         } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
             if (instructions.targetToken == token0) {
-                (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", instructions.amountAddMin0, instructions.amountAddMin1, instructions.swapAndMintReturnData), instructions.unwrap);
+                (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(token1), instructions.amountIn1, instructions.amountOut1Min, instructions.swapData1, 0, 0, "", instructions.amountAddMin0, instructions.amountAddMin1, false, instructions.swapAndMintReturnData), instructions.unwrap);
             } else if (instructions.targetToken == token1) {
-                (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, instructions.amountAddMin0, instructions.amountAddMin1, instructions.swapAndMintReturnData), instructions.unwrap);
+                (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(token0), 0, 0, "", instructions.amountIn0, instructions.amountOut0Min, instructions.swapData0, instructions.amountAddMin0, instructions.amountAddMin1, false, instructions.swapAndMintReturnData), instructions.unwrap);
             } else {
                 // no swap is done here
-                (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", instructions.amountAddMin0, instructions.amountAddMin1, instructions.swapAndMintReturnData), instructions.unwrap);
+                (newTokenId,,,) = _swapAndMint(SwapAndMintParams(IERC20(token0), IERC20(token1), instructions.fee, instructions.tickLower, instructions.tickUpper, amount0, amount1, instructions.recipient, instructions.recipientNFT, instructions.deadline, IERC20(address(0)), 0, 0, "", 0, 0, "", instructions.amountAddMin0, instructions.amountAddMin1, false, instructions.swapAndMintReturnData), instructions.unwrap);
             }
             emit ChangeRange(tokenId, newTokenId);
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
@@ -304,6 +305,9 @@ contract V3Utils is IERC721Receiver {
         // min amount to be added after swap
         uint256 amountAddMin0;
         uint256 amountAddMin1;
+
+        // needs to call register with msg.sender address
+        bool doRegisterCall;
 
         // data to be sent along newly created NFT when transfered to recipientNFT (sent to IERC721Receiver callback)
         bytes returnData;
@@ -439,6 +443,15 @@ contract V3Utils is IERC721Receiver {
 
         // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
         (tokenId,liquidity,added0,added1) = nonfungiblePositionManager.mint(mintParams);
+
+        // special call for minting from v3utils to holder - if holder updates v3utils reference this will fail with FutureOwnerNotRegistered()
+        if (params.doRegisterCall) {
+            (bool success, ) = params.recipientNFT.call(abi.encodeWithSignature("registerFutureOwner(address)", msg.sender));
+            if (!success) {
+                revert FutureOwnerNotRegistered();
+            }
+        }
+
         nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, params.returnData);
 
         emit SwapAndMint(tokenId, liquidity, added0, added1);
@@ -450,7 +463,7 @@ contract V3Utils is IERC721Receiver {
     function _swapAndIncrease(SwapAndIncreaseLiquidityParams memory params, IERC20 token0, IERC20 token1, bool unwrap) internal returns (uint128 liquidity, uint256 added0, uint256 added1) {
 
         (uint256 total0, uint256 total1) = _swapAndPrepareAmounts(
-            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1, params.amountAddMin0, params.amountAddMin1, ""), unwrap);
+            SwapAndMintParams(token0, token1, 0, 0, 0, params.amount0, params.amount1, params.recipient, params.recipient, params.deadline, params.swapSourceToken, params.amountIn0, params.amountOut0Min, params.swapData0, params.amountIn1, params.amountOut1Min, params.swapData1, params.amountAddMin0, params.amountAddMin1, false, ""), unwrap);
 
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = 
             INonfungiblePositionManager.IncreaseLiquidityParams(

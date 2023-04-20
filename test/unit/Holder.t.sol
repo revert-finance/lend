@@ -9,7 +9,7 @@ import "./../../src/Holder.sol";
 import "./mock/WETH9.sol";
 import "./mock/TestModule.sol";
 import "./mock/TestNFT.sol";
-import "./mock/TestFlashTransform.sol";
+import "./mock/TestV3Utils.sol";
 
 contract HolderUnitTest is Test, IERC721Receiver {
 
@@ -25,7 +25,7 @@ contract HolderUnitTest is Test, IERC721Receiver {
     TestModule module2;
     uint24 fee;
     INonfungiblePositionManager nonfungiblePositionManager;
-    TestFlashTransform testFlashTransform;
+    TestV3Utils testV3Utils;
 
     function setUp() public {
         weth9 = new WETH9();
@@ -50,8 +50,8 @@ contract HolderUnitTest is Test, IERC721Receiver {
         tokenId = testNFT.mint();
 
         // set up flash transform contract
-        testFlashTransform = new TestFlashTransform(nonfungiblePositionManager);
-        holder.setFlashTransformContract(address(testFlashTransform));
+        testV3Utils = new TestV3Utils(nonfungiblePositionManager);
+        holder.setV3Utils(address(testV3Utils));
     }
 
     function testAddModule() external {
@@ -301,7 +301,7 @@ contract HolderUnitTest is Test, IERC721Receiver {
         uint balanceBefore = testNFT.balanceOf(address(holder));
 
         // send token to external contract for manipulation and return in the same call
-        holder.flashTransform(tokenId, "");
+        holder.v3UtilsTransform(tokenId, "");
 
         uint balanceAfter = testNFT.balanceOf(address(holder));
 

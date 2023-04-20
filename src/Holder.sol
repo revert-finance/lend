@@ -36,9 +36,11 @@ contract Holder is IHolder, Ownable, Multicall {
     error ModuleNotExists();
     error ModuleAlreadyRegistered();
     error TokenNotReturned();
-    error FlashTransformNotConfigured();
-    error FlashTransformInProgress();
-    error NoFlashTransformInProgress();
+    error TokenHasOperator();
+    error v3UtilsTransformNotConfigured();
+    error v3UtilsTransformInProgress();
+    error Nov3UtilsTransformInProgress();
+    error DirectMintingNotAllowed();
     error TokenNotInModule();
     error InvalidWithdrawTarget();
     error InvalidFromAddress();
@@ -48,7 +50,7 @@ contract Holder is IHolder, Ownable, Multicall {
     // events
     event AddedModule(uint8 index, IModule implementation);
     event SetModuleBlocking(uint8 index, uint256 blocking);
-    event SetFlashTransformContract(address flashTransformContract);
+    event SetV3Utils(address v3Utils);
     event AddedPositionToModule(
         uint256 indexed tokenId,
         uint8 index,
@@ -62,8 +64,9 @@ contract Holder is IHolder, Ownable, Multicall {
     }
 
     uint256 public checkOnCollect; // bitmap with modules that need check on collect
-    address public flashTransformContract; // contract which is allowed to do flash transforms
-    uint256 flashTransformedTokenId; // store tokenid which is flash transformed
+    address public v3Utils; // contract which is allowed to do flash transforms
+    uint256 transformTokenId; // store tokenid which is flash transformed by v3utils
+    address futureOwner; // next minted token is assigned to this owner
 
     uint8 public override modulesCount;
     mapping(uint8 => Module) public modules;
@@ -73,6 +76,10 @@ contract Holder is IHolder, Ownable, Multicall {
     mapping(uint256 => uint256) public override tokenModules;
     mapping(address => uint256[]) public accountTokens;
 
+    // method which recieves NFT transfers - there are different scenarios
+    // 1. any address transfers token to this contract - its added to the addresses tokens (with module config as defined)
+    // 2. one of the modules transfers token - must send previous token id so its added to the previous owners tokens
+    // 3. v3utils transfers token - depending if its in minting or transform context owner is 
     function onERC721Received(
         address,
         address from,
@@ -94,20 +101,28 @@ contract Holder is IHolder, Ownable, Multicall {
             if (from == address(0)) {
                 revert TokenNotInModule();
             }
+            // TODO make cloning optional/configurable?
             initialModules = _cloneConfig(previousId);
-        } else if (from == flashTransformContract) {
-            // if flashTransform contract sent token back - special handling
-            uint256 flashTokenId = flashTransformedTokenId;
-            // if its called from minting context TODO handle this case properly
-            if (flashTokenId == 0) {
-               revert();
+        } else if (from == v3Utils) {
+            // if v3Utils sent token back - special handling
+            uint256 transformedTokenId = transformTokenId;
+            // if its called from minting context
+            if (transformedTokenId == 0) {
+                // must have owner set - special v3utils way of doing things
+                from = futureOwner;
+                if (from != address(0)) {
+                    // reset
+                    futureOwner = address(0);
+                } else {
+                    revert DirectMintingNotAllowed();
+                }
             } else {
-                if (tokenId == flashTokenId) {
+                if (tokenId == transformedTokenId) {
                      // its the same token - no need to do nothing here -its already registered - welcome back home
                     return IERC721Receiver.onERC721Received.selector;
                 } else {
                     // its another token - assume it belongs to flash transformed tokens owner
-                    from = tokenOwners[flashTokenId];
+                    from = tokenOwners[transformedTokenId];
                 }
                 if (data.length > 0) {
                     initialModules = abi.decode(data, (ModuleParams[]));
@@ -118,7 +133,7 @@ contract Holder is IHolder, Ownable, Multicall {
                 initialModules = abi.decode(data, (ModuleParams[]));
             }
         }
-    
+
         _addToken(tokenId, from, initialModules);
         return IERC721Receiver.onERC721Received.selector;
     }
@@ -222,8 +237,7 @@ contract Holder is IHolder, Ownable, Multicall {
     /// @notice Sets module blocking configuration
     // When a position is in a module which is in blocking bitmap it cant be added to this module
     // Adding a modules index to its own blocking bitmap - disables adding new positions to the module
-    function setModuleBlocking(uint8 moduleIndex, uint256 blocking) external onlyOwner
-    {
+    function setModuleBlocking(uint8 moduleIndex, uint256 blocking) external onlyOwner {
         Module storage module = modules[moduleIndex];
         if (address(module.implementation) == address(0)) {
             revert ModuleNotExists();
@@ -232,41 +246,52 @@ contract Holder is IHolder, Ownable, Multicall {
         emit SetModuleBlocking(moduleIndex, blocking);
     }
 
-
     /// @notice Sets new flash transform contract
-    function setFlashTransformContract(address _flashTransformContract) external onlyOwner
-    {
-        if (flashTransformContract == address(this)) {
+    function setV3Utils(address _v3Utils) external onlyOwner {
+        if (v3Utils == address(this)) {
             revert WrongContract();
         }
-        flashTransformContract = _flashTransformContract;
-        emit SetFlashTransformContract(_flashTransformContract);
+        v3Utils = _v3Utils;
+        emit SetV3Utils(_v3Utils);
     }
 
-    /// @notice flash transforms token - must be returned afterwards
-    /// only token owner is allowed to call this!!
-    /// currently used for v3utils type of operations, data is encoded Instructions for V3Utils
-    function flashTransform(uint256 tokenId, bytes calldata data) external {
-        if (flashTransformedTokenId > 0) {
-            revert FlashTransformInProgress();
+    /// @notice method which is called by v3utils to set owner of future sent token 
+    function registerFutureOwner(address owner) external {
+        if (v3Utils != msg.sender) {
+            revert Unauthorized();
         }
-        flashTransformedTokenId = tokenId;
+        futureOwner = owner;
+    }
+
+    /// @notice transforms token using v3utils - must be returned afterwards
+    /// only token owner is allowed to call this!!
+    /// data is encoded Instructions for V3Utils
+    function v3UtilsTransform(uint256 tokenId, bytes calldata data) external {
+        if (transformTokenId > 0) {
+            revert v3UtilsTransformInProgress();
+        }
+        transformTokenId = tokenId;
 
         address owner = tokenOwners[tokenId];
         if (owner != msg.sender) {
             revert Unauthorized();
         }
 
-        if (flashTransformContract == address(0)) {
-            revert FlashTransformNotConfigured();
+        if (v3Utils == address(0)) {
+            revert v3UtilsTransformNotConfigured();
         }
         
         // do transfer to flash transform contract
-        nonfungiblePositionManager.safeTransferFrom(address(this), flashTransformContract, tokenId, data);
+        // TODO somehow replace with approve/operator mechanism?
+        nonfungiblePositionManager.safeTransferFrom(address(this), v3Utils, tokenId, data);
 
         // must have been returned afterwards
         if (nonfungiblePositionManager.ownerOf(tokenId) != address(this)) {
             revert TokenNotReturned();
+        }
+        // operator must still be address(0)
+        if (nonfungiblePositionManager.getApproved(tokenId) != address(0)) {
+            revert TokenHasOperator();
         }
 
         // only allow if complete collect is allowed by all modules involved
@@ -274,7 +299,7 @@ contract Holder is IHolder, Ownable, Multicall {
         _checkOnCollect(0, mod, tokenId, owner, type(uint128).max, type(uint128).max, type(uint128).max);
     
         // reset flash transformed token
-        flashTransformedTokenId = 0;
+        transformTokenId = 0;
     }
 
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1, bytes memory callbackReturnData) {
