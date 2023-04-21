@@ -135,21 +135,6 @@ abstract contract Module is IModule, Ownable {
         return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 
-    // helper method to get pool for token
-    function _getTokensPoolLiquidityAndTicks(uint256 tokenId) internal view returns (address token0, address token1, IUniswapV3Pool pool, uint128 liquidity, int24 tick, int24 tickLower, int24 tickUpper) {
-        uint24 fee;
-        (,,token0, token1, fee, tickLower, tickUpper, liquidity, , , , ) = nonfungiblePositionManager.positions(tokenId);
-        pool = _getPool(token0, token1, fee);
-        (,tick,,,,,) = pool.slot0();
-    }
-
-    // get current pool price
-    function _getPoolPriceX96(address token0, address token1, uint24 fee) internal view returns (uint256) {
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-    }
-
     // Checks if there was not more tick difference
     // returns false if not enough data available or tick difference >= maxDifference
     function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference) internal view returns (bool) {

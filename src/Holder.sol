@@ -243,6 +243,7 @@ contract Holder is IHolder, Ownable, Multicall {
     }
 
     /// @notice Sets new flash transform contract
+    /// Can be set to address(0) to disable v3utils funcionality
     function setV3Utils(address _v3Utils) external onlyOwner {
         if (v3Utils == address(this)) {
             revert WrongContract();

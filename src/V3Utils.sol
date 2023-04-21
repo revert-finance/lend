@@ -545,12 +545,16 @@ contract V3Utils is IERC721Receiver {
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
-            (bool sent, ) = to.call{value: amount}("");
-            if (!sent) {
-                revert EtherSendFailed();
+            if (to != address(this)) {
+                (bool sent, ) = to.call{value: amount}("");
+                if (!sent) {
+                    revert EtherSendFailed();
+                }
             }
         } else {
-            SafeERC20.safeTransfer(token, to, amount);
+            if (to != address(this)) {
+                SafeERC20.safeTransfer(token, to, amount);
+            }
         }
     }
 
