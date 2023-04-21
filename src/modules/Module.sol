@@ -162,11 +162,9 @@ abstract contract Module is IModule, Ownable {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint256 amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint16 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint256 amountOutMin, uint160 sqrtPriceX96, uint256 priceX96) {
+    function _validateSwap(bool swap0For1, uint256 amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint16 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint256 amountOutMin, int24 currentTick, uint160 sqrtPriceX96, uint256 priceX96) {
         
         // get current price and tick
-        int24 currentTick;
-        
         (sqrtPriceX96,currentTick,,,,,) = pool.slot0();
 
         // check if current tick not too far from TWAP

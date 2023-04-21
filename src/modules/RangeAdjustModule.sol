@@ -145,12 +145,11 @@ contract RangeAdjustModule is OperatorModule {
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (, state.currentTick, , , , , ) = state.pool.slot0();
+        // check oracle for swap
+        (state.amountOutMin,state.currentTick,,) = _validateSwap(params.swap0To1, params.amountIn, state.pool, TWAPSeconds, maxTWAPTickDifference, params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64);
 
         if (state.currentTick < state.tickLower - config.lowerTickLimit || state.currentTick >= state.tickUpper + config.upperTickLimit) {
 
-            // check oracle for swap
-            (state.amountOutMin,,) = _validateSwap(params.swap0To1, params.amountIn, state.pool, TWAPSeconds, maxTWAPTickDifference, params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64);
 
             (state.amountInDelta, state.amountOutDelta) = _swap(swapRouter, params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1), params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0), params.amountIn, state.amountOutMin, params.swapData);
 

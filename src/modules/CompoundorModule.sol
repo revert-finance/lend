@@ -180,7 +180,7 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
             // check oracle when price is needed during compounding
             if (params.doSwap || params.rewardConversion != RewardConversion.NONE) {
                 // checks oracle - reverts if not enough data available or if price is to far away from TWAP
-                (, state.sqrtPriceX96, state.priceX96) = _validateSwap(false, 0, state.pool, TWAPSeconds, maxTWAPTickDifference, 0);
+                (,, state.sqrtPriceX96, state.priceX96) = _validateSwap(false, 0, state.pool, TWAPSeconds, maxTWAPTickDifference, 0);
                 // swap if needed
                 if (params.doSwap) {
                      SwapParams memory swapParams = SwapParams(
