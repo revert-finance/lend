@@ -210,14 +210,6 @@ contract StopLossLimitModule is OperatorModule {
             }
         }
 
-        // TODO decide if this is needed here?
-        // prepare pool to be ready with enough observation
-        //IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        //(,,,,uint16 observationCardinalityNext,,) = pool.slot0();
-        //if (observationCardinalityNext < TWAPSeconds) {
-        //    pool.increaseObservationCardinalityNext(uint16(TWAPSeconds)); // TODO what number to use here - can be less than TWAPSeconds
-        //}
-        
         positionConfigs[tokenId] = config;
 
         emit PositionConfigured(

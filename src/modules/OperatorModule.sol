@@ -17,7 +17,7 @@ abstract contract OperatorModule is Module {
     address public swapRouter;
 
     constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) Module(_npm) {
-         swapRouter = _swapRouter;
+        swapRouter = _swapRouter;
         emit SwapRouterChanged(_swapRouter);
 
         operator = _operator;

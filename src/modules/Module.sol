@@ -126,6 +126,7 @@ abstract contract Module is IModule, Ownable {
                 }
             }
 
+            // call as an external call
             callbackReturnData = this.decreaseLiquidityAndCollectCallback(params.tokenId, amount0, amount1, params.callbackData);
         }
     }

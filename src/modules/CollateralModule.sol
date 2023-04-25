@@ -16,7 +16,6 @@ import 'v3-core/libraries/FixedPoint128.sol';
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
-import "../Holder.sol";
 import "./Module.sol";
 import "./ICollateralModule.sol";
 
