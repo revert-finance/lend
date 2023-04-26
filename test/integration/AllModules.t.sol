@@ -39,6 +39,52 @@ contract AllModulesTest is TestBase {
         NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, address(holder), TEST_NFT_3, abi.encode(params));
     }
 
+    function testDirectAddAndThenModule() external {
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(compoundorModule), TEST_NFT);
+
+        vm.expectRevert(CompoundorModule.NotConfigured.selector);
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        compoundorModule.addTokenDirect(TEST_NFT, true);
+
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(collateralModuleIndex, "");
+
+        // add NFTs to another module
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(holder), TEST_NFT, abi.encode(params));
+
+        // because module is not activated in holder - it doesnt work anymore (although it is configured)
+        vm.expectRevert(Module.Unauthorized.selector);
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+
+        // adding it to the module (again)
+        vm.prank(TEST_NFT_ACCOUNT);
+        holder.addTokenToModule(TEST_NFT, IHolder.ModuleParams(compoundorModuleIndex, ""));
+
+        // works again
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+
+        // removing from module - deactivates it
+        vm.prank(TEST_NFT_ACCOUNT);
+        holder.removeTokenFromModule(TEST_NFT, compoundorModuleIndex);
+
+        vm.expectRevert(CompoundorModule.NotConfigured.selector);
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+
+        // removing it from holder
+        vm.prank(TEST_NFT_ACCOUNT);
+        holder.withdrawToken(TEST_NFT, TEST_NFT_ACCOUNT, "");
+
+        vm.expectRevert(CompoundorModule.NotConfigured.selector);
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+    }
+
     function testCompleteExample() external {
            
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](3);
