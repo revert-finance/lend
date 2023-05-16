@@ -133,6 +133,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         uint128 liquidity;
         uint256 minAmount0;
         uint256 minAmount1;
+        uint256 deadline;
     }
 
     struct BorrowAndAddLiquidityState {
@@ -172,7 +173,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             IERC20(state.token1).approve(address(nonfungiblePositionManager), amount1);
         }
 
-        (, uint256 addedAmount0, uint256 addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.minAmount0, params.minAmount1, block.timestamp));
+        (, uint256 addedAmount0, uint256 addedAmount1) = nonfungiblePositionManager.increaseLiquidity(INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.minAmount0, params.minAmount1, params.deadline));
 
         // transfer left over tokens (should be minimal if any) - cheaper than repay borrow
         if (addedAmount0 < amount0) {
@@ -190,6 +191,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         uint256 minAmount1;
         uint128 fees0;
         uint128 fees1;
+        uint256 deadline;
     }
 
     struct RepayFromRemovedLiquidityState {
@@ -210,7 +212,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         address owner = holder.tokenOwners(params.tokenId);
 
         // this is done without collateral check here - it is done at the end of call
-        (uint256 amount0, uint256 amount1, ) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, block.timestamp, false, address(this), ""));
+        (uint256 amount0, uint256 amount1, ) = holder.decreaseLiquidityAndCollect(IHolder.DecreaseLiquidityAndCollectParams(params.tokenId, params.liquidity, params.minAmount0, params.minAmount1, params.fees0, params.fees1, params.deadline, false, address(this), ""));
 
         CErc20 cToken0 = _getCToken(state.token0);
         CErc20 cToken1 = _getCToken(state.token1);

@@ -228,7 +228,7 @@ contract CollateralModuleTest is TestBase {
         (, , , , , , , uint128 liquidityBefore, , , , ) = NPM.positions(data.tokenId);
 
         vm.prank(data.owner);
-        collateralModule.borrowAndAddLiquidity(CollateralModule.BorrowAndAddLiquidityParams(data.tokenId, 5000000000000000000, 0, 0));
+        collateralModule.borrowAndAddLiquidity(CollateralModule.BorrowAndAddLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, block.timestamp));
      
         (, , , , , , , uint128 liquidityAfter, , , , ) = NPM.positions(data.tokenId);
 
@@ -239,13 +239,13 @@ contract CollateralModuleTest is TestBase {
         assertEq(liquidity, 24097530741284063731072); // fees were added
         assertEq(shortfall, 0);
 
-        collateralModule.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, 0, 0));
+        collateralModule.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, 5000000000000000000, 0, 0, 0, 0, block.timestamp));
 
         (, , , , , , , liquidityBefore, , , , ) = NPM.positions(data.tokenId);
 
         assertGt(liquidityAfter, liquidityBefore); 
 
-        collateralModule.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, liquidityBefore, 0, 0, 0, 0));
+        collateralModule.repayFromRemovedLiquidity(CollateralModule.RepayFromRemovedLiquidityParams(data.tokenId, liquidityBefore, 0, 0, 0, 0, block.timestamp));
 
         (, , , , , , , liquidityBefore, , , , ) = NPM.positions(data.tokenId);
 
