@@ -6,8 +6,6 @@ import "../compound/Lens/CompoundLens.sol";
 
 import "../compound/CErc20.sol";
 
-import "../compound/PriceOracle.sol";
-
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 
 import "v3-core/libraries/TickMath.sol";
@@ -38,7 +36,6 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     struct PoolConfig {
         bool isActive; // pool may be deposited
-        uint64 maxOracleSqrtDeviationX64; // reasonable value maybe 10%
     }
     mapping (address => PoolConfig) poolConfigs;
 
@@ -51,7 +48,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     }
 
     /// @notice Management method to configure a pool
-    function setPoolConfig(address pool, bool isActive, uint64 maxOracleSqrtDeviationX64) external onlyOwner {
+    function setPoolConfig(address pool, bool isActive) external onlyOwner {
 
         CErc20 cToken0 = _getCToken(IUniswapV3Pool(pool).token0());
         CErc20 cToken1 = _getCToken(IUniswapV3Pool(pool).token1());
@@ -64,7 +61,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             revert TokenNotActive();
         }
 
-        poolConfigs[pool] = PoolConfig(isActive, maxOracleSqrtDeviationX64);
+        poolConfigs[pool] = PoolConfig(isActive);
     }
 
     struct PositionState {
@@ -104,28 +101,20 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
 
     // returns token breakdown using given oracle prices for both tokens
     // returns corresponding ctoken balance if lent out
-    // reverts if prices deviate to much from pool TODO check if better use error code (compound style)
+    // reverts if prices deviate to much from pool
     function getPositionBreakdown(uint256 tokenId, uint256 price0, uint256 price1) external override view returns (uint128 liquidity, uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) {
 
         PositionState memory position = _getPositionState(tokenId);
-
         liquidity = position.liquidity;
 
-        // calculate oracle sqrt price
+        // calculate oracle price
         uint160 oracleSqrtPriceX96 = uint160(_sqrt(FullMath.mulDiv(price0, Q96 * Q96, price1)));
 
-        (uint160 sqrtPriceX96, int24 tick,,,,,) = position.pool.slot0();
+        // get current tick needed for uncollected fees calculation
+        (, int24 tick,,,,,) = position.pool.slot0();
 
         // calculate position amounts (incl uncollected fees)
         (amount0, amount1, fees0, fees1) = _getAmounts(position, oracleSqrtPriceX96, tick);
-
-        PoolConfig storage poolConfig = poolConfigs[address(position.pool)];
-
-        // check for mayor difference between pool price and oracle price - if to big - revert
-        uint256 priceSqrtRatioX64 = Q64 - (sqrtPriceX96 < oracleSqrtPriceX96 ? sqrtPriceX96 * Q64 / oracleSqrtPriceX96 : oracleSqrtPriceX96 * Q64 / sqrtPriceX96);
-        if (priceSqrtRatioX64 > poolConfig.maxOracleSqrtDeviationX64) {
-            revert OracleDeviation();
-        }
     }
 
     struct BorrowAndAddLiquidityParams {
@@ -475,61 +464,5 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
             // If you don't care whether the floor or ceil square root is returned, you can remove this statement.
             z := sub(z, lt(div(x, z), z))
         }
-    }
-}
-
-interface AggregatorV3Interface {
-    function latestRoundData() external view returns (
-        uint80 roundId,
-        int256 answer,
-        uint256 startedAt,
-        uint256 updatedAt,
-        uint80 answeredInRound
-    );
-
-    function decimals() external view returns (uint8);
-}
-contract ChainlinkOracle is PriceOracle, Ownable {
-
-    error NoFeedConfigured();
-
-    struct FeedConfig {
-        AggregatorV3Interface feed;
-        uint32 maxFeedAge;
-        uint8 feedDecimals;
-        uint8 tokenDecimals;
-    }
-
-    // ctoken => config mapping
-    mapping(address => FeedConfig) feedConfigs;
-    
-    constructor() {
-    }
-
-    function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
-        uint8 feedDecimals = feed.decimals();
-        address underlying = CErc20Interface(address(cToken)).underlying();
-        uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
-        feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
-    }
-
-    function getUnderlyingPrice(CToken cToken) override external view returns (uint256) {
-        FeedConfig storage feedConfig = feedConfigs[address(cToken)];
-        if (address(feedConfig.feed) == address(0)) {
-            revert NoFeedConfigured();
-        }
-
-        // if stale data - return 0 - handled as error in compound 
-        (, int256 answer, , uint256 updatedAt, ) = feedConfig.feed.latestRoundData();
-        if (updatedAt + feedConfig.maxFeedAge < block.timestamp) {
-            return 0;
-        }
-        // if invalid data - return 0 - handled as error in compound 
-        if (answer < 0) {
-            return 0;
-        }
-
-        // convert to compound expected format
-        return (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * uint256(answer);
     }
 }

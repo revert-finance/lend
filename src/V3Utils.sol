@@ -137,7 +137,7 @@ contract V3Utils is IERC721Receiver {
         nonfungiblePositionManager.permit(address(this), tokenId, instructions.deadline, v, r, s);
         execute(tokenId, instructions);
 
-        // TODO? previous operator can not be set as operator set by approve can not change aprovals
+        // NOTE: previous operator can not be reset as operator set by approve can not change approvals - so this operator will stay until reset
     }
 
     /// @notice Execute instruction on pulled or approved token

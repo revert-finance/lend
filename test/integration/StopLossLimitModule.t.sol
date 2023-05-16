@@ -125,9 +125,9 @@ contract StopLossLimitModuleTest is TestBase {
 
         assertEq(balanceAfterOwner + balanceAfter - balanceBeforeOwner - balanceBefore + 1, amount0); // +1 because Uniswap imprecision (remove same liquidity returns 1 less)
 
-        // cant execute again - liquidity disapeard
+        // cant execute again
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.NoLiquidity.selector);
+        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
 
         // add new liquidity
@@ -295,7 +295,7 @@ contract StopLossLimitModuleTest is TestBase {
 
         // is not runnable anymore because no more liquidity
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.NoLiquidity.selector);
+        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
 
         // fee stored for owner in contract
@@ -334,7 +334,7 @@ contract StopLossLimitModuleTest is TestBase {
 
         // is not runnable anymore because no more liquidity
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.NoLiquidity.selector);
+        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
 
         // fee stored for owner in contract

@@ -11,6 +11,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../src/V3Utils.sol";
 import "../src/Holder.sol";
 
+import "../src/Oracle.sol";
+
 import "../src/modules/CompoundorModule.sol";
 import "../src/modules/StopLossLimitModule.sol";
 import "../src/modules/LockModule.sol";
@@ -90,7 +92,7 @@ abstract contract TestBase is Test {
     CollateralModule collateralModule;
     RangeAdjustModule rangeAdjustModule;
 
-    ChainlinkOracle oracle;
+    Oracle oracle;
     Unitroller unitroller;
     Comptroller comptroller;
     InterestRateModel irm;
@@ -156,7 +158,7 @@ abstract contract TestBase is Test {
         cTokenDAI = CErc20(address(new CErc20Delegator(address(DAI), comptroller, irm, 1 ether, "cDAI", "cDAI", 8, payable(address(this)), address(cErc20Delegate), "")));
         cTokenWETH = CErc20(address(new CErc20Delegator(address(WETH_ERC20), comptroller, irm, 1 ether, "cWETH", "cWETH", 8, payable(address(this)), address(cErc20Delegate), "")));
 
-        oracle = new ChainlinkOracle();
+        oracle = new Oracle();
         oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
         oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
         oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600);
@@ -177,9 +179,9 @@ abstract contract TestBase is Test {
         // link module to comptroller
         comptroller._setCollateralModule(collateralModule);
 
-        collateralModule.setPoolConfig(TEST_NFT_3_POOL, true, uint64(Q64 / 100));
-        collateralModule.setPoolConfig(TEST_NFT_4_POOL, true, uint64(Q64 / 100));
-        collateralModule.setPoolConfig(TEST_NFT_2_POOL, true, uint64(Q64 / 100));
+        collateralModule.setPoolConfig(TEST_NFT_3_POOL, true);
+        collateralModule.setPoolConfig(TEST_NFT_4_POOL, true);
+        collateralModule.setPoolConfig(TEST_NFT_2_POOL, true);
 
         return holder.addModule(collateralModule, blocking);
     }

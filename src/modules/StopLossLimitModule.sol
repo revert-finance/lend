@@ -226,7 +226,7 @@ contract StopLossLimitModule is OperatorModule {
 
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
         delete positionConfigs[tokenId];
-        emit PositionConfigured(params.tokenId, false, false, false, 0, 0, 0, 0);   
+        emit PositionConfigured(tokenId, false, false, false, 0, 0, 0, 0);   
     }
 
     function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
