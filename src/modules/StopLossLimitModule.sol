@@ -28,10 +28,10 @@ contract StopLossLimitModule is OperatorModule {
         bool isActive,
         bool token0Swap,
         bool token1Swap,
-        uint64 token0SlippageX64,
-        uint64 token1SlippageX64,
         int24 token0TriggerTick,
-        int24 token1TriggerTick
+        int24 token1TriggerTick,
+        uint64 token0SlippageX64,
+        uint64 token1SlippageX64
     );
 
     // errors 
@@ -51,22 +51,18 @@ contract StopLossLimitModule is OperatorModule {
     constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) OperatorModule(_npm, _swapRouter, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
     }
 
+    // define how stoploss / limit should be handled
     struct PositionConfig {
-
-        // if position is active
-        bool isActive;
-
+        bool isActive; // if position is active
         // should swap token to other token when triggered
         bool token0Swap;
         bool token1Swap;
-
-        // max price difference from current pool price for swap / Q64
-        uint64 token0SlippageX64;
-        uint64 token1SlippageX64;
-
         // when should action be triggered (when this tick is reached - allow execute)
-        int24 token0TriggerTick;
-        int24 token1TriggerTick;
+        int24 token0TriggerTick; // when tick is below this one
+        int24 token1TriggerTick; // when tick is equal or above this one
+        // max price difference from current pool price for swap / Q64
+        uint64 token0SlippageX64; // when token 0 is swapped to token 1
+        uint64 token1SlippageX64; // when token 1 is swapped to token 0
     }
 
     mapping (uint256 => PositionConfig) public positionConfigs;
@@ -139,7 +135,7 @@ contract StopLossLimitModule is OperatorModule {
         (,state.tick,,,,,) = state.pool.slot0();
 
         // not triggered
-        if (config.token0TriggerTick <= state.tick && state.tick <= config.token1TriggerTick) {
+        if (config.token0TriggerTick <= state.tick && state.tick < config.token1TriggerTick) {
             revert NotInCondition();
         }
     
@@ -180,6 +176,10 @@ contract StopLossLimitModule is OperatorModule {
             _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
         }
 
+        // delete config for position
+        delete positionConfigs[params.tokenId];
+        emit PositionConfigured(params.tokenId, false, false, false, 0, 0, 0, 0);
+
         // log event
         emit Executed(msg.sender, state.isSwap, params.tokenId, state.amount0, state.amount1, state.token0, state.token1);
     }
@@ -205,7 +205,7 @@ contract StopLossLimitModule is OperatorModule {
         if (config.isActive) {
             // trigger ticks have to be on the correct side of position range
             (,,,,, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
-            if (tickLower <= config.token0TriggerTick || tickUpper > config.token1TriggerTick) {
+            if (tickLower < config.token0TriggerTick || tickUpper > config.token1TriggerTick) {
                 revert InvalidConfig();
             }
         }
@@ -217,26 +217,16 @@ contract StopLossLimitModule is OperatorModule {
             config.isActive,
             config.token0Swap,
             config.token1Swap,
-            config.token0SlippageX64,
-            config.token1SlippageX64,
             config.token0TriggerTick,
-            config.token1TriggerTick
+            config.token1TriggerTick,
+            config.token0SlippageX64,
+            config.token1SlippageX64
         );
     }
 
     function withdrawToken(uint256 tokenId, address) override onlyHolder external {
-         delete positionConfigs[tokenId];
-
-         emit PositionConfigured(
-            tokenId,
-            false,
-            false,
-            false,
-            0,
-            0,
-            0,
-            0
-         );
+        delete positionConfigs[tokenId];
+        emit PositionConfigured(params.tokenId, false, false, false, 0, 0, 0, 0);   
     }
 
     function getConfig(uint256 tokenId) override external view returns (bytes memory config) {

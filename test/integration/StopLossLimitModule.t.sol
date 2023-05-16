@@ -27,10 +27,10 @@ contract StopLossLimitModuleTest is TestBase {
                 isActive,
                 token0Swap,
                 token1Swap,
-                token0SlippageX64,
-                token1SlippageX64,
                 token0TriggerTick,
-                token1TriggerTick
+                token1TriggerTick,
+                token0SlippageX64,
+                token1SlippageX64
             );
 
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
@@ -202,14 +202,14 @@ contract StopLossLimitModuleTest is TestBase {
     function testInvalidConfig() external {
         vm.expectRevert(Module.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT, StopLossLimitModule.PositionConfig(true, false, false,  0, 0, 800000, -800000));
+        stopLossLimitModule.addTokenDirect(TEST_NFT, StopLossLimitModule.PositionConfig(true, false, false, 800000, -800000,  0, 0));
     }
 
     function testValidSetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
-        StopLossLimitModule.PositionConfig memory configIn = StopLossLimitModule.PositionConfig(true, false, false, 0, 0, -800000, 800000);
+        StopLossLimitModule.PositionConfig memory configIn = StopLossLimitModule.PositionConfig(true, false, false, -800000, 800000, 0, 0);
         stopLossLimitModule.addTokenDirect(TEST_NFT, configIn);
-        (bool i1, bool i2, bool i3, uint64 i4, uint64 i5, int24 i6, int24 i7) = stopLossLimitModule.positionConfigs(TEST_NFT);
+        (bool i1, bool i2, bool i3, int24 i4, int24 i5, uint64 i6, uint64 i7) = stopLossLimitModule.positionConfigs(TEST_NFT);
         assertEq(abi.encode(configIn), abi.encode(StopLossLimitModule.PositionConfig(i1, i2, i3, i4, i5, i6, i7)));
     }
 
@@ -222,7 +222,7 @@ contract StopLossLimitModuleTest is TestBase {
     function testRunWithoutApprove() external {
         // out of range position
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, false, false, 0, 0, -84121, -78240));
+        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, false, false, -84121, -78240, 0, 0));
 
         // fails when sending NFT
         vm.expectRevert(abi.encodePacked("Not approved"));
@@ -246,7 +246,7 @@ contract StopLossLimitModuleTest is TestBase {
         NPM.setApprovalForAll(address(stopLossLimitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2_A, StopLossLimitModule.PositionConfig(true, false, false, 0, 0, -276331, -276320));
+        stopLossLimitModule.addTokenDirect(TEST_NFT_2_A, StopLossLimitModule.PositionConfig(true, false, false, -276331, -276320, 0, 0));
 
         // in range position cant be run
         vm.expectRevert(StopLossLimitModule.NotInCondition.selector);
@@ -263,7 +263,7 @@ contract StopLossLimitModuleTest is TestBase {
         NPM.setApprovalForAll(address(stopLossLimitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, uint64(Q64 / 100), uint64(Q64 / 100), -84121, -78240));
+        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100)));
 
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
@@ -282,7 +282,7 @@ contract StopLossLimitModuleTest is TestBase {
         NPM.setApprovalForAll(address(stopLossLimitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, false, false, uint64(Q64 / 100), uint64(Q64 / 100), -84121, -78240)); // 1% max slippage
+        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, false, false, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max slippage
 
         uint contractWETHBalanceBefore = WETH_ERC20.balanceOf(address(stopLossLimitModule));
         uint contractDAIBalanceBefore = DAI.balanceOf(address(stopLossLimitModule));
@@ -316,7 +316,7 @@ contract StopLossLimitModuleTest is TestBase {
         NPM.setApprovalForAll(address(stopLossLimitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, uint64(Q64 / 100), uint64(Q64 / 100), -84121, -78240)); // 1% max slippage
+        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max slippage
 
         uint contractWETHBalanceBefore = WETH_ERC20.balanceOf(address(stopLossLimitModule));
         uint contractDAIBalanceBefore = DAI.balanceOf(address(stopLossLimitModule));

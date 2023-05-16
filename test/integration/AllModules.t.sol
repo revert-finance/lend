@@ -30,7 +30,7 @@ contract AllModulesTest is TestBase {
         
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](4);
         params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
-        params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
+        params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, -800000, 800000, 0, 0)));
         params[2] = IHolder.ModuleParams(lockModuleIndex, abi.encode(LockModule.PositionConfig(0)));
         params[3] = IHolder.ModuleParams(collateralModuleIndex, "");
 
@@ -89,7 +89,7 @@ contract AllModulesTest is TestBase {
            
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](3);
         params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
-        params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, 0, 0, -800000, 800000)));
+        params[1] = IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(false, false, false, -800000, 800000, 0, 0)));
         params[2] = IHolder.ModuleParams(collateralModuleIndex, "");
 
         // add NFTs
@@ -141,7 +141,7 @@ contract AllModulesTest is TestBase {
 
         // before removing execute stop loss while collateral
         vm.prank(TEST_NFT_2_ACCOUNT);
-        holder.addTokenToModule(TEST_NFT_2_B, IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(true, false, false, type(uint64).max, type(uint64).max, 192179, 193380))));
+        holder.addTokenToModule(TEST_NFT_2_B, IHolder.ModuleParams(stopLossLimitModuleIndex, abi.encode(StopLossLimitModule.PositionConfig(true, false, false, 192179, 193380, type(uint64).max, type(uint64).max))));
 
         vm.prank(OPERATOR_ACCOUNT);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2_B, "", block.timestamp));
