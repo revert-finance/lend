@@ -26,7 +26,7 @@ interface AggregatorV3Interface {
 }
 contract Oracle is PriceOracle, Ownable {
 
-    uint256 consoletant Q96 = 2**96;
+    uint256 constant Q96 = 2**96;
 
     error NoFeedConfigured();
     error InvalidPool();

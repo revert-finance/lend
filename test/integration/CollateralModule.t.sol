@@ -291,6 +291,23 @@ contract CollateralModuleTest is TestBase {
         assertEq(err, 0);
         assertEq(liquidity, 0);
         assertEq(shortfall, 327613650189133661102); // 327 USD missing after price change
+
+        // move oracle price of USDC to $1.055 (calls must fail > 5% difference)
+        vm.mockCall(CHAINLINK_USDC_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(105500000), block.timestamp, block.timestamp, uint80(0)));
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
+        assertEq(err, 13);
+        assertEq(liquidity, 0);
+        assertEq(shortfall, 0);
+
+        // move oracle price of USDC to $0.945 (calls must fail > 5% difference)
+        vm.mockCall(CHAINLINK_USDC_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(94500000), block.timestamp, block.timestamp, uint80(0)));
+        (err, liquidity, shortfall) = comptroller.getAccountLiquidity(data.owner);
+        assertEq(err, 13);
+        assertEq(liquidity, 0);
+        assertEq(shortfall, 0);
+
+         // move oracle price of USDC back to $1.01
+        vm.mockCall(CHAINLINK_USDC_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(101000000), block.timestamp, block.timestamp, uint80(0)));
     }
 
     function testLiquidation() external {

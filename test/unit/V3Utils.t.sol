@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
-
 import "../TestBase.sol";
 import "./mock/WETH9.sol";
 import "../../src/V3Utils.sol";
