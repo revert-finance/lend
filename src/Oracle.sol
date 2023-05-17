@@ -6,6 +6,10 @@ import "./compound/ComptrollerInterface.sol";
 import "./compound/Lens/CompoundLens.sol";
 import "./compound/CErc20.sol";
 
+import "v3-core/libraries/FullMath.sol";
+import "v3-core/libraries/TickMath.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -22,13 +26,20 @@ interface AggregatorV3Interface {
 }
 contract Oracle is PriceOracle, Ownable {
 
+    uint256 constant Q96 = 2**96;
+
     error NoFeedConfigured();
+    error InvalidPool();
 
     struct FeedConfig {
-        AggregatorV3Interface feed;
+        AggregatorV3Interface feed; // chainlink feed
         uint32 maxFeedAge;
         uint8 feedDecimals;
         uint8 tokenDecimals;
+        IUniswapV3Pool pool; // reference pool
+        bool isToken0;
+        uint8 otherDecimals;
+        uint32 twapSeconds;
     }
 
     // ctoken => config mapping
@@ -37,30 +48,70 @@ contract Oracle is PriceOracle, Ownable {
     constructor() {
     }
 
-    function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge) external onlyOwner {
+    function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds) external onlyOwner {
         uint8 feedDecimals = feed.decimals();
         address underlying = CErc20Interface(address(cToken)).underlying();
         uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
-        feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals);
+        address otherToken = pool.token0();
+        bool isToken0 = otherToken == underlying;
+        if (!isToken0) {
+            if (pool.token1() != underlying) {
+                revert InvalidPool();
+            }
+        } else {
+            otherToken = pool.token1();
+        }
+        uint8 otherDecimals = IERC20Metadata(otherToken).decimals();
+        feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds);
     }
 
-    function getUnderlyingPrice(CToken cToken) override external view returns (uint256) {
+    function _getReferencePoolPrice(IUniswapV3Pool pool, uint32 twapSeconds, bool isToken0, uint8 tokenDecimals, uint8 otherDecimals, uint8 feedDecimals) internal view returns (uint256) {
+
+        uint160 sqrtPriceX96;
+        if (twapSeconds == 0) {
+            (sqrtPriceX96,,,,,,) = pool.slot0();
+        } else {
+            uint32[] memory secondsAgos = new uint32[](2);
+            secondsAgos[0] = 0; // from (before)
+            secondsAgos[1] = twapSeconds; // from (before)
+            (int56[] memory tickCumulatives,) = pool.observe(secondsAgos); // pool observe may fail when there is not enough history available (only use pool with enough history!)
+            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
+            sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
+        }
+
+        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        if (isToken0) {
+            return FullMath.mulDiv(priceX96, 10 ** (feedDecimals + tokenDecimals - otherDecimals), Q96);
+        } else {
+            return FullMath.mulDiv(Q96, 10 ** (feedDecimals + tokenDecimals - otherDecimals), priceX96);
+        }
+    }
+
+    function getUnderlyingPrice(CToken cToken) override external view returns (uint256 result) {
         FeedConfig storage feedConfig = feedConfigs[address(cToken)];
         if (address(feedConfig.feed) == address(0)) {
             revert NoFeedConfigured();
         }
 
-        // if stale data - return 0 - handled as error in compound 
+        // if stale data - return 0 - handled as error in compound
         (, int256 answer, , uint256 updatedAt, ) = feedConfig.feed.latestRoundData();
         if (updatedAt + feedConfig.maxFeedAge < block.timestamp) {
             return 0;
         }
-        // if invalid data - return 0 - handled as error in compound 
+        // if invalid data - return 0 - handled as error in compound
         if (answer < 0) {
             return 0;
         }
 
+        // get reference pool price
+        uint256 poolPrice = _getReferencePoolPrice(feedConfig.pool, feedConfig.twapSeconds, feedConfig.isToken0, feedConfig.tokenDecimals, feedConfig.otherDecimals, feedConfig.feedDecimals);
+
+        // if price is off - return 0 - handled as error in compound
+        // TODO
+
+        // TODO handle different modes
+
         // convert to compound expected format
-        return (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * uint256(answer);
+        result = (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * uint256(answer);
     }
 }

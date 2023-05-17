@@ -54,6 +54,11 @@ abstract contract TestBase is Test {
     address constant CHAINLINK_DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
     address constant CHAINLINK_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
+    address constant UNISWAP_USDC_USDT = 0x3416cF6C708Da44DB2624D63ea0AAef7113527C6; // 0.01% pool
+    address constant UNISWAP_DAI_USDC = 0x5777d92f208679DB4b9778590Fa3CAB3aC9e2168; // 0.01% pool
+    address constant UNISWAP_ETH_USDC = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640; // 0.05% pool
+
+
     // DAI/USDC 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
     uint256 constant TEST_NFT = 24181;
     address constant TEST_NFT_ACCOUNT = 0x8cadb20A4811f363Dadb863A190708bEd26245F8;
@@ -159,9 +164,9 @@ abstract contract TestBase is Test {
         cTokenWETH = CErc20(address(new CErc20Delegator(address(WETH_ERC20), comptroller, irm, 1 ether, "cWETH", "cWETH", 8, payable(address(this)), address(cErc20Delegate), "")));
 
         oracle = new Oracle();
-        oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48);
-        oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48);
-        oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600);
+        oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48, IUniswapV3Pool(UNISWAP_USDC_USDT), 60);
+        oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48, IUniswapV3Pool(UNISWAP_DAI_USDC), 60);
+        oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600, IUniswapV3Pool(UNISWAP_ETH_USDC), 60);
         comptroller._setPriceOracle(oracle);
 
         uint64 fiftyPercent = 5 * 10 ** 17;
