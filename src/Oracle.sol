@@ -72,9 +72,9 @@ contract Oracle is PriceOracle, Ownable {
 
     // Sets or updates the feed configuration for a cToken
     // Can only be called by the owner of the contract
-    function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external onlyOwner {
+    function setTokenFeed(CErc20Interface cToken, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external onlyOwner {
         uint8 feedDecimals = feed.decimals();
-        address underlying = CErc20Interface(address(cToken)).underlying();
+        address underlying = cToken.underlying();
         uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
         address otherToken = pool.token0();
         bool isToken0 = otherToken == underlying;
@@ -86,17 +86,101 @@ contract Oracle is PriceOracle, Ownable {
             otherToken = pool.token1();
         }
         uint8 otherDecimals = IERC20Metadata(otherToken).decimals();
-        feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
+        feedConfigs[address(cToken)] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
 
-        emit FeedConfigUpdated(cToken);
+        emit FeedConfigUpdated(address(cToken));
     }
 
     // Updates the oracle mode for a cToken
     // Can only be called by the owner of the contract
     function setOracleMode(address cToken, Mode mode) external onlyOwner {
         feedConfigs[cToken].mode = mode;
-
+        
         emit OracleModeUpdated(cToken, mode);
+    }
+
+    // Returns the underlying price for a cToken using the selected oracle mode
+    // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode
+    function getUnderlyingPrice(CToken cToken) override external view returns (uint256 result) {
+        FeedConfig storage feedConfig = feedConfigs[address(cToken)];
+
+        uint256 price;
+        uint256 verifyPrice;
+
+        bool usesChainlink = (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY || feedConfig.mode == Mode.CHAINLINK);
+        bool usesTWAP = (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY || feedConfig.mode == Mode.TWAP);
+
+        if (usesChainlink) {
+            uint256 chainlinkPrice = _getChainlinkPrice(feedConfig);
+            if (chainlinkPrice == 0) {
+                return 0;
+            }
+            if (feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
+                verifyPrice = chainlinkPrice;
+            } else {
+                price = chainlinkPrice;
+            }
+        }
+
+        if (usesTWAP) {
+            uint256 twapPrice = _getTWAPPrice(feedConfig);
+            if (twapPrice == 0) {
+                return 0;
+            }
+            if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY) {
+                verifyPrice = twapPrice;
+            } else {
+                price = twapPrice;
+            }
+        }
+
+        if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
+            uint256 difference = price > verifyPrice ? FullMath.mulDiv(price - verifyPrice, 10000, price) : FullMath.mulDiv(verifyPrice - price, 10000, verifyPrice);
+
+            // if too big difference - return 0 - handled as error in compound
+            if (difference >= feedConfig.maxDifference) {
+                return 0;
+            }
+        }
+
+        // convert to compound expected format
+        result = (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * price;
+    }
+
+    // calculates chainlink price given feedConfig
+    function _getChainlinkPrice(FeedConfig storage feedConfig) internal view returns (uint256) {
+        if (address(feedConfig.feed) == address(0)) {
+            revert NoFeedConfigured();
+        }
+
+        // if stale data - return 0 - handled as error in compound
+        (, int256 answer, , uint256 updatedAt, ) = feedConfig.feed.latestRoundData();
+        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer <= 0) {
+            return 0;
+        }
+
+        return uint256(answer);
+    }
+
+    // calculates TWAP price given feedConfig
+    function _getTWAPPrice(FeedConfig storage feedConfig) internal view returns (uint256 poolTWAPPrice) {
+        // get reference pool price
+        uint256 priceX96 = _getReferencePoolPriceX96(feedConfig.pool, feedConfig.twapSeconds);
+
+        // convert to chainlink price format
+        if (feedConfig.isToken0) {
+            if (feedConfig.feedDecimals + feedConfig.tokenDecimals >= feedConfig.otherDecimals) {
+                poolTWAPPrice = FullMath.mulDiv(priceX96, 10 ** (feedConfig.feedDecimals + feedConfig.tokenDecimals - feedConfig.otherDecimals), Q96);
+            } else {
+                poolTWAPPrice = priceX96 / (Q96 * 10 ** (feedConfig.otherDecimals - feedConfig.feedDecimals - feedConfig.tokenDecimals));
+            }
+        } else {
+            if (feedConfig.feedDecimals + feedConfig.tokenDecimals >= feedConfig.otherDecimals) {
+                poolTWAPPrice = FullMath.mulDiv(Q96, 10 ** (feedConfig.feedDecimals + feedConfig.tokenDecimals - feedConfig.otherDecimals), priceX96);
+            } else {
+                poolTWAPPrice = Q96 / (priceX96 * 10 ** (feedConfig.otherDecimals - feedConfig.feedDecimals - feedConfig.tokenDecimals));
+            }
+        }
     }
 
     // Calculates the reference pool price with scaling factor of 2^96
@@ -117,68 +201,5 @@ contract Oracle is PriceOracle, Ownable {
         }
 
         return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-    }
-
-    // Returns the underlying price for a cToken using the selected oracle mode
-    // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode
-    function getUnderlyingPrice(CToken cToken) override external view returns (uint256 result) {
-        FeedConfig storage feedConfig = feedConfigs[address(cToken)];
-
-        uint256 price;
-        uint256 verifyPrice;
-
-        if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY || feedConfig.mode == Mode.CHAINLINK) {
-            if (address(feedConfig.feed) == address(0)) {
-                revert NoFeedConfigured();
-            }
-
-            // if stale data - return 0 - handled as error in compound
-            (, int256 answer, , uint256 updatedAt, ) = feedConfig.feed.latestRoundData();
-            if (updatedAt + feedConfig.maxFeedAge < block.timestamp) {
-                return 0;
-            }
-            // if invalid data - return 0 - handled as error in compound
-            if (answer <= 0) {
-                return 0;
-            }
-
-            if (feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
-                verifyPrice = uint256(answer);
-            } else {
-                price = uint256(answer);
-            }
-        }
-
-        if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY || feedConfig.mode == Mode.TWAP) {
-             // get reference pool price
-            uint256 priceX96 = _getReferencePoolPriceX96(feedConfig.pool, feedConfig.twapSeconds);
-            uint256 poolTWAPPrice;
-
-            // convert to chainlink price format
-            if (feedConfig.isToken0) {
-                poolTWAPPrice = FullMath.mulDiv(priceX96, 10 ** (feedConfig.feedDecimals + feedConfig.tokenDecimals - feedConfig.otherDecimals), Q96);
-            } else {
-                poolTWAPPrice = FullMath.mulDiv(Q96, 10 ** (feedConfig.feedDecimals + feedConfig.tokenDecimals - feedConfig.otherDecimals), priceX96);
-            }
-
-            if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY) {
-                verifyPrice = poolTWAPPrice;
-            } else {
-                price = poolTWAPPrice;
-            }
-        }
-        
-        if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
-            uint256 difference = price > verifyPrice ? FullMath.mulDiv(price - verifyPrice, 10000, price) : FullMath.mulDiv(verifyPrice - price, 10000, verifyPrice);
-
-            // if too big difference - return 0 - handled as error in compound
-            if (difference >= feedConfig.maxDifference) {
-                return 0;
-            }
-        }
-
-
-        // convert to compound expected format
-        result = (10 ** (36 - feedConfig.feedDecimals - feedConfig.tokenDecimals)) * price;
     }
 }

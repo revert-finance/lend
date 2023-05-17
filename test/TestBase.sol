@@ -164,9 +164,9 @@ abstract contract TestBase is Test {
         cTokenWETH = CErc20(address(new CErc20Delegator(address(WETH_ERC20), comptroller, irm, 1 ether, "cWETH", "cWETH", 8, payable(address(this)), address(cErc20Delegate), "")));
 
         oracle = new Oracle();
-        oracle.setTokenFeed(address(cTokenUSDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48, IUniswapV3Pool(UNISWAP_USDC_USDT), 60, Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
-        oracle.setTokenFeed(address(cTokenDAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
-        oracle.setTokenFeed(address(cTokenWETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
+        oracle.setTokenFeed(cTokenUSDC, AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48, IUniswapV3Pool(UNISWAP_USDC_USDT), 60, Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
+        oracle.setTokenFeed(cTokenDAI, AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 48, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
+        oracle.setTokenFeed(cTokenWETH, AggregatorV3Interface(CHAINLINK_ETH_USD), 3600, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
         comptroller._setPriceOracle(oracle);
 
         uint64 fiftyPercent = 5 * 10 ** 17;
