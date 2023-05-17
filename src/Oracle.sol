@@ -31,12 +31,12 @@ contract Oracle is PriceOracle, Ownable {
 
     uint256 constant Q96 = 2**96;
 
-    error NoFeedConfigured();
+    error NoTokenConfigured();
     error InvalidPool();
 
-    event FeedConfigUpdated(
+    event TokenConfigUpdated(
         address indexed cToken,
-        FeedConfig config
+        TokenConfig config
     );
 
     event OracleModeUpdated(
@@ -51,7 +51,7 @@ contract Oracle is PriceOracle, Ownable {
         TWAP // using TWAP directly
     }
 
-    struct FeedConfig {
+    struct TokenConfig {
         AggregatorV3Interface feed; // chainlink feed
         uint32 maxFeedAge;
         uint8 feedDecimals;
@@ -65,7 +65,7 @@ contract Oracle is PriceOracle, Ownable {
     }
 
     // ctoken => config mapping
-    mapping(address => FeedConfig) feedConfigs;
+    mapping(address => TokenConfig) feedConfigs;
     
     // constructor: sets owner of contract
     constructor() {
@@ -73,7 +73,7 @@ contract Oracle is PriceOracle, Ownable {
 
     // Sets or updates the feed configuration for a cToken
     // Can only be called by the owner of the contract
-    function setTokenFeed(CErc20Interface cToken, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external onlyOwner {
+    function setTokenConfig(CErc20Interface cToken, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external onlyOwner {
         uint8 feedDecimals = feed.decimals();
         address underlying = cToken.underlying();
         uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
@@ -87,10 +87,10 @@ contract Oracle is PriceOracle, Ownable {
         }
         uint8 otherDecimals = IERC20Metadata(otherToken).decimals();
         address cTokenAddress = address(cToken);
-        FeedConfig memory config = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
+        TokenConfig memory config = TokenConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
         feedConfigs[cTokenAddress] = config;
 
-        emit FeedConfigUpdated(cTokenAddress, config);
+        emit TokenConfigUpdated(cTokenAddress, config);
     }
 
     // Updates the oracle mode for a cToken
@@ -104,7 +104,7 @@ contract Oracle is PriceOracle, Ownable {
     // Returns the underlying price for a cToken using the selected oracle mode
     // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode
     function getUnderlyingPrice(CToken cToken) override external view returns (uint256 result) {
-        FeedConfig storage feedConfig = feedConfigs[address(cToken)];
+        TokenConfig storage feedConfig = feedConfigs[address(cToken)];
 
         uint256 price;
         uint256 verifyPrice;
@@ -150,9 +150,9 @@ contract Oracle is PriceOracle, Ownable {
     }
 
     // calculates chainlink price given feedConfig
-    function _getChainlinkPrice(FeedConfig storage feedConfig) internal view returns (uint256) {
+    function _getChainlinkPrice(TokenConfig storage feedConfig) internal view returns (uint256) {
         if (address(feedConfig.feed) == address(0)) {
-            revert NoFeedConfigured();
+            revert NoTokenConfigured();
         }
 
         // if stale data - return 0 - handled as error in compound
@@ -165,7 +165,7 @@ contract Oracle is PriceOracle, Ownable {
     }
 
     // calculates TWAP price given feedConfig
-    function _getTWAPPrice(FeedConfig storage feedConfig) internal view returns (uint256 poolTWAPPrice) {
+    function _getTWAPPrice(TokenConfig storage feedConfig) internal view returns (uint256 poolTWAPPrice) {
         // get reference pool price
         uint256 priceX96 = _getReferencePoolPriceX96(feedConfig.pool, feedConfig.twapSeconds);
 
