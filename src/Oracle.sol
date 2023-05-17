@@ -35,7 +35,8 @@ contract Oracle is PriceOracle, Ownable {
     error InvalidPool();
 
     event FeedConfigUpdated(
-        address indexed cToken
+        address indexed cToken,
+        FeedConfig config
     );
 
     event OracleModeUpdated(
@@ -78,17 +79,18 @@ contract Oracle is PriceOracle, Ownable {
         uint8 tokenDecimals = IERC20Metadata(underlying).decimals();
         address otherToken = pool.token0();
         bool isToken0 = otherToken == underlying;
-        if (!isToken0) {
-            if (pool.token1() != underlying) {
-                revert InvalidPool();
-            }
-        } else {
+        if (!isToken0 && pool.token1() != underlying) {
+            revert InvalidPool();
+        }
+        if (isToken0) {
             otherToken = pool.token1();
         }
         uint8 otherDecimals = IERC20Metadata(otherToken).decimals();
-        feedConfigs[address(cToken)] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
+        address cTokenAddress = address(cToken);
+        FeedConfig memory config = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
+        feedConfigs[cTokenAddress] = config;
 
-        emit FeedConfigUpdated(address(cToken));
+        emit FeedConfigUpdated(cTokenAddress, config);
     }
 
     // Updates the oracle mode for a cToken
