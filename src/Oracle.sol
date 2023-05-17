@@ -24,12 +24,24 @@ interface AggregatorV3Interface {
 
     function decimals() external view returns (uint8);
 }
+
+/// @title Oracle to be used in Revert Compound integration
+/// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract Oracle is PriceOracle, Ownable {
 
     uint256 constant Q96 = 2**96;
 
     error NoFeedConfigured();
     error InvalidPool();
+
+    event FeedConfigUpdated(
+        address indexed cToken
+    );
+
+    event OracleModeUpdated(
+        address indexed cToken,
+        Mode mode
+    );
 
     enum Mode {
         CHAINLINK_TWAP_VERIFY, // using chainlink for price and TWAP to verify
@@ -54,10 +66,12 @@ contract Oracle is PriceOracle, Ownable {
     // ctoken => config mapping
     mapping(address => FeedConfig) feedConfigs;
     
+    // constructor: sets owner of contract
     constructor() {
     }
 
-    // may be called again to update configuration
+    // Sets or updates the feed configuration for a cToken
+    // Can only be called by the owner of the contract
     function setTokenFeed(address cToken, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external onlyOwner {
         uint8 feedDecimals = feed.decimals();
         address underlying = CErc20Interface(address(cToken)).underlying();
@@ -73,13 +87,21 @@ contract Oracle is PriceOracle, Ownable {
         }
         uint8 otherDecimals = IERC20Metadata(otherToken).decimals();
         feedConfigs[cToken] = FeedConfig(feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, otherDecimals, twapSeconds, mode, maxDifference);
+
+        emit FeedConfigUpdated(cToken);
     }
 
+    // Updates the oracle mode for a cToken
+    // Can only be called by the owner of the contract
     function setOracleMode(address cToken, Mode mode) external onlyOwner {
         feedConfigs[cToken].mode = mode;
+
+        emit OracleModeUpdated(cToken, mode);
     }
 
-    function _getReferencePoolPrice(IUniswapV3Pool pool, uint32 twapSeconds, bool isToken0, uint8 tokenDecimals, uint8 otherDecimals, uint8 feedDecimals) internal view returns (uint256) {
+    // Calculates the reference pool price with scaling factor of 2^96
+    // It uses either the latest slot price or TWAP based on twapSeconds
+    function _getReferencePoolPriceX96(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (uint256) {
 
         uint160 sqrtPriceX96;
         // if twap seconds set to 0 just use pool price
@@ -94,14 +116,11 @@ contract Oracle is PriceOracle, Ownable {
             sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
         }
 
-        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-        if (isToken0) {
-            return FullMath.mulDiv(priceX96, 10 ** (feedDecimals + tokenDecimals - otherDecimals), Q96);
-        } else {
-            return FullMath.mulDiv(Q96, 10 ** (feedDecimals + tokenDecimals - otherDecimals), priceX96);
-        }
+        return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
     }
 
+    // Returns the underlying price for a cToken using the selected oracle mode
+    // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode
     function getUnderlyingPrice(CToken cToken) override external view returns (uint256 result) {
         FeedConfig storage feedConfig = feedConfigs[address(cToken)];
 
@@ -132,7 +151,15 @@ contract Oracle is PriceOracle, Ownable {
 
         if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY || feedConfig.mode == Mode.TWAP) {
              // get reference pool price
-            uint256 poolTWAPPrice = _getReferencePoolPrice(feedConfig.pool, feedConfig.twapSeconds, feedConfig.isToken0, feedConfig.tokenDecimals, feedConfig.otherDecimals, feedConfig.feedDecimals);
+            uint256 priceX96 = _getReferencePoolPriceX96(feedConfig.pool, feedConfig.twapSeconds);
+            uint256 poolTWAPPrice;
+
+            // convert to chainlink price format
+            if (feedConfig.isToken0) {
+                poolTWAPPrice = FullMath.mulDiv(priceX96, 10 ** (feedConfig.feedDecimals + feedConfig.tokenDecimals - feedConfig.otherDecimals), Q96);
+            } else {
+                poolTWAPPrice = FullMath.mulDiv(Q96, 10 ** (feedConfig.feedDecimals + feedConfig.tokenDecimals - feedConfig.otherDecimals), priceX96);
+            }
 
             if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY) {
                 verifyPrice = poolTWAPPrice;
