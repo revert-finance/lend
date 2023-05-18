@@ -178,11 +178,15 @@ contract V3UtilsIntegrationTest is TestBase {
             ""
         );
 
-        // anyone can call this
+        // anyone can call this...
         vm.prank(WHALE_ACCOUNT);
         v3utils.executeWithPermit(TEST_NFT, inst, v, r, s);
 
-        //but only once
+        // assert operator is not reset (which is kind of an issue) 
+        (, operator, , , , , , , , , , ) = NPM.positions(TEST_NFT);
+        assertEq(operator, address(v3utils));
+
+        // ...but only once (nonce test)
         vm.expectRevert("Unauthorized");
         v3utils.executeWithPermit(TEST_NFT, inst, v, r, s);
     }

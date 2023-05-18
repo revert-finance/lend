@@ -93,6 +93,7 @@ contract AllModulesTest is TestBase {
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.safeTransferFrom(TEST_NFT_2_ACCOUNT, address(holder), TEST_NFT_2, abi.encode(params));
 
+        // do withdraw of all fees
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
             address(0),
