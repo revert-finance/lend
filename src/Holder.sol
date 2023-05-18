@@ -36,7 +36,6 @@ contract Holder is IHolder, Ownable, Multicall {
     error ModuleNotExists();
     error ModuleAlreadyRegistered();
     error TokenNotReturned();
-    error TokenHasOperator();
     error v3UtilsNotConfigured();
     error v3UtilsInProgress();
     error DirectMintingNotAllowed();
@@ -279,16 +278,11 @@ contract Holder is IHolder, Ownable, Multicall {
         }
         
         // do transfer to flash transform contract
-        // TODO somehow replace with approve/operator mechanism?
         nonfungiblePositionManager.safeTransferFrom(address(this), v3Utils, tokenId, data);
 
         // must have been returned afterwards
         if (nonfungiblePositionManager.ownerOf(tokenId) != address(this)) {
             revert TokenNotReturned();
-        }
-        // operator must still be address(0)
-        if (nonfungiblePositionManager.getApproved(tokenId) != address(0)) {
-            revert TokenHasOperator();
         }
 
         // only allow if complete collect is allowed by all modules involved
