@@ -85,6 +85,53 @@ contract AllModulesTest is TestBase {
         compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
     }
 
+    function testV3UtilsTransform() external {
+
+        // add position to holder and module
+        IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
+        params[0] = IHolder.ModuleParams(compoundorModuleIndex, "");
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_2_ACCOUNT, address(holder), TEST_NFT_2, abi.encode(params));
+
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
+            address(0),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_2_ACCOUNT,
+            TEST_NFT_2_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        uint daiBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint wethBefore = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+
+        // transform with v3utils collecting fees
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        holder.v3UtilsTransform(TEST_NFT_2, abi.encode(inst));
+
+        // all fees collected to correct account
+        assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - daiBefore, 311677619940061890346);
+        assertEq(WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT) - wethBefore, 98968916981575345);
+    }
+
     function testCompleteExample() external {
            
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](3);

@@ -91,7 +91,7 @@ contract V3Utils is IERC721Receiver {
         uint256 amountOut1Min;
         bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
 
-        // collect fee amount for COMPOUND_FEES / CHANGE_RANGE / WITHDRAW_AND_COLLECT_AND_SWAP (if uint256(128).max - ALL)
+        // collect fee amount for COMPOUND_FEES / CHANGE_RANGE / WITHDRAW_AND_COLLECT_AND_SWAP (if type(uint128).max - ALL)
         uint128 feeAmount0;
         uint128 feeAmount1;
 
