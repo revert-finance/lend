@@ -131,7 +131,7 @@ contract RangeAdjustModule is OperatorModule {
     }
 
     // callback function which is called directly after fees are available - but before checking other modules (e.g. to be able to adjust range and LATER check collateral)
-    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolderOrSelf external returns (bytes memory returnData) { 
+    function decreaseLiquidityAndCollectCallback(uint256 tokenId, uint256 amount0, uint256 amount1, bytes memory data) override onlyHolderOrSelf external returns (bytes memory /*returnData*/) { 
 
         PositionConfig storage config = positionConfigs[tokenId];
         if (config.lowerTickDelta == config.upperTickDelta) {
@@ -248,7 +248,6 @@ contract RangeAdjustModule is OperatorModule {
     }
 
     function _addToken(uint tokenId, PositionConfig memory config) internal {
-        (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
          // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
         if (config.lowerTickDelta > config.upperTickDelta) {

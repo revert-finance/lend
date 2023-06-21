@@ -473,7 +473,7 @@ contract Holder is IHolder, Ownable, Multicall {
     }
 
     // gets all registered modules for a token and assembles configuration array
-    function _cloneConfig(uint256 tokenId) internal returns (ModuleParams[] memory configs) {
+    function _cloneConfig(uint256 tokenId) internal view returns (ModuleParams[] memory configs) {
         // get all registered modules
         uint256 mod = tokenModules[tokenId];
         uint8 index = 1;

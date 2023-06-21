@@ -143,7 +143,6 @@ contract StopLossLimitModuleTest is TestBase {
 
         // execute stop loss order - with swap
         uint swapBalanceBefore = USDC.balanceOf(TEST_NFT_ACCOUNT);
-        uint swapBalanceBeforeDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
         vm.prank(OPERATOR_ACCOUNT);
         stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, _getDAIToUSDSwapData(), block.timestamp));
         uint swapBalanceAfter = USDC.balanceOf(TEST_NFT_ACCOUNT);

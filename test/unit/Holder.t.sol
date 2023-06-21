@@ -122,13 +122,15 @@ contract HolderUnitTest is Test, IERC721Receiver {
 
     function testMaxNfts() external {
 
+        uint id;
+
         // add allowed
         for (uint index = 0; index < holder.MAX_TOKENS_PER_ADDRESS(); index++) {
-            uint id = testNFT.mint();
+            id = testNFT.mint();
             nonfungiblePositionManager.safeTransferFrom(address(this), address(holder), id, "");
         }
 
-        uint id = testNFT.mint();
+        id = testNFT.mint();
 
         // can't add one more
         vm.expectRevert(Holder.MaxTokensReached.selector);

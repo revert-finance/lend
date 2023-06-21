@@ -200,12 +200,10 @@ contract StopLossLimitModule is OperatorModule {
     }
 
     function _addToken(uint tokenId, PositionConfig memory config) internal {
-        (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
-
         if (config.isActive) {
             // trigger ticks have to be on the correct side of position range
             (,,,,, int24 tickLower, int24 tickUpper,,,,,) = nonfungiblePositionManager.positions(tokenId);
-            if (tickLower < config.token0TriggerTick || tickUpper > config.token1TriggerTick) {
+            if (config.token0TriggerTick >= config.token1TriggerTick) {
                 revert InvalidConfig();
             }
         }

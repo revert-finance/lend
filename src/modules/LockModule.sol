@@ -42,7 +42,7 @@ contract LockModule is Module {
 
     /// @notice Withdraws a token
     /// @param tokenId The token ID of the position.
-    function withdrawToken(uint256 tokenId, address) override onlyHolder external {
+    function withdrawToken(uint256 tokenId, address) override onlyHolder external view {
         if (block.timestamp < positionConfigs[tokenId].releaseTime) {
             revert IsLocked();
         }
@@ -51,7 +51,7 @@ contract LockModule is Module {
     /// @notice Checks if this module allows collect
     /// @param tokenId The token ID of the position.
     /// @param liquidity The amount of liquidity to be collected.
-    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override external  {
+    function checkOnCollect(uint256 tokenId, address, uint128 liquidity, uint256, uint256) override external view {
         if (liquidity > 0 && block.timestamp < positionConfigs[tokenId].releaseTime) {
             revert IsLocked();
         }

@@ -66,9 +66,8 @@ contract HolderTest is TestBase {
         vm.prank(TEST_NFT_ACCOUNT);
         (
             uint256 tokenId,
-            uint128 liquidity,
-            uint256 amount0,
-            uint256 amount1
+            ,
+            ,
         ) = v3utils.swapAndMint(params);
 
         // check owner assignment

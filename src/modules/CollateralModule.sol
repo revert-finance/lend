@@ -354,7 +354,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
-    function addToken(uint256 tokenId, address owner, bytes calldata data) override onlyHolder external {
+    function addToken(uint256 tokenId, address, bytes calldata) override onlyHolder external view {
 
         (, , address token0, address token1, uint24 fee , , , , , , ,) = nonfungiblePositionManager.positions(tokenId);
 
@@ -365,26 +365,26 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
         }
     }
 
-    function withdrawToken(uint256 tokenId, address owner) override onlyHolder external {
+    function withdrawToken(uint256 tokenId, address owner) override onlyHolder external view {
         _checkCollateralWithoutToken(owner, tokenId);
     }
 
-    function checkOnCollect(uint256, address owner, uint128 , uint256 , uint256 ) override external {
+    function checkOnCollect(uint256, address owner, uint128 , uint256 , uint256 ) override external view {
         _checkCollateral(owner);
     }
 
-    function getConfig(uint256 tokenId) override external view returns (bytes memory config) {
+    function getConfig(uint256) override external pure returns (bytes memory config) {
         return bytes("");
     }
 
-    function _checkCollateral(address owner) internal {
+    function _checkCollateral(address owner) internal view {
         (uint256 err,,uint256 shortfall) = ComptrollerLensInterface(comptroller).getAccountLiquidity(owner);
         if (err > 0 || shortfall > 0) {
             revert CollateralShortfall();
         }
     }
 
-    function _checkCollateralWithoutToken(address owner, uint256 tokenId) internal {
+    function _checkCollateralWithoutToken(address owner, uint256 tokenId) internal view {
         (uint256 err,,uint256 shortfall) = ComptrollerLensInterface(comptroller).getHypotheticalAccountLiquidity(owner, address(0), 0, 0, tokenId);
         if (err > 0 || shortfall > 0) {
             revert CollateralShortfall();
@@ -392,7 +392,7 @@ contract CollateralModule is Module, ICollateralModule, ExponentialNoError {
     }
 
     // gets ctoken for an underlying token from comptroller
-    function _getCToken(address token) internal returns (CErc20) {
+    function _getCToken(address token) internal view returns (CErc20) {
         return CErc20(address(ComptrollerLensInterface(comptroller).getCTokenByUnderlying(token)));
     }
 
