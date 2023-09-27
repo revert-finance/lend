@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./OperatorModule.sol";
+import "./AutomatorModule.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -10,7 +10,7 @@ import 'v3-core/libraries/FullMath.sol';
 /// @title RangeAdjustModule
 /// @notice Allows operator of RangeAdjustModule contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved for all NFTs for the contract and configured with setConfig method
-contract RangeAdjustModule is OperatorModule {
+contract RangeAdjustModule is AutomatorModule {
 
     // user events
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
@@ -37,7 +37,7 @@ contract RangeAdjustModule is OperatorModule {
 
     bool public immutable override needsCheckOnCollect = false;
 
-    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) OperatorModule(_npm, _swapRouter, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
+    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) AutomatorModule(_npm, _swapRouter, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
     }
 
     // defines when and how a position can be changed by operator

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./OperatorModule.sol";
+import "./AutomatorModule.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -11,7 +11,7 @@ import 'v3-core/libraries/FullMath.sol';
 /// @notice Lets a v3 position to be automatically removed or swapped to the opposite token when it reaches a certain tick. 
 /// A revert controlled bot is responsible for the execution of optimized swaps (using external swap router)
 /// Positions need to be in holder or approved for all NFTs for the contract and configured with addToken method
-contract StopLossLimitModule is OperatorModule {
+contract StopLossLimitModule is AutomatorModule {
 
     // user events
     event Executed(
@@ -48,7 +48,7 @@ contract StopLossLimitModule is OperatorModule {
 
     bool public immutable override needsCheckOnCollect = false;
 
-    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) OperatorModule(_npm, _swapRouter, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
+    constructor(INonfungiblePositionManager _npm, address _swapRouter, address _operator, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference) AutomatorModule(_npm, _swapRouter, _operator, _TWAPSeconds, _maxTWAPTickDifference) {
     }
 
     // define how stoploss / limit should be handled

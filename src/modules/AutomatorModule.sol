@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "./Module.sol";
 
-abstract contract OperatorModule is Module {
+abstract contract AutomatorModule is Module {
 
     // admin events
     event OperatorChanged(address newOperator);

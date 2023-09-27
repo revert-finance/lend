@@ -173,7 +173,7 @@ abstract contract Module is IModule, Ownable {
             revert TWAPCheckFailed();
         }
 
-        // calculate min output price price and percentage
+        // calculate min output price and percentage
         priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         if (swap0For1) {
             amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q96 * Q64);
