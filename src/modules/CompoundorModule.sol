@@ -11,6 +11,8 @@ import 'v3-core/interfaces/callback/IUniswapV3SwapCallback.sol';
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
+import "../SwapAndAddLogic.sol";
+
 /// @title CompoundorModule
 /// @notice Adds auto-compounding capability (improved logic from old compoundor)
 contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapCallback {
@@ -114,16 +116,10 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
         uint256 compounded1;
     }
 
-    /// @notice how reward should be converted
-    enum RewardConversion { NONE, TOKEN_0, TOKEN_1 }
-
     /// @notice params for autoCompound()
     struct AutoCompoundParams {
         // tokenid to autocompound
         uint256 tokenId;
-        
-        // which token to convert to
-        RewardConversion rewardConversion;
 
         // should token be withdrawn to compounder immediately
         bool withdrawReward;
@@ -178,46 +174,18 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
             state.pool = _getPool(state.token0, state.token1, state.fee);
 
             // check oracle when price is needed during compounding
-            if (params.doSwap || params.rewardConversion != RewardConversion.NONE) {
+            if (params.doSwap) {
+
                 // checks oracle - reverts if not enough data available or if price is to far away from TWAP
                 (,, state.sqrtPriceX96, state.priceX96) = _validateSwap(false, 0, state.pool, TWAPSeconds, maxTWAPTickDifference, 0);
-                // swap if needed
-                if (params.doSwap) {
-                     SwapParams memory swapParams = SwapParams(
-                        state.pool,
-                        state.priceX96, 
-                        state.sqrtPriceX96, 
-                        state.token0, 
-                        state.token1, 
-                        state.fee,
-                        state.tickLower, 
-                        state.tickUpper, 
-                        amount0, 
-                        amount1, 
-                        block.timestamp, 
-                        params.rewardConversion, 
-                        state.tokenOwner == state.sender, 
-                        params.doSwap
-                    );
 
-                    (amount0, amount1) = _handleSwap(swapParams);
-                }
+                (amount0, amount1) = SwapAndAddLogic._poolSwapForRange(SwapAndAddLogic.SwapParams(address(factory), state.token0, state.token1, state.fee, amount0, amount1, state.tickLower, state.tickUpper));
             }
 
             // in case caller is not owner - max amounts to add are slightly lower than available amounts - to account for reward payments
             if (state.tokenOwner != state.sender) {
-                if (params.rewardConversion == RewardConversion.NONE) {
-                    state.maxAddAmount0 = amount0 * Q64 / (totalRewardX64 + Q64);
-                    state.maxAddAmount1 = amount1 * Q64 / (totalRewardX64 + Q64);
-                } else if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                    uint256 rewardAmount0 = (amount0 + amount1 * Q96 / state.priceX96) * totalRewardX64 / Q64;
-                    state.maxAddAmount0 = amount0 > rewardAmount0 ? amount0 - rewardAmount0 : 0;  
-                    state.maxAddAmount1 = amount1;                        
-                } else {
-                    uint256 rewardAmount1 = (amount0 * state.priceX96 / Q96 + amount1) * totalRewardX64 / Q64;
-                    state.maxAddAmount0 = amount0;
-                    state.maxAddAmount1 = amount1 > rewardAmount1 ? amount1 - rewardAmount1 : 0;    
-                }                    
+                state.maxAddAmount0 = amount0 * Q64 / (totalRewardX64 + Q64);
+                state.maxAddAmount1 = amount1 * Q64 / (totalRewardX64 + Q64);           
             } else {
                 state.maxAddAmount0 = amount0;
                 state.maxAddAmount1 = amount1;
@@ -240,26 +208,8 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
                 // fees are always calculated based on added amount
                 // only calculate them when not tokenOwner
                 if (state.tokenOwner != state.sender) {
-                    if (params.rewardConversion == RewardConversion.NONE) {
-                        state.amount0Fees = state.compounded0 * totalRewardX64 / Q64;
-                        state.amount1Fees = state.compounded1 * totalRewardX64 / Q64;
-                    } else {
-                        // calculate total added - derive fees
-                        uint256 addedTotal0 = state.compounded0 + state.compounded1 * Q96 / state.priceX96;
-                        if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                            state.amount0Fees = addedTotal0 * totalRewardX64 / Q64;
-                            // if there is not enough token0 to pay fee - pay all there is
-                            if (state.amount0Fees > amount0 - state.compounded0) {
-                                state.amount0Fees = amount0 - state.compounded0;
-                            }
-                        } else {
-                            state.amount1Fees = (addedTotal0 * state.priceX96 / Q96) * totalRewardX64 / Q64;
-                            // if there is not enough token1 to pay fee - pay all there is
-                            if (state.amount1Fees > amount1 - state.compounded1) {
-                                state.amount1Fees = amount1 - state.compounded1;
-                            }
-                        }
-                    }
+                    state.amount0Fees = state.compounded0 * totalRewardX64 / Q64;
+                    state.amount1Fees = state.compounded1 * totalRewardX64 / Q64;
                 }
             }
 
@@ -290,130 +240,6 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
         emit AutoCompounded(state.sender, params.tokenId, state.compounded0, state.compounded1, state.reward0, state.reward1, state.token0, state.token1);
 
         returnData = abi.encode(state.reward0, state.reward1, state.compounded0, state.compounded1);
-    }
-
-    struct SwapState {
-        uint256 rewardAmount0;
-        uint256 rewardAmount1;
-        uint256 positionAmount0;
-        uint256 positionAmount1;
-        int24 tick;
-        int24 otherTick;
-        uint160 sqrtPriceX96Lower;
-        uint160 sqrtPriceX96Upper;
-        uint256 amountRatioX96;
-        uint256 delta0;
-        uint256 delta1;
-        bool sell0;
-        bool twapOk;
-        uint256 totalReward0;
-    }
-
-    struct SwapParams {
-        IUniswapV3Pool pool;
-        uint256 priceX96; // oracle verified price
-        uint160 sqrtPriceX96; // oracle verified price - sqrt
-        address token0;
-        address token1;
-        uint24 fee;
-        int24 tickLower; 
-        int24 tickUpper; 
-        uint256 amount0;
-        uint256 amount1;
-        uint256 deadline;
-        RewardConversion bc;
-        bool isOwner;
-        bool doSwap;
-    }
-
-    // calculates swap amounts considering RewardConversion and executes swap - uses oracle validated price for calculations
-    function _handleSwap(SwapParams memory params) internal returns (uint256 amount0, uint256 amount1) 
-    {
-        SwapState memory state;
-
-        amount0 = params.amount0;
-        amount1 = params.amount1;
-
-        // total reward to be payed - converted to token0 at current price
-        state.totalReward0 = (params.amount0 + params.amount1 * Q96 / params.priceX96) * totalRewardX64 / Q64;
-
-        // calculate ideal position amounts
-        state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
-        state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
-        (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                                            params.sqrtPriceX96, 
-                                                            state.sqrtPriceX96Lower, 
-                                                            state.sqrtPriceX96Upper, 
-                                                            uint128(Q96)); // dummy value we just need ratio
-
-        // calculate how much of the position needs to be converted to the other token
-        if (state.positionAmount0 == 0) {
-            state.delta0 = amount0;
-            state.sell0 = true;
-        } else if (state.positionAmount1 == 0) {
-            state.delta0 = amount1 * Q96 / params.priceX96;
-            state.sell0 = false;
-        } else {
-            state.amountRatioX96 = state.positionAmount0 * Q96 / state.positionAmount1;
-            state.sell0 = state.amountRatioX96 * amount1 < amount0 * Q96;
-            if (state.sell0) {
-                state.delta0 = (amount0 * Q96 - state.amountRatioX96 * amount1) / (state.amountRatioX96 * params.priceX96 / Q96 + Q96);
-            } else {
-                state.delta0 = (state.amountRatioX96 * amount1 - amount0 * Q96) / (state.amountRatioX96 * params.priceX96 / Q96 + Q96);
-            }
-        }
-      
-
-        // adjust delta considering reward payment mode
-        if (!params.isOwner) {
-            if (params.bc == RewardConversion.TOKEN_0) {
-                state.rewardAmount0 = state.totalReward0;
-                if (state.sell0) {
-                    if (state.delta0 >= state.totalReward0) {
-                        state.delta0 -= state.totalReward0;
-                    } else {
-                        state.delta0 = state.totalReward0 - state.delta0;
-                        state.sell0 = false;
-                    }
-                } else {
-                    state.delta0 += state.totalReward0;
-                    if (state.delta0 > amount1 * Q96 / params.priceX96) {
-                        state.delta0 = amount1 * Q96 / params.priceX96;
-                    }
-                }
-            } else if (params.bc == RewardConversion.TOKEN_1) {
-                state.rewardAmount1 = state.totalReward0 * params.priceX96 / Q96;
-                if (!state.sell0) {
-                    if (state.delta0 >= state.totalReward0) {
-                        state.delta0 -= state.totalReward0;
-                    } else {
-                        state.delta0 = state.totalReward0 - state.delta0;
-                        state.sell0 = true;
-                    }
-                } else {
-                    state.delta0 += state.totalReward0;
-                    if (state.delta0 > amount0) {
-                        state.delta0 = amount0;
-                    }
-                }
-            }
-        }
-
-        if (state.delta0 > 0) {
-            if (state.sell0) {
-                uint256 amountOut = _poolSwap(params.pool, params.token0, params.token1, params.fee, state.sell0, state.delta0, 0);    
-                amount0 -= state.delta0;
-                amount1 += amountOut;                                    
-            } else {
-                state.delta1 = state.delta0 * params.priceX96 / Q96;
-                // prevent possible rounding to 0 issue
-                if (state.delta1 > 0) {
-                    uint256 amountOut = _poolSwap(params.pool, params.token0, params.token1, params.fee, state.sell0, state.delta1, 0);
-                    amount0 += amountOut;
-                    amount1 -= state.delta1;
-                }
-            }
-        }
     }
 
     /**
@@ -505,38 +331,8 @@ contract CompoundorModule is Module, ReentrancyGuard, Multicall, IUniswapV3SwapC
         return abi.encode(positionConfigs[tokenId]);
     }
 
-    // general swap function which uses given pool to swap amount available in the contract
-    // returns new token amounts after swap
-    function _poolSwap(IUniswapV3Pool pool, address token0, address token1, uint24 fee, bool zeroForOne, uint256 amountIn, uint256 minAmountOut) internal returns (uint256 amountOut) {
-        
-        (int256 amount0, int256 amount1) = pool.swap(
-                address(this),
-                zeroForOne,
-                amountIn.toInt256(),
-                (zeroForOne ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
-                abi.encode(zeroForOne ? token0 : token1, zeroForOne ? token1 : token0, fee)
-            );
-
-        amountOut = uint256(-(zeroForOne ? amount1 : amount0));
-
-        if (amountOut < minAmountOut) {
-            revert SlippageError();
-        }
-    }
-
     // swap callback function where amount for swap is payed - @inheritdoc IUniswapV3SwapCallback
     function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
-
-        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
-
-        // check if really called from pool
-        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(data, (address, address, uint24));
-        if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
-            revert Unauthorized();
-        }
-
-        // transfer needed amount of tokenIn
-        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+        SwapAndAddLogic._uniswapV3SwapCallback(address(factory), amount0Delta, amount1Delta, data);
     }
 }

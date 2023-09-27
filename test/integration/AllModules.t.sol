@@ -45,12 +45,12 @@ contract AllModulesTest is TestBase {
         NPM.approve(address(compoundorModule), TEST_NFT);
 
         vm.expectRevert(CompoundorModule.NotConfigured.selector);
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
 
         vm.prank(TEST_NFT_ACCOUNT);
         compoundorModule.addTokenDirect(TEST_NFT, true);
 
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
 
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
         params[0] = IHolder.ModuleParams(collateralModuleIndex, "");
@@ -61,28 +61,28 @@ contract AllModulesTest is TestBase {
 
         // because module is not activated in holder - it doesnt work anymore (although it is configured)
         vm.expectRevert(Module.Unauthorized.selector);
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
 
         // adding it to the module (again)
         vm.prank(TEST_NFT_ACCOUNT);
         holder.addTokenToModule(TEST_NFT, IHolder.ModuleParams(compoundorModuleIndex, ""));
 
         // works again
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
 
         // removing from module - deactivates it
         vm.prank(TEST_NFT_ACCOUNT);
         holder.removeTokenFromModule(TEST_NFT, compoundorModuleIndex);
 
         vm.expectRevert(CompoundorModule.NotConfigured.selector);
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
 
         // removing it from holder
         vm.prank(TEST_NFT_ACCOUNT);
         holder.withdrawToken(TEST_NFT, TEST_NFT_ACCOUNT, "");
 
         vm.expectRevert(CompoundorModule.NotConfigured.selector);
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
     }
 
     function testV3UtilsTransform() external {
@@ -157,13 +157,13 @@ contract AllModulesTest is TestBase {
         NPM.safeTransferFrom(TEST_NFT_5_ACCOUNT, address(holder), TEST_NFT_5, abi.encode(params));
 
         // test simple autocompound without swap with other active modules
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, CompoundorModule.RewardConversion.NONE, false, false));
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2, CompoundorModule.RewardConversion.NONE, false, false)); 
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_A, CompoundorModule.RewardConversion.NONE, false, false)); 
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_B, CompoundorModule.RewardConversion.NONE, false, false)); 
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, CompoundorModule.RewardConversion.NONE, false, false));
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_4, CompoundorModule.RewardConversion.NONE, false, false));
-        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_5, CompoundorModule.RewardConversion.NONE, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2, false, false)); 
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_A, false, false)); 
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_2_B, false, false)); 
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_3, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_4, false, false));
+        compoundorModule.autoCompound(CompoundorModule.AutoCompoundParams(TEST_NFT_5, false, false));
 
         // withdraw NFTs
         vm.prank(TEST_NFT_ACCOUNT);
