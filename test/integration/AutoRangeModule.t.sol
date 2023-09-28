@@ -3,123 +3,123 @@ pragma solidity ^0.8.0;
 
 import "../TestBase.sol";
 
-contract RangeAdjustModuleTest is TestBase {
+contract AutoRangeModuleTest is TestBase {
    
     uint8 moduleIndex;
 
     function setUp() external {
         _setupBase();
-        moduleIndex = _setupRangeAdjustModule(0);
+        moduleIndex = _setupAutoRangeModule(0);
     }
 
     function testDirectSendNFT() external {
         vm.prank(TEST_NFT_ACCOUNT);
         vm.expectRevert(abi.encodePacked("ERC721: transfer to non ERC721Receiver implementer")); // NFT manager doesnt resend original error for some reason
-        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(rangeAdjustModule), TEST_NFT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(autoRangeModule), TEST_NFT);
     }
 
     function testSetTWAPSeconds() external {
-        uint16 maxTWAPTickDifference = rangeAdjustModule.maxTWAPTickDifference();
-        rangeAdjustModule.setTWAPConfig(maxTWAPTickDifference, 120);
-        assertEq(rangeAdjustModule.TWAPSeconds(), 120);
+        uint16 maxTWAPTickDifference = autoRangeModule.maxTWAPTickDifference();
+        autoRangeModule.setTWAPConfig(maxTWAPTickDifference, 120);
+        assertEq(autoRangeModule.TWAPSeconds(), 120);
 
         vm.expectRevert(Module.InvalidConfig.selector);
-        rangeAdjustModule.setTWAPConfig(maxTWAPTickDifference, 60);
+        autoRangeModule.setTWAPConfig(maxTWAPTickDifference, 60);
     }
 
     function testSetMaxTWAPTickDifference() external {
-        uint32 TWAPSeconds = rangeAdjustModule.TWAPSeconds();
-        rangeAdjustModule.setTWAPConfig(5, TWAPSeconds);
-        assertEq(rangeAdjustModule.maxTWAPTickDifference(), 5);
+        uint32 TWAPSeconds = autoRangeModule.TWAPSeconds();
+        autoRangeModule.setTWAPConfig(5, TWAPSeconds);
+        assertEq(autoRangeModule.maxTWAPTickDifference(), 5);
 
         vm.expectRevert(Module.InvalidConfig.selector);
-        rangeAdjustModule.setTWAPConfig(10, TWAPSeconds);
+        autoRangeModule.setTWAPConfig(10, TWAPSeconds);
     }
 
     function testSetOperator() external {
-        assertEq(rangeAdjustModule.operator(), OPERATOR_ACCOUNT);
-        rangeAdjustModule.setOperator(TEST_NFT_ACCOUNT);
-        assertEq(rangeAdjustModule.operator(), TEST_NFT_ACCOUNT);
+        assertEq(autoRangeModule.operator(), OPERATOR_ACCOUNT);
+        autoRangeModule.setOperator(TEST_NFT_ACCOUNT);
+        assertEq(autoRangeModule.operator(), TEST_NFT_ACCOUNT);
     }
 
 
     function testUnauthorizedSetConfig() external {
         vm.expectRevert(Module.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(0, 0, 0, 1, 0, 0));
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(0, 0, 0, 1, 0, 0));
     }
 
     function testResetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT, RangeAdjustModule.PositionConfig(0, 0, 0, 0, 0, 0));
+        autoRangeModule.addTokenDirect(TEST_NFT, AutoRangeModule.PositionConfig(0, 0, 0, 0, 0, 0));
     }
 
     function testInvalidConfig() external {
         vm.expectRevert(Module.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT, RangeAdjustModule.PositionConfig(0, 0, 1, 0, 0, 0));
+        autoRangeModule.addTokenDirect(TEST_NFT, AutoRangeModule.PositionConfig(0, 0, 1, 0, 0, 0));
     }
 
     function testValidSetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
-        RangeAdjustModule.PositionConfig memory configIn = RangeAdjustModule.PositionConfig(1, -1, 0, 1, 123, 456);
-        rangeAdjustModule.addTokenDirect(TEST_NFT, configIn);
-        (int32 i1, int32 i2, int32 i3, int32 i4, uint64 i5, uint64 i6) = rangeAdjustModule.positionConfigs(TEST_NFT);
-        assertEq(abi.encode(configIn), abi.encode(RangeAdjustModule.PositionConfig(i1, i2, i3, i4, i5, i6)));
+        AutoRangeModule.PositionConfig memory configIn = AutoRangeModule.PositionConfig(1, -1, 0, 1, 123, 456);
+        autoRangeModule.addTokenDirect(TEST_NFT, configIn);
+        (int32 i1, int32 i2, int32 i3, int32 i4, uint64 i5, uint64 i6) = autoRangeModule.positionConfigs(TEST_NFT);
+        assertEq(abi.encode(configIn), abi.encode(AutoRangeModule.PositionConfig(i1, i2, i3, i4, i5, i6)));
     }
 
     function testNonOperator() external {
         vm.expectRevert(Module.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT, false, 0, "", block.timestamp));
     }
 
     function testAdjustWithoutApprove() external {
         // out of range position
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(0, 0, 0, 1, 0, 0));
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(0, 0, 0, 1, 0, 0));
 
         // fails when sending NFT
         vm.expectRevert(abi.encodePacked("Not approved"));
         
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
     }
 
     function testAdjustWithoutConfig() external {
 
         vm.prank(TEST_NFT_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
-        vm.expectRevert(RangeAdjustModule.NotConfigured.selector);
+        vm.expectRevert(AutoRangeModule.NotConfigured.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT, false, 0, "", block.timestamp));
     }
 
     function testAdjustNotAdjustable() external {
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2_A, RangeAdjustModule.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
+        autoRangeModule.addTokenDirect(TEST_NFT_2_A, AutoRangeModule.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
 
         // in range position cant be adjusted
-        vm.expectRevert(RangeAdjustModule.NotReady.selector);
+        vm.expectRevert(AutoRangeModule.NotReady.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2_A, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2_A, false, 0, "", block.timestamp));
     }
 
     function testAdjustOutOfRange() external {
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(0, 0, -int32(uint32(type(uint24).max)), int32(uint32(type(uint24).max)), 0, 0)); // 1% max fee, 1% max slippage
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(0, 0, -int32(uint32(type(uint24).max)), int32(uint32(type(uint24).max)), 0, 0)); // 1% max fee, 1% max slippage
 
         // will be reverted because range Arithmetic over/underflow
         vm.expectRevert(abi.encodePacked("SafeCast: value doesn't fit in 24 bits"));
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
     }
 
     function testAdjustWithoutSwap() external {
@@ -129,30 +129,30 @@ contract RangeAdjustModuleTest is TestBase {
         // added to new position -> 311677619940061890345 77467250371417094
         
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
         uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
         assertEq(count, 4);
 
-        uint protocolDAIBalanceBefore = DAI.balanceOf(address(rangeAdjustModule));
-        uint protocolWETHBalanceBefore = WETH_ERC20.balanceOf(address(rangeAdjustModule));
+        uint protocolDAIBalanceBefore = DAI.balanceOf(address(autoRangeModule));
+        uint protocolWETHBalanceBefore = WETH_ERC20.balanceOf(address(autoRangeModule));
 
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
         uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp)); // max fee with 1% is 7124618988448545
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp)); // max fee with 1% is 7124618988448545
 
         // is not adjustable yet because config was removed
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(RangeAdjustModule.NotConfigured.selector);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+        vm.expectRevert(AutoRangeModule.NotConfigured.selector);
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
 
         // protocol fee
-        assertEq(DAI.balanceOf(address(rangeAdjustModule)) - protocolDAIBalanceBefore, 1558388099700309450);
-        assertEq(WETH_ERC20.balanceOf(address(rangeAdjustModule)) - protocolWETHBalanceBefore, 2534515302783060);
+        assertEq(DAI.balanceOf(address(autoRangeModule)) - protocolDAIBalanceBefore, 1558388099700309450);
+        assertEq(WETH_ERC20.balanceOf(address(autoRangeModule)) - protocolWETHBalanceBefore, 2534515302783060);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 0); // all was added to position
@@ -166,8 +166,8 @@ contract RangeAdjustModuleTest is TestBase {
 
         // is not adjustable yet because in range
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(RangeAdjustModule.NotReady.selector);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(tokenId, false, 0, "", block.timestamp));
+        vm.expectRevert(AutoRangeModule.NotReady.selector);
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(tokenId, false, 0, "", block.timestamp));
 
         // newly minted token
         assertEq(tokenId, 309207);
@@ -201,23 +201,23 @@ contract RangeAdjustModuleTest is TestBase {
         // added to new position -> 767197802262466967698 190686467137733081
         
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max fee, 1% max slippage
        
-        uint protocolDAIBalanceBefore = DAI.balanceOf(address(rangeAdjustModule));
-        uint protocolWETHBalanceBefore = WETH_ERC20.balanceOf(address(rangeAdjustModule));
+        uint protocolDAIBalanceBefore = DAI.balanceOf(address(autoRangeModule));
+        uint protocolWETHBalanceBefore = WETH_ERC20.balanceOf(address(autoRangeModule));
 
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
         uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 300000000000000000, _get03WETHToDAISwapData(), block.timestamp)); // max fee with 1% is 7124618988448545
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 300000000000000000, _get03WETHToDAISwapData(), block.timestamp)); // max fee with 1% is 7124618988448545
 
         // protocol fee
-        assertEq(DAI.balanceOf(address(rangeAdjustModule)) - protocolDAIBalanceBefore, 3835989011312334835);
-        assertEq(WETH_ERC20.balanceOf(address(rangeAdjustModule)) - protocolWETHBalanceBefore, 1034515302783060);
+        assertEq(DAI.balanceOf(address(autoRangeModule)) - protocolDAIBalanceBefore, 3835989011312334835);
+        assertEq(WETH_ERC20.balanceOf(address(autoRangeModule)) - protocolWETHBalanceBefore, 1034515302783060);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 0); // all was added to position
@@ -255,15 +255,15 @@ contract RangeAdjustModuleTest is TestBase {
     function testDoubleAdjust() external {
                 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
         // bad config so it can be adjusted multiple times
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
 
         // first adjust ok
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
 
         uint count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
         uint tokenId = NPM.tokenOfOwnerByIndex(TEST_NFT_2_ACCOUNT, count - 1);
@@ -273,13 +273,13 @@ contract RangeAdjustModuleTest is TestBase {
 
         // second ajust leads to same range error
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(RangeAdjustModule.SameRange.selector);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(tokenId, false, 0, "", block.timestamp));
+        vm.expectRevert(AutoRangeModule.SameRange.selector);
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(tokenId, false, 0, "", block.timestamp));
     }
 
     function testModuleAdjust() external {
 
-        RangeAdjustModule.PositionConfig memory config = RangeAdjustModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100));
+        AutoRangeModule.PositionConfig memory config = AutoRangeModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100));
 
         IHolder.ModuleParams[] memory params = new IHolder.ModuleParams[](1);
         params[0] = IHolder.ModuleParams(moduleIndex, abi.encode(config));
@@ -293,7 +293,7 @@ contract RangeAdjustModuleTest is TestBase {
         );
             
         vm.prank(OPERATOR_ACCOUNT);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
 
         uint count = holder.balanceOf(TEST_NFT_2_ACCOUNT);
         uint tokenId = holder.accountTokens(TEST_NFT_2_ACCOUNT, count - 1);
@@ -303,7 +303,7 @@ contract RangeAdjustModuleTest is TestBase {
         assertEq(holder.tokenModules(TEST_NFT_2), holder.tokenModules(tokenId));
 
         // test if config was copied properly
-        (int32 lowerTickLimit, int32 upperTickLimit, int32 lowerTickDelta, int32 upperTickDelta, uint64 token0SlippageX64, uint64 token1SlippageX64) = rangeAdjustModule.positionConfigs(tokenId);
+        (int32 lowerTickLimit, int32 upperTickLimit, int32 lowerTickDelta, int32 upperTickDelta, uint64 token0SlippageX64, uint64 token1SlippageX64) = autoRangeModule.positionConfigs(tokenId);
         assertEq(lowerTickLimit, config.lowerTickLimit);
         assertEq(upperTickLimit, config.upperTickLimit);
         assertEq(lowerTickDelta, config.lowerTickDelta);
@@ -315,18 +315,18 @@ contract RangeAdjustModuleTest is TestBase {
     function testOracleCheck() external {
 
         // create range adjustor with more strict oracle config    
-        rangeAdjustModule = new RangeAdjustModule(NPM, EX0x, OPERATOR_ACCOUNT, 60 * 30, 4);
+        autoRangeModule = new AutoRangeModule(NPM, EX0x, OPERATOR_ACCOUNT, 60 * 30, 4);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(rangeAdjustModule), true);
+        NPM.setApprovalForAll(address(autoRangeModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        rangeAdjustModule.addTokenDirect(TEST_NFT_2, RangeAdjustModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
+        autoRangeModule.addTokenDirect(TEST_NFT_2, AutoRangeModule.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100)));
 
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(Module.TWAPCheckFailed.selector);
-        rangeAdjustModule.execute(RangeAdjustModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
+        autoRangeModule.execute(AutoRangeModule.ExecuteParams(TEST_NFT_2, false, 0, "", block.timestamp));
     }
 
     function _get03WETHToDAISwapData() internal view returns (bytes memory) {

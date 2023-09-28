@@ -3,13 +3,13 @@ pragma solidity ^0.8.0;
 
 import "../TestBase.sol";
 
-contract StopLossLimitModuleTest is TestBase {
+contract AutoExitModuleTest is TestBase {
 
     uint8 moduleIndex;
 
     function setUp() external {
         _setupBase();
-        moduleIndex = _setupStopLossLimitModule(0);
+        moduleIndex = _setupAutoExitModule(0);
     }
 
     function _addToModule(
@@ -23,7 +23,7 @@ contract StopLossLimitModuleTest is TestBase {
         int24 token0TriggerTick,
         int24 token1TriggerTick
     ) internal {
-        StopLossLimitModule.PositionConfig memory config = StopLossLimitModule.PositionConfig(
+        AutoExitModule.PositionConfig memory config = AutoExitModule.PositionConfig(
                 isActive,
                 token0Swap,
                 token1Swap,
@@ -68,9 +68,9 @@ contract StopLossLimitModuleTest is TestBase {
 
         assertEq(liquidity, 0);
 
-        vm.expectRevert(StopLossLimitModule.NoLiquidity.selector);
+        vm.expectRevert(AutoExitModule.NoLiquidity.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
     }
 
     function _addLiquidity() internal returns (uint256 amount0, uint256 amount1) {
@@ -101,9 +101,9 @@ contract StopLossLimitModuleTest is TestBase {
         assertEq(tick, -276325);
     
         _addToModule(true, TEST_NFT, true, false, false, 0, 0, -276325, type(int24).max);
-        vm.expectRevert(StopLossLimitModule.NotInCondition.selector);
+        vm.expectRevert(AutoExitModule.NotInCondition.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
 
         uint balanceBeforeOwner = DAI.balanceOf(TEST_NFT_ACCOUNT);
 
@@ -111,7 +111,7 @@ contract StopLossLimitModuleTest is TestBase {
 
         // execute limit order - without swap
         vm.prank(OPERATOR_ACCOUNT); 
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
 
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(TEST_NFT);
         assertEq(liquidity, 0);
@@ -120,15 +120,15 @@ contract StopLossLimitModuleTest is TestBase {
 
         // check paid fee
         uint balanceBefore = DAI.balanceOf(address(this));
-        stopLossLimitModule.withdrawBalance(address(DAI), address(this));
+        autoExitModule.withdrawBalance(address(DAI), address(this));
         uint balanceAfter = DAI.balanceOf(address(this));
 
         assertEq(balanceAfterOwner + balanceAfter - balanceBeforeOwner - balanceBefore + 1, amount0); // +1 because Uniswap imprecision (remove same liquidity returns 1 less)
 
         // cant execute again
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        vm.expectRevert(AutoExitModule.NotConfigured.selector);
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
 
         // add new liquidity
         (amount0, amount1) = _addLiquidity();
@@ -137,19 +137,19 @@ contract StopLossLimitModuleTest is TestBase {
         _addToModule(false, TEST_NFT, true, true, true, uint64(Q64 / 100), uint64(Q64 / 100), -276324, type(int24).max);
 
         // execute without swap data fails because not allowed by config
-        vm.expectRevert(StopLossLimitModule.MissingSwapData.selector);
+        vm.expectRevert(AutoExitModule.MissingSwapData.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
 
         // execute stop loss order - with swap
         uint swapBalanceBefore = USDC.balanceOf(TEST_NFT_ACCOUNT);
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, _getDAIToUSDSwapData(), block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, _getDAIToUSDSwapData(), block.timestamp));
         uint swapBalanceAfter = USDC.balanceOf(TEST_NFT_ACCOUNT);
         
         // protocol fee
         balanceBefore = USDC.balanceOf(address(this));
-        stopLossLimitModule.withdrawBalance(address(USDC), address(this));
+        autoExitModule.withdrawBalance(address(USDC), address(this));
         balanceAfter = USDC.balanceOf(address(this));
 
         assertEq(swapBalanceAfter - swapBalanceBefore, 988879);
@@ -159,115 +159,115 @@ contract StopLossLimitModuleTest is TestBase {
      function testDirectSendNFT() external {
         vm.prank(TEST_NFT_ACCOUNT);
         vm.expectRevert(abi.encodePacked("ERC721: transfer to non ERC721Receiver implementer")); // NFT manager doesnt resend original error for some reason
-        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(stopLossLimitModule), TEST_NFT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(autoExitModule), TEST_NFT);
     }
 
     function testSetTWAPSeconds() external {
-        uint16 maxTWAPTickDifference = stopLossLimitModule.maxTWAPTickDifference();
-        stopLossLimitModule.setTWAPConfig(maxTWAPTickDifference, 120);
-        assertEq(stopLossLimitModule.TWAPSeconds(), 120);
+        uint16 maxTWAPTickDifference = autoExitModule.maxTWAPTickDifference();
+        autoExitModule.setTWAPConfig(maxTWAPTickDifference, 120);
+        assertEq(autoExitModule.TWAPSeconds(), 120);
 
         vm.expectRevert(Module.InvalidConfig.selector);
-        stopLossLimitModule.setTWAPConfig(maxTWAPTickDifference, 60);
+        autoExitModule.setTWAPConfig(maxTWAPTickDifference, 60);
     }
 
     function testSetMaxTWAPTickDifference() external {
-        uint32 TWAPSeconds = stopLossLimitModule.TWAPSeconds();
-        stopLossLimitModule.setTWAPConfig(5, TWAPSeconds);
-        assertEq(stopLossLimitModule.maxTWAPTickDifference(), 5);
+        uint32 TWAPSeconds = autoExitModule.TWAPSeconds();
+        autoExitModule.setTWAPConfig(5, TWAPSeconds);
+        assertEq(autoExitModule.maxTWAPTickDifference(), 5);
 
         vm.expectRevert(Module.InvalidConfig.selector);
-        stopLossLimitModule.setTWAPConfig(10, TWAPSeconds);
+        autoExitModule.setTWAPConfig(10, TWAPSeconds);
     }
 
     function testSetOperator() external {
-        assertEq(stopLossLimitModule.operator(), OPERATOR_ACCOUNT);
-        stopLossLimitModule.setOperator(TEST_NFT_ACCOUNT);
-        assertEq(stopLossLimitModule.operator(), TEST_NFT_ACCOUNT);
+        assertEq(autoExitModule.operator(), OPERATOR_ACCOUNT);
+        autoExitModule.setOperator(TEST_NFT_ACCOUNT);
+        assertEq(autoExitModule.operator(), TEST_NFT_ACCOUNT);
     }
 
 
     function testUnauthorizedSetConfig() external {
         vm.expectRevert(Module.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(false, false, false, 0, 0, 0, 0));
+        autoExitModule.addTokenDirect(TEST_NFT_2, AutoExitModule.PositionConfig(false, false, false, 0, 0, 0, 0));
     }
 
     function testResetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT, StopLossLimitModule.PositionConfig(false, false, false, 0, 0, 0, 0));
+        autoExitModule.addTokenDirect(TEST_NFT, AutoExitModule.PositionConfig(false, false, false, 0, 0, 0, 0));
     }
 
     function testInvalidConfig() external {
         vm.expectRevert(Module.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT, StopLossLimitModule.PositionConfig(true, false, false, 800000, -800000,  0, 0));
+        autoExitModule.addTokenDirect(TEST_NFT, AutoExitModule.PositionConfig(true, false, false, 800000, -800000,  0, 0));
     }
 
     function testValidSetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
-        StopLossLimitModule.PositionConfig memory configIn = StopLossLimitModule.PositionConfig(true, false, false, -800000, 800000, 0, 0);
-        stopLossLimitModule.addTokenDirect(TEST_NFT, configIn);
-        (bool i1, bool i2, bool i3, int24 i4, int24 i5, uint64 i6, uint64 i7) = stopLossLimitModule.positionConfigs(TEST_NFT);
-        assertEq(abi.encode(configIn), abi.encode(StopLossLimitModule.PositionConfig(i1, i2, i3, i4, i5, i6, i7)));
+        AutoExitModule.PositionConfig memory configIn = AutoExitModule.PositionConfig(true, false, false, -800000, 800000, 0, 0);
+        autoExitModule.addTokenDirect(TEST_NFT, configIn);
+        (bool i1, bool i2, bool i3, int24 i4, int24 i5, uint64 i6, uint64 i7) = autoExitModule.positionConfigs(TEST_NFT);
+        assertEq(abi.encode(configIn), abi.encode(AutoExitModule.PositionConfig(i1, i2, i3, i4, i5, i6, i7)));
     }
 
     function testNonOperator() external {
         vm.expectRevert(Module.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
     }
 
     function testRunWithoutApprove() external {
         // out of range position
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, false, false, -84121, -78240, 0, 0));
+        autoExitModule.addTokenDirect(TEST_NFT_2, AutoExitModule.PositionConfig(true, false, false, -84121, -78240, 0, 0));
 
         // fails when sending NFT
         vm.expectRevert(abi.encodePacked("Not approved"));
         
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
     }
 
     function testRunWithoutConfig() external {
 
         vm.prank(TEST_NFT_ACCOUNT);
-        NPM.setApprovalForAll(address(stopLossLimitModule), true);
+        NPM.setApprovalForAll(address(autoExitModule), true);
 
-        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
+        vm.expectRevert(AutoExitModule.NotConfigured.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT, "", block.timestamp));
     }
 
     function testRunNotReady() external {
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(stopLossLimitModule), true);
+        NPM.setApprovalForAll(address(autoExitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2_A, StopLossLimitModule.PositionConfig(true, false, false, -276331, -276320, 0, 0));
+        autoExitModule.addTokenDirect(TEST_NFT_2_A, AutoExitModule.PositionConfig(true, false, false, -276331, -276320, 0, 0));
 
         // in range position cant be run
-        vm.expectRevert(StopLossLimitModule.NotInCondition.selector);
+        vm.expectRevert(AutoExitModule.NotInCondition.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2_A, "", block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2_A, "", block.timestamp));
     }
 
     function testOracleCheck() external {
 
         // create range adjustor with more strict oracle config    
-        stopLossLimitModule = new StopLossLimitModule(NPM, EX0x, OPERATOR_ACCOUNT, 60 * 30, 4);
+        autoExitModule = new AutoExitModule(NPM, EX0x, OPERATOR_ACCOUNT, 60 * 30, 4);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(stopLossLimitModule), true);
+        NPM.setApprovalForAll(address(autoExitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100)));
+        autoExitModule.addTokenDirect(TEST_NFT_2, AutoExitModule.PositionConfig(true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100)));
 
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(Module.TWAPCheckFailed.selector);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
     }
 
 
@@ -278,28 +278,28 @@ contract StopLossLimitModuleTest is TestBase {
         // available amounts -> DAI (fees) 311677619940061890346 WETH(fees + liquidity) 506903060556612041
         
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(stopLossLimitModule), true);
+        NPM.setApprovalForAll(address(autoExitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, false, false, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max slippage
+        autoExitModule.addTokenDirect(TEST_NFT_2, AutoExitModule.PositionConfig(true, false, false, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max slippage
 
-        uint contractWETHBalanceBefore = WETH_ERC20.balanceOf(address(stopLossLimitModule));
-        uint contractDAIBalanceBefore = DAI.balanceOf(address(stopLossLimitModule));
+        uint contractWETHBalanceBefore = WETH_ERC20.balanceOf(address(autoExitModule));
+        uint contractDAIBalanceBefore = DAI.balanceOf(address(autoExitModule));
 
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
         uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp)); // max fee with 1% is 7124618988448545
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp)); // max fee with 1% is 7124618988448545
 
         // is not runnable anymore because no more liquidity
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
+        vm.expectRevert(AutoExitModule.NotConfigured.selector);
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
 
         // fee stored for owner in contract
-        assertEq(WETH_ERC20.balanceOf(address(stopLossLimitModule)) - contractWETHBalanceBefore, 2534515302783060);
-        assertEq(DAI.balanceOf(address(stopLossLimitModule)) - contractDAIBalanceBefore, 1558388099700309450);
+        assertEq(WETH_ERC20.balanceOf(address(autoExitModule)) - contractWETHBalanceBefore, 2534515302783060);
+        assertEq(DAI.balanceOf(address(autoExitModule)) - contractDAIBalanceBefore, 1558388099700309450);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 310119231840361580896); // all available
@@ -312,33 +312,33 @@ contract StopLossLimitModuleTest is TestBase {
         // available amounts -> DAI (fees) 311677619940061890346 WETH(fees + liquidity) 506903060556612041
         
         vm.prank(TEST_NFT_2_ACCOUNT);
-        NPM.setApprovalForAll(address(stopLossLimitModule), true);
+        NPM.setApprovalForAll(address(autoExitModule), true);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        stopLossLimitModule.addTokenDirect(TEST_NFT_2, StopLossLimitModule.PositionConfig(true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max slippage
+        autoExitModule.addTokenDirect(TEST_NFT_2, AutoExitModule.PositionConfig(true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100))); // 1% max slippage
 
-        uint contractWETHBalanceBefore = WETH_ERC20.balanceOf(address(stopLossLimitModule));
-        uint contractDAIBalanceBefore = DAI.balanceOf(address(stopLossLimitModule));
+        uint contractWETHBalanceBefore = WETH_ERC20.balanceOf(address(autoExitModule));
+        uint contractDAIBalanceBefore = DAI.balanceOf(address(autoExitModule));
 
         uint ownerDAIBalanceBefore = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
         uint ownerWETHBalanceBefore = TEST_NFT_2_ACCOUNT.balance;
 
         // is not runnable without swap
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.MissingSwapData.selector);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
+        vm.expectRevert(AutoExitModule.MissingSwapData.selector);
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, "", block.timestamp));
 
         vm.prank(OPERATOR_ACCOUNT);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
 
         // is not runnable anymore because no more liquidity
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(StopLossLimitModule.NotConfigured.selector);
-        stopLossLimitModule.execute(StopLossLimitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
+        vm.expectRevert(AutoExitModule.NotConfigured.selector);
+        autoExitModule.execute(AutoExitModule.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), block.timestamp));
 
         // fee stored for owner in contract
-        assertEq(WETH_ERC20.balanceOf(address(stopLossLimitModule)) - contractWETHBalanceBefore, 0);
-        assertEq(DAI.balanceOf(address(stopLossLimitModule)) - contractDAIBalanceBefore, 5406774833810580731);
+        assertEq(WETH_ERC20.balanceOf(address(autoExitModule)) - contractWETHBalanceBefore, 0);
+        assertEq(DAI.balanceOf(address(autoExitModule)) - contractDAIBalanceBefore, 5406774833810580731);
 
         // leftovers returned to owner
         assertEq(DAI.balanceOf(TEST_NFT_2_ACCOUNT) - ownerDAIBalanceBefore, 1075948191928305566472); // all available

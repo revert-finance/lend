@@ -7,10 +7,10 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
-/// @title RangeAdjustModule
-/// @notice Allows operator of RangeAdjustModule contract (Revert controlled bot) to change range for configured positions
+/// @title AutoRangeModule
+/// @notice Allows operator of AutoRangeModule contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved for all NFTs for the contract and configured with setConfig method
-contract RangeAdjustModule is AutomatorModule {
+contract AutoRangeModule is AutomatorModule {
 
     // user events
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);

@@ -14,10 +14,10 @@ import "../src/Holder.sol";
 import "../src/Oracle.sol";
 
 import "../src/modules/CompoundorModule.sol";
-import "../src/modules/StopLossLimitModule.sol";
+import "../src/modules/AutoExitModule.sol";
 import "../src/modules/LockModule.sol";
 import "../src/modules/CollateralModule.sol";
-import "../src/modules/RangeAdjustModule.sol";
+import "../src/modules/AutoRangeModule.sol";
 
 import "../src/compound/Unitroller.sol";
 import "../src/compound/Comptroller.sol";
@@ -92,10 +92,10 @@ abstract contract TestBase is Test {
     V3Utils v3utils;
 
     CompoundorModule compoundorModule;
-    StopLossLimitModule stopLossLimitModule;
+    AutoExitModule autoExitModule;
     LockModule lockModule;
     CollateralModule collateralModule;
-    RangeAdjustModule rangeAdjustModule;
+    AutoRangeModule autoRangeModule;
 
     Oracle oracle;
     Unitroller unitroller;
@@ -123,12 +123,12 @@ abstract contract TestBase is Test {
         return holder.addModule(compoundorModule, blocking);
     }
 
-    function _setupStopLossLimitModule(uint blocking) internal returns (uint8) {
-        stopLossLimitModule = new StopLossLimitModule(NPM, EX0x, OPERATOR_ACCOUNT, 60, 100);
-        stopLossLimitModule.setHolder(holder);
-        assertEq(address(stopLossLimitModule.factory()), FACTORY);
+    function _setupAutoExitModule(uint blocking) internal returns (uint8) {
+        autoExitModule = new AutoExitModule(NPM, EX0x, OPERATOR_ACCOUNT, 60, 100);
+        autoExitModule.setHolder(holder);
+        assertEq(address(autoExitModule.factory()), FACTORY);
 
-        return holder.addModule(stopLossLimitModule, blocking);
+        return holder.addModule(autoExitModule, blocking);
     }
 
     function _setupLockModule(uint blocking) internal returns (uint8) {
@@ -191,11 +191,11 @@ abstract contract TestBase is Test {
         return holder.addModule(collateralModule, blocking);
     }
 
-    function _setupRangeAdjustModule(uint blocking) internal returns (uint8) {
-        rangeAdjustModule = new RangeAdjustModule(NPM, EX0x, OPERATOR_ACCOUNT, 60, 100);
-        rangeAdjustModule.setHolder(holder);
-        assertEq(address(rangeAdjustModule.factory()), FACTORY);
+    function _setupAutoRangeModule(uint blocking) internal returns (uint8) {
+        autoRangeModule = new AutoRangeModule(NPM, EX0x, OPERATOR_ACCOUNT, 60, 100);
+        autoRangeModule.setHolder(holder);
+        assertEq(address(autoRangeModule.factory()), FACTORY);
 
-        return holder.addModule(rangeAdjustModule, blocking);
+        return holder.addModule(autoRangeModule, blocking);
     }
 }

@@ -7,11 +7,11 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import 'v3-core/libraries/FullMath.sol';
 
-/// @title StopLossLimitModule
+/// @title AutoExitModule
 /// @notice Lets a v3 position to be automatically removed or swapped to the opposite token when it reaches a certain tick. 
 /// A revert controlled bot is responsible for the execution of optimized swaps (using external swap router)
 /// Positions need to be in holder or approved for all NFTs for the contract and configured with addToken method
-contract StopLossLimitModule is AutomatorModule {
+contract AutoExitModule is AutomatorModule {
 
     // user events
     event Executed(
