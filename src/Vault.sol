@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./compound/PriceOracle.sol";
-import "./compound/ComptrollerInterface.sol";
-import "./compound/Lens/CompoundLens.sol";
-import "./compound/CErc20.sol";
-
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 
@@ -21,15 +16,50 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import "./V3Oracle.sol";
+
 interface IInterestRateModel {
     // gets interest rate per second per unit of debt x96
-    function getRateX96(uint supply, uint debt) external view returns (uint256 result);
+    function getBorrowRateX96(uint cash, uint debt) external view returns (uint256 result);
 }
 
-interface IOracle {
-    // gets price for a given token in USD(C)
-    function getPriceX96(address token) external view returns (uint256 result);
+contract InterestRateModel is Ownable, IInterestRateModel {
+
+    uint constant Q96 = 2 ** 96;
+
+    uint public multiplierPerSecond;
+    uint public baseRatePerSecond;
+    uint public jumpMultiplierPerSecond;
+    uint public kink;
+
+    constructor(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink_) public {
+        baseRatePerSecond = baseRatePerYear / 1 years;
+        multiplierPerSecond = multiplierPerYear / 1 years;
+        jumpMultiplierPerSecond = jumpMultiplierPerYear / 1 years;
+        kink = kink_;
+    }
+
+    function getUtilizationRateX96(uint cash, uint debt) public pure returns (uint) {
+        if (debt == 0) {
+            return 0;
+        }
+        return debt * Q96 / (cash + debt);
+    }
+
+    function getBorrowRateX96(uint cash, uint debt) override external view returns (uint) {
+        uint utilizationRateX96 = getUtilizationRateX96(cash, debt);
+
+        if (utilizationRateX96 <= kink) {
+            return (utilizationRateX96 * multiplierPerSecond / Q96) + baseRatePerSecond;
+        } else {
+            uint normalRate = (kink * multiplierPerSecond / Q96) + baseRatePerSecond;
+            uint excessUtil = utilizationRateX96 - kink;
+            return (excessUtil * jumpMultiplierPerSecond / Q96) + normalRate;
+        }
+    }
+
 }
+
 
 interface IVaultCallback {
     // callback after requesting access to collateral for modifying
@@ -37,11 +67,11 @@ interface IVaultCallback {
 }
 
 /// @title Vault for token lending / borrowing using LP positions as collateral
-contract Vault is Ownable {
+contract Vault is Ownable, IERC721Receiver {
 
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
-    uint constant MAX_COLLATERAL_FACTOR = Q32 * 90 / 100; // 90%
+    uint constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
@@ -66,11 +96,10 @@ contract Vault is Ownable {
     error CollateralFactorExceedsMax();
   
     IInterestRateModel public interestRateModel;
-    IOracle public oracle;
+    IV3Oracle public oracle;
 
     struct TokenConfig {
         uint32 collateralFactorX32;
-        uint collateralAmount;
     }
     mapping(address => TokenConfig) public tokenConfigs;
 
@@ -104,6 +133,7 @@ contract Vault is Ownable {
         uint lastInterestUpdate;
         uint lastInterestTotalX96;
         uint amount;
+        uint32 collateralFactorX32; // assigned at loan creation
     }
     uint loanCount;
     mapping(uint => Loan) loans;
@@ -112,7 +142,7 @@ contract Vault is Ownable {
     uint transformerLoanId; // transient (when available)
     mapping(address => bool) transformerAllowList;
 
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, IERC20 _lendToken, IInterestRateModel _interestRateModel, IOracle _oracle) {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, IERC20 _lendToken, IInterestRateModel _interestRateModel, IV3Oracle _oracle) {
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         lendToken = _lendToken;
@@ -123,12 +153,12 @@ contract Vault is Ownable {
     ////////////////// EXTERNAL FUNCTIONS
 
     function create(uint256 tokenId, uint amount) external {
-        nonfungiblePositionManager.transferFrom(tokenId, msg.sender, address(this), abi.encode(msg.sender, amount));
+        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(msg.sender, amount));
     }
 
     function createWithPermit(uint256 tokenId, address owner, uint amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
-        nonfungiblePositionManager.transferFrom(tokenId, owner, address(this), abi.encode(owner, amount));
+        nonfungiblePositionManager.safeTransferFrom(owner, address(this), tokenId, abi.encode(owner, amount));
     }
 
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
@@ -144,7 +174,7 @@ contract Vault is Ownable {
         if (loanId == 0) {
             _updateGlobalInterest();
             loanId = ++loanCount;
-            loans[loanId] = Loan(tokenId, owner, block.timestamp, lastInterestTotalX96, 0);
+            loans[loanId] = Loan(tokenId, owner, block.timestamp, lastInterestTotalX96, 0, _calculateTokenCollateralFactorX32(tokenId));
 
             // direct borrow if requested
             if (amount > 0) {
@@ -152,7 +182,10 @@ contract Vault is Ownable {
             }
         } else {
             // if in transform mode - current token is replaced
-            loans[loanId].tokenId = tokenId;
+            if (loans[loanId].tokenId != tokenId) {
+                loans[loanId].tokenId = tokenId;
+                loans[loanId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+            }
         }
 
         return IERC721Receiver.onERC721Received.selector;
@@ -177,7 +210,7 @@ contract Vault is Ownable {
         _updateLoanInterest(loanId);
 
         // give access to transformer
-        nonfungiblePositionManager.approve(loan.tokenId, transformer);
+        nonfungiblePositionManager.approve(transformer, loan.tokenId);
 
         (bool success,) = transformer.call(data);
         if (!success) {
@@ -191,7 +224,7 @@ contract Vault is Ownable {
         }
 
         // remove access for msg.sender
-        nonfungiblePositionManager.approve(loan.tokenId, address(0));
+        nonfungiblePositionManager.approve(address(0), loan.tokenId);
 
         _requireLoanIsHealthy(loanId);
 
@@ -237,7 +270,7 @@ contract Vault is Ownable {
         }
     }
 
-    function repay(uint loanId, uint amount) external {
+    function repay(uint loanId, uint amount, bool withdrawNFT) external {
 
         _updateGlobalInterest();
         _updateLoanInterest(loanId);
@@ -255,10 +288,11 @@ contract Vault is Ownable {
         loan.amount -= amount;
         globalDebtAmount -= amount;
 
-        // if fully repayed - nft is returned
-        if (loan.amount == 0) {
+        // if fully repayed - and withdraw requested
+        if (loan.amount == 0 && withdrawNFT) {
+            uint tokenId = loan.tokenId;
             loan.tokenId = 0;
-            nonfungiblePositionManager.safeTransferFrom(loan.tokenId, address(this), loan.owner);
+            nonfungiblePositionManager.safeTransferFrom(address(this), loan.owner, tokenId);
         }
     }
 
@@ -333,30 +367,39 @@ contract Vault is Ownable {
         Loan storage loan = loans[loanId];
         globalDebtAmount -= loan.amount;
         loan.amount = 0;
-        nonfungiblePositionManager.safeTransfer(loan.tokenId, address(this), msg.sender);
+        
+        uint tokenId = loan.tokenId;
+        loan.tokenId = 0;
+        nonfungiblePositionManager.safeTransferFrom(address(this), msg.sender, tokenId);
     }
 
 
     // calculates amount which needs to be payed to liquidate position - if it doesn't have enough value anymore - part is covered by reserves
     function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal returns (uint leftover, uint liquidatorCost, uint reserveCost) {
 
-        uint MIN_LIQUIDATION_PENALTY_X32 = 0;
         uint MAX_LIQUIDATION_PENALTY_X32 = Q32 / 10; // 10%
         uint UNDERWATER_LIQUIDATION_PENALTY_X32 = Q32 / 20; // 5%
 
+        // position value needed to pay debt at max penalty
         uint maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
-        uint underwaterPenaltyValue = debt * (Q32 + UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
 
-        uint fullDebt = debt * fullValue / collateralValue;
+        // position value when position started to be liquidatable
+        uint startLiquidationValue = debt * fullValue / collateralValue;
 
         if (fullValue > maxPenaltyValue) {
-            uint penaltyX32 = MAX_LIQUIDATION_PENALTY_X32 * (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (fullDebt - maxPenaltyValue))) / Q96;
+            // calculate penalty and leftover
+            uint penaltyFractionX96 = (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
+            uint penaltyX32 = MAX_LIQUIDATION_PENALTY_X32 * penaltyFractionX96 / Q96;
             uint penaltyValue = fullValue * (Q32 - penaltyX32) / Q32;
             leftover = penaltyValue - debt;
             liquidatorCost = penaltyValue;
         } else {
+            // position value needed to pay debt at underwater penalty
+            uint underwaterPenaltyValue = debt * (Q32 + UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
+
+            // if position has enough value to pay penalty and no be underwater
             if (fullValue > underwaterPenaltyValue) {
-                // TODO calculate
+                liquidatorCost = debt;
             } else {
                 uint penaltyValue = fullValue * (Q32 - UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
                 liquidatorCost = penaltyValue;
@@ -412,7 +455,7 @@ contract Vault is Ownable {
 
     // function to set collateral factor for a given token
     function setTokenConfig(address token, uint32 collateralFactorX32) external onlyOwner {
-        if (collateralFactorX32 > MAX_COLLATERAL_FACTOR) {
+        if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
         tokenConfigs[token] = TokenConfig(collateralFactorX32);
@@ -420,33 +463,11 @@ contract Vault is Ownable {
 
     ////////////////// INTERNAL FUNCTIONS
 
-    function _setTokenCollateral(uint loanId, uint tokenId) internal {
-        Loan storage loan = loans[loanId];
-
-        (address token0, address token1, uint amount0, uint amount1) = _getPositionBreakdown(tokenId, true);
-
-        if (loan.collateral0 > 0 || loan.collateral1 > 0) {
-
-            address previousToken0 = token0;
-            address previousToken1 = token1;
-
-            // check if same tokenid - otherwise load 
-            if (tokenId != loan.tokenId) {
-                 (, ,previousToken0 ,previousToken1 , , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-            }
-
-            tokenConfigs[previousToken0].collateralAmount -= loan.collateral0;
-            tokenConfigs[previousToken1].collateralAmount -= loan.collateral1;
-        }
-        
-        tokenConfigs[token0].collateralAmount += amount0;
-        tokenConfigs[token1].collateralAmount += amount1;
-
-        loan.tokenId = tokenId;
-        loan.token0 = token0;
-        loan.token1 = token1;
-        loan.collateral0 = amount0;
-        loan.collateral1 = amount1;
+    function _calculateTokenCollateralFactorX32(uint tokenId) internal returns (uint32) {
+        (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        uint32 factor0X32 = tokenConfigs[token0].collateralFactorX32;
+        uint32 factor1X32 = tokenConfigs[token1].collateralFactorX32;
+        return factor0X32 > factor1X32 ? factor1X32 : factor0X32;
     }
 
     // updates loan by calculating interest
@@ -474,8 +495,8 @@ contract Vault is Ownable {
 
     function _updateGlobalInterest() internal {
         if (block.timestamp > lastInterestUpdate) {
-            uint rateX96 = interestRateModel.getRateX96(globalLendAmount, globalDebtAmount);
-            uint interestX96 = (block.timestamp - lastInterestUpdate) * rateX96;
+            uint borrowRateX96 = interestRateModel.getBorrowRateX96(globalLendAmount, globalDebtAmount);
+            uint interestX96 = (block.timestamp - lastInterestUpdate) * borrowRateX96;
             lastInterestTotalX96 += lastInterestTotalX96 * interestX96 / Q96;
             lastInterestUpdate = block.timestamp;
 
@@ -487,7 +508,7 @@ contract Vault is Ownable {
     }
 
     function _requireLoanIsHealthy(uint loanId) internal {
-        (bool isHealthy, ) = _checkLoanIsHealthy(loanId);
+        (bool isHealthy,,) = _checkLoanIsHealthy(loanId);
         if (!isHealthy) {
             revert CollateralFail();
         }
@@ -499,151 +520,13 @@ contract Vault is Ownable {
             revert InterestNotUpdated();
         }
 
-        (fullValue, collateralValue) = _calculateCollateralValue(loanId);
+        fullValue = oracle.getValue(loans[loanId].tokenId, address(lendToken));
+        collateralValue = loans[loanId].collateralFactorX32 * fullValue / Q32;
+        
         isHealty = collateralValue >= loans[loanId].amount;
     }
 
     function _calculateInterest(uint amount, uint lastUpdate, uint lastTotalX96, bool isBorrower) internal returns (uint) {
         return amount * (block.timestamp - lastUpdate) * (lastInterestTotalX96 - lastTotalX96) / Q96 * (isBorrower ? Q32 : Q32 - reserveFactorX32) / Q32;
-    }
-
-    function _calculateCollateralValue(uint loanId) internal returns (uint fullValue, uint collateralValue) {
-
-        Loan memory loan = loans[loanId];
-
-        (address token0, address token1, uint amount0, uint amount1) = _getPositionBreakdown(loan.tokenId, false);
-
-        uint value0 = oracle.getPriceX96(token0) * amount0 / Q96;
-        uint value1 = oracle.getPriceX96(token1) * amount1 / Q96;
-
-        fullValue = value0 + value1;
-        collateralValue = value0 * tokenConfigs[token0].collateralFactorX32 / Q32 + value1 * tokenConfigs[token1].collateralFactorX32 / Q32;
-    }
-
-    // returns token breakdown (optional return max possible amounts given current fees)
-    function _getPositionBreakdown(uint256 tokenId, bool maxAmounts) internal view returns (address token0, address token1, uint256 amount0, uint256 amount1) {
-
-        PositionState memory position = _getPositionState(tokenId);
-
-        // get current tick needed for uncollected fees calculation
-        (uint160 sqrtPriceX96, int24 tick,,,,,) = position.pool.slot0();
-
-        // calculate position amounts (incl uncollected fees)
-        (amount0, amount1) = _getAmounts(position, sqrtPriceX96, tick, maxAmounts);
-
-        // return used tokens
-        token0 = position.token0;
-        token1 = position.token1;
-    }
-
-    struct PositionState {
-        address token0;
-        address token1;
-        uint24 fee;
-        int24 tickLower;
-        int24 tickUpper;
-        uint128 liquidity;
-        uint256 feeGrowthInside0LastX128;
-        uint256 feeGrowthInside1LastX128;
-        uint128 tokensOwed0;
-        uint128 tokensOwed1;
-        IUniswapV3Pool pool;
-    }
-
-    // loads position state
-    function _getPositionState(uint256 tokenId) internal view returns (PositionState memory state) {
-        (
-            ,
-            ,
-            state.token0,
-            state.token1,
-            state.fee,
-            state.tickLower,
-            state.tickUpper,
-            state.liquidity,
-            state.feeGrowthInside0LastX128,
-            state.feeGrowthInside1LastX128,
-            state.tokensOwed0,
-            state.tokensOwed1
-        ) = nonfungiblePositionManager.positions(tokenId);
-
-        state.pool = _getPool(state.token0, state.token1, state.fee);
-    }
-
-    // calculate position amounts given current price/tick
-    function _getAmounts(PositionState memory position, uint160 sqrtPriceX96, int24 tick, bool maxAmounts) internal view returns (uint256 amount0, uint256 amount1) {
-        if (position.liquidity > 0) {
-            uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(position.tickLower);
-            uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(position.tickUpper);        
-            if (maxAmounts) {
-                amount0 = LiquidityAmounts.getAmount0ForLiquidity(sqrtPriceX96Lower, sqrtPriceX96Upper, position.liquidity);
-                amount1 = LiquidityAmounts.getAmount1ForLiquidity(sqrtPriceX96Lower, sqrtPriceX96Upper, position.liquidity);
-            } else {
-                (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, position.liquidity);
-            }
-        }
-
-        (uint256 fees0, uint256 fees1) = _getUncollectedFees(position, tick);
-        amount0 += fees0 + position.tokensOwed0;
-        amount1 += fees1 + position.tokensOwed1;
-    }
-
-    // calculate uncollected fees
-    function _getUncollectedFees(PositionState memory position, int24 tick) internal view returns (uint256 fees0, uint256 fees1)
-    {
-        (uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = _getFeeGrowthInside(
-            position.pool,
-            position.tickLower,
-            position.tickUpper,
-            tick,
-            position.pool.feeGrowthGlobal0X128(),
-            position.pool.feeGrowthGlobal1X128()
-        );
-
-        fees0 = FullMath.mulDiv(feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128, position.liquidity, FixedPoint128.Q128);
-        fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, FixedPoint128.Q128);
-    }
-
-    // calculate fee growth for uncollected fees calculation
-    function _getFeeGrowthInside(
-        IUniswapV3Pool pool,
-        int24 tickLower,
-        int24 tickUpper,
-        int24 tickCurrent,
-        uint256 feeGrowthGlobal0X128,
-        uint256 feeGrowthGlobal1X128
-    ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
-        (, , uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128, , , , ) = pool.ticks(tickLower);
-        (, , uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128, , , , ) = pool.ticks(tickUpper);
-
-        // calculate fee growth below
-        uint256 feeGrowthBelow0X128;
-        uint256 feeGrowthBelow1X128;
-        if (tickCurrent >= tickLower) {
-            feeGrowthBelow0X128 = lowerFeeGrowthOutside0X128;
-            feeGrowthBelow1X128 = lowerFeeGrowthOutside1X128;
-        } else {
-            feeGrowthBelow0X128 = feeGrowthGlobal0X128 - lowerFeeGrowthOutside0X128;
-            feeGrowthBelow1X128 = feeGrowthGlobal1X128 - lowerFeeGrowthOutside1X128;
-        }
-
-        // calculate fee growth above
-        uint256 feeGrowthAbove0X128;
-        uint256 feeGrowthAbove1X128;
-        if (tickCurrent < tickUpper) {
-            feeGrowthAbove0X128 = upperFeeGrowthOutside0X128;
-            feeGrowthAbove1X128 = upperFeeGrowthOutside1X128;
-        } else {
-            feeGrowthAbove0X128 = feeGrowthGlobal0X128 - upperFeeGrowthOutside0X128;
-            feeGrowthAbove1X128 = feeGrowthGlobal1X128 - upperFeeGrowthOutside1X128;
-        }
-
-        feeGrowthInside0X128 = feeGrowthGlobal0X128 - feeGrowthBelow0X128 - feeGrowthAbove0X128;
-        feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
-    }
-
-    // helper method to get pool for token
-    function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 }
