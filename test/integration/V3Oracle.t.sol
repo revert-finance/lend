@@ -9,6 +9,13 @@ import "../../src/Vault.sol";
 
 contract V3OracleIntegrationTest is Test {
    
+    uint constant Q32 = 2 ** 32;
+    uint constant Q96 = 2 ** 96;
+
+    uint constant YEAR_SECS = 31556925216; // taking into account leap years
+
+    address constant WHALE_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
+
     IERC20 constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20 constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     IERC20 constant DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
@@ -24,7 +31,9 @@ contract V3OracleIntegrationTest is Test {
     address constant UNISWAP_DAI_USDC = 0x5777d92f208679DB4b9778590Fa3CAB3aC9e2168; // 0.01% pool
     address constant UNISWAP_ETH_USDC = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640; // 0.05% pool
 
+    address constant TEST_NFT_ACCOUNT = 0x3b8ccaa89FcD432f1334D35b10fF8547001Ce3e5;
     uint256 constant TEST_NFT = 126; // DAI/USDC 0.05% - in range (-276330/-276320)
+
     uint256 constant TEST_NFT_UNI = 1; // WETH/UNI 0.3%
 
     uint256 mainnetFork;
@@ -38,7 +47,8 @@ contract V3OracleIntegrationTest is Test {
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
         vm.selectFork(mainnetFork);
 
-        interestRateModel = new InterestRateModel();
+        // 5% base rate - after 80% - 109% (like in compound v2 deployed) 
+        interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
 
         oracle = new V3Oracle(NPM, address(USDC), address(0));
         oracle.setTokenConfig(address(USDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 48, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0);
@@ -46,9 +56,85 @@ contract V3OracleIntegrationTest is Test {
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
 
         vault = new Vault(NPM, USDC, interestRateModel, oracle);
-        vault.setTokenConfig(address(USDC), uint32(2 ** 32 * 9 / 10)); //90%
-        vault.setTokenConfig(address(DAI), uint32(2 ** 32 * 9 / 10)); //80%
-        vault.setTokenConfig(address(WETH), uint32(2 ** 32 * 8 / 10)); //80%
+        vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10)); //90%
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10)); //80%
+        vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10)); //80%
+    }
+
+    function testMainScenario() external {
+
+        // 10 USDC each (without reserve for now)
+        vault.setLimits(10000000, 10000000);
+        vault.setReserveFactor(0);
+        vault.setReserveProtectionFactor(0);
+
+        assertEq(vault.globalLendAmount(), 0);
+        assertEq(vault.globalBorrowAmount(), 0);
+
+        // lending 2 USDC
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), 2000000);
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.deposit(2000000);
+
+        assertEq(vault.globalLendAmount(), 2000000);
+
+        // withdrawing 1 USDC
+        vm.prank(WHALE_ACCOUNT);
+        vault.withdraw(1000000);
+
+        assertEq(vault.globalLendAmount(), 1000000);
+
+        // borrowing 1 USDC
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.create(TEST_NFT, 1000000);
+
+        assertEq(vault.globalBorrowAmount(), 1000000);
+
+        // wait one day
+        skip(1 days);
+
+        // values are static - ONLY updated after operation
+        assertEq(vault.globalBorrowAmount(), 1000000);
+        assertEq(vault.globalLendAmount(), 1000000);
+
+        (uint debt, uint fullValue, uint collateralValue) = vault.loanInfo(TEST_NFT);
+
+        // debt with interest
+        assertEq(debt, 1000000);
+
+        // oracle defined values
+        assertEq(fullValue, 9793851);
+        assertEq(collateralValue, 8814465);
+
+        uint lent = vault.lendInfo(WHALE_ACCOUNT);
+        // lent with interest
+        assertEq(lent, 1000000);
+
+        // repay 
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), 1);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, 1);
+    }
+
+
+
+    function testUtilizationRates() external {
+        assertEq(interestRateModel.getUtilizationRateX96(10, 0), 0);
+        assertEq(interestRateModel.getUtilizationRateX96(10, 10), Q96 / 2);
+        assertEq(interestRateModel.getUtilizationRateX96(0, 10), Q96);
+    }
+
+    function testInterestRates() external {
+        assertEq(interestRateModel.getBorrowRatePerSecondX96(10, 0) * YEAR_SECS, 0); // 0% for 0% utilization
+        assertEq(interestRateModel.getBorrowRatePerSecondX96(10, 10) * YEAR_SECS, 1980704062856608435230950304); // 2.5% per year for 50% utilization
+        assertEq(interestRateModel.getBorrowRatePerSecondX96(0, 10) * YEAR_SECS, 20440865928680199049058853120); // 25.8% per year for 100% utilization
     }
 
     function testConversionChainlink() external {

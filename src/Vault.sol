@@ -20,22 +20,24 @@ import "./V3Oracle.sol";
 
 interface IInterestRateModel {
     // gets interest rate per second per unit of debt x96
-    function getBorrowRateX96(uint cash, uint debt) external view returns (uint256 result);
+    function getBorrowRatePerSecondX96(uint cash, uint debt) external view returns (uint256 result);
 }
 
 contract InterestRateModel is Ownable, IInterestRateModel {
 
     uint constant Q96 = 2 ** 96;
+    uint constant YEAR_SECS = 31556925216; // taking into account leap years
 
+    // all values are multiplied by Q96
     uint public multiplierPerSecond;
     uint public baseRatePerSecond;
     uint public jumpMultiplierPerSecond;
     uint public kink;
 
     constructor(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink_) public {
-        baseRatePerSecond = baseRatePerYear / 1 years;
-        multiplierPerSecond = multiplierPerYear / 1 years;
-        jumpMultiplierPerSecond = jumpMultiplierPerYear / 1 years;
+        baseRatePerSecond = baseRatePerYear / YEAR_SECS;
+        multiplierPerSecond = multiplierPerYear / YEAR_SECS;
+        jumpMultiplierPerSecond = jumpMultiplierPerYear / YEAR_SECS;
         kink = kink_;
     }
 
@@ -46,20 +48,19 @@ contract InterestRateModel is Ownable, IInterestRateModel {
         return debt * Q96 / (cash + debt);
     }
 
-    function getBorrowRateX96(uint cash, uint debt) override external view returns (uint) {
-        uint utilizationRateX96 = getUtilizationRateX96(cash, debt);
+    function getBorrowRatePerSecondX96(uint cash, uint debt) override external view returns (uint) {
+        uint utilizationRate = getUtilizationRateX96(cash, debt);
 
-        if (utilizationRateX96 <= kink) {
-            return (utilizationRateX96 * multiplierPerSecond / Q96) + baseRatePerSecond;
+        if (utilizationRate <= kink) {
+            return (utilizationRate * multiplierPerSecond / Q96) + baseRatePerSecond;
         } else {
             uint normalRate = (kink * multiplierPerSecond / Q96) + baseRatePerSecond;
-            uint excessUtil = utilizationRateX96 - kink;
+            uint excessUtil = utilizationRate - kink;
             return (excessUtil * jumpMultiplierPerSecond / Q96) + normalRate;
         }
     }
 
 }
-
 
 interface IVaultCallback {
     // callback after requesting access to collateral for modifying
@@ -86,7 +87,7 @@ contract Vault is Ownable, IERC721Receiver {
     error NotOwner();
     error WrongContract();
     error CollateralFail();
-    error GlobalDebtLimit();
+    error GlobalBorrowLimit();
     error GlobalLendLimit();
     error InsufficientLiquidity();
     error NotLiquidatable();
@@ -104,42 +105,41 @@ contract Vault is Ownable, IERC721Receiver {
     mapping(address => TokenConfig) public tokenConfigs;
 
     // percentage of interest which is kept in the protocol for reserves
-    uint32 reserveFactorX32;
+    uint32 public reserveFactorX32;
 
     // percentage of lend amount which needs to be in reserves before withdrawn
-    uint32 reserveProtectionFactorX32;
+    uint32 public reserveProtectionFactorX32;
 
-    uint globalReserveAmount;
+    uint public globalReserveAmount;
 
-    uint globalDebtAmount;
-    uint globalDebtLimit;
+    uint public globalBorrowAmount;
+    uint public globalBorrowLimit;
 
-    uint globalLendAmount;
-    uint globalLendLimit;
+    uint public globalLendAmount;
+    uint public globalLendLimit;
 
-    uint lastInterestUpdate;
-    uint lastInterestTotalX96;
+    uint public lastInterestUpdate;
+
+    uint public lastInterestTotalLendX96 = Q96;
+    uint public lastInterestTotalBorrowX96 = Q96;
 
     struct Lender {
-        uint256 lastInterestUpdate;
         uint256 lastInterestTotalX96;
         uint256 amount;
     }
     mapping(address => Lender) public lenders;
 
     struct Loan {
-        uint tokenId;        
         address owner;
-        uint lastInterestUpdate;
         uint lastInterestTotalX96;
         uint amount;
         uint32 collateralFactorX32; // assigned at loan creation
     }
-    uint loanCount;
-    mapping(uint => Loan) loans;
+
+    mapping(uint => Loan) loans; // tokenID -> loan mapping
 
     // contracts allowed to transform positions
-    uint transformerLoanId; // transient (when available)
+    uint transformedTokenId; // transient (when available)
     mapping(address => bool) transformerAllowList;
 
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, IERC20 _lendToken, IInterestRateModel _interestRateModel, IV3Oracle _oracle) {
@@ -170,21 +170,24 @@ contract Vault is Ownable, IERC721Receiver {
 
         (address owner, uint amount) = abi.decode(data, (address, uint));
 
-        uint loanId = transformerLoanId;
-        if (loanId == 0) {
+        if (transformedTokenId == 0) {
             _updateGlobalInterest();
-            loanId = ++loanCount;
-            loans[loanId] = Loan(tokenId, owner, block.timestamp, lastInterestTotalX96, 0, _calculateTokenCollateralFactorX32(tokenId));
+
+            loans[tokenId] = Loan(owner, lastInterestTotalBorrowX96, 0, _calculateTokenCollateralFactorX32(tokenId));
 
             // direct borrow if requested
             if (amount > 0) {
-                _borrow(loanId, amount, false, true);
+                _borrow(tokenId, amount, false, true);
             }
         } else {
             // if in transform mode - current token is replaced
-            if (loans[loanId].tokenId != tokenId) {
-                loans[loanId].tokenId = tokenId;
-                loans[loanId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+            if (tokenId != transformedTokenId) {
+
+                loans[tokenId] = loans[transformedTokenId];
+                loans[tokenId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+
+                delete loans[transformedTokenId];
+                transformedTokenId = tokenId;
             }
         }
 
@@ -192,25 +195,27 @@ contract Vault is Ownable, IERC721Receiver {
     }
 
     // method which allows a contract to transform a loan by borrowing and adding collateral in an atomic fashion
-    function transform(uint loanId, address transformer, bytes calldata data) external {
+    function transform(uint tokenId, address transformer, bytes calldata data) external {
         if (!transformerAllowList[transformer]) {
             revert TransformerNotAllowed();
         }
-        if (transformerLoanId > 0) {
+        if (transformedTokenId > 0) {
             revert Reentrancy();
         }
-        transformerLoanId = loanId;
+        transformedTokenId = tokenId;
 
-        Loan storage loan = loans[loanId];
+        Loan storage loan = loans[tokenId];
+
+        // TODO add mechanism to allow other addresses (e.g. auto range to call the transform method)
         if (loan.owner != msg.sender) {
             revert NotOwner();
         }
 
         _updateGlobalInterest();
-        _updateLoanInterest(loanId);
+        _updateLoanInterest(tokenId);
 
         // give access to transformer
-        nonfungiblePositionManager.approve(transformer, loan.tokenId);
+        nonfungiblePositionManager.approve(transformer, tokenId);
 
         (bool success,) = transformer.call(data);
         if (!success) {
@@ -218,46 +223,46 @@ contract Vault is Ownable, IERC721Receiver {
         }
         
         // check owner not changed (NEEDED beacuse approvalForAll could be set which would fake complete ownership)
-        address owner = nonfungiblePositionManager.ownerOf(loan.tokenId);
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (owner != address(this)) {
             revert NotOwner();
         }
 
         // remove access for msg.sender
-        nonfungiblePositionManager.approve(address(0), loan.tokenId);
+        nonfungiblePositionManager.approve(address(0), tokenId);
 
-        _requireLoanIsHealthy(loanId);
+        _requireLoanIsHealthy(tokenId);
 
-        transformerLoanId = 0;
+        transformedTokenId = 0;
     }
 
-    function borrow(uint loanId, uint amount) external {
+    function borrow(uint tokenId, uint amount) external {
 
-        bool isTransformMode = transformerLoanId > 0 && transformerLoanId == loanId && transformerAllowList[msg.sender];
+        bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
         // if not in transform mode - caller must be owner
         if (!isTransformMode) {
-            _borrow(loanId, amount, true, true);
+            _borrow(tokenId, amount, true, true);
         } else {
-            _borrow(loanId, amount, false, false);
+            _borrow(tokenId, amount, false, false);
         }
     }
 
-    function _borrow(uint loanId, uint amount, bool doOwnerCheck, bool doHealthCheck) internal {
+    function _borrow(uint tokenId, uint amount, bool doOwnerCheck, bool doHealthCheck) internal {
 
-        Loan storage loan = loans[loanId];
+        Loan storage loan = loans[tokenId];
 
         if (doOwnerCheck && loan.owner != msg.sender) {
             revert NotOwner();
         }
         _updateGlobalInterest();
-        _updateLoanInterest(loanId);
+        _updateLoanInterest(tokenId);
 
         loan.amount += amount;
-        globalDebtAmount += amount;
+        globalBorrowAmount += amount;
 
-        if (globalDebtAmount > globalDebtLimit) {
-            revert GlobalDebtLimit();
+        if (globalBorrowAmount > globalBorrowLimit) {
+            revert GlobalBorrowLimit();
         }
 
         // fails if not enough lendToken available
@@ -266,16 +271,29 @@ contract Vault is Ownable, IERC721Receiver {
 
         // only check health if not in transform mode
         if (doHealthCheck) {
-            _requireLoanIsHealthy(loanId);
+            _requireLoanIsHealthy(tokenId);
         }
     }
 
-    function repay(uint loanId, uint amount, bool withdrawNFT) external {
+    function lendInfo(address account) external view returns (uint amount) {
+        (,uint interestLendX96,,) = _getGlobalChange();
+        uint currentInterestTotalX96 = lastInterestTotalLendX96 + interestLendX96;
+        amount = _calculateInterest(lenders[account].amount, lenders[account].lastInterestTotalX96, currentInterestTotalX96);
+    }
+
+    function loanInfo(uint tokenId) external returns (uint debt, uint fullValue, uint collateralValue)  {
+        (uint interestBorrowX96,,,) = _getGlobalChange();
+        uint currentInterestTotalX96 = lastInterestTotalBorrowX96 + interestBorrowX96;
+        debt = _calculateInterest(loans[tokenId].amount, loans[tokenId].lastInterestTotalX96, currentInterestTotalX96);
+        (, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId);
+    }
+
+    function repay(uint tokenId, uint amount) external {
 
         _updateGlobalInterest();
-        _updateLoanInterest(loanId);
+        _updateLoanInterest(tokenId);
 
-        Loan storage loan = loans[loanId];
+        Loan storage loan = loans[tokenId];
 
         if (amount > loan.amount) {
             amount = loan.amount;
@@ -286,12 +304,11 @@ contract Vault is Ownable, IERC721Receiver {
         }
 
         loan.amount -= amount;
-        globalDebtAmount -= amount;
+        globalBorrowAmount -= amount;
 
-        // if fully repayed - and withdraw requested
-        if (loan.amount == 0 && withdrawNFT) {
-            uint tokenId = loan.tokenId;
-            loan.tokenId = 0;
+        // if fully repayed
+        if (loan.amount == 0) {
+            delete loans[tokenId];
             nonfungiblePositionManager.safeTransferFrom(address(this), loan.owner, tokenId);
         }
     }
@@ -327,54 +344,59 @@ contract Vault is Ownable, IERC721Receiver {
         }
 
         lenders[msg.sender].amount -= amount;
+        globalLendAmount -= amount;
         lendToken.transfer(msg.sender, amount);
     }
 
     // function to liquidate position - needed lendtokens depending on current price
-    function liquidate(uint loanId) external {
+    function liquidate(uint tokenId) external {
 
         // liquidation is not allowed during transformer mode
-        if (transformerLoanId > 0) {
+        if (transformedTokenId > 0) {
             revert TransformerNotAllowed();
         }
 
         _updateGlobalInterest();
-        _updateLoanInterest(loanId);
+        _updateLoanInterest(tokenId);
 
-        (bool isHealthy, uint fullValue, uint collateralValue) = _checkLoanIsHealthy(loanId);
+        (bool isHealthy, uint fullValue, uint collateralValue) = _checkLoanIsHealthy(tokenId);
         if (isHealthy) {
             revert NotLiquidatable();
         }
 
-        (uint leftover, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(loans[loanId].amount, fullValue, collateralValue);
+        (uint leftover, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(loans[tokenId].amount, fullValue, collateralValue);
 
         // take value from liquidator
         lendToken.transferFrom(msg.sender, address(this), liquidatorCost);
+
+        // send leftover to borrower if any
+        if (leftover > 0) {
+            lendToken.transfer(loans[tokenId].owner, leftover);
+        }
         
         // take remaining amount from reserves - if not enough - democratize debt
         if (reserveCost > 0) {
-            if (reserveCost < globalReserveAmount) {
+            if (reserveCost <= globalReserveAmount) {
                 globalReserveAmount -= reserveCost;
             } else {
                 uint missing = reserveCost - globalReserveAmount;
                 globalReserveAmount = 0;
 
-                //TODO magic formula to calculate interest total to account for loss
-                lastInterestTotalX96 = 0;
+                // this lines distribute missing amount and remove it from all lent amount proportionally
+                lastInterestTotalLendX96 = (globalLendAmount - missing) * lastInterestTotalLendX96 / globalLendAmount;
+                globalLendAmount -= missing;
             }
         }
 
-        Loan storage loan = loans[loanId];
-        globalDebtAmount -= loan.amount;
-        loan.amount = 0;
-        
-        uint tokenId = loan.tokenId;
-        loan.tokenId = 0;
+        // disarm loan and send collateral to liquidator
+        Loan memory loan = loans[tokenId];
+        globalBorrowAmount -= loan.amount;
+        delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), msg.sender, tokenId);
     }
 
 
-    // calculates amount which needs to be payed to liquidate position - if it doesn't have enough value anymore - part is covered by reserves
+    // calculates amount which needs to be payed to liquidate position - if it doesn't have enough value anymore - part is covered by reserves - if missing reserves - collectively by other borrowers
     function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal returns (uint leftover, uint liquidatorCost, uint reserveCost) {
 
         uint MAX_LIQUIDATION_PENALTY_X32 = Q32 / 10; // 10%
@@ -438,9 +460,9 @@ contract Vault is Ownable, IERC721Receiver {
     }
 
     // function to set limits (this doesnt affect existing loans)
-    function setLimits(uint _globalLendLimit, uint _globalDebtLimit) external onlyOwner {
+    function setLimits(uint _globalLendLimit, uint _globalBorrowLimit) external onlyOwner {
         globalLendLimit = _globalLendLimit;
-        globalDebtLimit = _globalDebtLimit;
+        globalBorrowLimit = _globalBorrowLimit;
     }
 
     // function to set reserve factor - percentage difference between borrowing and lending interest
@@ -471,62 +493,66 @@ contract Vault is Ownable, IERC721Receiver {
     }
 
     // updates loan by calculating interest
-    function _updateLoanInterest(uint loanId) internal {
-        Loan storage loan = loans[loanId];
-
-        if (block.timestamp > loan.lastInterestUpdate) {
-            uint interest = _calculateInterest(loan.amount, loan.lastInterestUpdate, loan.lastInterestTotalX96, true);
+    function _updateLoanInterest(uint tokenId) internal {
+        Loan storage loan = loans[tokenId];
+        if (lastInterestTotalBorrowX96 != loan.lastInterestTotalX96) {
+            uint interest = _calculateInterest(loan.amount, loan.lastInterestTotalX96, lastInterestTotalBorrowX96);
             loan.amount += interest;
-            loan.lastInterestUpdate = block.timestamp;
-            loan.lastInterestTotalX96 = lastInterestTotalX96;
+            loan.lastInterestTotalX96 = lastInterestTotalBorrowX96;
         }
     }
 
     function _updateLenderInterest(address lenderAddress) internal {
         Lender storage lender = lenders[lenderAddress];
 
-        if (block.timestamp > lender.lastInterestUpdate) {
-            uint interest = _calculateInterest(lender.amount, lender.lastInterestUpdate, lender.lastInterestTotalX96, false);
+        if (lastInterestTotalLendX96 != lender.lastInterestTotalX96) {
+            uint interest = _calculateInterest(lender.amount, lender.lastInterestTotalX96, lastInterestTotalLendX96);
             lender.amount += interest;
-            lender.lastInterestUpdate = block.timestamp;
-            lender.lastInterestTotalX96 = lastInterestTotalX96;
+            lender.lastInterestTotalX96 = lastInterestTotalLendX96;
         }
     }
 
     function _updateGlobalInterest() internal {
         if (block.timestamp > lastInterestUpdate) {
-            uint borrowRateX96 = interestRateModel.getBorrowRateX96(globalLendAmount, globalDebtAmount);
-            uint interestX96 = (block.timestamp - lastInterestUpdate) * borrowRateX96;
-            lastInterestTotalX96 += lastInterestTotalX96 * interestX96 / Q96;
+            (uint interestBorrowX96, uint interestLendX96, uint debtGrowth, uint lendGrowth) = _getGlobalChange();
+            lastInterestTotalBorrowX96 += interestBorrowX96;
+            lastInterestTotalLendX96 += interestLendX96;
             lastInterestUpdate = block.timestamp;
-
-            uint debtGrowth = globalDebtAmount * interestX96 / Q96;
-            globalDebtAmount += debtGrowth;
-            globalLendAmount += debtGrowth * (Q32 - reserveFactorX32) / Q32;
-            globalReserveAmount += debtGrowth * reserveFactorX32 / Q32;
+            globalBorrowAmount += debtGrowth;
+            globalLendAmount += lendGrowth;
+            globalReserveAmount += debtGrowth - lendGrowth;
         }
     }
 
-    function _requireLoanIsHealthy(uint loanId) internal {
-        (bool isHealthy,,) = _checkLoanIsHealthy(loanId);
+    function _getGlobalChange() internal view returns (uint interestBorrowX96, uint interestLendX96, uint debtGrowth, uint lendGrowth) {
+        uint borrowRateX96 = interestRateModel.getBorrowRatePerSecondX96(globalLendAmount, globalBorrowAmount);
+        interestBorrowX96 = lastInterestTotalBorrowX96 * (block.timestamp - lastInterestUpdate) * borrowRateX96 / Q96;
+        debtGrowth = globalBorrowAmount * interestBorrowX96 / Q96;
+        lendGrowth = debtGrowth * (Q32 - reserveFactorX32) / Q32;
+        interestLendX96 = globalLendAmount > 0 ? lastInterestTotalLendX96 * lendGrowth / globalLendAmount : 0;
+    }
+
+    function _requireLoanIsHealthy(uint tokenId) internal view {
+        (bool isHealthy,,) = _checkLoanIsHealthy(tokenId);
         if (!isHealthy) {
             revert CollateralFail();
         }
     }
 
-    function _checkLoanIsHealthy(uint loanId) internal returns (bool isHealty, uint fullValue, uint collateralValue) {
+    function _checkLoanIsHealthy(uint tokenId) internal view returns (bool isHealty, uint fullValue, uint collateralValue) {
         // loan must be updated with interests at this point
-        if (loans[loanId].lastInterestUpdate != block.timestamp) {
+        if (loans[tokenId].lastInterestTotalX96 != lastInterestTotalBorrowX96) {
             revert InterestNotUpdated();
         }
 
-        fullValue = oracle.getValue(loans[loanId].tokenId, address(lendToken));
-        collateralValue = loans[loanId].collateralFactorX32 * fullValue / Q32;
+        fullValue = oracle.getValue(tokenId, address(lendToken));
+        collateralValue = loans[tokenId].collateralFactorX32 * fullValue / Q32;
         
-        isHealty = collateralValue >= loans[loanId].amount;
+        isHealty = collateralValue >= loans[tokenId].amount;
     }
 
-    function _calculateInterest(uint amount, uint lastUpdate, uint lastTotalX96, bool isBorrower) internal returns (uint) {
-        return amount * (block.timestamp - lastUpdate) * (lastInterestTotalX96 - lastTotalX96) / Q96 * (isBorrower ? Q32 : Q32 - reserveFactorX32) / Q32;
+    // applies interest which was accrued
+    function _calculateInterest(uint amount, uint lastTotalX96, uint currentTotalX96) internal view returns (uint) {
+        return lastTotalX96 == 0 ? amount : amount * (currentTotalX96 * Q96 / lastTotalX96) / Q96;
     }
 }
