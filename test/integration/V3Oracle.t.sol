@@ -69,7 +69,7 @@ contract V3OracleIntegrationTest is Test {
         vault.setReserveProtectionFactor(0);
 
         assertEq(vault.globalLendAmount(), 0);
-        assertEq(vault.globalBorrowAmount(), 0);
+        assertEq(vault.globalDebtAmount(), 0);
 
         // lending 2 USDC
         vm.prank(WHALE_ACCOUNT);
@@ -77,12 +77,15 @@ contract V3OracleIntegrationTest is Test {
 
         vm.prank(WHALE_ACCOUNT);
         vault.deposit(2000000);
-
         assertEq(vault.globalLendAmount(), 2000000);
+
+        vm.warp(block.timestamp + 30 seconds);
 
         // withdrawing 1 USDC
         vm.prank(WHALE_ACCOUNT);
         vault.withdraw(1000000);
+
+        vm.warp(block.timestamp + 30 seconds);
 
         assertEq(vault.globalLendAmount(), 1000000);
 
@@ -93,26 +96,24 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.create(TEST_NFT, 1000000);
 
-        assertEq(vault.globalBorrowAmount(), 1000000);
+        assertEq(vault.globalDebtAmount(), 1000000);
 
         // wait one day
-        skip(1 days);
+        vm.warp(block.timestamp + 1 days);
 
         // values are static - ONLY updated after operation
-        assertEq(vault.globalBorrowAmount(), 1000000);
+        assertEq(vault.globalDebtAmount(), 1000000);
+        assertEq(vault.globalLendAmount(), 1000000);
+        vault.deposit(0);
+        assertEq(vault.globalDebtAmount(), 1000000);
         assertEq(vault.globalLendAmount(), 1000000);
 
+        // verify to date values
         (uint debt, uint fullValue, uint collateralValue) = vault.loanInfo(TEST_NFT);
-
-        // debt with interest
+        uint lent = vault.lendInfo(WHALE_ACCOUNT);
         assertEq(debt, 1000000);
-
-        // oracle defined values
         assertEq(fullValue, 9793851);
         assertEq(collateralValue, 8814465);
-
-        uint lent = vault.lendInfo(WHALE_ACCOUNT);
-        // lent with interest
         assertEq(lent, 1000000);
 
         // repay 
@@ -133,7 +134,7 @@ contract V3OracleIntegrationTest is Test {
 
     function testInterestRates() external {
         assertEq(interestRateModel.getBorrowRatePerSecondX96(10, 0) * YEAR_SECS, 0); // 0% for 0% utilization
-        assertEq(interestRateModel.getBorrowRatePerSecondX96(10, 10) * YEAR_SECS, 1980704062856608435230950304); // 2.5% per year for 50% utilization
+        assertEq(interestRateModel.getBorrowRatePerSecondX96(10000000, 10000000) * YEAR_SECS, 1980704062856608435230950304); // 2.5% per year for 50% utilization
         assertEq(interestRateModel.getBorrowRatePerSecondX96(0, 10) * YEAR_SECS, 20440865928680199049058853120); // 25.8% per year for 100% utilization
     }
 

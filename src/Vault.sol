@@ -16,6 +16,8 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import "forge-std/console.sol";
+
 import "./V3Oracle.sol";
 
 interface IInterestRateModel {
@@ -72,16 +74,19 @@ contract Vault is Ownable, IERC721Receiver {
 
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
-    uint constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
+
+    uint public constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
+    uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 / 10; // 10%
+    uint public constant UNDERWATER_LIQUIDATION_PENALTY_X32 = Q32 / 20; // 5%
 
     /// @notice Uniswap v3 position manager
-    INonfungiblePositionManager immutable public nonfungiblePositionManager;
+    INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
     /// @notice Uniswap v3 factory
     IUniswapV3Factory public immutable factory;
 
     /// @notice Token which is lent in this vault
-    IERC20 immutable public lendToken;
+    IERC20 public immutable lendToken;
 
     error Reentrancy();
     error NotOwner();
@@ -110,29 +115,29 @@ contract Vault is Ownable, IERC721Receiver {
     // percentage of lend amount which needs to be in reserves before withdrawn
     uint32 public reserveProtectionFactorX32;
 
-    uint public globalReserveAmount;
 
-    uint public globalBorrowAmount;
-    uint public globalBorrowLimit;
+    uint public globalDebtAmountX96;
+    uint public globalLendAmountX96;
+    uint public globalReserveAmountX96;
 
-    uint public globalLendAmount;
-    uint public globalLendLimit;
+    uint public globalBorrowLimitX96;
+    uint public globalLendLimitX96;
 
     uint public lastInterestUpdate;
 
     uint public lastInterestTotalLendX96 = Q96;
-    uint public lastInterestTotalBorrowX96 = Q96;
+    uint public lastInterestTotalDebtX96 = Q96;
 
     struct Lender {
         uint256 lastInterestTotalX96;
-        uint256 amount;
+        uint256 amountX96;
     }
     mapping(address => Lender) public lenders;
 
     struct Loan {
         address owner;
         uint lastInterestTotalX96;
-        uint amount;
+        uint amountX96;
         uint32 collateralFactorX32; // assigned at loan creation
     }
 
@@ -173,7 +178,7 @@ contract Vault is Ownable, IERC721Receiver {
         if (transformedTokenId == 0) {
             _updateGlobalInterest();
 
-            loans[tokenId] = Loan(owner, lastInterestTotalBorrowX96, 0, _calculateTokenCollateralFactorX32(tokenId));
+            loans[tokenId] = Loan(owner, lastInterestTotalDebtX96, 0, _calculateTokenCollateralFactorX32(tokenId));
 
             // direct borrow if requested
             if (amount > 0) {
@@ -204,15 +209,14 @@ contract Vault is Ownable, IERC721Receiver {
         }
         transformedTokenId = tokenId;
 
-        Loan storage loan = loans[tokenId];
+        _updateGlobalInterest();
+        _updateLoanInterest(tokenId);
 
+        Loan storage loan = loans[tokenId];
         // TODO add mechanism to allow other addresses (e.g. auto range to call the transform method)
         if (loan.owner != msg.sender) {
             revert NotOwner();
         }
-
-        _updateGlobalInterest();
-        _updateLoanInterest(tokenId);
 
         // give access to transformer
         nonfungiblePositionManager.approve(transformer, tokenId);
@@ -231,7 +235,7 @@ contract Vault is Ownable, IERC721Receiver {
         // remove access for msg.sender
         nonfungiblePositionManager.approve(address(0), tokenId);
 
-        _requireLoanIsHealthy(tokenId);
+        _requireLoanIsHealthy(tokenId, loan.amount);
 
         transformedTokenId = 0;
     }
@@ -250,18 +254,18 @@ contract Vault is Ownable, IERC721Receiver {
 
     function _borrow(uint tokenId, uint amount, bool doOwnerCheck, bool doHealthCheck) internal {
 
-        Loan storage loan = loans[tokenId];
-
-        if (doOwnerCheck && loan.owner != msg.sender) {
-            revert NotOwner();
-        }
         _updateGlobalInterest();
         _updateLoanInterest(tokenId);
 
-        loan.amount += amount;
-        globalBorrowAmount += amount;
+        Loan storage loan = loans[tokenId];
+        if (doOwnerCheck && loan.owner != msg.sender) {
+            revert NotOwner();
+        }
 
-        if (globalBorrowAmount > globalBorrowLimit) {
+        loan.amountX96 += amount * Q96;
+        globalDebtAmountX96 += amount * Q96;
+
+        if (globalDebtAmountX96 > globalBorrowLimitX96) {
             revert GlobalBorrowLimit();
         }
 
@@ -271,56 +275,64 @@ contract Vault is Ownable, IERC721Receiver {
 
         // only check health if not in transform mode
         if (doHealthCheck) {
-            _requireLoanIsHealthy(tokenId);
+            _requireLoanIsHealthy(tokenId, loan.amountX96);
         }
     }
 
     function lendInfo(address account) external view returns (uint amount) {
-        (,uint interestLendX96,,) = _getGlobalChange();
-        uint currentInterestTotalX96 = lastInterestTotalLendX96 + interestLendX96;
-        amount = _calculateInterest(lenders[account].amount, lenders[account].lastInterestTotalX96, currentInterestTotalX96);
+        uint currentInterestTotalX96;
+        (,currentInterestTotalX96,,,) = _calculateGlobalInterest();
+        uint amountX96 = _addInterest(lenders[account].amountX96, lenders[account].lastInterestTotalX96, currentInterestTotalX96);
+        amount = amountX96 / Q96;
     }
 
-    function loanInfo(uint tokenId) external returns (uint debt, uint fullValue, uint collateralValue)  {
-        (uint interestBorrowX96,,,) = _getGlobalChange();
-        uint currentInterestTotalX96 = lastInterestTotalBorrowX96 + interestBorrowX96;
-        debt = _calculateInterest(loans[tokenId].amount, loans[tokenId].lastInterestTotalX96, currentInterestTotalX96);
-        (, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId);
+    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue)  {
+        uint currentInterestTotalX96;
+        (currentInterestTotalX96,,,,) = _calculateGlobalInterest();
+        uint debtX96 = _addInterest(loans[tokenId].amount, loans[tokenId].lastInterestTotalX96, currentInterestTotalX96);
+        (, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId, debtX96);
+        debt = debtX96 / Q96;
     }
 
     function repay(uint tokenId, uint amount) external {
+
+        uint amountX96 = amount * Q96;
 
         _updateGlobalInterest();
         _updateLoanInterest(tokenId);
 
         Loan storage loan = loans[tokenId];
 
-        if (amount > loan.amount) {
-            amount = loan.amount;
+        if (amountX96 > loan.amount) {
+            amountX96 = loan.amount;
+            amount = amountX96 / Q96;
         }
 
         if (amount > 0) {
             lendToken.transferFrom(msg.sender, address(this), amount);
         }
 
-        loan.amount -= amount;
-        globalBorrowAmount -= amount;
+        loan.amountX96 -= amountX96;
+        globalDebtAmountX96 -= amountX96;
 
         // if fully repayed
-        if (loan.amount == 0) {
+        if (loan.amountX96 == 0) {
             delete loans[tokenId];
             nonfungiblePositionManager.safeTransferFrom(address(this), loan.owner, tokenId);
         }
     }
 
     function deposit(uint256 amount) external {
+        
+        uint amountX96 = amount * Q96;
 
         _updateGlobalInterest();
         _updateLenderInterest(msg.sender);
         
         lendToken.transferFrom(msg.sender, address(this), amount);
-        lenders[msg.sender].amount += amount;
-        globalLendAmount += amount;
+
+        lenders[msg.sender].amountX96 += amountX96;
+        globalLendAmount += amountX96;
 
         if (globalLendAmount > globalLendLimit) {
             revert GlobalLendLimit();
@@ -329,22 +341,26 @@ contract Vault is Ownable, IERC721Receiver {
 
     function withdraw(uint256 amount) external {
         
+        uint amountX96 = amount * Q96;
+
         _updateGlobalInterest();
         _updateLenderInterest(msg.sender);
         
-        if (amount > lenders[msg.sender].amount) {
-            amount = lenders[msg.sender].amount;
+        if (amountX96 > lenders[msg.sender].amountX96) {
+            amountX96 = lenders[msg.sender].amountX96;
+            amount = amountX96 / Q96;
         }
 
-        uint balance = lendToken.balanceOf(address(this));
-        uint available = balance > globalReserveAmount ? balance - globalReserveAmount : 0;
+        uint balanceX96 = lendToken.balanceOf(address(this)) * Q96;
+        uint availableX96 = balanceX96 > globalReserveAmountX96 ? balanceX96 - globalReserveAmountX96 : 0;
 
-        if (available < amount) {
+        if (availableX96 < amountX96) {
             revert InsufficientLiquidity();
         }
 
-        lenders[msg.sender].amount -= amount;
-        globalLendAmount -= amount;
+        lenders[msg.sender].amountX96 -= amountX96;
+        globalLendAmountX96 -= amountX96;
+
         lendToken.transfer(msg.sender, amount);
     }
 
@@ -359,12 +375,14 @@ contract Vault is Ownable, IERC721Receiver {
         _updateGlobalInterest();
         _updateLoanInterest(tokenId);
 
-        (bool isHealthy, uint fullValue, uint collateralValue) = _checkLoanIsHealthy(tokenId);
+        uint debtX96 = loans[tokenId].amountX96;
+
+        (bool isHealthy, uint fullValue, uint collateralValue) = _checkLoanIsHealthy(tokenId, debt);
         if (isHealthy) {
             revert NotLiquidatable();
         }
 
-        (uint leftover, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(loans[tokenId].amount, fullValue, collateralValue);
+        (uint leftover, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(debt, fullValue, collateralValue);
 
         // take value from liquidator
         lendToken.transferFrom(msg.sender, address(this), liquidatorCost);
@@ -382,6 +400,7 @@ contract Vault is Ownable, IERC721Receiver {
                 uint missing = reserveCost - globalReserveAmount;
                 globalReserveAmount = 0;
 
+                // TODO verify math...
                 // this lines distribute missing amount and remove it from all lent amount proportionally
                 lastInterestTotalLendX96 = (globalLendAmount - missing) * lastInterestTotalLendX96 / globalLendAmount;
                 globalLendAmount -= missing;
@@ -390,17 +409,21 @@ contract Vault is Ownable, IERC721Receiver {
 
         // disarm loan and send collateral to liquidator
         Loan memory loan = loans[tokenId];
-        globalBorrowAmount -= loan.amount;
+        globalDebtAmount -= loan.amount;
         delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), msg.sender, tokenId);
     }
 
+    // checks how much balance is available - excluding reserves
+    function _getAvailableBalance() internal view returns (uint) {
+        uint balance = lendToken.balanceOf(address(this));
+        return balance > globalReserveAmount ? balance - globalReserveAmount : 0;
+    }
 
-    // calculates amount which needs to be payed to liquidate position - if it doesn't have enough value anymore - part is covered by reserves - if missing reserves - collectively by other borrowers
-    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal returns (uint leftover, uint liquidatorCost, uint reserveCost) {
-
-        uint MAX_LIQUIDATION_PENALTY_X32 = Q32 / 10; // 10%
-        uint UNDERWATER_LIQUIDATION_PENALTY_X32 = Q32 / 20; // 5%
+    // calculates amount which needs to be payed to liquidate position
+    //  if position is too valuable - leftover from liauid is sent to position owner
+    //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
+    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint leftover, uint liquidatorCost, uint reserveCost) {
 
         // position value needed to pay debt at max penalty
         uint maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
@@ -437,19 +460,23 @@ contract Vault is Ownable, IERC721Receiver {
     // only allows to withdraw excess reserves (> globalLendAmount * reserveProtectionFactor)
     function withdrawReserves(uint256 amount, address account) external onlyOwner {
         
+        uint amountX96 = amount * Q96;
+
         _updateGlobalInterest();
        
-        uint protected = globalLendAmount * reserveProtectionFactorX32 / Q32;
-        uint unprotected = globalReserveAmount > protected ? globalReserveAmount - protected : 0;
+        uint protectedX96 = globalLendAmountX96 * reserveProtectionFactorX32 / Q32;
+        uint unprotectedX96 = globalReserveAmountX96 > protectedX96 ? globalReserveAmountX96 - protectedX96 : 0;
         uint balance = lendToken.balanceOf(address(this));
-        uint available = balance > unprotected ? unprotected : balance;
+        uint balanceX96 = balance * Q96;
+        uint availableX96 = balanceX96 > unprotectedX96 ? unprotectedX96 : balanceX96;
 
-        if (amount > available) {
-            amount = available;
+        if (amountX96 > availableX96) {
+            amountX96 = availableX96;
+            amount = amountX96 / Q96;
         }
 
         if (amount > 0) {
-            globalReserveAmount -= amount;
+            globalReserveAmountX96 -= amountX96;
             lendToken.transfer(account, amount);
         }
     }
@@ -461,8 +488,8 @@ contract Vault is Ownable, IERC721Receiver {
 
     // function to set limits (this doesnt affect existing loans)
     function setLimits(uint _globalLendLimit, uint _globalBorrowLimit) external onlyOwner {
-        globalLendLimit = _globalLendLimit;
-        globalBorrowLimit = _globalBorrowLimit;
+        globalLendLimitX96 = _globalLendLimit * Q96;
+        globalBorrowLimitX96 = _globalBorrowLimit  * Q96;
     }
 
     // function to set reserve factor - percentage difference between borrowing and lending interest
@@ -495,10 +522,9 @@ contract Vault is Ownable, IERC721Receiver {
     // updates loan by calculating interest
     function _updateLoanInterest(uint tokenId) internal {
         Loan storage loan = loans[tokenId];
-        if (lastInterestTotalBorrowX96 != loan.lastInterestTotalX96) {
-            uint interest = _calculateInterest(loan.amount, loan.lastInterestTotalX96, lastInterestTotalBorrowX96);
-            loan.amount += interest;
-            loan.lastInterestTotalX96 = lastInterestTotalBorrowX96;
+        if (lastInterestTotalDebtX96 != loan.lastInterestTotalX96) {
+            loan.amountX96 = _addInterest(loan.amountX96, loan.lastInterestTotalX96, lastInterestTotalDebtX96);
+            loan.lastInterestTotalX96 = lastInterestTotalDebtX96;
         }
     }
 
@@ -506,53 +532,57 @@ contract Vault is Ownable, IERC721Receiver {
         Lender storage lender = lenders[lenderAddress];
 
         if (lastInterestTotalLendX96 != lender.lastInterestTotalX96) {
-            uint interest = _calculateInterest(lender.amount, lender.lastInterestTotalX96, lastInterestTotalLendX96);
-            lender.amount += interest;
+            lender.amountX96 += _addInterest(lender.amountX96, lender.lastInterestTotalX96, lastInterestTotalLendX96);
             lender.lastInterestTotalX96 = lastInterestTotalLendX96;
         }
     }
 
     function _updateGlobalInterest() internal {
         if (block.timestamp > lastInterestUpdate) {
-            (uint interestBorrowX96, uint interestLendX96, uint debtGrowth, uint lendGrowth) = _getGlobalChange();
-            lastInterestTotalBorrowX96 += interestBorrowX96;
-            lastInterestTotalLendX96 += interestLendX96;
+            (lastInterestTotalDebtX96, lastInterestTotalLendX96, globalDebtAmountX96, globalLendAmountX96, globalReserveAmountX96) = _calculateGlobalInterest();
+
+            console.log(lastInterestTotalDebtX96, lastInterestTotalLendX96, globalDebtAmountX96, globalLendAmountX96, globalReserveAmountX96);
+            console.log(globalReserveAmountX96);
+
             lastInterestUpdate = block.timestamp;
-            globalBorrowAmount += debtGrowth;
-            globalLendAmount += lendGrowth;
-            globalReserveAmount += debtGrowth - lendGrowth;
         }
     }
 
-    function _getGlobalChange() internal view returns (uint interestBorrowX96, uint interestLendX96, uint debtGrowth, uint lendGrowth) {
-        uint borrowRateX96 = interestRateModel.getBorrowRatePerSecondX96(globalLendAmount, globalBorrowAmount);
-        interestBorrowX96 = lastInterestTotalBorrowX96 * (block.timestamp - lastInterestUpdate) * borrowRateX96 / Q96;
-        debtGrowth = globalBorrowAmount * interestBorrowX96 / Q96;
-        lendGrowth = debtGrowth * (Q32 - reserveFactorX32) / Q32;
-        interestLendX96 = globalLendAmount > 0 ? lastInterestTotalLendX96 * lendGrowth / globalLendAmount : 0;
+    function _calculateGlobalInterest() internal view returns (uint interestTotalDebtX96, uint interestTotalLendX96, uint newDebtX96, uint newLendX96, uint newReservesX96) {
+        uint balance = _getAvailableBalance();
+        uint borrowRateX96 = interestRateModel.getBorrowRatePerSecondX96(balance * Q96, globalDebtAmountX96);
+
+        // always growing or equal
+        interestTotalDebtX96 = lastInterestTotalDebtX96 + lastInterestTotalDebtX96 * (block.timestamp - lastInterestUpdate) * borrowRateX96 / Q96;
+    
+        newDebtX96 = globalDebtAmountX96 * interestTotalDebtX96 / lastInterestTotalDebtX96;
+
+        uint debtGrowthX96 = newDebtX96 - globalDebtAmountX96;
+        uint lendGrowthX96 = debtGrowthX96 * (Q32 - reserveFactorX32) / Q32;
+
+        console.log(debtGrowthX96, lendGrowthX96);
+
+        newLendX96 = globalLendAmountX96 + lendGrowthX96;
+        newReservesX96 = globalReserveAmountX96 + (debtGrowthX96 - lendGrowthX96);
+
+        interestTotalLendX96 = lastInterestTotalLendX96 + (globalLendAmountX96 > 0 ? lastInterestTotalLendX96 * lendGrowthX96 / globalLendAmountX96 : 0);
     }
 
-    function _requireLoanIsHealthy(uint tokenId) internal view {
-        (bool isHealthy,,) = _checkLoanIsHealthy(tokenId);
+    function _requireLoanIsHealthy(uint tokenId, uint debtX96) internal view {
+        (bool isHealthy,,) = _checkLoanIsHealthy(tokenId, debtX96);
         if (!isHealthy) {
             revert CollateralFail();
         }
     }
 
-    function _checkLoanIsHealthy(uint tokenId) internal view returns (bool isHealty, uint fullValue, uint collateralValue) {
-        // loan must be updated with interests at this point
-        if (loans[tokenId].lastInterestTotalX96 != lastInterestTotalBorrowX96) {
-            revert InterestNotUpdated();
-        }
-
+    function _checkLoanIsHealthy(uint tokenId, uint debtX96) internal view returns (bool isHealty, uint fullValue, uint collateralValue) {
         fullValue = oracle.getValue(tokenId, address(lendToken));
         collateralValue = loans[tokenId].collateralFactorX32 * fullValue / Q32;
-        
-        isHealty = collateralValue >= loans[tokenId].amount;
+        isHealty = collateralValue * Q96 >= debtX96;
     }
 
-    // applies interest which was accrued
-    function _calculateInterest(uint amount, uint lastTotalX96, uint currentTotalX96) internal view returns (uint) {
-        return lastTotalX96 == 0 ? amount : amount * (currentTotalX96 * Q96 / lastTotalX96) / Q96;
+    // adds (in rare cases removes) interest which was accrued to amount
+    function _addInterest(uint amountX96, uint lastTotalX96, uint currentTotalX96) internal pure returns (uint) {
+        return lastTotalX96 == 0 ? amountX96 : amountX96 * currentTotalX96 / lastTotalX96;
     }
 }

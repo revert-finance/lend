@@ -272,25 +272,8 @@ contract V3Oracle is IV3Oracle, Ownable {
         return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
     }
 
-    // returns token breakdown (optional return max possible amounts given current fees)
-    function _getPositionBreakdown(uint256 tokenId) internal view returns (address token0, address token1, uint256 amount0, uint256 amount1) {
-
-        PositionState memory position = _getPositionState(tokenId);
-
-        // get current tick needed for uncollected fees calculation
-        (uint160 sqrtPriceX96, int24 tick,,,,,) = position.pool.slot0();
-
-        // calculate position amounts (incl uncollected fees)
-        (amount0, amount1) = _getAmounts(position, sqrtPriceX96, tick);
-
-        // return position tokens
-        token0 = position.token0;
-        token1 = position.token1;
-    }
-
     struct PositionState {
-        address token0;
-        address token1;
+        uint256 tokenId;
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
@@ -300,16 +283,33 @@ contract V3Oracle is IV3Oracle, Ownable {
         uint128 tokensOwed0;
         uint128 tokensOwed1;
         IUniswapV3Pool pool;
+        uint160 sqrtPriceX96;
+        int24 tick;
     }
 
-    // loads position state
-    function _getPositionState(uint256 tokenId) internal view returns (PositionState memory state) {
+    // returns token breakdown (optional return max possible amounts given current fees)
+    function _getPositionBreakdown(uint256 tokenId) internal view returns (address token0, address token1, uint256 amount0, uint256 amount1) {
+        PositionState memory state;
+        state.tokenId = tokenId;
+        (,,token0,token1,state.fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        state.pool = _getPool(token0,token1,state.fee);
+
+        // get current tick needed for uncollected fees calculation
+        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
+
+        // calculate position amounts (incl uncollected fees)
+        (amount0, amount1) = _getAmounts(state);
+    }
+
+    // calculate position amounts given current price/tick
+    function _getAmounts(PositionState memory state) internal view returns (uint256 amount0, uint256 amount1) {
+
         (
             ,
             ,
-            state.token0,
-            state.token1,
-            state.fee,
+            ,
+            ,
+            ,
             state.tickLower,
             state.tickUpper,
             state.liquidity,
@@ -317,22 +317,17 @@ contract V3Oracle is IV3Oracle, Ownable {
             state.feeGrowthInside1LastX128,
             state.tokensOwed0,
             state.tokensOwed1
-        ) = nonfungiblePositionManager.positions(tokenId);
+        ) = nonfungiblePositionManager.positions(state.tokenId);
 
-        state.pool = _getPool(state.token0, state.token1, state.fee);
-    }
-
-    // calculate position amounts given current price/tick
-    function _getAmounts(PositionState memory position, uint160 sqrtPriceX96, int24 tick) internal view returns (uint256 amount0, uint256 amount1) {
-        if (position.liquidity > 0) {
-            uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(position.tickLower);
-            uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(position.tickUpper);        
-            (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, position.liquidity);
+        if (state.liquidity > 0) {
+            uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
+            uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);        
+            (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(state.sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, state.liquidity);
         }
 
-        (uint256 fees0, uint256 fees1) = _getUncollectedFees(position, tick);
-        amount0 += fees0 + position.tokensOwed0;
-        amount1 += fees1 + position.tokensOwed1;
+        (uint256 fees0, uint256 fees1) = _getUncollectedFees(state, state.tick);
+        amount0 += fees0 + state.tokensOwed0;
+        amount1 += fees1 + state.tokensOwed1;
     }
 
     // calculate uncollected fees
