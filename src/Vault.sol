@@ -13,6 +13,7 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -65,7 +66,7 @@ contract InterestRateModel is Ownable, IInterestRateModel {
 }
 
 /// @title Vault for token lending / borrowing using LP positions as collateral
-contract Vault is Ownable, IERC721Receiver {
+contract Vault is ERC20, Ownable, IERC721Receiver {
 
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
@@ -110,7 +111,6 @@ contract Vault is Ownable, IERC721Receiver {
     // percentage of lend amount which needs to be in reserves before withdrawn
     uint32 public reserveProtectionFactorX32;
 
-
     uint public globalDebtAmountX96;
     uint public globalLendAmountX96;
     uint public globalReserveAmountX96;
@@ -138,11 +138,11 @@ contract Vault is Ownable, IERC721Receiver {
 
     mapping(uint => Loan) public loans; // tokenID -> loan mapping
 
-    // contracts allowed to transform positions
     uint transformedTokenId; // transient (when available)
-    mapping(address => bool) transformerAllowList;
+    mapping(address => bool) transformerAllowList; // contracts allowed to transform positions
+    mapping(address => mapping(address => bool)) transformApprovals; // owners permissions for other addresses to call transform on owners behalf
 
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, IERC20 _lendToken, IInterestRateModel _interestRateModel, IV3Oracle _oracle) {
+    constructor(string memory name, string memory symbol, INonfungiblePositionManager _nonfungiblePositionManager, IERC20 _lendToken, IInterestRateModel _interestRateModel, IV3Oracle _oracle) ERC20(name, symbol) {
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         lendToken = _lendToken;
@@ -197,6 +197,11 @@ contract Vault is Ownable, IERC721Receiver {
         return IERC721Receiver.onERC721Received.selector;
     }
 
+    // allows another address to call transform on behalf of owner
+    function approveTransform(address target, bool active) external {
+        transformApprovals[msg.sender][target] = active;
+    }
+
     // method which allows a contract to transform a loan by borrowing and adding collateral in an atomic fashion
     function transform(uint tokenId, address transformer, bytes calldata data) external returns (uint) {
         if (!transformerAllowList[transformer]) {
@@ -213,7 +218,7 @@ contract Vault is Ownable, IERC721Receiver {
         address loanOwner = loans[tokenId].owner;
 
         // TODO add mechanism to allow other addresses (e.g. auto range to call the transform method)
-        if (loanOwner != msg.sender) {
+        if (loanOwner != msg.sender && !transformApprovals[loanOwner][msg.sender]) {
             revert NotOwner();
         }
 
@@ -295,7 +300,7 @@ contract Vault is Ownable, IERC721Receiver {
         (currentInterestTotalX96,,,,) = _calculateGlobalInterest();
         uint debtX96 = _addInterest(loans[tokenId].amountX96, loans[tokenId].lastInterestTotalX96, currentInterestTotalX96);
 
-        (bool isHealthy , uint fullValueX96, uint collateralValueX96) = _checkLoanIsHealthy(tokenId, debtX96);
+        (bool isHealthy, uint fullValueX96, uint collateralValueX96) = _checkLoanIsHealthy(tokenId, debtX96);
 
         fullValue = fullValueX96 / Q96;
         collateralValue = collateralValueX96 / Q96;
