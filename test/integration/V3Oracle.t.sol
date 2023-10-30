@@ -60,14 +60,75 @@ contract V3OracleIntegrationTest is Test {
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10)); //90%
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10)); //80%
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10)); //80%
-    }
-
-    function testMainScenario() external {
 
         // 10 USDC each (without reserve for now)
         vault.setLimits(10000000, 10000000);
         vault.setReserveFactor(0);
         vault.setReserveProtectionFactor(0);
+    }
+
+    function testLiquidation() external {
+
+        // lend 10 USDC
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), 10000000);        
+        vm.prank(WHALE_ACCOUNT);
+        vault.deposit(10000000);
+
+        // add collateral
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.create(TEST_NFT, 0);
+
+        (, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        assertEq(collateralValue, 8814465);
+        assertEq(fullValue, 9793851);
+
+        // borrow max
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, collateralValue);
+
+
+        // debt is equal collateral value
+        (uint debt, ,,uint liquidationCost) = vault.loanInfo(TEST_NFT);
+        assertEq(debt, collateralValue);
+        assertEq(liquidationCost, 0);
+
+        // wait 7 days
+        vm.warp(block.timestamp + 7 days);
+
+        // debt is greater than collateral value
+        (debt, ,collateralValue,liquidationCost) = vault.loanInfo(TEST_NFT);
+
+        assertGt(debt, collateralValue);
+        assertEq(liquidationCost, 9793620);
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), liquidationCost - 1);
+
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert("ERC20: transfer amount exceeds allowance");
+        vault.liquidate(TEST_NFT);
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), liquidationCost);
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.liquidate(TEST_NFT);
+
+        // liquidator now owns NFT
+        assertEq(NPM.ownerOf(TEST_NFT), WHALE_ACCOUNT);
+
+        // debt is payed
+        assertEq(vault.globalDebtAmountX96(), 0);
+
+        // protocol is solvent
+        assertEq(USDC.balanceOf(address(vault)), 10000023);
+        assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, 10000022);
+    }
+
+    function testMainScenario() external {
 
         assertEq(vault.globalLendAmountX96(), 0);
         assertEq(vault.globalDebtAmountX96(), 0);
@@ -106,7 +167,7 @@ contract V3OracleIntegrationTest is Test {
         assertEq(vault.globalLendAmountX96() / Q96, 1000004);
 
         // verify to date values
-        (uint debt, uint fullValue, uint collateralValue) = vault.loanInfo(TEST_NFT);
+        (uint debt, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 1000005);
         assertEq(fullValue, 9793851);
         assertEq(collateralValue, 8814465);
@@ -119,7 +180,7 @@ contract V3OracleIntegrationTest is Test {
         // repay partially       
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000);
-        (debt,,) = vault.loanInfo(TEST_NFT);
+        (debt,,,) = vault.loanInfo(TEST_NFT);
         (,,uint amountX96,) = vault.loans(TEST_NFT);
         assertEq(amountX96, 391756662889249988736000000000);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
@@ -135,12 +196,10 @@ contract V3OracleIntegrationTest is Test {
         // rest should be in reserves
         assertEq(vault.globalReserveAmountX96() + amountX96, 5 * Q96);
 
-        (debt,,) = vault.loanInfo(TEST_NFT);
+        (debt,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
     }
-
-
 
     function testUtilizationRates() external {
         assertEq(interestRateModel.getUtilizationRateX96(10, 0), 0);

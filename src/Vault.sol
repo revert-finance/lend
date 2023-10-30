@@ -286,15 +286,21 @@ contract Vault is Ownable, IERC721Receiver {
         amount = amountX96 / Q96;
     }
 
-    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue)  {
+    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost)  {
         uint currentInterestTotalX96;
         (currentInterestTotalX96,,,,) = _calculateGlobalInterest();
         uint debtX96 = _addInterest(loans[tokenId].amountX96, loans[tokenId].lastInterestTotalX96, currentInterestTotalX96);
-        (, uint fullValueX96, uint collateralValueX96) = _checkLoanIsHealthy(tokenId, debtX96);
+
+        (bool isHealthy , uint fullValueX96, uint collateralValueX96) = _checkLoanIsHealthy(tokenId, debtX96);
 
         fullValue = fullValueX96 / Q96;
         collateralValue = collateralValueX96 / Q96;
         debt = _roundUpX96(debtX96) / Q96;
+
+        if (!isHealthy) {
+            (, uint liquidatorCostX96,) = _calculateLiquidation(debtX96, fullValueX96, collateralValueX96);
+            liquidationCost = _roundUpX96(liquidatorCostX96) / Q96;
+        }
     }
 
     function repay(uint tokenId, uint amount) external {
