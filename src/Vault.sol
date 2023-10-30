@@ -64,11 +64,6 @@ contract InterestRateModel is Ownable, IInterestRateModel {
 
 }
 
-interface IVaultCallback {
-    // callback after requesting access to collateral for modifying
-    function modifyCallback() external;
-}
-
 /// @title Vault for token lending / borrowing using LP positions as collateral
 contract Vault is Ownable, IERC721Receiver {
 
@@ -173,10 +168,11 @@ contract Vault is Ownable, IERC721Receiver {
             revert WrongContract();
         }
 
-        (address owner, uint amount) = abi.decode(data, (address, uint));
-
         if (transformedTokenId == 0) {
             _updateGlobalInterest();
+
+            // parameters sent define owner, and initial borrow amount
+            (address owner, uint amount) = abi.decode(data, (address, uint));
 
             loans[tokenId] = Loan(owner, lastInterestTotalDebtX96, 0, _calculateTokenCollateralFactorX32(tokenId));
 
@@ -188,9 +184,11 @@ contract Vault is Ownable, IERC721Receiver {
             // if in transform mode - current token is replaced
             if (tokenId != transformedTokenId) {
 
+                // loan is migrated to new token
                 loans[tokenId] = loans[transformedTokenId];
                 loans[tokenId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
 
+                // old load is removed
                 delete loans[transformedTokenId];
                 transformedTokenId = tokenId;
             }
@@ -200,7 +198,7 @@ contract Vault is Ownable, IERC721Receiver {
     }
 
     // method which allows a contract to transform a loan by borrowing and adding collateral in an atomic fashion
-    function transform(uint tokenId, address transformer, bytes calldata data) external {
+    function transform(uint tokenId, address transformer, bytes calldata data) external returns (uint) {
         if (!transformerAllowList[transformer]) {
             revert TransformerNotAllowed();
         }
@@ -212,9 +210,10 @@ contract Vault is Ownable, IERC721Receiver {
         _updateGlobalInterest();
         _updateLoanInterest(tokenId);
 
-        Loan storage loan = loans[tokenId];
+        address loanOwner = loans[tokenId].owner;
+
         // TODO add mechanism to allow other addresses (e.g. auto range to call the transform method)
-        if (loan.owner != msg.sender) {
+        if (loanOwner != msg.sender) {
             revert NotOwner();
         }
 
@@ -226,6 +225,9 @@ contract Vault is Ownable, IERC721Receiver {
             revert TransformFailed();
         }
         
+        // may have changed in the meantime
+        tokenId = transformedTokenId;
+
         // check owner not changed (NEEDED beacuse approvalForAll could be set which would fake complete ownership)
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (owner != address(this)) {
@@ -235,9 +237,11 @@ contract Vault is Ownable, IERC721Receiver {
         // remove access for msg.sender
         nonfungiblePositionManager.approve(address(0), tokenId);
 
-        _requireLoanIsHealthy(tokenId, loan.amountX96);
+        _requireLoanIsHealthy(tokenId, loans[tokenId].amountX96);
 
         transformedTokenId = 0;
+
+        return tokenId;
     }
 
     function borrow(uint tokenId, uint amount) external {
@@ -537,7 +541,7 @@ contract Vault is Ownable, IERC721Receiver {
 
     ////////////////// INTERNAL FUNCTIONS
 
-    function _calculateTokenCollateralFactorX32(uint tokenId) internal returns (uint32) {
+    function _calculateTokenCollateralFactorX32(uint tokenId) internal view returns (uint32) {
         (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         uint32 factor0X32 = tokenConfigs[token0].collateralFactorX32;
         uint32 factor1X32 = tokenConfigs[token1].collateralFactorX32;

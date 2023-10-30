@@ -6,6 +6,7 @@ import "forge-std/console.sol";
 
 import "../../src/V3Oracle.sol";
 import "../../src/Vault.sol";
+import "../../src/V3Utils.sol";
 
 contract V3OracleIntegrationTest is Test {
    
@@ -23,6 +24,7 @@ contract V3OracleIntegrationTest is Test {
     IERC20 constant WBTC = IERC20(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599);
 
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
+    address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
 
     address constant CHAINLINK_USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address constant CHAINLINK_DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
@@ -50,11 +52,11 @@ contract V3OracleIntegrationTest is Test {
         // 5% base rate - after 80% - 109% (like in compound v2 deployed) 
         interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
 
-        // use tolerant oracles (so timewarp for until 30 days works in tests)
+        // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
         oracle.setTokenConfig(address(USDC), AggregatorV3Interface(CHAINLINK_USDC_USD), 3600 * 24 * 30, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0);
-        oracle.setTokenConfig(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
-        oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
+        oracle.setTokenConfig(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
+        oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
         vault = new Vault(NPM, USDC, interestRateModel, oracle);
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10)); //90%
@@ -67,9 +69,9 @@ contract V3OracleIntegrationTest is Test {
         vault.setReserveProtectionFactor(0);
     }
 
-    function testLiquidation() external {
+    function _setupBasicLoan(bool borrowMax) internal {
 
-        // lend 10 USDC
+         // lend 10 USDC
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), 10000000);        
         vm.prank(WHALE_ACCOUNT);
@@ -85,24 +87,164 @@ contract V3OracleIntegrationTest is Test {
         assertEq(collateralValue, 8814465);
         assertEq(fullValue, 9793851);
 
-        // borrow max
-        vm.prank(TEST_NFT_ACCOUNT);
-        vault.borrow(TEST_NFT, collateralValue);
+        if (borrowMax) {
+            // borrow max
+            vm.prank(TEST_NFT_ACCOUNT);
+            vault.borrow(TEST_NFT, collateralValue);
+        }
+    }
 
+    function _repay(uint amount) internal {
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), amount);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, amount);
+    }
+
+    function testTransform() external {
+
+        _setupBasicLoan(true);
+
+        V3Utils v3Utils = new V3Utils(NPM, EX0x);
+        vault.setTransformer(address(v3Utils), true);
+
+        // test transforming with v3utils
+        // withdraw fees - as an example
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
+            address(0),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_ACCOUNT,
+            TEST_NFT_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        vm.expectRevert(Vault.CollateralFail.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+
+        _repay(1000000);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+    }
+
+    function testTransformChangeRange() external {
+
+        _setupBasicLoan(true);
+
+        V3Utils v3Utils = new V3Utils(NPM, EX0x);
+        vault.setTransformer(address(v3Utils), true);
+
+        (, ,, , ,, ,uint128 liquidity, , , , ) = NPM.positions(TEST_NFT);
+        assertEq(liquidity, 18828671372106658);
+
+        // test transforming with v3utils
+        // withdraw fees - as an example
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.CHANGE_RANGE,
+            address(0),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            500,
+            -276330,
+            -276320,
+            liquidity,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_ACCOUNT,
+            address(vault),
+            false,
+            "",
+            ""
+        );
+
+        // some collateral gets lost during change-range - needs repayment before
+        vm.expectRevert(Vault.CollateralFail.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+
+        _repay(1000000);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        uint tokenId = vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+
+        assertGt(tokenId, TEST_NFT);
+
+        // old loan has been removed
+        (, ,, , ,, ,liquidity, , , , ) = NPM.positions(TEST_NFT);
+        assertEq(liquidity, 0);
+        (uint debt, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        assertEq(debt, 0);
+        assertEq(collateralValue, 0);
+        assertEq(fullValue, 0);
+
+        // new loan has been created
+        (, ,, , ,, ,liquidity, , , , ) = NPM.positions(tokenId);
+        assertEq(liquidity, 19564320933837078);
+        (debt, fullValue, collateralValue,) = vault.loanInfo(tokenId);
+        assertEq(debt, 7814465);
+        assertEq(collateralValue, 8804717);
+        assertEq(fullValue, 9783020);
+    }
+
+    function testLiquidation(bool timeBased) external {
+
+        _setupBasicLoan(true);
+
+        (, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        assertEq(collateralValue, 8814465);
+        assertEq(fullValue, 9793851);
 
         // debt is equal collateral value
         (uint debt, ,,uint liquidationCost) = vault.loanInfo(TEST_NFT);
         assertEq(debt, collateralValue);
         assertEq(liquidationCost, 0);
 
-        // wait 7 days
-        vm.warp(block.timestamp + 7 days);
-
+        if (timeBased) {
+            // wait 7 day - interest growing
+            vm.warp(block.timestamp + 7 days);
+        } else {
+            // collateral DAI value change -100%
+            vm.mockCall(CHAINLINK_DAI_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0)));
+        }
+        
         // debt is greater than collateral value
-        (debt, ,collateralValue,liquidationCost) = vault.loanInfo(TEST_NFT);
+        (debt, fullValue,collateralValue,liquidationCost) = vault.loanInfo(TEST_NFT);
+
+        assertEq(debt, timeBased ? 8814487 : 8814465);
+        assertEq(collateralValue, timeBased ? 8814465 : 4519450);
+        assertEq(fullValue, timeBased ? 9793851 : 5021612);
 
         assertGt(debt, collateralValue);
-        assertEq(liquidationCost, 9793620);
+        assertEq(liquidationCost, timeBased ? 9793620 : 4770532);
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
@@ -124,8 +266,8 @@ contract V3OracleIntegrationTest is Test {
         assertEq(vault.globalDebtAmountX96(), 0);
 
         // protocol is solvent
-        assertEq(USDC.balanceOf(address(vault)), 10000023);
-        assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, 10000022);
+        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 5956067);
+        assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, timeBased ? 10000022 : 5956067);
     }
 
     function testMainScenario() external {
