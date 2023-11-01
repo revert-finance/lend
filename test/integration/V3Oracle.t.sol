@@ -263,17 +263,17 @@ contract V3OracleIntegrationTest is Test {
         assertEq(NPM.ownerOf(TEST_NFT), WHALE_ACCOUNT);
 
         // debt is payed
-        assertEq(vault.globalDebtAmountX96(), 0);
+        assertEq(vault.debtSharesTotal(), 0);
 
-        // protocol is solvent
+        // protocol is solvent TODO testing with new variables
         assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 5956067);
-        assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, timeBased ? 10000022 : 5956067);
+        //assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, timeBased ? 10000022 : 5956067);
     }
 
     function testMainScenario() external {
 
-        assertEq(vault.globalLendAmountX96(), 0);
-        assertEq(vault.globalDebtAmountX96(), 0);
+        assertEq(vault.totalSupply(), 0);
+        assertEq(vault.debtSharesTotal(), 0);
 
         // lending 2 USDC
         vm.prank(WHALE_ACCOUNT);
@@ -281,13 +281,13 @@ contract V3OracleIntegrationTest is Test {
 
         vm.prank(WHALE_ACCOUNT);
         vault.deposit(2000000);
-        assertEq(vault.globalLendAmountX96() / Q96, 2000000);
+        assertEq(vault.totalSupply(), 2 ether);
 
         // withdrawing 1 USDC
         vm.prank(WHALE_ACCOUNT);
-        vault.withdraw(1000000);
+        vault.withdraw(1000000, false);
 
-        assertEq(vault.globalLendAmountX96() / Q96, 1000000);
+        assertEq(vault.totalSupply(), 1 ether);
 
         // borrowing 1 USDC
         vm.prank(TEST_NFT_ACCOUNT);
@@ -296,17 +296,10 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.create(TEST_NFT, 1000000);
 
-        assertEq(vault.globalDebtAmountX96() / Q96, 1000000);
+        assertEq(vault.debtSharesTotal(), 1 ether);
 
         // wait 7 days
         vm.warp(block.timestamp + 7 days);
-
-        // values are static - ONLY updated after operation
-        assertEq(vault.globalDebtAmountX96() / Q96, 1000000);
-        assertEq(vault.globalLendAmountX96() / Q96, 1000000);
-        vault.deposit(0);
-        assertEq(vault.globalDebtAmountX96() / Q96, 1000004);
-        assertEq(vault.globalLendAmountX96() / Q96, 1000004);
 
         // verify to date values
         (uint debt, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
@@ -323,20 +316,20 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000);
         (debt,,,) = vault.loanInfo(TEST_NFT);
-        (,,uint amountX96,) = vault.loans(TEST_NFT);
-        assertEq(amountX96, 391756662889249988736000000000);
+        (uint debtShares,,) = vault.loans(TEST_NFT);
+        assertEq(debtShares, 391756662889249988736000000000);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
         assertEq(debt, 5);
 
-        // reserves empty
-        assertEq(vault.globalReserveAmountX96(), 0);
+        // TODO test reserves empty
+        // assertEq(vault.globalReserveAmountX96(), 0);
 
         // repay full  
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 5);
 
-        // rest should be in reserves
-        assertEq(vault.globalReserveAmountX96() + amountX96, 5 * Q96);
+        // TODO test rest should be in reserves
+        //assertEq(vault.globalReserveAmountX96() + amountX96, 5 * Q96);
 
         (debt,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);

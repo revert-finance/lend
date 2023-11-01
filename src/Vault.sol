@@ -142,7 +142,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         lendToken = _lendToken;
-        uint8 decimals = _lendToken.decimals();
+        uint8 decimals = IERC20Metadata(address(_lendToken)).decimals();
         lendTokenMultiplier = decimals >= 18 ? 1 : 10 ** (18 - decimals);
         interestRateModel = _interestRateModel;
         oracle = _oracle;
@@ -239,7 +239,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         // remove access for msg.sender
         nonfungiblePositionManager.approve(address(0), tokenId);
 
-        _requireLoanIsHealthy(tokenId, _convertSharesToToken(loans[tokenId].debtShares, newDebtExchangeRateX96));
+        _requireLoanIsHealthy(tokenId, _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96));
 
         transformedTokenId = 0;
 
@@ -279,7 +279,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         // fails if not enough lendToken available
         // if called from transform mode - send funds to transformer contract
-        lendToken.transfer(!doHealthCheck ? msg.sender : loan.owner, externalAmount);
+        lendToken.transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
 
         // only check health if not in transform mode
         if (doHealthCheck) {
@@ -290,22 +290,24 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
     function lendInfo(address account) external view returns (uint amount) {
         (, uint newLendExchangeRateX96) = _calculateGlobalInterest();
-        amount = _convertSharesToToken(balanceOf(account), newLendExchangeRateX96);
+        amount = _convertSharesToTokens(balanceOf(account), newLendExchangeRateX96);
         amount = _convertInternalToExternal(amount, false);
     }
 
     function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost)  {
         (uint newDebtExchangeRateX96,) = _calculateGlobalInterest();
-        uint debt = _convertSharesToToken(loans[tokenId].debtShares, newDebtExchangeRateX96);
+        uint debtInternal = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
 
         bool isHealthy;
-        (isHealthy, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId, debt);
+        (isHealthy, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId, debtInternal);
 
         if (!isHealthy) {
-            (, liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
+            (, liquidationCost,) = _calculateLiquidation(debtInternal, fullValue, collateralValue);
         }
         
-        debt = _convertInternalToExternal(debt, true);
+        debt = _convertInternalToExternal(debtInternal, true);
+        fullValue = _convertInternalToExternal(fullValue, false);
+        collateralValue = _convertInternalToExternal(collateralValue, false);
     }
 
     function repay(uint tokenId, uint amount) external {
@@ -314,7 +316,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         Loan storage loan = loans[tokenId];
 
-        uint debt = _convertSharesToToken(loans[tokenId].debtShares, newDebtExchangeRateX96);
+        uint debt = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
         uint internalAmount = _convertExternalToInternal(amount);
 
         if (internalAmount > debt) {
@@ -361,7 +363,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     // withdraws lent tokens. can be denominated in token or share amount
     function withdraw(uint256 amount, bool isShare) external {
 
-        (, uint newLendExchangeRateX96) = _updateGlobalInterest();
+        (uint newDebtExchangeRateX96,uint newLendExchangeRateX96) = _updateGlobalInterest();
 
         uint shareAmount;
         uint internalAmount;
@@ -374,13 +376,13 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
             shareAmount = _convertTokensToShares(_convertExternalToInternal(amount), newLendExchangeRateX96);
         }        
 
-        (uint available, ) = _getAvailableBalance();
+        (,uint available,) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
         if (available < internalAmount) {
             revert InsufficientLiquidity();
         }
 
         // fails if not enough shares
-        burn(msg.sender, shareAmount);
+        _burn(msg.sender, shareAmount);
 
         // transfer lend token - after all checks done
         lendToken.transfer(msg.sender, amount);
@@ -394,9 +396,9 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
             revert TransformerNotAllowed();
         }
 
-        _updateGlobalInterest();
+        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
-        uint debt = _convertSharesToToken(loans[tokenId].debtShares, newDebtExchangeRateX96);
+        uint debt = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
 
         (bool isHealthy, uint fullValue, uint collateralValue) = _checkLoanIsHealthy(tokenId, debt);
         if (isHealthy) {
@@ -406,49 +408,44 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         (uint leftover, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(debt, fullValue, collateralValue);
 
         // take value from liquidator (rounded up)
-        uint liquidatorCost = _roundUpX96(liquidatorCostX96) / Q96;
+        liquidatorCost = _convertInternalToExternal(liquidatorCost, true);
         lendToken.transferFrom(msg.sender, address(this), liquidatorCost);
-
-        // add rounding error to reserves
-        globalReserveAmountX96 += liquidatorCost * Q96 - liquidatorCostX96;
+        // rounding rest is implicitly added to reserves
 
         // send leftover to borrower if any
-        if (leftoverX96 > 0) {
-            uint leftover = leftoverX96 / Q96; // rounded down
+        if (leftover > 0) {
+            leftover = _convertInternalToExternal(leftover, false);
             lendToken.transfer(loans[tokenId].owner, leftover);
-
-            // add rounding error to reserves
-            globalReserveAmountX96 += leftoverX96 - leftover * Q96;
+            // rounding rest is implicitly added to reserves
         }
         
-        // take remaining amount from reserves - if not enough - democratize debt
-        if (reserveCostX96 > 0) {
-            if (reserveCostX96 <= globalReserveAmountX96) {
-                globalReserveAmountX96 -= reserveCostX96;
-            } else {
-                uint missingX96 = reserveCostX96 - globalReserveAmountX96;
-                globalReserveAmountX96 = 0;
+        // take remaining amount from reserves
+        if (reserveCost > 0) {
+            (,,uint reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
 
-                // TODO verify math...
+            // if not enough - democratize debt
+            if (reserveCost > reserves) {
+                uint missing = reserveCost - reserves;
+
+                uint totalLent = _convertSharesToTokens(totalSupply(), newLendExchangeRateX96);
+
                 // this lines distribute missing amount and remove it from all lent amount proportionally
-                lastInterestTotalLendX96 = (globalLendAmountX96 - missingX96) * lastInterestTotalLendX96 / globalLendAmountX96;
-                globalLendAmountX96 -= missingX96;
+                lastLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
             }
         }
 
         // disarm loan and send collateral to liquidator
-        Loan memory loan = loans[tokenId];
-        globalDebtAmountX96 -= loan.amountX96;
+        debtSharesTotal -= loans[tokenId].debtShares;
         delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), msg.sender, tokenId);
     }
 
     // checks how much balance is available - excluding reserves
-    function _getAvailableBalance() internal view returns (uint balance, uint available, uint reserves) {
+    function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {
 
         balance = _convertExternalToInternal(lendToken.balanceOf(address(this)));
-        uint debt = _convertSharesToTokens(debtSharesTotal, lastDebtExchangeRateX96);
-        uint lent = _convertSharesToTokens(totalSupply(), lastLendExchangeRateX96);
+        uint debt = _convertSharesToTokens(debtSharesTotal, debtExchangeRateX96);
+        uint lent = _convertSharesToTokens(totalSupply(), lendExchangeRateX96);
 
         reserves = balance + debt - lent;
         available = balance > reserves ? balance - reserves : 0;
@@ -499,11 +496,11 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
        
         uint protected = _convertSharesToTokens(totalSupply(), newLendExchangeRateX96) * reserveProtectionFactorX32 / Q32;
-        (uint balance,,uint reserves) = _getAvailableBalance();
+        (uint balance,,uint reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
         uint unprotected = reserves > protected ? reserves - protected : 0;
         uint available = balance > unprotected ? unprotected : balance;
 
-        uint amount = _convertInternalToExternal(available, false);
+        amount = _convertInternalToExternal(available, false);
         if (amount > 0) {
             lendToken.transfer(account, amount);
         }
@@ -548,7 +545,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     }
 
     function _updateGlobalInterest() internal returns (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) {
-        if (block.timestamp > lastInterestUpdate) {
+        if (block.timestamp > lastExchangeRateUpdate) {
             (newDebtExchangeRateX96, newLendExchangeRateX96) = _calculateGlobalInterest();
             lastDebtExchangeRateX96 = newDebtExchangeRateX96;
             lastLendExchangeRateX96 = newLendExchangeRateX96;
@@ -561,21 +558,25 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
     function _calculateGlobalInterest() internal view returns (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) {
 
-        (uint available, ) = _getAvailableBalance();
-        
-        uint borrowRateX96 = interestRateModel.getBorrowRatePerSecondX96(available, totalDebt);
+        uint oldDebtExchangeRateX96 = lastDebtExchangeRateX96;
+        uint oldLendExchangeRateX96 = lastLendExchangeRateX96;
+
+        (,uint available, ) = _getAvailableBalance(oldDebtExchangeRateX96, oldLendExchangeRateX96);
+
+
+        uint oldDebt = _convertSharesToTokens(debtSharesTotal, oldDebtExchangeRateX96);
+        uint oldLend = _convertSharesToTokens(totalSupply(), oldLendExchangeRateX96);
+
+        uint borrowRateX96 = interestRateModel.getBorrowRatePerSecondX96(available, oldDebt);
 
         // always growing or equal
-        newDebtExchangeRateX96 = lastDebtExchangeRateX96 + lastDebtExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * borrowRateX96 / Q96;
+        newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * borrowRateX96 / Q96;
     
-        // calculate how much interest affects lending exchange rate - keeping configured reserve amount
-        uint oldLend = totalSupply() * lastLendExchangeRateX96 / Q96;
-        uint oldDebt = debtSharesTotalX96 * lastDebtExchangeRateX96 / Q96;
-        uint newDebt = debtSharesTotalX96 * newDebtExchangeRateX96 / Q96;
+        uint newDebt = _convertSharesToTokens(debtSharesTotal, newDebtExchangeRateX96);
         uint debtGrowth = newDebt - oldDebt;
         uint lendGrowth = debtGrowth * (Q32 - reserveFactorX32) / Q32;
 
-        newLendExchangeRateX96 = lastLendExchangeRateX96 + (oldLend > 0 ? lastLendExchangeRateX96 * lendGrowth / oldLend : 0);
+        newLendExchangeRateX96 = oldLendExchangeRateX96 + (oldLend > 0 ? oldLendExchangeRateX96 * lendGrowth / oldLend : 0);
     }
 
     function _requireLoanIsHealthy(uint tokenId, uint debt) internal view {
@@ -592,23 +593,23 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         isHealty = collateralValue >= debt;
     }
 
-    function _roundUp(uint amount) internal pure returns (uint) {
+    function _roundUp(uint amount) internal view returns (uint) {
         return amount % lendTokenMultiplier > 0 ? amount - (amount % lendTokenMultiplier) + lendTokenMultiplier : amount;
     }
 
-    function _convertTokensToShares(uint amount, uint exchangeRateX96) internal returns(uint) {
+    function _convertTokensToShares(uint amount, uint exchangeRateX96) internal pure returns(uint) {
         return amount * exchangeRateX96 / Q96;
     }
 
-    function _convertSharesToTokens(uint shares, uint exchangeRateX96) internal returns(uint) {
+    function _convertSharesToTokens(uint shares, uint exchangeRateX96) internal pure returns(uint) {
         return shares * Q96 / exchangeRateX96;
     }
 
-    function _convertInternalToExternal(uint amount, bool roundUp) internal returns(uint) {
+    function _convertInternalToExternal(uint amount, bool roundUp) internal view returns(uint) {
         return roundUp ? _roundUp(amount) / lendTokenMultiplier : amount / lendTokenMultiplier;
     }
 
-    function _convertExternalToInternal(uint amount) internal returns(uint) {
+    function _convertExternalToInternal(uint amount) internal view returns(uint) {
         return amount * lendTokenMultiplier;
     }
 }
