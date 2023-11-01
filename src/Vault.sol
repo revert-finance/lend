@@ -17,53 +17,9 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "forge-std/console.sol";
-
 import "./V3Oracle.sol";
+import "./IInterestRateModel.sol";
 
-interface IInterestRateModel {
-    // gets interest rate per second per unit of debt x96
-    function getBorrowRatePerSecondX96(uint cash, uint debt) external view returns (uint256 result);
-}
-
-contract InterestRateModel is Ownable, IInterestRateModel {
-
-    uint constant Q96 = 2 ** 96;
-    uint constant YEAR_SECS = 31556925216; // taking into account leap years
-
-    // all values are multiplied by Q96
-    uint public multiplierPerSecond;
-    uint public baseRatePerSecond;
-    uint public jumpMultiplierPerSecond;
-    uint public kink;
-
-    constructor(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink_) {
-        baseRatePerSecond = baseRatePerYear / YEAR_SECS;
-        multiplierPerSecond = multiplierPerYear / YEAR_SECS;
-        jumpMultiplierPerSecond = jumpMultiplierPerYear / YEAR_SECS;
-        kink = kink_;
-    }
-
-    function getUtilizationRateX96(uint cash, uint debt) public pure returns (uint) {
-        if (debt == 0) {
-            return 0;
-        }
-        return debt * Q96 / (cash + debt);
-    }
-
-    function getBorrowRatePerSecondX96(uint cash, uint debt) override external view returns (uint) {
-        uint utilizationRate = getUtilizationRateX96(cash, debt);
-
-        if (utilizationRate <= kink) {
-            return (utilizationRate * multiplierPerSecond / Q96) + baseRatePerSecond;
-        } else {
-            uint normalRate = (kink * multiplierPerSecond / Q96) + baseRatePerSecond;
-            uint excessUtil = utilizationRate - kink;
-            return (excessUtil * jumpMultiplierPerSecond / Q96) + normalRate;
-        }
-    }
-
-}
 
 /// @title Vault for token lending / borrowing using LP positions as collateral
 contract Vault is ERC20, Ownable, IERC721Receiver {
@@ -165,6 +121,46 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         oracle = _oracle;
     }
 
+    ////////////////// EXTERNAL VIEW FUNCTIONS
+
+    function protocolInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
+        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _calculateGlobalInterest();
+        (balance, available, reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+
+        debt = _convertSharesToTokens(debtSharesTotal, newDebtExchangeRateX96);
+        lent = _convertSharesToTokens(totalSupply(), newLendExchangeRateX96);
+
+        debt = _convertInternalToExternal(debt, true);
+        lent = _convertInternalToExternal(lent, false);
+
+        balance = _convertInternalToExternal(balance, false);
+        available = _convertInternalToExternal(available, false);
+        reserves = _convertInternalToExternal(reserves, false);
+    }
+
+    function lendInfo(address account) external view returns (uint amount) {
+        (, uint newLendExchangeRateX96) = _calculateGlobalInterest();
+        amount = _convertSharesToTokens(balanceOf(account), newLendExchangeRateX96);
+        amount = _convertInternalToExternal(amount, false);
+    }
+
+    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost)  {
+        (uint newDebtExchangeRateX96,) = _calculateGlobalInterest();
+        uint debtInternal = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
+
+        bool isHealthy;
+        (isHealthy, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId, debtInternal);
+
+        if (!isHealthy) {
+            (,liquidationCost,) = _calculateLiquidation(debtInternal, fullValue, collateralValue);
+        }
+        
+        debt = _convertInternalToExternal(debtInternal, true);
+        fullValue = _convertInternalToExternal(fullValue, false);
+        collateralValue = _convertInternalToExternal(collateralValue, false);
+        liquidationCost = _convertInternalToExternal(liquidationCost, true);
+    }
+
     ////////////////// EXTERNAL FUNCTIONS
 
     function create(uint256 tokenId, uint amount) external {
@@ -263,46 +259,6 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         return tokenId;
     }
 
-    function protocolInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
-        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _calculateGlobalInterest();
-        (balance, available, reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
-
-        console.log(balance, available, reserves);
-
-        debt = _convertSharesToTokens(debtSharesTotal, newDebtExchangeRateX96);
-        lent = _convertSharesToTokens(totalSupply(), newLendExchangeRateX96);
-
-        debt = _convertInternalToExternal(debt, true);
-        lent = _convertInternalToExternal(lent, false);
-
-        balance = _convertInternalToExternal(balance, false);
-        available = _convertInternalToExternal(available, false);
-        reserves = _convertInternalToExternal(reserves, false);
-    }
-
-    function lendInfo(address account) external view returns (uint amount) {
-        (, uint newLendExchangeRateX96) = _calculateGlobalInterest();
-        amount = _convertSharesToTokens(balanceOf(account), newLendExchangeRateX96);
-        amount = _convertInternalToExternal(amount, false);
-    }
-
-    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost)  {
-        (uint newDebtExchangeRateX96,) = _calculateGlobalInterest();
-        uint debtInternal = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
-
-        bool isHealthy;
-        (isHealthy, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId, debtInternal);
-
-        if (!isHealthy) {
-            (,liquidationCost,) = _calculateLiquidation(debtInternal, fullValue, collateralValue);
-        }
-        
-        debt = _convertInternalToExternal(debtInternal, true);
-        fullValue = _convertInternalToExternal(fullValue, false);
-        collateralValue = _convertInternalToExternal(collateralValue, false);
-        liquidationCost = _convertInternalToExternal(liquidationCost, true);
-    }
-
     function borrow(uint tokenId, uint amount) external {
 
         bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
@@ -313,38 +269,6 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         } else {
             _borrow(tokenId, amount, false, false);
         }
-    }
-
-    function _borrow(uint tokenId, uint amount, bool doOwnerCheck, bool doHealthCheck) internal {
-
-        (uint newDebtExchangeRateX96, ) = _updateGlobalInterest();
-
-        Loan storage loan = loans[tokenId];
-        if (doOwnerCheck && loan.owner != msg.sender) {
-            revert NotOwner();
-        }
-
-        uint internalAmount = _convertExternalToInternal(amount);
-        uint newDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
-
-        loan.debtShares += newDebtShares;
-        debtSharesTotal += newDebtShares;
-
-        if (debtSharesTotal > _convertTokensToShares(globalDebtLimit, newDebtExchangeRateX96)) {
-            revert GlobalDebtLimit();
-        }
-
-        // fails if not enough lendToken available
-        // if called from transform mode - send funds to transformer contract
-        lendToken.transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
-
-        // only check health if not in transform mode
-        if (doHealthCheck) {
-            uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
-            _requireLoanIsHealthy(tokenId, debt);
-        }
-
-        emit Borrow(tokenId, loan.owner, amount, newDebtShares);
     }
 
     function repay(uint tokenId, uint amount) external {
@@ -493,51 +417,6 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(fullValue, false), liquidatorCost, leftover, _convertInternalToExternal(reserveCost, false), _convertInternalToExternal(missing, true));
     }
 
-    // checks how much balance is available - excluding reserves
-    function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {
-
-        balance = _convertExternalToInternal(lendToken.balanceOf(address(this)));
-        uint debt = _convertSharesToTokens(debtSharesTotal, debtExchangeRateX96);
-        uint lent = _convertSharesToTokens(totalSupply(), lendExchangeRateX96);
-
-        reserves = balance + debt - lent;
-        available = balance > reserves ? balance - reserves : 0;
-    }
-
-    // calculates amount which needs to be payed to liquidate position
-    //  if position is too valuable - leftover from liquidation is sent to position owner
-    //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
-    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint leftover, uint liquidatorCost, uint reserveCost) {
-
-        // position value needed to pay debt at max penalty
-        uint maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
-
-        // position value when position started to be liquidatable
-        uint startLiquidationValue = debt * fullValue / collateralValue;
-
-        if (fullValue > maxPenaltyValue) {
-            // calculate penalty and leftover
-            uint penaltyFractionX96 = (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
-            uint penaltyX32 = MAX_LIQUIDATION_PENALTY_X32 * penaltyFractionX96 / Q96;
-            uint penaltyValue = fullValue * (Q32 - penaltyX32) / Q32;
-            leftover = penaltyValue - debt;
-            liquidatorCost = penaltyValue;
-        } else {
-            // position value needed to pay debt at underwater penalty
-            uint underwaterPenaltyValue = debt * (Q32 + UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
-
-            // if position has enough value to pay penalty and no be underwater
-            if (fullValue > underwaterPenaltyValue) {
-                liquidatorCost = debt;
-            } else {
-                uint penaltyValue = fullValue * (Q32 - UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
-                liquidatorCost = penaltyValue;
-                reserveCost = debt - penaltyValue;
-            }
-        }
-    }
-
-
     ////////////////// ADMIN FUNCTIONS only callable by owner
 
     // function to withdraw protocol reserves
@@ -599,6 +478,82 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     }
 
     ////////////////// INTERNAL FUNCTIONS
+
+    function _borrow(uint tokenId, uint amount, bool doOwnerCheck, bool doHealthCheck) internal {
+
+        (uint newDebtExchangeRateX96, ) = _updateGlobalInterest();
+
+        Loan storage loan = loans[tokenId];
+        if (doOwnerCheck && loan.owner != msg.sender) {
+            revert NotOwner();
+        }
+
+        uint internalAmount = _convertExternalToInternal(amount);
+        uint newDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
+
+        loan.debtShares += newDebtShares;
+        debtSharesTotal += newDebtShares;
+
+        if (debtSharesTotal > _convertTokensToShares(globalDebtLimit, newDebtExchangeRateX96)) {
+            revert GlobalDebtLimit();
+        }
+
+        // fails if not enough lendToken available
+        // if called from transform mode - send funds to transformer contract
+        lendToken.transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
+
+        // only check health if not in transform mode
+        if (doHealthCheck) {
+            uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
+            _requireLoanIsHealthy(tokenId, debt);
+        }
+
+        emit Borrow(tokenId, loan.owner, amount, newDebtShares);
+    }
+
+    // checks how much balance is available - excluding reserves
+    function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {
+
+        balance = _convertExternalToInternal(lendToken.balanceOf(address(this)));
+        uint debt = _convertSharesToTokens(debtSharesTotal, debtExchangeRateX96);
+        uint lent = _convertSharesToTokens(totalSupply(), lendExchangeRateX96);
+
+        reserves = balance + debt - lent;
+        available = balance > reserves ? balance - reserves : 0;
+    }
+
+    // calculates amount which needs to be payed to liquidate position
+    //  if position is too valuable - leftover from liquidation is sent to position owner
+    //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
+    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint leftover, uint liquidatorCost, uint reserveCost) {
+
+        // position value needed to pay debt at max penalty
+        uint maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
+
+        // position value when position started to be liquidatable
+        uint startLiquidationValue = debt * fullValue / collateralValue;
+
+        if (fullValue > maxPenaltyValue) {
+            // calculate penalty and leftover
+            uint penaltyFractionX96 = (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
+            uint penaltyX32 = MAX_LIQUIDATION_PENALTY_X32 * penaltyFractionX96 / Q96;
+            uint penaltyValue = fullValue * (Q32 - penaltyX32) / Q32;
+            leftover = penaltyValue - debt;
+            liquidatorCost = penaltyValue;
+        } else {
+            // position value needed to pay debt at underwater penalty
+            uint underwaterPenaltyValue = debt * (Q32 + UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
+
+            // if position has enough value to pay penalty and no be underwater
+            if (fullValue > underwaterPenaltyValue) {
+                liquidatorCost = debt;
+            } else {
+                uint penaltyValue = fullValue * (Q32 - UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
+                liquidatorCost = penaltyValue;
+                reserveCost = debt - penaltyValue;
+            }
+        }
+    }
 
     function _calculateTokenCollateralFactorX32(uint tokenId) internal view returns (uint32) {
         (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);

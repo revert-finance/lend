@@ -6,6 +6,8 @@ import "forge-std/console.sol";
 
 import "../../src/V3Oracle.sol";
 import "../../src/Vault.sol";
+import "../../src/InterestRateModel.sol";
+
 import "../../src/V3Utils.sol";
 
 contract V3OracleIntegrationTest is Test {
