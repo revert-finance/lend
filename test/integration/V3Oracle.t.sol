@@ -101,6 +101,20 @@ contract V3OracleIntegrationTest is Test {
         vault.repay(TEST_NFT, amount);
     }
 
+    function testERC20() external {
+        _setupBasicLoan(false);
+        assertEq(vault.balanceOf(WHALE_ACCOUNT), 10 ether);
+        assertEq(vault.lendInfo(WHALE_ACCOUNT), 10000000);
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.transfer(TEST_NFT_ACCOUNT, 10 ether);
+        
+        assertEq(vault.balanceOf(WHALE_ACCOUNT), 0);
+        assertEq(vault.lendInfo(WHALE_ACCOUNT), 0);
+        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT), 10 ether);
+        assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), 10000000);
+    }
+
     function testTransform() external {
 
         _setupBasicLoan(true);
