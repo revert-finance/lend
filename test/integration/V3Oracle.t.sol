@@ -317,19 +317,13 @@ contract V3OracleIntegrationTest is Test {
         vault.repay(TEST_NFT, 1000000);
         (debt,,,) = vault.loanInfo(TEST_NFT);
         (uint debtShares,,) = vault.loans(TEST_NFT);
-        assertEq(debtShares, 391756662889249988736000000000);
+        assertEq(debtShares, 4944639801828);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
         assertEq(debt, 5);
-
-        // TODO test reserves empty
-        // assertEq(vault.globalReserveAmountX96(), 0);
 
         // repay full  
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 5);
-
-        // TODO test rest should be in reserves
-        //assertEq(vault.globalReserveAmountX96() + amountX96, 5 * Q96);
 
         (debt,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
