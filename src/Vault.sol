@@ -95,6 +95,14 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     event Repay(uint indexed tokenId, address indexed account, address indexed owner, uint amount, uint shares);
     event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed borrower, uint value, uint cost, uint leftover, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
 
+    // admin events
+    event WithdrawReserves(uint256 amount, address account);
+    event SetTransformer(address transformer, bool active);
+    event SetLimits(uint globalLendLimit, uint globalDebtLimit);
+    event SetReserveFactor(uint32 reserveFactorX32);
+    event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
+    event SetTokenConfig(address token, uint32 collateralFactorX32);
+
     // errors
     error Reentrancy();
     error NotOwner();
@@ -551,27 +559,34 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         if (amount > 0) {
             lendToken.transfer(account, amount);
         }
+
+        emit WithdrawReserves(amount, account);
     }
 
     // function to configure transformer contract 
     function setTransformer(address transformer, bool active) external onlyOwner {
         transformerAllowList[transformer] = active;
+        emit SetTransformer(transformer, active);
     }
 
     // function to set limits (this doesnt affect existing loans)
     function setLimits(uint _globalLendLimit, uint _globalDebtLimit) external onlyOwner {
         globalLendLimit = _convertExternalToInternal(_globalLendLimit);
         globalDebtLimit = _convertExternalToInternal(_globalDebtLimit);
+
+        emit SetLimits(_globalLendLimit, _globalDebtLimit);
     }
 
     // function to set reserve factor - percentage difference between Debting and lending interest
     function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
         reserveFactorX32 = _reserveFactorX32;
+        emit SetReserveFactor(_reserveFactorX32);
     }
 
     // function to set reserve protection factor - percentage of globalLendAmount which can't be withdrawn by owner
     function setReserveProtectionFactor(uint32 _reserveProtectionFactorX32) external onlyOwner {
         reserveProtectionFactorX32 = _reserveProtectionFactorX32;
+        emit SetReserveProtectionFactor(_reserveProtectionFactorX32);
     }
 
     // function to set collateral factor for a given token
@@ -580,6 +595,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
             revert CollateralFactorExceedsMax();
         }
         tokenConfigs[token] = TokenConfig(collateralFactorX32);
+        emit SetTokenConfig(token, collateralFactorX32);
     }
 
     ////////////////// INTERNAL FUNCTIONS
