@@ -288,6 +288,44 @@ contract V3OracleIntegrationTest is Test {
         //assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, timeBased ? 10000022 : 5956067);
     }
 
+    function testCollateralValueLimit() external {
+
+        _setupBasicLoan(false);
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 1000000); // 80% collateral factor - max 1 USDC collateral value
+
+        (,,uint collateralTotal) = vault.tokenConfigs(address(DAI));
+        assertEq(collateralTotal, 0);
+        (,,collateralTotal) = vault.tokenConfigs(address(USDC));
+        assertEq(collateralTotal, 0);
+
+        // borrow certain amount works
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, 800000);
+
+        (,,collateralTotal) = vault.tokenConfigs(address(DAI));
+        assertEq(collateralTotal, 888406338035015588);
+        (,,collateralTotal) = vault.tokenConfigs(address(USDC));
+        assertEq(collateralTotal, 888888);
+
+        // borrow more doesnt work anymore - because more than max value of collateral is used
+        vm.expectRevert(Vault.CollateralValueLimit.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, 200000);
+
+        // repay all
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), 1100000);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, 1100000);
+
+        // collateral is removed
+        (,,collateralTotal) = vault.tokenConfigs(address(DAI));
+        assertEq(collateralTotal, 0);
+        (,,collateralTotal) = vault.tokenConfigs(address(USDC));
+        assertEq(collateralTotal, 0);
+    }
+
     function testMainScenario() external {
 
         assertEq(vault.totalSupply(), 0);

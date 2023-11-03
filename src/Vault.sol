@@ -57,7 +57,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     event SetLimits(uint globalLendLimit, uint globalDebtLimit);
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
-    event SetTokenConfig(address token, uint32 collateralFactorX32, uint224 collateralValueLimit);
+    event SetTokenConfig(address token, uint32 collateralFactorX32, uint216 collateralValueLimit);
 
     // errors
     error Reentrancy();
@@ -79,7 +79,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
-        uint224 collateralValueLimit; // how much lendtoken equivalent may be lent out given this collateral
+        uint216 collateralValueLimit; // how much lendtoken equivalent may be lent out given this collateral
         uint collateralTotal; // how much of this collateral token was used (at creation) of loans
     }
     mapping(address => TokenConfig) public tokenConfigs;
@@ -478,12 +478,14 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     }
 
     // function to set token config
-    function setTokenConfig(address token, uint32 collateralFactorX32, uint224 collateralValueLimit) external onlyOwner {
+    // how much is collateral factor for this token
+    // how much of it maybe used as collateral max measured in lendtoken quantity
+    function setTokenConfig(address token, uint32 collateralFactorX32, uint216 collateralValueLimit) external onlyOwner {
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
         tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
-        tokenConfigs[token].collateralValueLimit = uint224(_convertExternalToInternal(collateralValueLimit));
+        tokenConfigs[token].collateralValueLimit = uint216(_convertExternalToInternal(collateralValueLimit));
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimit);
     }
 
@@ -618,8 +620,10 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         // always <= Q96 (otherwise it would be unhealthy)
         uint debtRatioX96 = debt * Q96 / collateralValue;
-        uint collateral0 = fullValue * debtRatioX96 / price0X96;
-        uint collateral1 = fullValue * debtRatioX96 / price1X96;
+
+        uint fullValueExternal = _convertInternalToExternal(fullValue, false);
+        uint collateral0 = fullValueExternal * debtRatioX96 / price0X96;
+        uint collateral1 = fullValueExternal * debtRatioX96 / price1X96;
 
         _updateCollateral(tokenId, collateral0, collateral1, price0X96, price1X96);
     }
@@ -654,10 +658,10 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         
         // check if current value of "estimated" used collateral is more than allowed limit
         // if collateral is decreased - never revert
-        if (collateral0 > previousCollateral0 && tokenConfigs[token0].collateralTotal * price0X96 / Q96 > tokenConfigs[token0].collateralValueLimit) {
+        if (collateral0 > previousCollateral0 && _convertExternalToInternal(tokenConfigs[token0].collateralTotal * price0X96 / Q96) > tokenConfigs[token0].collateralValueLimit) {
             revert CollateralValueLimit();
         }
-        if (collateral1 > previousCollateral1 && tokenConfigs[token1].collateralTotal * price1X96 / Q96 > tokenConfigs[token1].collateralValueLimit) {
+        if (collateral1 > previousCollateral1 && _convertExternalToInternal(tokenConfigs[token1].collateralTotal * price1X96 / Q96) > tokenConfigs[token1].collateralValueLimit) {
             revert CollateralValueLimit();
         }
     }
