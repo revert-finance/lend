@@ -57,7 +57,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     event SetLimits(uint globalLendLimit, uint globalDebtLimit);
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
-    event SetTokenConfig(address token, uint32 collateralFactorX32);
+    event SetTokenConfig(address token, uint32 collateralFactorX32, uint224 collateralValueLimit);
 
     // errors
     error Reentrancy();
@@ -72,12 +72,15 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     error TransformerNotAllowed();
     error TransformFailed();
     error CollateralFactorExceedsMax();
+    error CollateralValueLimit();
   
     IInterestRateModel public interestRateModel;
     IV3Oracle public oracle;
 
     struct TokenConfig {
-        uint32 collateralFactorX32;
+        uint32 collateralFactorX32; // how much this token is valued as collateral
+        uint224 collateralValueLimit; // how much lendtoken equivalent may be lent out given this collateral
+        uint collateralTotal; // how much of this collateral token was used (at creation) of loans
     }
     mapping(address => TokenConfig) public tokenConfigs;
 
@@ -104,6 +107,10 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         uint debtShares;
         address owner;
         uint32 collateralFactorX32; // assigned at loan creation
+
+        // how much collateral of each token was reserved for this loan (at creation)
+        uint collateral0;
+        uint collateral1;
     }
     mapping(uint => Loan) public loans; // tokenID -> loan mapping
 
@@ -149,7 +156,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         uint debtInternal = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
 
         bool isHealthy;
-        (isHealthy, fullValue, collateralValue) = _checkLoanIsHealthy(tokenId, debtInternal);
+        (isHealthy, fullValue, collateralValue,,) = _checkLoanIsHealthy(tokenId, debtInternal);
 
         if (!isHealthy) {
             (,liquidationCost,) = _calculateLiquidation(debtInternal, fullValue, collateralValue);
@@ -185,7 +192,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
             // parameters sent define owner, and initial borrow amount
             (address owner, uint amount) = abi.decode(data, (address, uint));
 
-            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId));
+            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
 
             // direct borrow if requested
             if (amount > 0) {
@@ -252,7 +259,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         // remove access for msg.sender
         nonfungiblePositionManager.approve(address(0), tokenId);
 
-        _requireLoanIsHealthy(tokenId, _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96));
+        _requireLoanIsHealthyAndCollateralValid(tokenId, _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96));
 
         transformedTokenId = 0;
 
@@ -300,6 +307,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         // if fully repayed
         if (loan.debtShares == 0) {
             address owner = loan.owner;
+            _updateCollateral(tokenId, 0, 0, 0, 0);
             delete loans[tokenId];
             nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId);
         }
@@ -369,7 +377,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         uint debt = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
 
-        (bool isHealthy, uint fullValue, uint collateralValue) = _checkLoanIsHealthy(tokenId, debt);
+        (bool isHealthy, uint fullValue, uint collateralValue,,) = _checkLoanIsHealthy(tokenId, debt);
         if (isHealthy) {
             revert NotLiquidatable();
         }
@@ -411,6 +419,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         // disarm loan and send collateral to liquidator
         debtSharesTotal -= loans[tokenId].debtShares;
+        _updateCollateral(tokenId, 0, 0, 0, 0);
         delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), msg.sender, tokenId);
 
@@ -468,13 +477,14 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         emit SetReserveProtectionFactor(_reserveProtectionFactorX32);
     }
 
-    // function to set collateral factor for a given token
-    function setTokenConfig(address token, uint32 collateralFactorX32) external onlyOwner {
+    // function to set token config
+    function setTokenConfig(address token, uint32 collateralFactorX32, uint224 collateralValueLimit) external onlyOwner {
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
-        tokenConfigs[token] = TokenConfig(collateralFactorX32);
-        emit SetTokenConfig(token, collateralFactorX32);
+        tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
+        tokenConfigs[token].collateralValueLimit = uint224(_convertExternalToInternal(collateralValueLimit));
+        emit SetTokenConfig(token, collateralFactorX32, collateralValueLimit);
     }
 
     ////////////////// INTERNAL FUNCTIONS
@@ -498,15 +508,16 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
             revert GlobalDebtLimit();
         }
 
+        uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
+
+        // only does check health here if not in transform mode
+        if (doHealthCheck) {
+            _requireLoanIsHealthyAndCollateralValid(tokenId, debt);
+        }
+
         // fails if not enough lendToken available
         // if called from transform mode - send funds to transformer contract
         lendToken.transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
-
-        // only check health if not in transform mode
-        if (doHealthCheck) {
-            uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
-            _requireLoanIsHealthy(tokenId, debt);
-        }
 
         emit Borrow(tokenId, loan.owner, amount, newDebtShares);
     }
@@ -599,18 +610,63 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         newLendExchangeRateX96 = oldLendExchangeRateX96 + (oldLend > 0 ? oldLendExchangeRateX96 * lendGrowth / oldLend : 0);
     }
 
-    function _requireLoanIsHealthy(uint tokenId, uint debt) internal view {
-        (bool isHealthy,,) = _checkLoanIsHealthy(tokenId, debt);
+    function _requireLoanIsHealthyAndCollateralValid(uint tokenId, uint debt) internal {
+        (bool isHealthy, uint fullValue, uint collateralValue, uint price0X96, uint price1X96) = _checkLoanIsHealthy(tokenId, debt);
         if (!isHealthy) {
             revert CollateralFail();
         }
+
+        // always <= Q96 (otherwise it would be unhealthy)
+        uint debtRatioX96 = debt * Q96 / collateralValue;
+        uint collateral0 = fullValue * debtRatioX96 / price0X96;
+        uint collateral1 = fullValue * debtRatioX96 / price1X96;
+
+        _updateCollateral(tokenId, collateral0, collateral1, price0X96, price1X96);
     }
 
-    function _checkLoanIsHealthy(uint tokenId, uint debt) internal view returns (bool isHealty, uint fullValue, uint collateralValue) {
-        uint oracleValue = oracle.getValue(tokenId, address(lendToken));
-        fullValue = _convertExternalToInternal(oracleValue);
+    function _updateCollateral(uint tokenId, uint collateral0, uint collateral1, uint price0X96, uint price1X96) internal {
+
+        // convert full value to both collateral tokens 
+        uint previousCollateral0 = loans[tokenId].collateral0;
+        uint previousCollateral1 = loans[tokenId].collateral1;
+
+        (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+
+        // remove previous collateral set - remove
+        if (previousCollateral0 > 0) {
+            tokenConfigs[token0].collateralTotal -= previousCollateral0;
+        }
+        if (previousCollateral1 > 0) {
+            tokenConfigs[token1].collateralTotal -= previousCollateral1;
+        }
+
+        // set collateral for loan
+        loans[tokenId].collateral0 = collateral0;
+        loans[tokenId].collateral1 = collateral1;
+
+        // add new collateral
+        if (collateral0 > 0) {
+            tokenConfigs[token0].collateralTotal += collateral0;
+        }  
+        if (collateral1 > 0) {
+            tokenConfigs[token1].collateralTotal += collateral1;
+        }      
+        
+        // check if current value of "estimated" used collateral is more than allowed limit
+        // if collateral is decreased - never revert
+        if (collateral0 > previousCollateral0 && tokenConfigs[token0].collateralTotal * price0X96 / Q96 > tokenConfigs[token0].collateralValueLimit) {
+            revert CollateralValueLimit();
+        }
+        if (collateral1 > previousCollateral1 && tokenConfigs[token1].collateralTotal * price1X96 / Q96 > tokenConfigs[token1].collateralValueLimit) {
+            revert CollateralValueLimit();
+        }
+    }
+
+    function _checkLoanIsHealthy(uint tokenId, uint debt) internal view returns (bool isHealthy, uint fullValue, uint collateralValue, uint price0X96, uint price1X96) {
+        (fullValue,price0X96,price1X96) = oracle.getValue(tokenId, address(lendToken));
+        fullValue = _convertExternalToInternal(fullValue);
         collateralValue = loans[tokenId].collateralFactorX32 * fullValue / Q32;
-        isHealty = collateralValue >= debt;
+        isHealthy = collateralValue >= debt;
     }
 
     function _roundUp(uint amount) internal view returns (uint) {

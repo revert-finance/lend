@@ -61,12 +61,14 @@ contract V3OracleIntegrationTest is Test {
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
         vault = new Vault("Revert Lend USDC", "rlUSDC", NPM, USDC, interestRateModel, oracle);
-        vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10)); //90%
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10)); //80%
-        vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10)); //80%
+        vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
+        vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
 
-        // 10 USDC each (without reserve for now)
+        // limits 10 USDC each
         vault.setLimits(10000000, 10000000);
+
+        // without reserve for now
         vault.setReserveFactor(0);
         vault.setReserveProtectionFactor(0);
     }
@@ -332,7 +334,7 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000);
         (debt,,,) = vault.loanInfo(TEST_NFT);
-        (uint debtShares,,) = vault.loans(TEST_NFT);
+        (uint debtShares,,,,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 4944639801828);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
         assertEq(debt, 5);
@@ -360,13 +362,13 @@ contract V3OracleIntegrationTest is Test {
 
     function testConversionChainlink() external {
 
-        uint valueUSDC = oracle.getValue(TEST_NFT, address(USDC));
+        (uint valueUSDC,,) = oracle.getValue(TEST_NFT, address(USDC));
         assertEq(valueUSDC, 9793851);
 
-        uint valueDAI = oracle.getValue(TEST_NFT, address(DAI));
+        (uint valueDAI,,) = oracle.getValue(TEST_NFT, address(DAI));
         assertEq(valueDAI, 9788534213928977067);
 
-        uint valueWETH = oracle.getValue(TEST_NFT, address(WETH));
+        (uint valueWETH,,) = oracle.getValue(TEST_NFT, address(WETH));
         assertEq(valueWETH, 6450448054513969);
     }
 
@@ -376,13 +378,13 @@ contract V3OracleIntegrationTest is Test {
         oracle.setOracleMode(address(DAI), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
         oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
 
-        uint valueUSDC = oracle.getValue(TEST_NFT, address(USDC));
+        (uint valueUSDC,,) = oracle.getValue(TEST_NFT, address(USDC));
         assertEq(valueUSDC, 9791272);
 
-        uint valueDAI = oracle.getValue(TEST_NFT, address(DAI));
+        (uint valueDAI,,) = oracle.getValue(TEST_NFT, address(DAI));
         assertEq(valueDAI, 9791246113600479299);
 
-        uint valueWETH = oracle.getValue(TEST_NFT, address(WETH));
+        (uint valueWETH,,) = oracle.getValue(TEST_NFT, address(WETH));
         assertEq(valueWETH, 6445681020772445);
     }
 

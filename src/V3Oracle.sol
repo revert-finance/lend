@@ -16,10 +16,10 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface IV3Oracle {
-    // gets value for a given v3 nft denominated in token
+    // gets value and prices for a given v3 nft denominated in token
     // reverts if any involved token is not configured
     // reverts if prices are not valid given oracle configuration
-    function getValue(uint tokenId, address token) external view returns (uint256 result);
+    function getValue(uint256 tokenId, address token) external view returns (uint256 value, uint price0X06, uint price1X06);
 }
 
 interface AggregatorV3Interface {
@@ -146,9 +146,9 @@ contract V3Oracle is IV3Oracle, Ownable {
 
     // gets value of a uniswap v3 lp position in specified token
     // uses configured oracles and verfies price on second oracle - if fails - reverts
-    function getValue(uint tokenId, address token) override external view returns (uint256 result) {
+    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint price0X06, uint price1X06) {
 
-        (address token0, address token1, uint amount0, uint amount1) = _getPositionBreakdown(tokenId);
+        (address token0, address token1, uint amount0, uint amount1) = getPositionBreakdown(tokenId);
 
         uint price0X96;
         uint price1X96;
@@ -169,7 +169,9 @@ contract V3Oracle is IV3Oracle, Ownable {
         uint value0 = price0X96 * amount0 / Q96;
         uint value1 = price1X96 * amount1 / Q96;
 
-        return (value0 + value1) * Q96 / priceTokenX96;
+        value = (value0 + value1) * Q96 / priceTokenX96;
+        price0X06 = price0X96 * Q96 / priceTokenX96;
+        price1X06 = price1X96 * Q96 / priceTokenX96;
     }
 
     // Returns the price for a token using the selected oracle mode given as reference token value
@@ -285,44 +287,37 @@ contract V3Oracle is IV3Oracle, Ownable {
         IUniswapV3Pool pool;
         uint160 sqrtPriceX96;
         int24 tick;
+        uint160 sqrtPriceX96Lower;
+        uint160 sqrtPriceX96Upper;
+        address token0;
+        address token1;
     }
 
-    // returns token breakdown (optional return max possible amounts given current fees)
-    function _getPositionBreakdown(uint256 tokenId) internal view returns (address token0, address token1, uint256 amount0, uint256 amount1) {
-        PositionState memory state;
-        state.tokenId = tokenId;
-        (,,token0,token1,state.fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-        state.pool = _getPool(token0,token1,state.fee);
-
-        // get current tick needed for uncollected fees calculation
-        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
-
-        // calculate position amounts (incl uncollected fees)
+    function getPositionBreakdown(uint256 tokenId) public view returns (address token0, address token1, uint256 amount0, uint256 amount1) {
+        PositionState memory state = _initializeState(tokenId);
+        (token0, token1) = (state.token0, state.token1);
         (amount0, amount1) = _getAmounts(state);
+    }
+
+    function _initializeState(uint256 tokenId) internal view returns (PositionState memory state) {
+        state.tokenId = tokenId;
+
+        // TODO somehow get rid of stack to deep error without doing 2 calls
+        (,,state.token0,state.token1,state.fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        (,,,,,state.tickLower,state.tickUpper,state.liquidity,state.feeGrowthInside0LastX128,state.feeGrowthInside1LastX128,state.tokensOwed0,state.tokensOwed1) = nonfungiblePositionManager.positions(state.tokenId);
+
+        state.pool = _getPool(state.token0, state.token1, state.fee);
+        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
+        return state;
     }
 
     // calculate position amounts given current price/tick
     function _getAmounts(PositionState memory state) internal view returns (uint256 amount0, uint256 amount1) {
 
-        (
-            ,
-            ,
-            ,
-            ,
-            ,
-            state.tickLower,
-            state.tickUpper,
-            state.liquidity,
-            state.feeGrowthInside0LastX128,
-            state.feeGrowthInside1LastX128,
-            state.tokensOwed0,
-            state.tokensOwed1
-        ) = nonfungiblePositionManager.positions(state.tokenId);
-
         if (state.liquidity > 0) {
-            uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
-            uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);        
-            (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(state.sqrtPriceX96, sqrtPriceX96Lower, sqrtPriceX96Upper, state.liquidity);
+            state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
+            state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);        
+            (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(state.sqrtPriceX96, state.sqrtPriceX96Lower, state.sqrtPriceX96Upper, state.liquidity);
         }
 
         (uint256 fees0, uint256 fees1) = _getUncollectedFees(state, state.tick);
