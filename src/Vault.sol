@@ -17,8 +17,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "./V3Oracle.sol";
-import "./IInterestRateModel.sol";
+import "./interfaces/IV3Oracle.sol";
+import "./interfaces/IInterestRateModel.sol";
 
 
 /// @title Vault for token lending / borrowing using LP positions as collateral

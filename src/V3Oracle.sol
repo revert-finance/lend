@@ -15,13 +15,9 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-interface IV3Oracle {
-    // gets value and prices for a given v3 nft denominated in token
-    // reverts if any involved token is not configured
-    // reverts if prices are not valid given oracle configuration
-    function getValue(uint256 tokenId, address token) external view returns (uint256 value, uint price0X06, uint price1X06);
-}
+import "./interfaces/IV3Oracle.sol";
 
+// needed chainlink interface for chainlink oracle feeds
 interface AggregatorV3Interface {
     function latestRoundData() external view returns (
         uint80 roundId,
