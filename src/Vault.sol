@@ -16,6 +16,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
@@ -47,9 +48,11 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     event ExchangeRateUpdate(uint debtExchangeRateX96, uint lendExchangeRateX96);
     event Deposit(address indexed account, uint amount, uint shares);
     event Withdraw(address indexed account, uint amount, uint shares);
+
+    event WithdrawCollateral(uint indexed tokenId, address indexed owner, address recipient, uint amount0, uint amount1);
     event Borrow(uint indexed tokenId, address indexed owner, uint amount, uint shares);
-    event Repay(uint indexed tokenId, address indexed account, address indexed owner, uint amount, uint shares);
-    event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed borrower, uint value, uint cost, uint leftover, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
+    event Repay(uint indexed tokenId, address indexed repayer, address indexed owner, uint amount, uint shares);
+    event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed owner, uint value, uint cost, uint leftover, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
 
     // admin events
     event WithdrawReserves(uint256 amount, address account);
@@ -267,6 +270,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         return tokenId;
     }
 
+
     function borrow(uint tokenId, uint amount) external {
 
         bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
@@ -277,6 +281,63 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         } else {
             _borrow(tokenId, amount, false, false);
         }
+    }
+
+    struct DecreaseLiquidityAndCollectParams {
+        uint256 tokenId;
+        uint128 liquidity;
+
+        // min amount to accept from liquidity removal
+        uint256 amount0Min;
+        uint256 amount1Min;
+
+        // amount to remove from fees additional to the liquidity amounts
+        uint128 feeAmount0; // (if uint256(128).max - all fees)
+        uint128 feeAmount1; // (if uint256(128).max - all fees)
+
+        uint256 deadline;
+        address recipient;
+    }
+
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1) 
+    {
+        // this method is not allowed during transform - can be called directly on nftmanager if needed from transform contract
+        if (transformedTokenId > 0) {
+            revert TransformerNotAllowed();
+        }
+
+        address owner = loans[params.tokenId].owner;
+
+        if (owner != msg.sender) {
+            revert NotOwner();
+        }
+
+        (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
+
+        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams(
+                params.tokenId, 
+                params.liquidity, 
+                params.amount0Min, 
+                params.amount1Min,
+                params.deadline
+            )
+        );
+
+        INonfungiblePositionManager.CollectParams memory collectParams = 
+            INonfungiblePositionManager.CollectParams(
+                params.tokenId, 
+                params.recipient, 
+                params.feeAmount0 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount0 + params.feeAmount0), 
+                params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
+            );
+
+        (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
+
+        uint debt = _convertSharesToTokens(loans[params.tokenId].debtShares, newDebtExchangeRateX96);
+        _requireLoanIsHealthyAndCollateralValid(params.tokenId, debt);
+
+        emit WithdrawCollateral(params.tokenId, owner, params.recipient, amount0, amount1);
     }
 
     // repays borrowed tokens. can be denominated in token or debt share amount
