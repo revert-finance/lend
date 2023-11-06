@@ -1,6 +1,6 @@
 # revert lendoor
 
-This repository contains the smart contracts for revert lendoor modules.
+This repository contains the smart contracts for revert vault lending protocol.
 
 It uses Foundry as development toolchain.
 
