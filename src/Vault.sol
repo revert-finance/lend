@@ -71,6 +71,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     error InterestNotUpdated();
     error TransformerNotAllowed();
     error TransformFailed();
+    error RepayExceedsDebt();
     error CollateralFactorExceedsMax();
     error CollateralValueLimit();
   
@@ -278,24 +279,36 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         }
     }
 
-    function repay(uint tokenId, uint amount) external {
+    // repays borrowed tokens. can be denominated in token or debt share amount
+    function repay(uint tokenId, uint amount, bool isShare) external {
 
         (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
 
         Loan storage loan = loans[tokenId];
 
         uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
-        uint internalAmount = _convertExternalToInternal(amount);
-        uint repayedDebtShares;
 
-        if (internalAmount > debt) {
-            // repay all
+        uint repayedDebtShares;
+        uint internalAmount;
+
+        if (isShare) {
+            if (amount > loan.debtShares) {
+                revert RepayExceedsDebt();
+            }
+            repayedDebtShares = amount;
+            internalAmount = _convertSharesToTokens(amount, newDebtExchangeRateX96);
             amount = _convertInternalToExternal(debt, true);
-            // rounding rest is implicitly added to reserves
-            repayedDebtShares = loan.debtShares;
         } else {
-            repayedDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
-        }
+            internalAmount = _convertExternalToInternal(amount);
+            if (internalAmount > debt) {
+                // repay all
+                amount = _convertInternalToExternal(debt, true);
+                // rounding rest is implicitly added to reserves
+                repayedDebtShares = loan.debtShares;
+            } else {
+                repayedDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
+            }
+        }    
 
         if (amount > 0) {
             lendToken.transferFrom(msg.sender, address(this), amount);

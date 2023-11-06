@@ -102,7 +102,7 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         USDC.approve(address(vault), amount);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.repay(TEST_NFT, amount);
+        vault.repay(TEST_NFT, amount, false);
     }
 
     function testERC20() external {
@@ -316,8 +316,12 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         USDC.approve(address(vault), 1100000);
 
+        // get debt shares
+        (uint debtShares,,,,) = vault.loans(TEST_NFT);
+        assertEq(debtShares, 800000000000000000);
+
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.repay(TEST_NFT, 1100000);
+        vault.repay(TEST_NFT, debtShares, true);
 
         // collateral is removed
         (,,collateralTotal) = vault.tokenConfigs(address(DAI));
@@ -370,7 +374,7 @@ contract V3OracleIntegrationTest is Test {
 
         // repay partially       
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.repay(TEST_NFT, 1000000);
+        vault.repay(TEST_NFT, 1000000, false);
         (debt,,,) = vault.loanInfo(TEST_NFT);
         (uint debtShares,,,,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 4944639801828);
@@ -379,7 +383,7 @@ contract V3OracleIntegrationTest is Test {
 
         // repay full  
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.repay(TEST_NFT, 5);
+        vault.repay(TEST_NFT, 5, false);
 
         (debt,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
