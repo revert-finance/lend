@@ -35,10 +35,6 @@ contract LeverageTransformer {
         // how much to borrow
         uint borrowAmount;
 
-        // for adding liquidity slippage
-        uint256 amountAddMin0;
-        uint256 amountAddMin1;
-
         // amountIn0 is used for swap and also as minAmount0 for decreased liquidity + collected fees
         uint256 amountIn0;
         // if lendtoken needs to be swapped to token0 - set values
@@ -50,6 +46,10 @@ contract LeverageTransformer {
         // if lendtoken needs to be swapped to token1 - set values
         uint256 amountOut1Min;
         bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+
+        // for adding liquidity slippage
+        uint256 amountAddMin0;
+        uint256 amountAddMin1;
 
         // recipient for leftover tokens
         address recipient;
@@ -88,6 +88,9 @@ contract LeverageTransformer {
             amount1 += amountOut;
         }
 
+        IERC20(token0).approve(address(nonfungiblePositionManager), amount0);
+        IERC20(token1).approve(address(nonfungiblePositionManager), amount1);
+
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.amountAddMin0, params.amountAddMin1, params.deadline);
         (, uint added0, uint added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
@@ -113,7 +116,7 @@ contract LeverageTransformer {
         uint256 amountRemoveMin0;
         uint256 amountRemoveMin1;
 
-        // collect fee amount (if uint256(128).max - ALL)
+        // collect fee amount (if type(uint128).max - ALL)
         uint128 feeAmount0;
         uint128 feeAmount1;
 
@@ -135,7 +138,6 @@ contract LeverageTransformer {
         // for all uniswap deadlineable functions
         uint256 deadline;
     }
-
 
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
@@ -165,6 +167,7 @@ contract LeverageTransformer {
             amount += amountOut;
         }
 
+        IERC20(token).approve(msg.sender, amount);
         uint repayed = IVault(msg.sender).repay(params.tokenId, amount, false);
         amount -= repayed;
 
@@ -177,7 +180,7 @@ contract LeverageTransformer {
         }
         if (amount > 0) {
             IERC20(token).transfer(params.recipient, amount);
-        }    
+        }
     }
 
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 amountOutMin, bytes memory swapData) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
