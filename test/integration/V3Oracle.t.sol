@@ -58,7 +58,7 @@ contract V3OracleIntegrationTest is Test {
         oracle.setTokenConfig(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
-        vault = new Vault("Revert Lend USDC", "rlUSDC", NPM, USDC, interestRateModel, oracle);
+        vault = new Vault("Revert Lend USDC", "rlUSDC", NPM, address(USDC), interestRateModel, oracle);
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value

@@ -18,12 +18,13 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
+import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
 
 /// @title Vault for token lending / borrowing using LP positions as collateral
-contract Vault is ERC20, Ownable, IERC721Receiver {
+contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
@@ -39,7 +40,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     IUniswapV3Factory public immutable factory;
 
     /// @notice Token which is lent in this vault
-    IERC20 public immutable lendToken;
+    address public immutable override lendToken;
 
     // all stored & internal amounts are multiplied by this multiplier to get increased precision for low precision tokens
     uint public immutable lendTokenMultiplier;
@@ -122,7 +123,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     mapping(address => bool) transformerAllowList; // contracts allowed to transform positions
     mapping(address => mapping(address => bool)) transformApprovals; // owners permissions for other addresses to call transform on owners behalf
 
-    constructor(string memory name, string memory symbol, INonfungiblePositionManager _nonfungiblePositionManager, IERC20 _lendToken, IInterestRateModel _interestRateModel, IV3Oracle _oracle) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, INonfungiblePositionManager _nonfungiblePositionManager, address _lendToken, IInterestRateModel _interestRateModel, IV3Oracle _oracle) ERC20(name, symbol) {
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         lendToken = _lendToken;
@@ -170,6 +171,10 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         fullValue = _convertInternalToExternal(fullValue, false);
         collateralValue = _convertInternalToExternal(collateralValue, false);
         liquidationCost = _convertInternalToExternal(liquidationCost, true);
+    }
+
+    function ownerOf(uint tokenId) override external view returns (address) {
+        return loans[tokenId].owner;
     }
 
     ////////////////// EXTERNAL FUNCTIONS
@@ -271,7 +276,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     }
 
 
-    function borrow(uint tokenId, uint amount) external {
+    function borrow(uint tokenId, uint amount) external override {
 
         bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
@@ -341,7 +346,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     }
 
     // repays borrowed tokens. can be denominated in token or debt share amount
-    function repay(uint tokenId, uint amount, bool isShare) external {
+    function repay(uint tokenId, uint amount, bool isShare) external override returns (uint) {
 
         (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
 
@@ -372,7 +377,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         }    
 
         if (amount > 0) {
-            lendToken.transferFrom(msg.sender, address(this), amount);
+            IERC20(lendToken).transferFrom(msg.sender, address(this), amount);
         }
 
         loan.debtShares -= repayedDebtShares;
@@ -387,6 +392,8 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         }
 
         emit Repay(tokenId, msg.sender, loan.owner, amount, repayedDebtShares);
+
+        return amount;
     }
 
     function deposit(uint256 amount) external {
@@ -396,7 +403,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         (, uint newLendExchangeRateX96) = _updateGlobalInterest();
         
         // pull lend tokens
-        lendToken.transferFrom(msg.sender, address(this), amount);
+        IERC20(lendToken).transferFrom(msg.sender, address(this), amount);
 
         // mint corresponding amount to msg.sender
         uint sharesToMint = _convertTokensToShares(internalAmount, newLendExchangeRateX96);
@@ -434,7 +441,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         _burn(msg.sender, sharesToBurn);
 
         // transfer lend token - after all checks done
-        lendToken.transfer(msg.sender, amount);
+        IERC20(lendToken).transfer(msg.sender, amount);
 
         emit Withdraw(msg.sender, amount, sharesToBurn);
     }
@@ -460,7 +467,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         // take value from liquidator (rounded up)
         liquidatorCost = _convertInternalToExternal(liquidatorCost, true);
-        lendToken.transferFrom(msg.sender, address(this), liquidatorCost);
+        IERC20(lendToken).transferFrom(msg.sender, address(this), liquidatorCost);
         // rounding rest is implicitly added to reserves
 
         address owner = loans[tokenId].owner;
@@ -468,7 +475,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         // send leftover to borrower if any
         if (leftover > 0) {
             leftover = _convertInternalToExternal(leftover, false);
-            lendToken.transfer(owner, leftover);
+            IERC20(lendToken).transfer(owner, leftover);
             // rounding rest is implicitly added to reserves
         }
         
@@ -519,7 +526,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
         }
 
         if (amount > 0) {
-            lendToken.transfer(account, amount);
+            IERC20(lendToken).transfer(account, amount);
         }
 
         emit WithdrawReserves(amount, account);
@@ -593,7 +600,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
 
         // fails if not enough lendToken available
         // if called from transform mode - send funds to transformer contract
-        lendToken.transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
+        IERC20(lendToken).transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
 
         emit Borrow(tokenId, loan.owner, amount, newDebtShares);
     }
@@ -601,7 +608,7 @@ contract Vault is ERC20, Ownable, IERC721Receiver {
     // checks how much balance is available - excluding reserves
     function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {
 
-        balance = _convertExternalToInternal(lendToken.balanceOf(address(this)));
+        balance = _convertExternalToInternal(IERC20(lendToken).balanceOf(address(this)));
         uint debt = _convertSharesToTokens(debtSharesTotal, debtExchangeRateX96);
         uint lent = _convertSharesToTokens(totalSupply(), lendExchangeRateX96);
 
