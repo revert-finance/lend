@@ -196,6 +196,53 @@ contract V3OracleIntegrationTest is Test {
         assertEq(collateralValue, 7908458);
     }
 
+    function testTransformWithdrawCollect() external {
+
+        _setupBasicLoan(true);
+
+        V3Utils v3Utils = new V3Utils(NPM, EX0x);
+        vault.setTransformer(address(v3Utils), true);
+
+        // test transforming with v3utils
+        // withdraw fees - as an example
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
+            address(0),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_ACCOUNT,
+            TEST_NFT_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        vm.expectRevert(Vault.CollateralFail.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+
+        // needs to repay a part first - to get fees
+        _repay(1000000);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+    }
+
     function testTransformChangeRange() external {
 
         _setupBasicLoan(true);
@@ -239,6 +286,7 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
+        // needs to repay a part first
         _repay(1000000);
 
         vm.prank(TEST_NFT_ACCOUNT);
