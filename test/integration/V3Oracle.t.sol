@@ -4,10 +4,15 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
+// base contracts
 import "../../src/V3Oracle.sol";
 import "../../src/Vault.sol";
 import "../../src/InterestRateModel.sol";
+
+// transformers
 import "../../src/transformers/LeverageTransformer.sol";
+import "../../src/transformers/V3Utils.sol";
+
 
 contract V3OracleIntegrationTest is Test {
    
@@ -191,8 +196,6 @@ contract V3OracleIntegrationTest is Test {
         assertEq(collateralValue, 7908458);
     }
 
-/*
-
     function testTransformChangeRange() external {
 
         _setupBasicLoan(true);
@@ -203,8 +206,7 @@ contract V3OracleIntegrationTest is Test {
         (, ,, , ,, ,uint128 liquidity, , , , ) = NPM.positions(TEST_NFT);
         assertEq(liquidity, 18828671372106658);
 
-        // test transforming with v3utils
-        // withdraw fees - as an example
+        // test transforming with v3utils - changing range
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
             address(0),
@@ -229,10 +231,10 @@ contract V3OracleIntegrationTest is Test {
             address(vault),
             false,
             "",
-            ""
+            abi.encode(true)
         );
 
-        // some collateral gets lost during change-range - needs repayment before
+        // some collateral gets lost during change-range (fees which are not added completely in this case) - needs repayment before
         vm.expectRevert(Vault.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
@@ -254,12 +256,12 @@ contract V3OracleIntegrationTest is Test {
 
         // new loan has been created
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(tokenId);
-        assertEq(liquidity, 19564320933837078);
+        assertEq(liquidity, 19255343290647761);
         (debt, fullValue, collateralValue,) = vault.loanInfo(tokenId);
-        assertEq(debt, 7814465);
-        assertEq(collateralValue, 8804717);
-        assertEq(fullValue, 9783020);
-    }*/
+        assertEq(debt, 7847206);
+        assertEq(collateralValue, 8663962);
+        assertEq(fullValue, 9626625);
+    }
 
     function testLiquidation(bool timeBased) external {
 

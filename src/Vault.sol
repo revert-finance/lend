@@ -22,7 +22,6 @@ import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
-
 /// @title Vault for token lending / borrowing using LP positions as collateral
 contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
@@ -208,16 +207,21 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
                 _borrow(tokenId, amount, false, true);
             }
         } else {
-            // if in transform mode - current token is replaced
-            if (tokenId != transformedTokenId) {
 
-                // loan is migrated to new token
-                loans[tokenId] = loans[transformedTokenId];
+            uint oldTokenId = transformedTokenId;
+
+            // if in transform mode - and a new position is sent - current position is replaced and returned
+            if (tokenId != oldTokenId) {
+
+                // set transformed token to new one
+                transformedTokenId = tokenId;
+
+                // copy debt to new token
+                loans[tokenId].debtShares = loans[oldTokenId].debtShares;
                 loans[tokenId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
 
-                // old load is removed
-                delete loans[transformedTokenId];
-                transformedTokenId = tokenId;
+                // clears data of old loan
+                _cleanupLoan(oldTokenId, loans[oldTokenId].owner);
             }
         }
 
@@ -383,15 +387,14 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         loan.debtShares -= repayedDebtShares;
         debtSharesTotal -= repayedDebtShares;
 
+        address owner = loan.owner;
+
         // if fully repayed
         if (loan.debtShares == 0) {
-            address owner = loan.owner;
-            _updateCollateral(tokenId, 0, 0, 0, 0);
-            delete loans[tokenId];
-            nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId);
+            _cleanupLoan(tokenId, owner);
         }
 
-        emit Repay(tokenId, msg.sender, loan.owner, amount, repayedDebtShares);
+        emit Repay(tokenId, msg.sender, owner, amount, repayedDebtShares);
 
         return amount;
     }
@@ -500,9 +503,8 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         // disarm loan and send collateral to liquidator
         debtSharesTotal -= loans[tokenId].debtShares;
-        _updateCollateral(tokenId, 0, 0, 0, 0);
-        delete loans[tokenId];
-        nonfungiblePositionManager.safeTransferFrom(address(this), msg.sender, tokenId);
+
+        _cleanupLoan(tokenId, msg.sender);
 
         emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(fullValue, false), liquidatorCost, leftover, _convertInternalToExternal(reserveCost, false), _convertInternalToExternal(missing, true));
     }
@@ -614,6 +616,14 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         reserves = balance + debt - lent;
         available = balance > reserves ? balance - reserves : 0;
+    }
+
+    // cleans up loan when it is closed because of replacement, repayment or liquidation
+    // send the position in its current state to owner or liquidator
+    function _cleanupLoan(uint tokenId, address reciever) internal {
+        _updateCollateral(tokenId, 0, 0, 0, 0);
+        delete loans[tokenId];
+        nonfungiblePositionManager.safeTransferFrom(address(this), reciever, tokenId);
     }
 
     // calculates amount which needs to be payed to liquidate position
