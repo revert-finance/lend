@@ -501,9 +501,9 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             }
         }
 
-        // disarm loan and send collateral to liquidator
         debtSharesTotal -= loans[tokenId].debtShares;
 
+        // disarm loan and send collateral to liquidator
         _cleanupLoan(tokenId, msg.sender);
 
         emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(fullValue, false), liquidatorCost, leftover, _convertInternalToExternal(reserveCost, false), _convertInternalToExternal(missing, true));
