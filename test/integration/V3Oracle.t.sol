@@ -89,7 +89,7 @@ contract V3OracleIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(vault), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, 0);
+        vault.create(TEST_NFT, Vault.CreateParams(TEST_NFT_ACCOUNT, 0, address(0), ""));
 
         (, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 8847206);
@@ -432,7 +432,7 @@ contract V3OracleIntegrationTest is Test {
         NPM.approve(address(vault), TEST_NFT);
 
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, 1000000);
+        vault.create(TEST_NFT, Vault.CreateParams(TEST_NFT_ACCOUNT, 1000000, address(0), ""));
 
         assertEq(USDC.balanceOf(TEST_NFT_ACCOUNT), 1000000);
 

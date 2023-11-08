@@ -178,13 +178,25 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     ////////////////// EXTERNAL FUNCTIONS
 
-    function create(uint256 tokenId, uint amount) external {
-        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(msg.sender, amount));
+    // params for creation of loan
+    struct CreateParams {
+        // owner of the loan
+        address owner;
+        // initial borrow amount
+        uint amount;
+        // initial transformer
+        address transformer;
+        // initial transformer data
+        bytes transformerData;
     }
 
-    function createWithPermit(uint256 tokenId, address owner, uint amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function create(uint256 tokenId, CreateParams calldata params) external {
+        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(params));
+    }
+
+    function createWithPermit(uint256 tokenId, CreateParams calldata params, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
-        nonfungiblePositionManager.safeTransferFrom(owner, address(this), tokenId, abi.encode(owner, amount));
+        nonfungiblePositionManager.safeTransferFrom(params.owner, address(this), tokenId, abi.encode(params));
     }
 
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
@@ -198,13 +210,18 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             _updateGlobalInterest();
 
             // parameters sent define owner, and initial borrow amount
-            (address owner, uint amount) = abi.decode(data, (address, uint));
+            CreateParams memory params = abi.decode(data, (CreateParams));
 
-            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
+            loans[tokenId] = Loan(0, params.owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
 
             // direct borrow if requested
-            if (amount > 0) {
-                _borrow(tokenId, amount, false, true);
+            if (params.amount > 0) {
+                this.borrow(tokenId, params.amount);
+            }
+
+            // direct transform if requested
+            if (params.transformer != address(0)) {
+                this.transform(tokenId, params.transformer, params.transformerData);
             }
         } else {
 
@@ -247,8 +264,8 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         address loanOwner = loans[tokenId].owner;
 
-        // TODO add mechanism to allow other addresses (e.g. auto range to call the transform method)
-        if (loanOwner != msg.sender && !transformApprovals[loanOwner][msg.sender]) {
+        // only the owner of the loan, the vault itself or any approved caller can call this
+        if (loanOwner != msg.sender && address(this) != msg.sender && !transformApprovals[loanOwner][msg.sender]) {
             revert NotOwner();
         }
 
@@ -284,12 +301,37 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
-        // if not in transform mode - caller must be owner
-        if (!isTransformMode) {
-            _borrow(tokenId, amount, true, true);
-        } else {
-            _borrow(tokenId, amount, false, false);
+        (uint newDebtExchangeRateX96, ) = _updateGlobalInterest();
+
+        Loan storage loan = loans[tokenId];
+
+        // if not in transfer mode - must be called from owner or 
+        if (!isTransformMode && loan.owner != msg.sender && address(this) != msg.sender) {
+            revert NotOwner();
         }
+
+        uint internalAmount = _convertExternalToInternal(amount);
+        uint newDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
+
+        loan.debtShares += newDebtShares;
+        debtSharesTotal += newDebtShares;
+
+        if (debtSharesTotal > _convertTokensToShares(globalDebtLimit, newDebtExchangeRateX96)) {
+            revert GlobalDebtLimit();
+        }
+
+        uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
+
+        // only does check health here if not in transform mode
+        if (!isTransformMode) {
+            _requireLoanIsHealthyAndCollateralValid(tokenId, debt);
+        }
+
+        // fails if not enough lendToken available
+        // if called from transform mode - send funds to transformer contract
+        IERC20(lendToken).transfer(isTransformMode ? msg.sender : loan.owner, amount);
+
+        emit Borrow(tokenId, loan.owner, amount, newDebtShares);
     }
 
     struct DecreaseLiquidityAndCollectParams {
@@ -573,39 +615,6 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     }
 
     ////////////////// INTERNAL FUNCTIONS
-
-    function _borrow(uint tokenId, uint amount, bool doOwnerCheck, bool doHealthCheck) internal {
-
-        (uint newDebtExchangeRateX96, ) = _updateGlobalInterest();
-
-        Loan storage loan = loans[tokenId];
-        if (doOwnerCheck && loan.owner != msg.sender) {
-            revert NotOwner();
-        }
-
-        uint internalAmount = _convertExternalToInternal(amount);
-        uint newDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
-
-        loan.debtShares += newDebtShares;
-        debtSharesTotal += newDebtShares;
-
-        if (debtSharesTotal > _convertTokensToShares(globalDebtLimit, newDebtExchangeRateX96)) {
-            revert GlobalDebtLimit();
-        }
-
-        uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
-
-        // only does check health here if not in transform mode
-        if (doHealthCheck) {
-            _requireLoanIsHealthyAndCollateralValid(tokenId, debt);
-        }
-
-        // fails if not enough lendToken available
-        // if called from transform mode - send funds to transformer contract
-        IERC20(lendToken).transfer(!doHealthCheck ? msg.sender : loan.owner, amount);
-
-        emit Borrow(tokenId, loan.owner, amount, newDebtShares);
-    }
 
     // checks how much balance is available - excluding reserves
     function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {
