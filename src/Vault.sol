@@ -578,6 +578,12 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     // function to configure transformer contract 
     function setTransformer(address transformer, bool active) external onlyOwner {
+
+        // protects protocol from owner trying to set dangerous transformer
+        if (transformer == address(this) || transformer == lendToken || tranformer == address(nonfungiblePositionManager)) {
+            revert TransformerNotAllowed();
+        }
+
         transformerAllowList[transformer] = active;
         emit SetTransformer(transformer, active);
     }
