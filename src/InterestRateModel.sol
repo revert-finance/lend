@@ -10,17 +10,16 @@ contract InterestRateModel is Ownable, IInterestRateModel {
     uint constant Q96 = 2 ** 96;
     uint constant YEAR_SECS = 31556925216; // taking into account leap years
 
+    event SetValues(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink);
+
     // all values are multiplied by Q96
     uint public multiplierPerSecond;
     uint public baseRatePerSecond;
     uint public jumpMultiplierPerSecond;
     uint public kink;
 
-    constructor(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink_) {
-        baseRatePerSecond = baseRatePerYear / YEAR_SECS;
-        multiplierPerSecond = multiplierPerYear / YEAR_SECS;
-        jumpMultiplierPerSecond = jumpMultiplierPerYear / YEAR_SECS;
-        kink = kink_;
+    constructor(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint _kink) {
+        setValues(baseRatePerYear, multiplierPerYear, jumpMultiplierPerYear, _kink);
     }
 
     function getUtilizationRateX96(uint cash, uint debt) public pure returns (uint) {
@@ -42,4 +41,16 @@ contract InterestRateModel is Ownable, IInterestRateModel {
         }
     }
 
+    // function to update interest rate values
+    function setValues(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint _kink) public onlyOwner {
+        
+        // TODO define hardcoded max values so configuration changes are safe 
+
+        baseRatePerSecond = baseRatePerYear / YEAR_SECS;
+        multiplierPerSecond = multiplierPerYear / YEAR_SECS;
+        jumpMultiplierPerSecond = jumpMultiplierPerYear / YEAR_SECS;
+        kink = _kink;
+
+        emit SetValues(baseRatePerYear, multiplierPerYear, jumpMultiplierPerYear, _kink);
+    }
 }

@@ -127,7 +127,7 @@ contract V3Oracle is IV3Oracle, Ownable {
         emit OracleModeUpdated(token, mode);
     }
 
-    // Updates the oracle mode for a cToken
+    // Updates the oracle mode for a given token
     // Can only be called by the owner of the contract
     function setOracleMode(address token, Mode mode) external onlyOwner {
 

@@ -44,6 +44,13 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     // all stored & internal amounts are multiplied by this multiplier to get increased precision for low precision tokens
     uint public immutable lendTokenMultiplier;
 
+    // interest rate model - immutable but configurable
+    IInterestRateModel immutable public interestRateModel;
+
+    // oracle - immutable but configurable
+    IV3Oracle immutable public oracle;
+
+
     // events
     event ExchangeRateUpdate(uint debtExchangeRateX96, uint lendExchangeRateX96);
     event Deposit(address indexed account, uint amount, uint shares);
@@ -77,9 +84,6 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     error RepayExceedsDebt();
     error CollateralFactorExceedsMax();
     error CollateralValueLimit();
-  
-    IInterestRateModel public interestRateModel;
-    IV3Oracle public oracle;
 
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
