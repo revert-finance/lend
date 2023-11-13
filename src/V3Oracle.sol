@@ -43,15 +43,8 @@ contract V3Oracle is IV3Oracle, Ownable {
     error ChainlinkPriceError();
     error PriceDifferenceExceeded();
 
-    event TokenConfigUpdated(
-        address indexed token,
-        TokenConfig config
-    );
-
-    event OracleModeUpdated(
-        address indexed token,
-        Mode mode
-    );
+    event TokenConfigUpdated(address indexed token, TokenConfig config);
+    event OracleModeUpdated(address indexed token, Mode mode);
 
     enum Mode {
         NOT_SET,

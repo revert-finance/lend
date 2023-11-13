@@ -10,6 +10,11 @@ contract InterestRateModel is Ownable, IInterestRateModel {
     uint constant Q96 = 2 ** 96;
     uint constant YEAR_SECS = 31556925216; // taking into account leap years
 
+    uint constant MAX_BASE_RATE = Q96 / 10; // 10%
+    uint constant MAX_MULTIPLIER = Q96 * 2; // 200%
+
+    error InvalidConfig();
+
     event SetValues(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink);
 
     // all values are multiplied by Q96
@@ -44,8 +49,10 @@ contract InterestRateModel is Ownable, IInterestRateModel {
     // function to update interest rate values
     function setValues(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint _kink) public onlyOwner {
         
-        // TODO define hardcoded max values so configuration changes are safe 
-
+        if (baseRatePerYear > MAX_BASE_RATE || multiplierPerYear > MAX_MULTIPLIER || jumpMultiplierPerYear > MAX_MULTIPLIER) {
+            revert InvalidConfig();
+        }
+        
         baseRatePerSecond = baseRatePerYear / YEAR_SECS;
         multiplierPerSecond = multiplierPerYear / YEAR_SECS;
         jumpMultiplierPerSecond = jumpMultiplierPerYear / YEAR_SECS;
