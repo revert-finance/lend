@@ -30,7 +30,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     uint public constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
     uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 / 10; // 10%
-    uint public constant UNDERWATER_LIQUIDATION_PENALTY_X32 = Q32 / 20; // 5%
+    uint public constant UNDERWATER_LIQUIDATION_PENALTY_X32 = Q32 / 20; // 5% TODO should be the same as max liquidiation penalty?
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
@@ -556,7 +556,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     function setTransformer(address transformer, bool active) external onlyOwner {
 
         // protects protocol from owner trying to set dangerous transformer
-        if (transformer == address(this) || transformer == lendToken || transformer == address(nonfungiblePositionManager)) {
+        if (transformer == address(0) || transformer == address(this) || transformer == lendToken || transformer == address(nonfungiblePositionManager)) {
             revert TransformerNotAllowed();
         }
 
@@ -718,25 +718,22 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
-        // remove previous collateral set - remove
-        if (previousCollateral0 > 0) {
-            tokenConfigs[token0].collateralTotal -= previousCollateral0;
+        // remove previous collateral - add new collateral
+        if (previousCollateral0 > collateral0) {
+            tokenConfigs[token0].collateralTotal -= previousCollateral0 - collateral0;
+        } else {
+            tokenConfigs[token0].collateralTotal += collateral0 - previousCollateral0;
         }
-        if (previousCollateral1 > 0) {
-            tokenConfigs[token1].collateralTotal -= previousCollateral1;
+        if (previousCollateral1 > collateral1) {
+            tokenConfigs[token1].collateralTotal -= previousCollateral1 - collateral1;
+        } else {
+            tokenConfigs[token1].collateralTotal += collateral1 - previousCollateral1;
         }
 
         // set collateral for loan
         loans[tokenId].collateral0 = collateral0;
         loans[tokenId].collateral1 = collateral1;
 
-        // add new collateral
-        if (collateral0 > 0) {
-            tokenConfigs[token0].collateralTotal += collateral0;
-        }  
-        if (collateral1 > 0) {
-            tokenConfigs[token1].collateralTotal += collateral1;
-        }      
         
         // check if current value of "estimated" used collateral is more than allowed limit
         // if collateral is decreased - never revert
