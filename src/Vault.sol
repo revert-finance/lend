@@ -59,7 +59,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     event WithdrawCollateral(uint indexed tokenId, address indexed owner, address recipient, uint amount0, uint amount1);
     event Borrow(uint indexed tokenId, address indexed owner, uint amount, uint shares);
     event Repay(uint indexed tokenId, address indexed repayer, address indexed owner, uint amount, uint shares);
-    event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed owner, uint value, uint cost, uint leftover, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
+    event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed owner, uint value, uint cost, uint amount0, uint amount1, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
 
     // admin events
     event WithdrawReserves(uint256 amount, address account);
@@ -138,7 +138,8 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     ////////////////// EXTERNAL VIEW FUNCTIONS
 
-    function protocolInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
+    /// @notice Retrieves information about the vault
+    function vaultInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _calculateGlobalInterest();
         (balance, available, reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
 
@@ -153,12 +154,16 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         reserves = _convertInternalToExternal(reserves, false);
     }
 
+    /// @notice Retrieves lending information for a specified account.
+    /// @param account The address of the account for which lending info is requested.
     function lendInfo(address account) external view returns (uint amount) {
         (, uint newLendExchangeRateX96) = _calculateGlobalInterest();
         amount = _convertSharesToTokens(balanceOf(account), newLendExchangeRateX96);
         amount = _convertInternalToExternal(amount, false);
     }
 
+    /// @notice Retrieves details of a loan identified by its token ID.
+    /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
     function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost)  {
         (uint newDebtExchangeRateX96,) = _calculateGlobalInterest();
         uint debtInternal = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
@@ -176,16 +181,25 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         liquidationCost = _convertInternalToExternal(liquidationCost, true);
     }
 
+    /// @notice Retrieves owner of UniV3 Position
     function ownerOf(uint tokenId) override external view returns (address) {
         return loans[tokenId].owner;
     }
 
     ////////////////// EXTERNAL FUNCTIONS
 
+    /// @notice Creates a new collateralized position.
+    /// @param tokenId The token ID associated with the new position.
+    /// @param params Struct containing parameters required for creating the position.
     function create(uint256 tokenId, CreateParams calldata params) external override {
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(params));
     }
 
+    /// @notice Creates a new collateralized position with a permit for token spending.
+    /// @param tokenId The token ID associated with the new position.
+    /// @param params Struct containing parameters required for creating the position.
+    /// @param deadline Timestamp until which the permit is valid.
+    /// @param v, r, s Components of the signature for the permit.
     function createWithPermit(uint256 tokenId, CreateParams calldata params, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external override {
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(params.owner, address(this), tokenId, abi.encode(params));
@@ -326,6 +340,11 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         emit Borrow(tokenId, loan.owner, amount, newDebtShares);
     }
 
+    /// @dev Decreases the liquidity of a given position and collects the resultant assets (and possibly additional fees) 
+    /// This function is not allowed during transformation (if a transformer wants to decreaseLiquidity he can call the methods directly on the NonfungiblePositionManager)
+    /// @param params Struct containing various parameters for the operation. Includes tokenId, liquidity amount, minimum asset amounts, and deadline.
+    /// @return amount0 The amount of the first type of asset collected.
+    /// @return amount1 The amount of the second type of asset collected.
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external override returns (uint256 amount0, uint256 amount1) 
     {
         // this method is not allowed during transform - can be called directly on nftmanager if needed from transform contract
@@ -484,24 +503,13 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             revert NotLiquidatable();
         }
 
-        (uint leftover, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(debt, fullValue, collateralValue);
+        (uint liquidityPercentageX96, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(debt, fullValue, collateralValue);
 
-        // take value from liquidator (rounded up)
+        // take value from liquidator (rounded up) / rounding rest is implicitly added to reserves
         liquidatorCost = _convertInternalToExternal(liquidatorCost, true);
         IERC20(lendToken).transferFrom(msg.sender, address(this), liquidatorCost);
-        // rounding rest is implicitly added to reserves
 
-        address owner = loans[tokenId].owner;
-
-        // send leftover to borrower if any
-        if (leftover > 0) {
-            leftover = _convertInternalToExternal(leftover, false);
-            IERC20(lendToken).transfer(owner, leftover);
-            // rounding rest is implicitly added to reserves
-        }
-        
         uint missing;
-
         // take remaining amount from reserves
         if (reserveCost > 0) {
             (,,uint reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
@@ -521,10 +529,15 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         debtSharesTotal -= loans[tokenId].debtShares;
 
-        // disarm loan and send collateral to liquidator
-        _cleanupLoan(tokenId, msg.sender);
+        // send promised collateral tokens to liquidator
+        (uint amount0, uint amount1) = _sendPositionValue(tokenId, liquidityPercentageX96, msg.sender);
 
-        emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(fullValue, false), liquidatorCost, leftover, _convertInternalToExternal(reserveCost, false), _convertInternalToExternal(missing, true));
+        address owner = loans[tokenId].owner;
+
+        // disarm loan and send remaining position to owner
+        _cleanupLoan(tokenId, owner);
+
+        emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(fullValue, false), liquidatorCost, amount0, amount1, _convertInternalToExternal(reserveCost, false), _convertInternalToExternal(missing, true));
     }
 
     ////////////////// ADMIN FUNCTIONS only callable by owner
@@ -609,18 +622,41 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         available = balance > reserves ? balance - reserves : 0;
     }
 
+    function _sendPositionValue(uint tokenId, uint liquidityPercentageX96, address recipient) internal returns (uint amount0, uint amount1) {
+        (,,,,,,,uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
+
+        liquidity = uint128(liquidity * uint128(liquidityPercentageX96) / Q96);
+
+        nonfungiblePositionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams(
+                tokenId, 
+                liquidity, 
+                0, 
+                0,
+                block.timestamp
+            )
+        );
+
+        (amount0, amount1) = nonfungiblePositionManager.collect(INonfungiblePositionManager.CollectParams(
+                tokenId, 
+                recipient, 
+                type(uint128).max, 
+                type(uint128).max
+            ));
+    }
+
     // cleans up loan when it is closed because of replacement, repayment or liquidation
     // send the position in its current state to owner or liquidator
-    function _cleanupLoan(uint tokenId, address reciever) internal {
+    function _cleanupLoan(uint tokenId, address recipient) internal {
         _updateCollateral(tokenId, 0, 0, 0, 0);
         delete loans[tokenId];
-        nonfungiblePositionManager.safeTransferFrom(address(this), reciever, tokenId);
+        nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId);
     }
 
     // calculates amount which needs to be payed to liquidate position
     //  if position is too valuable - leftover from liquidation is sent to position owner
     //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
-    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint leftover, uint liquidatorCost, uint reserveCost) {
+    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint liquidityPercentageX96, uint liquidatorCost, uint reserveCost) {
 
         // position value needed to pay debt at max penalty
         uint maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
@@ -633,9 +669,14 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             uint penaltyFractionX96 = (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
             uint penaltyX32 = MAX_LIQUIDATION_PENALTY_X32 * penaltyFractionX96 / Q96;
             uint penaltyValue = fullValue * (Q32 - penaltyX32) / Q32;
-            leftover = penaltyValue - debt;
+
+            liquidityPercentageX96 = penaltyValue * Q96 / maxPenaltyValue;
             liquidatorCost = penaltyValue;
         } else {
+
+            // all liquidity will be used
+            liquidityPercentageX96 = Q96;
+
             // position value needed to pay debt at underwater penalty
             uint underwaterPenaltyValue = debt * (Q32 + UNDERWATER_LIQUIDATION_PENALTY_X32) / Q32;
 

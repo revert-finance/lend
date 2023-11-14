@@ -350,11 +350,18 @@ contract VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
 
+        uint daiBalance = DAI.balanceOf(WHALE_ACCOUNT);
+        uint usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
+
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(TEST_NFT);
 
-        // liquidator now owns NFT
-        assertEq(NPM.ownerOf(TEST_NFT), WHALE_ACCOUNT);
+        // DAI (and USDC) where sent to liquidator
+        assertGt(DAI.balanceOf(WHALE_ACCOUNT), daiBalance);
+        assertGt(USDC.balanceOf(WHALE_ACCOUNT), usdcBalance);
+
+        //  NFT was returned to owner
+        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
 
         // debt is payed
         assertEq(vault.debtSharesTotal(), 0);
