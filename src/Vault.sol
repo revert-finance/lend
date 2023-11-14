@@ -182,23 +182,11 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     ////////////////// EXTERNAL FUNCTIONS
 
-    // params for creation of loan
-    struct CreateParams {
-        // owner of the loan
-        address owner;
-        // initial borrow amount
-        uint amount;
-        // initial transformer
-        address transformer;
-        // initial transformer data
-        bytes transformerData;
-    }
-
-    function create(uint256 tokenId, CreateParams calldata params) external {
+    function create(uint256 tokenId, CreateParams calldata params) external override {
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(params));
     }
 
-    function createWithPermit(uint256 tokenId, CreateParams calldata params, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function createWithPermit(uint256 tokenId, CreateParams calldata params, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external override {
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(params.owner, address(this), tokenId, abi.encode(params));
     }
@@ -250,12 +238,12 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     }
 
     // allows another address to call transform on behalf of owner
-    function approveTransform(address target, bool active) external {
+    function approveTransform(address target, bool active) external override {
         transformApprovals[msg.sender][target] = active;
     }
 
     // method which allows a contract to transform a loan by borrowing and adding collateral in an atomic fashion
-    function transform(uint tokenId, address transformer, bytes calldata data) external returns (uint) {
+    function transform(uint tokenId, address transformer, bytes calldata data) external override returns (uint) {
         if (!transformerAllowList[transformer]) {
             revert TransformerNotAllowed();
         }
@@ -338,23 +326,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         emit Borrow(tokenId, loan.owner, amount, newDebtShares);
     }
 
-    struct DecreaseLiquidityAndCollectParams {
-        uint256 tokenId;
-        uint128 liquidity;
-
-        // min amount to accept from liquidity removal
-        uint256 amount0Min;
-        uint256 amount1Min;
-
-        // amount to remove from fees additional to the liquidity amounts
-        uint128 feeAmount0; // (if uint256(128).max - all fees)
-        uint128 feeAmount1; // (if uint256(128).max - all fees)
-
-        uint256 deadline;
-        address recipient;
-    }
-
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1) 
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external override returns (uint256 amount0, uint256 amount1) 
     {
         // this method is not allowed during transform - can be called directly on nftmanager if needed from transform contract
         if (transformedTokenId > 0) {
@@ -445,7 +417,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         return amount;
     }
 
-    function deposit(uint256 amount) external {
+    function deposit(uint256 amount) external override {
         
         uint internalAmount = _convertExternalToInternal(amount);
 
@@ -466,7 +438,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     }
 
     // withdraws lent tokens. can be denominated in token or share amount
-    function withdraw(uint256 amount, bool isShare) external {
+    function withdraw(uint256 amount, bool isShare) external override {
 
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
@@ -496,7 +468,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     }
 
     // function to liquidate position - needed lendtokens depending on current price
-    function liquidate(uint tokenId) external {
+    function liquidate(uint tokenId) external override {
 
         // liquidation is not allowed during transformer mode
         if (transformedTokenId > 0) {
