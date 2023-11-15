@@ -507,14 +507,15 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         (uint liquidationValue, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(debt, fullValue, collateralValue);
 
-        // take value from liquidator (rounded up) / rounding rest is implicitly added to reserves
-        liquidatorCost = _convertInternalToExternal(liquidatorCost, true);
-        IERC20(lendToken).transferFrom(msg.sender, address(this), liquidatorCost);
-
+        // calculate reserve (before transfering liquidation money - otherwise calculation is off)
         uint missing;
         if (reserveCost > 0) {
             missing = _handleReserveLiquidation(reserveCost, newDebtExchangeRateX96, newLendExchangeRateX96);
         }
+
+        // take value from liquidator (rounded up) / rounding rest is implicitly added to reserves
+        liquidatorCost = _convertInternalToExternal(liquidatorCost, true);
+        IERC20(lendToken).transferFrom(msg.sender, address(this), liquidatorCost);
 
         debtSharesTotal -= loans[tokenId].debtShares;
 
@@ -607,7 +608,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         uint debt = _convertSharesToTokens(debtSharesTotal, debtExchangeRateX96);
         uint lent = _convertSharesToTokens(totalSupply(), lendExchangeRateX96);
 
-        reserves = balance + debt - lent;
+        reserves = balance + debt > lent ? balance + debt - lent : 0;
         available = balance > reserves ? balance - reserves : 0;
     }
 
@@ -669,7 +670,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     // calculates amount which needs to be payed to liquidate position
     //  if position is too valuable - not all of the position is liquididated - only needed amount
     //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
-    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint liquidationValue, uint liquidatorCost, uint reserveCost) {
+    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal view returns (uint liquidationValue, uint liquidatorCost, uint reserveCost) {
 
         // in a standard liquidation - liquidator pays complete debt (and get part or all of position)
         // if position has less than enough value - liquidation cost maybe less - rest is payed by protocol or lenders collectively

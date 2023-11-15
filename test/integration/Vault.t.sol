@@ -339,7 +339,7 @@ contract VaultIntegrationTest is Test {
         assertEq(fullValue, timeBased ? 9830229 : 9436666);
 
         assertGt(debt, collateralValue);
-        assertEq(liquidationCost, timeBased ? 8847229 : 8847206);
+        assertEq(liquidationCost, timeBased ? 8847229 : 8493000);
         assertEq(liquidationValue, timeBased ? 8847451 : 9436666);
 
         vm.prank(WHALE_ACCOUNT);
@@ -370,7 +370,10 @@ contract VaultIntegrationTest is Test {
 
         // protocol is solvent TODO testing with new variables
         assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 9645794);
-        //assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, timeBased ? 10000022 : 5956067);
+
+        (,uint lent,uint balance,,) = vault.vaultInfo();
+        assertEq(lent, timeBased ? 10000022 : 9645793);
+        assertEq(balance, timeBased ? 10000023 : 9645794);
     }
 
     function testCollateralValueLimit() external {
