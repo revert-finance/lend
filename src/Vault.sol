@@ -488,6 +488,23 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         emit Withdraw(msg.sender, amount, sharesToBurn);
     }
 
+    // state used in liquidation function to avoid stack too deep errors
+    struct LiquidateState {
+        uint newDebtExchangeRateX96;
+        uint newLendExchangeRateX96;
+        uint debt;
+        bool isHealthy;
+        uint liquidationValue;
+        uint liquidatorCost;
+        uint reserveCost;
+        uint missing;
+        uint fullValue;
+        uint collateralValue;
+        uint feeValue;
+        uint amount0;
+        uint amount1;
+    }
+
     // function to liquidate position - needed lendtokens depending on current price
     function liquidate(uint tokenId) external override {
 
@@ -496,38 +513,38 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             revert TransformerNotAllowed();
         }
 
-        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
+        LiquidateState memory state;
 
-        uint debt = _convertSharesToTokens(loans[tokenId].debtShares, newDebtExchangeRateX96);
+        (state.newDebtExchangeRateX96, state.newLendExchangeRateX96) = _updateGlobalInterest();
+        state.debt = _convertSharesToTokens(loans[tokenId].debtShares, state.newDebtExchangeRateX96);
 
-        (bool isHealthy, uint fullValue, uint collateralValue, uint feeValue,,) = _checkLoanIsHealthy(tokenId, debt);
-        if (isHealthy) {
+        (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue,,) = _checkLoanIsHealthy(tokenId, state.debt);
+        if (state.isHealthy) {
             revert NotLiquidatable();
         }
 
-        (uint liquidationValue, uint liquidatorCost, uint reserveCost) = _calculateLiquidation(debt, fullValue, collateralValue);
+        (state.liquidationValue, state.liquidatorCost, state.reserveCost) = _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
 
         // calculate reserve (before transfering liquidation money - otherwise calculation is off)
-        uint missing;
-        if (reserveCost > 0) {
-            missing = _handleReserveLiquidation(reserveCost, newDebtExchangeRateX96, newLendExchangeRateX96);
+        if (state.reserveCost > 0) {
+            state.missing = _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
         }
 
         // take value from liquidator (rounded up) / rounding rest is implicitly added to reserves
-        liquidatorCost = _convertInternalToExternal(liquidatorCost, true);
-        IERC20(lendToken).transferFrom(msg.sender, address(this), liquidatorCost);
+        state.liquidatorCost = _convertInternalToExternal(state.liquidatorCost, true);
+        IERC20(lendToken).transferFrom(msg.sender, address(this), state.liquidatorCost);
 
         debtSharesTotal -= loans[tokenId].debtShares;
 
         // send promised collateral tokens to liquidator
-        (uint amount0, uint amount1) = _sendPositionValue(tokenId, liquidationValue, fullValue, feeValue, msg.sender);
+        (state.amount0, state.amount1) = _sendPositionValue(tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
 
         address owner = loans[tokenId].owner;
 
         // disarm loan and send remaining position to owner
         _cleanupLoan(tokenId, owner);
 
-        emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(fullValue, false), liquidatorCost, amount0, amount1, _convertInternalToExternal(reserveCost, false), _convertInternalToExternal(missing, true));
+        emit Liquidate(tokenId, msg.sender, owner, _convertInternalToExternal(state.fullValue, false), state.liquidatorCost, state.amount0, state.amount1, _convertInternalToExternal(state.reserveCost, false), _convertInternalToExternal(state.missing, true));
     }
 
     ////////////////// ADMIN FUNCTIONS only callable by owner
