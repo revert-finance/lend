@@ -48,13 +48,13 @@ contract V3OracleIntegrationTest is Test {
 
     function testConversionChainlink() external {
 
-        (uint valueUSDC,,) = oracle.getValue(TEST_NFT, address(USDC));
+        (uint valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC));
         assertEq(valueUSDC, 9830229);
 
-        (uint valueDAI,,) = oracle.getValue(TEST_NFT, address(DAI));
+        (uint valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
         assertEq(valueDAI, 9831304996928906441);
 
-        (uint valueWETH,,) = oracle.getValue(TEST_NFT, address(WETH));
+        (uint valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
         assertEq(valueWETH, 5265311333743718);
     }
 
@@ -64,13 +64,13 @@ contract V3OracleIntegrationTest is Test {
         oracle.setOracleMode(address(DAI), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
         oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
 
-        (uint valueUSDC,,) = oracle.getValue(TEST_NFT, address(USDC));
+        (uint valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC));
         assertEq(valueUSDC, 9830274);
 
-        (uint valueDAI,,) = oracle.getValue(TEST_NFT, address(DAI));
+        (uint valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
         assertEq(valueDAI, 9830248010486057179);
 
-        (uint valueWETH,,) = oracle.getValue(TEST_NFT, address(WETH));
+        (uint valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
         assertEq(valueWETH, 5254033922056302);
     }
 

@@ -89,7 +89,7 @@ contract VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.create(TEST_NFT, IVault.CreateParams(TEST_NFT_ACCOUNT, 0, address(0), ""));
 
-        (, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 8847206);
         assertEq(fullValue, 9830229);
 
@@ -133,7 +133,7 @@ contract VaultIntegrationTest is Test {
         (, ,, , ,, ,uint128 liquidity, , , , ) = NPM.positions(TEST_NFT);
         assertEq(liquidity, 18828671372106658);
 
-        (uint debt, , uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        (uint debt, , uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 8847206);
         assertEq(collateralValue, 8847206);
 
@@ -162,7 +162,7 @@ contract VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(transformer), abi.encodeWithSelector(LeverageTransformer.leverageDown.selector, params));
 
-        (debt,,collateralValue,) = vault.loanInfo(TEST_NFT);
+        (debt,,collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 3725220);
         assertEq(collateralValue, 4235990);
 
@@ -189,7 +189,7 @@ contract VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(transformer), abi.encodeWithSelector(LeverageTransformer.leverageUp.selector, params2));
 
-        (debt,,collateralValue,) = vault.loanInfo(TEST_NFT);
+        (debt,,collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 7806090);
         assertEq(collateralValue, 7908458);
     }
@@ -295,7 +295,7 @@ contract VaultIntegrationTest is Test {
         // old loan has been removed
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(TEST_NFT);
         assertEq(liquidity, 0);
-        (uint debt, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        (uint debt, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
         assertEq(collateralValue, 0);
         assertEq(fullValue, 0);
@@ -303,7 +303,7 @@ contract VaultIntegrationTest is Test {
         // new loan has been created
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(tokenId);
         assertEq(liquidity, 19255343290647761);
-        (debt, fullValue, collateralValue,) = vault.loanInfo(tokenId);
+        (debt, fullValue, collateralValue,,) = vault.loanInfo(tokenId);
         assertEq(debt, 7847206);
         assertEq(collateralValue, 8663962);
         assertEq(fullValue, 9626625);
@@ -313,14 +313,15 @@ contract VaultIntegrationTest is Test {
 
         _setupBasicLoan(true);
 
-        (, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 8847206);
         assertEq(fullValue, 9830229);
 
         // debt is equal collateral value
-        (uint debt, ,,uint liquidationCost) = vault.loanInfo(TEST_NFT);
+        (uint debt, ,,uint liquidationCost, uint liquidationValue) = vault.loanInfo(TEST_NFT);
         assertEq(debt, collateralValue);
         assertEq(liquidationCost, 0);
+        assertEq(liquidationValue, 0);
 
         if (timeBased) {
             // wait 7 day - interest growing
@@ -331,14 +332,15 @@ contract VaultIntegrationTest is Test {
         }
         
         // debt is greater than collateral value
-        (debt, fullValue,collateralValue,liquidationCost) = vault.loanInfo(TEST_NFT);
+        (debt, fullValue,collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT);
 
         assertEq(debt, timeBased ? 8847229 : 8847206);
         assertEq(collateralValue, timeBased ? 8847206 : 8492999);
         assertEq(fullValue, timeBased ? 9830229 : 9436666);
 
         assertGt(debt, collateralValue);
-        assertEq(liquidationCost, timeBased ? 9829981 : 8847206);
+        assertEq(liquidationCost, timeBased ? 8847229 : 8847206);
+        assertEq(liquidationValue, timeBased ? 8847451 : 9436666);
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
@@ -358,7 +360,7 @@ contract VaultIntegrationTest is Test {
 
         // DAI (and USDC) where sent to liquidator
         assertGt(DAI.balanceOf(WHALE_ACCOUNT), daiBalance);
-        assertGt(USDC.balanceOf(WHALE_ACCOUNT), usdcBalance);
+        assertGt(USDC.balanceOf(WHALE_ACCOUNT), usdcBalance - liquidationCost);
 
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
@@ -367,7 +369,7 @@ contract VaultIntegrationTest is Test {
         assertEq(vault.debtSharesTotal(), 0);
 
         // protocol is solvent TODO testing with new variables
-        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 10000000);
+        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 9645794);
         //assertEq(vault.globalLendAmountX96() / Q96 + vault.globalReserveAmountX96() / Q96, timeBased ? 10000022 : 5956067);
     }
 
@@ -451,7 +453,7 @@ contract VaultIntegrationTest is Test {
         vm.warp(block.timestamp + 7 days);
 
         // verify to date values
-        (uint debt, uint fullValue, uint collateralValue,) = vault.loanInfo(TEST_NFT);
+        (uint debt, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 1000005);
         assertEq(fullValue, 9830229);
         assertEq(collateralValue, 8847206);
@@ -464,7 +466,7 @@ contract VaultIntegrationTest is Test {
         // repay partially       
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000, false);
-        (debt,,,) = vault.loanInfo(TEST_NFT);
+        (debt,,,,) = vault.loanInfo(TEST_NFT);
         (uint debtShares,,,,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 4944639801828);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
@@ -474,7 +476,7 @@ contract VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 5, false);
 
-        (debt,,,) = vault.loanInfo(TEST_NFT);
+        (debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
     }

@@ -135,9 +135,9 @@ contract V3Oracle is IV3Oracle, Ownable {
 
     // gets value of a uniswap v3 lp position in specified token
     // uses configured oracles and verfies price on second oracle - if fails - reverts
-    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint price0X06, uint price1X06) {
+    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint256 feeValue, uint price0X06, uint price1X06) {
 
-        (address token0, address token1, uint amount0, uint amount1) = getPositionBreakdown(tokenId);
+        (address token0, address token1,, uint amount0, uint amount1, uint fees0, uint fees1) = getPositionBreakdown(tokenId);
 
         uint price0X96;
         uint price1X96;
@@ -155,10 +155,8 @@ contract V3Oracle is IV3Oracle, Ownable {
             (priceTokenX96, ) = _getReferenceTokenPriceX96(token, cachedReferencePriceX96);
         }
 
-        uint value0 = price0X96 * amount0 / Q96;
-        uint value1 = price1X96 * amount1 / Q96;
-
-        value = (value0 + value1) * Q96 / priceTokenX96;
+        value = (price0X96 * (amount0 + fees0) / Q96 + price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
+        feeValue = (price0X96 * fees0 / Q96 + price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
         price0X06 = price0X96 * Q96 / priceTokenX96;
         price1X06 = price1X96 * Q96 / priceTokenX96;
     }
@@ -282,10 +280,11 @@ contract V3Oracle is IV3Oracle, Ownable {
         address token1;
     }
 
-    function getPositionBreakdown(uint256 tokenId) public view returns (address token0, address token1, uint256 amount0, uint256 amount1) {
+    function getPositionBreakdown(uint256 tokenId) public view returns (address token0, address token1, uint128 liquidity, uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
         PositionState memory state = _initializeState(tokenId);
         (token0, token1) = (state.token0, state.token1);
-        (amount0, amount1) = _getAmounts(state);
+        (amount0, amount1, fees0, fees1) = _getAmounts(state);
+        liquidity = state.liquidity;
     }
 
     function _initializeState(uint256 tokenId) internal view returns (PositionState memory state) {
@@ -301,7 +300,7 @@ contract V3Oracle is IV3Oracle, Ownable {
     }
 
     // calculate position amounts given current price/tick
-    function _getAmounts(PositionState memory state) internal view returns (uint256 amount0, uint256 amount1) {
+    function _getAmounts(PositionState memory state) internal view returns (uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
 
         if (state.liquidity > 0) {
             state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
@@ -309,13 +308,13 @@ contract V3Oracle is IV3Oracle, Ownable {
             (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(state.sqrtPriceX96, state.sqrtPriceX96Lower, state.sqrtPriceX96Upper, state.liquidity);
         }
 
-        (uint256 fees0, uint256 fees1) = _getUncollectedFees(state, state.tick);
-        amount0 += fees0 + state.tokensOwed0;
-        amount1 += fees1 + state.tokensOwed1;
+        (fees0, fees1) = _getUncollectedFees(state, state.tick);
+        fees0 += state.tokensOwed0;
+        fees1 += state.tokensOwed1;
     }
 
     // calculate uncollected fees
-    function _getUncollectedFees(PositionState memory position, int24 tick) internal view returns (uint256 fees0, uint256 fees1)
+    function _getUncollectedFees(PositionState memory position, int24 tick) internal view returns (uint128 fees0, uint128 fees1)
     {
         (uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = _getFeeGrowthInside(
             position.pool,
@@ -326,8 +325,8 @@ contract V3Oracle is IV3Oracle, Ownable {
             position.pool.feeGrowthGlobal1X128()
         );
 
-        fees0 = FullMath.mulDiv(feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128, position.liquidity, Q128);
-        fees1 = FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, Q128);
+        fees0 = uint128(FullMath.mulDiv(feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128, position.liquidity, Q128));
+        fees1 = uint128(FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, Q128));
     }
 
     // calculate fee growth for uncollected fees calculation
