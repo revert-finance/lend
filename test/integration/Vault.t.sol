@@ -67,8 +67,8 @@ contract VaultIntegrationTest is Test {
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
 
-        // limits 10 USDC each
-        vault.setLimits(10000000, 10000000);
+        // limits 15 USDC each
+        vault.setLimits(15000000, 15000000);
 
         // without reserve for now
         vault.setReserveFactor(0);
@@ -121,6 +121,49 @@ contract VaultIntegrationTest is Test {
         assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), 10000000);
     }
 
+    // fuzz testing deposit amount
+    function testDeposit(uint amount) external {
+
+        uint balance = USDC.balanceOf(WHALE_ACCOUNT);
+        vm.assume(amount <= balance * 2);
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), amount);   
+
+        uint lendLimit = vault.globalLendLimit();
+        uint multiplier = vault.lendTokenMultiplier();
+
+        vm.prank(WHALE_ACCOUNT);
+
+        if (amount > balance) {
+            vm.expectRevert("ERC20: transfer amount exceeds balance");
+        } else if (amount * multiplier > lendLimit) {
+            vm.expectRevert(Vault.GlobalLendLimit.selector);
+        }
+
+        vault.deposit(amount);
+    }
+
+    // fuzz testing withdraw amount
+    function testWithdraw(uint amount) external {
+
+        // 0 borrow loan
+        _setupBasicLoan(false);
+
+        (uint debt,uint lent,,uint available,) = vault.vaultInfo();
+
+        // allow excess amount (should not fail - just return what is available)
+        vm.assume(amount <= lent * 10);
+
+        if (amount > lent) {
+            vm.expectRevert("ERC20: burn amount exceeds balance");
+        } else if (amount > available) {
+            vm.expectRevert(Vault.InsufficientLiquidity.selector);
+        }
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.withdraw(amount, false);
+    }
 
     // fuzz testing borrow amount
     function testBorrow(uint amount) external {
@@ -129,7 +172,16 @@ contract VaultIntegrationTest is Test {
 
         (,,uint collateralValue,,) = vault.loanInfo(TEST_NFT);
 
-        vm.assume(amount <= collateralValue);
+        vm.assume(amount <= collateralValue * 10);
+
+        uint debtLimit = vault.globalDebtLimit();
+        uint multiplier = vault.lendTokenMultiplier();
+
+        if (amount * multiplier > debtLimit) {
+            vm.expectRevert(Vault.GlobalDebtLimit.selector);
+        } else if (amount > collateralValue) {
+            vm.expectRevert(Vault.CollateralFail.selector);
+        } 
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, amount);

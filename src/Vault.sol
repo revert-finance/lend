@@ -85,7 +85,6 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     error InterestNotUpdated();
     error TransformerNotAllowed();
     error TransformFailed();
-    error RepayExceedsDebt();
     error CollateralFactorExceedsMax();
     error CollateralValueLimit();
 
@@ -316,7 +315,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         Loan storage loan = loans[tokenId];
 
-        // if not in transfer mode - must be called from owner or 
+        // if not in transfer mode - must be called from owner or the vault itself
         if (!isTransformMode && loan.owner != msg.sender && address(this) != msg.sender) {
             revert NotOwner();
         }
@@ -405,10 +404,12 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         if (isShare) {
             if (amount > loan.debtShares) {
-                revert RepayExceedsDebt();
+                amount = loan.debtShares;
             }
             repayedDebtShares = amount;
             internalAmount = _convertSharesToTokens(amount, newDebtExchangeRateX96);
+
+            // overwrite amount variable with lendtoken amount
             amount = _convertInternalToExternal(debt, true);
         } else {
             internalAmount = _convertExternalToInternal(amount);
@@ -451,7 +452,9 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         IERC20(lendToken).transferFrom(msg.sender, address(this), amount);
 
         // mint corresponding amount to msg.sender
+
         uint sharesToMint = _convertTokensToShares(internalAmount, newLendExchangeRateX96);
+
         _mint(msg.sender, sharesToMint);
 
         if (totalSupply() > globalLendLimit) {
@@ -478,12 +481,13 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         }        
 
         (,uint available,) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
-        if (available < internalAmount) {
-            revert InsufficientLiquidity();
-        }
 
         // fails if not enough shares
         _burn(msg.sender, sharesToBurn);
+
+        if (available < internalAmount) {
+            revert InsufficientLiquidity();
+        }
 
         // transfer lend token - after all checks done
         IERC20(lendToken).transfer(msg.sender, amount);
@@ -625,6 +629,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {
 
         balance = _convertExternalToInternal(IERC20(lendToken).balanceOf(address(this)));
+
         uint debt = _convertSharesToTokens(debtSharesTotal, debtExchangeRateX96);
         uint lent = _convertSharesToTokens(totalSupply(), lendExchangeRateX96);
 
@@ -749,7 +754,6 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             lastDebtExchangeRateX96 = newDebtExchangeRateX96;
             lastLendExchangeRateX96 = newLendExchangeRateX96;
             lastExchangeRateUpdate = block.timestamp;
-
             emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
         } else {
             newDebtExchangeRateX96 = lastDebtExchangeRateX96;
