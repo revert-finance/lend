@@ -25,13 +25,16 @@ import "./interfaces/IInterestRateModel.sol";
 import "forge-std/console.sol";
 
 /// @title Vault for token lending / borrowing using LP positions as collateral
+/// ERC20 Token represent shares of lent tokens
 contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
 
     uint public constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
-    uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 / 10; // 10%
+
+    uint public constant MIN_LIQUIDATION_PENALTY_X32 = Q32 * 2 / 100; // 2%
+    uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 * 7 / 100; // 7%
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
@@ -175,7 +178,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         if (!isHealthy) {
             (liquidationValue,liquidationCost,) = _calculateLiquidation(debtInternal, fullValue, collateralValue);
         }
-        
+
         debt = _convertInternalToExternal(debtInternal, true);
         fullValue = _convertInternalToExternal(fullValue, false);
         collateralValue = _convertInternalToExternal(collateralValue, false);
@@ -687,7 +690,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     // calculates amount which needs to be payed to liquidate position
     //  if position is too valuable - not all of the position is liquididated - only needed amount
     //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
-    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal view returns (uint liquidationValue, uint liquidatorCost, uint reserveCost) {
+    function _calculateLiquidation(uint debt, uint fullValue, uint collateralValue) internal pure returns (uint liquidationValue, uint liquidatorCost, uint reserveCost) {
 
         // in a standard liquidation - liquidator pays complete debt (and get part or all of position)
         // if position has less than enough value - liquidation cost maybe less - rest is payed by protocol or lenders collectively
@@ -701,7 +704,8 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
             // position value when position started to be liquidatable
             uint startLiquidationValue = debt * fullValue / collateralValue;
             uint penaltyFractionX96 = (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
-            uint penaltyX32 = MAX_LIQUIDATION_PENALTY_X32 * penaltyFractionX96 / Q96;
+            uint penaltyX32 = MIN_LIQUIDATION_PENALTY_X32 + (MAX_LIQUIDATION_PENALTY_X32 - MIN_LIQUIDATION_PENALTY_X32) * penaltyFractionX96 / Q96;
+
             liquidationValue = debt * (Q32 + penaltyX32) / Q32;
         } else {
 

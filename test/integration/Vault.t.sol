@@ -64,7 +64,7 @@ contract VaultIntegrationTest is Test {
 
         vault = new Vault("Revert Lend USDC", "rlUSDC", NPM, address(USDC), interestRateModel, oracle);
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
 
         // limits 10 USDC each
@@ -119,6 +119,33 @@ contract VaultIntegrationTest is Test {
         assertEq(vault.lendInfo(WHALE_ACCOUNT), 0);
         assertEq(vault.balanceOf(TEST_NFT_ACCOUNT), 10 ether);
         assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), 10000000);
+    }
+
+
+    // fuzz testing borrow amount
+    function testBorrow(uint amount) external {
+        // 0 borrow loan
+        _setupBasicLoan(false);
+
+        (,,uint collateralValue,,) = vault.loanInfo(TEST_NFT);
+
+        vm.assume(amount <= collateralValue);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, amount);
+    }
+
+    // fuzz testing repay amount
+    function testRepay(uint amount) external {
+
+        // maximized collateral loan
+        _setupBasicLoan(true);
+
+        (,,uint debt,,) = vault.loanInfo(TEST_NFT);
+
+        vm.assume(amount <= debt);
+
+        _repay(amount);
     }
 
     function testTransformLeverage() external {
@@ -309,7 +336,15 @@ contract VaultIntegrationTest is Test {
         assertEq(fullValue, 9626625);
     }
 
-    function testLiquidation(bool timeBased) external {
+    function testLiquidationTimeBased() external {
+        _testLiquidation(true);
+    }
+
+    function testLiquidationCollateralBased() external {
+        _testLiquidation(false);
+    }
+
+    function _testLiquidation(bool timeBased) internal {
 
         _setupBasicLoan(true);
 
@@ -330,17 +365,20 @@ contract VaultIntegrationTest is Test {
             // collateral DAI value change -100%
             vm.mockCall(CHAINLINK_DAI_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0)));
         }
-        
+
         // debt is greater than collateral value
         (debt, fullValue,collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT);
 
+        // debt only grows in time based scenario
         assertEq(debt, timeBased ? 8847229 : 8847206);
+
+        // collateral value is lower in non time based scenario
         assertEq(collateralValue, timeBased ? 8847206 : 8492999);
         assertEq(fullValue, timeBased ? 9830229 : 9436666);
 
         assertGt(debt, collateralValue);
-        assertEq(liquidationCost, timeBased ? 8847229 : 8493000);
-        assertEq(liquidationValue, timeBased ? 8847451 : 9436666);
+        assertEq(liquidationCost, timeBased ? 8847229 : 8776100);
+        assertEq(liquidationValue, timeBased ? 9024203 : 9436666);
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
@@ -358,9 +396,9 @@ contract VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(TEST_NFT);
 
-        // DAI (and USDC) where sent to liquidator
-        assertGt(DAI.balanceOf(WHALE_ACCOUNT), daiBalance);
-        assertGt(USDC.balanceOf(WHALE_ACCOUNT), usdcBalance - liquidationCost);
+        // DAI and USDC where sent to liquidator
+        assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 377700173973068301 : 393607068547774684);
+        assertEq(USDC.balanceOf(WHALE_ACCOUNT) + liquidationCost - usdcBalance, timeBased ? 8646545 : 9436666);
 
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
@@ -369,11 +407,11 @@ contract VaultIntegrationTest is Test {
         assertEq(vault.debtSharesTotal(), 0);
 
         // protocol is solvent TODO testing with new variables
-        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 9645794);
+        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10000023 : 9928894);
 
         (,uint lent,uint balance,,) = vault.vaultInfo();
-        assertEq(lent, timeBased ? 10000022 : 9645793);
-        assertEq(balance, timeBased ? 10000023 : 9645794);
+        assertEq(lent, timeBased ? 10000022 : 9928893);
+        assertEq(balance, timeBased ? 10000023 : 9928894);
     }
 
     function testCollateralValueLimit() external {
