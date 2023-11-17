@@ -594,6 +594,10 @@ contract VaultIntegrationTest is Test {
         _deposit(2000000, WHALE_ACCOUNT);
         _deposit(1000000, TEST_NFT_ACCOUNT_2);
 
+        // gift some USDC so later he may repay all
+        vm.prank(WHALE_ACCOUNT);
+        USDC.transfer(TEST_NFT_ACCOUNT, 1000000);
+
         _createAndBorrow(TEST_NFT, TEST_NFT_ACCOUNT, 1000000);
         _createAndBorrow(TEST_NFT_2, TEST_NFT_ACCOUNT_2, 2000000);
 
@@ -610,10 +614,49 @@ contract VaultIntegrationTest is Test {
         assertEq(vault.lendInfo(WHALE_ACCOUNT), 2009889);
         assertEq(vault.lendInfo(TEST_NFT_ACCOUNT_2), 2004944);
 
+        // repay debts
         (uint debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 1004945);
-        (debt,,,,) = vault.loanInfo(TEST_NFT_2);
-        assertEq(debt, 2009890);        
+        _repay(debt, TEST_NFT_ACCOUNT, TEST_NFT);
 
+        (debt,,,,) = vault.loanInfo(TEST_NFT_2);
+        assertEq(debt, 2009890);
+        _repay(debt, TEST_NFT_ACCOUNT_2, TEST_NFT_2);
+
+        // withdraw shares
+        uint shares = vault.balanceOf(WHALE_ACCOUNT);
+        vm.prank(WHALE_ACCOUNT);
+        vault.withdraw(shares, true);
+
+        shares = vault.balanceOf(TEST_NFT_ACCOUNT_2);
+        vm.prank(TEST_NFT_ACCOUNT_2);
+        vault.withdraw(shares, true);
+
+        // check remaining 
+        assertEq(USDC.balanceOf(address(vault)), 2);
+
+        uint lent;
+        uint balance;
+        uint available;
+        uint reserves;
+        (debt,lent,balance,available,reserves) = vault.vaultInfo();
+        assertEq(debt, 0);
+        assertEq(lent, 0);
+        assertEq(balance, 2);
+        assertEq(available, 0);
+        assertEq(reserves, 2);
+        assertEq(USDC.balanceOf(address(vault)), 2);
+
+        // get all out
+        vault.withdrawReserves(reserves, address(this));
+
+        (debt,lent,balance,available,reserves) = vault.vaultInfo();
+        
+        assertEq(debt, 0);
+        assertEq(lent, 0);
+        assertEq(balance, 0);
+        assertEq(available, 0);
+        assertEq(reserves, 0);
+        assertEq(USDC.balanceOf(address(vault)), 0);
     }
 }
