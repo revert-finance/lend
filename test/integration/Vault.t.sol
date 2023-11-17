@@ -100,11 +100,17 @@ contract VaultIntegrationTest is Test {
         }
     }
 
-    function _repay(uint amount, address account, uint tokenId) internal {
+    function _repay(uint amount, address account, uint tokenId, bool complete) internal {
         vm.prank(account);
         USDC.approve(address(vault), amount);
-        vm.prank(account);
-        vault.repay(tokenId, amount, false);
+        if (complete) {
+            (uint debtShares,,,,) = vault.loans(tokenId);
+            vm.prank(account);
+            vault.repay(tokenId, debtShares, true);
+        } else {
+            vm.prank(account);
+            vault.repay(tokenId, amount, false);
+        }
     }
 
     function _deposit(uint amount, address account) internal {
@@ -140,7 +146,7 @@ contract VaultIntegrationTest is Test {
     function testDeposit(uint amount) external {
 
         uint balance = USDC.balanceOf(WHALE_ACCOUNT);
-        vm.assume(amount <= balance * 2);
+        vm.assume(amount <= balance * 10);
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), amount);   
@@ -160,24 +166,27 @@ contract VaultIntegrationTest is Test {
     }
 
     // fuzz testing withdraw amount
-    function testWithdraw(uint amount) external {
+    function testWithdraw(uint amount, bool isShare) external {
 
         // 0 borrow loan
         _setupBasicLoan(false);
 
-        (,uint lent,,uint available,) = vault.vaultInfo();
+        (,,,uint available,) = vault.vaultInfo();
+        uint lent = vault.lendInfo(WHALE_ACCOUNT);
+        uint lentShares = vault.balanceOf(WHALE_ACCOUNT);
 
-        // allow excess amount (should not fail - just return what is available)
-        vm.assume(amount <= lent * 10);
+        if (isShare) {
+            vm.assume(amount <= lentShares * 10);
+        } else {
+            vm.assume(amount <= lent * 10);
+        }
 
-        if (amount > lent) {
+        if (isShare && amount > lentShares || !isShare && amount > lent) {
             vm.expectRevert("ERC20: burn amount exceeds balance");
-        } else if (amount > available) {
-            vm.expectRevert(Vault.InsufficientLiquidity.selector);
         }
 
         vm.prank(WHALE_ACCOUNT);
-        vault.withdraw(amount, false);
+        vault.withdraw(amount, isShare);
     }
 
     // fuzz testing borrow amount
@@ -203,16 +212,29 @@ contract VaultIntegrationTest is Test {
     }
 
     // fuzz testing repay amount
-    function testRepay(uint amount) external {
+    function testRepay(uint amount, bool isShare) external {
 
         // maximized collateral loan
         _setupBasicLoan(true);
 
         (,,uint debt,,) = vault.loanInfo(TEST_NFT);
+        (uint debtShares,,,,) = vault.loans(TEST_NFT);
 
-        vm.assume(amount <= debt);
+        if (isShare) {
+            vm.assume(amount <= debtShares * 10);
+        } else {
+            vm.assume(amount <= debt * 10);
+        }
+        
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), debt);
+       
+        if (isShare && amount > debtShares || !isShare && amount > debt) {
+            vm.expectRevert(Vault.RepayExceedsDebt.selector);
+        } 
 
-        _repay(amount, TEST_NFT_ACCOUNT, TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, amount, isShare);
     }
 
     function testTransformLeverage() external {
@@ -329,7 +351,7 @@ contract VaultIntegrationTest is Test {
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
         // needs to repay a part first - to get fees
-        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT);
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
@@ -379,7 +401,7 @@ contract VaultIntegrationTest is Test {
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
         // needs to repay a part first
-        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT);
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
         vm.prank(TEST_NFT_ACCOUNT);
         uint tokenId = vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
@@ -581,7 +603,7 @@ contract VaultIntegrationTest is Test {
 
         // repay full  
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.repay(TEST_NFT, 4945, false);
+        vault.repay(TEST_NFT, debtShares, true);
 
         (debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
@@ -615,12 +637,12 @@ contract VaultIntegrationTest is Test {
 
         // repay debts
         (uint debt,,,,) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, 1004945);
-        _repay(debt, TEST_NFT_ACCOUNT, TEST_NFT);
+        assertEq(debt, 1004945);        
+        _repay(debt, TEST_NFT_ACCOUNT, TEST_NFT, true);
 
         (debt,,,,) = vault.loanInfo(TEST_NFT_2);
         assertEq(debt, 2009890);
-        _repay(debt, TEST_NFT_ACCOUNT_2, TEST_NFT_2);
+        _repay(debt, TEST_NFT_ACCOUNT_2, TEST_NFT_2, true);
 
         // withdraw shares
         uint shares = vault.balanceOf(WHALE_ACCOUNT);

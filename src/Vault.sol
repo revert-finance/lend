@@ -45,7 +45,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     /// @notice Token which is lent in this vault
     address public immutable override lendToken;
 
-    // all stored & internal amounts are multiplied by this multiplier to get increased precision for low precision tokens
+    // all stored & internal amounts are multiplied by this multiplier to get increased precision for low precision lend tokens
     uint public immutable lendTokenMultiplier;
 
     // interest rate model - immutable but configurable
@@ -83,6 +83,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     error InsufficientLiquidity();
     error NotLiquidatable();
     error InterestNotUpdated();
+    error RepayExceedsDebt();
     error TransformerNotAllowed();
     error TransformFailed();
     error CollateralFactorExceedsMax();
@@ -397,33 +398,29 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         Loan storage loan = loans[tokenId];
 
-        uint debt = _convertSharesToTokens(loan.debtShares, newDebtExchangeRateX96);
+        uint currentDebtShares = loan.debtShares;
+        uint debt = _convertSharesToTokens(currentDebtShares, newDebtExchangeRateX96);
 
         uint repayedDebtShares;
         uint internalAmount;
 
         if (isShare) {
-            if (amount > loan.debtShares) {
-                amount = loan.debtShares;
-            }
             repayedDebtShares = amount;
             internalAmount = _convertSharesToTokens(amount, newDebtExchangeRateX96);
-
             // overwrite amount variable with lendtoken amount
-            amount = _convertInternalToExternal(debt, true);
+            amount = _convertInternalToExternal(internalAmount, true);
         } else {
             internalAmount = _convertExternalToInternal(amount);
-            if (internalAmount > debt) {
-                // repay all
-                amount = _convertInternalToExternal(debt, true);
-                // rounding rest is implicitly added to reserves
-                repayedDebtShares = loan.debtShares;
-            } else {
-                repayedDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
-            }
-        }    
+            repayedDebtShares = _convertTokensToShares(internalAmount, newDebtExchangeRateX96);
+        }
+
+        // fails if too much repayed
+        if (repayedDebtShares > currentDebtShares) {
+            revert RepayExceedsDebt();
+        }
 
         if (amount > 0) {
+            // fails if not enough token approved
             IERC20(lendToken).transferFrom(msg.sender, address(this), amount);
         }
 
@@ -433,7 +430,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         address owner = loan.owner;
 
         // if fully repayed
-        if (loan.debtShares == 0) {
+        if (currentDebtShares == repayedDebtShares) {
             _cleanupLoan(tokenId, owner);
         }
 
