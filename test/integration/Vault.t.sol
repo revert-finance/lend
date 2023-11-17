@@ -470,12 +470,11 @@ contract VaultIntegrationTest is Test {
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
 
-        // debt is payed
+        // all debt is payed
         assertEq(vault.debtSharesTotal(), 0);
 
-        // protocol is solvent TODO testing with new variables
+        // protocol is solvent
         assertEq(USDC.balanceOf(address(vault)), timeBased ? 10022441 : 9928894);
-
         (,uint lent,uint balance,,) = vault.vaultInfo();
         assertEq(lent, timeBased ? 10022440 : 9928893);
         assertEq(balance, timeBased ? 10022441 : 9928894);

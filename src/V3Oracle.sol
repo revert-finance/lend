@@ -263,6 +263,8 @@ contract V3Oracle is IV3Oracle, Ownable {
 
     struct PositionState {
         uint256 tokenId;
+        address token0;
+        address token1;
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
@@ -276,8 +278,6 @@ contract V3Oracle is IV3Oracle, Ownable {
         int24 tick;
         uint160 sqrtPriceX96Lower;
         uint160 sqrtPriceX96Upper;
-        address token0;
-        address token1;
     }
 
     function getPositionBreakdown(uint256 tokenId) public view returns (address token0, address token1, uint128 liquidity, uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
@@ -287,16 +287,21 @@ contract V3Oracle is IV3Oracle, Ownable {
         liquidity = state.liquidity;
     }
 
-    function _initializeState(uint256 tokenId) internal view returns (PositionState memory state) {
+    function _initializeState(uint tokenId) internal view returns (PositionState memory state) {
+        (,,address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint feeGrowthInside0LastX128, uint feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(tokenId);
         state.tokenId = tokenId;
-
-        // TODO somehow get rid of stack to deep error without doing 2 calls
-        (,,state.token0,state.token1,state.fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-        (,,,,,state.tickLower,state.tickUpper,state.liquidity,state.feeGrowthInside0LastX128,state.feeGrowthInside1LastX128,state.tokensOwed0,state.tokensOwed1) = nonfungiblePositionManager.positions(state.tokenId);
-
-        state.pool = _getPool(state.token0, state.token1, state.fee);
+        state.token0 = token0;
+        state.token1 = token1;
+        state.fee = fee;
+        state.tickLower = tickLower;
+        state.tickUpper = tickUpper;
+        state.liquidity = liquidity;
+        state.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+        state.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
+        state.tokensOwed0 = tokensOwed0;
+        state.tokensOwed1 = tokensOwed1;
+        state.pool = _getPool(token0, token1, fee);
         (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
-        return state;
     }
 
     // calculate position amounts given current price/tick

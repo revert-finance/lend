@@ -749,6 +749,8 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     }
 
     function _updateGlobalInterest() internal returns (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) {
+
+        // only needs to be updated once per block (when needed)
         if (block.timestamp > lastExchangeRateUpdate) {
             (newDebtExchangeRateX96, newLendExchangeRateX96) = _calculateGlobalInterest();
             lastDebtExchangeRateX96 = newDebtExchangeRateX96;
