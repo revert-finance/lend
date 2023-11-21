@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "permit2/interfaces/IPermit2.sol";
+import "../../lib/IUniversalRouter.sol";
 
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
@@ -61,12 +62,12 @@ contract V3Utils is IERC721Receiver {
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
     /// @param _zeroxRouter 0x Exchange Proxy
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter, IPermit2 _permit2) {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter, address _permit2) {
         weth = IWETH9(_nonfungiblePositionManager.WETH9());
         nonfungiblePositionManager = _nonfungiblePositionManager;
         zeroxRouter = _zeroxRouter;
         universalRouter = _universalRouter;
-        permit2 = _permit2;
+        permit2 = IPermit2(_permit2);
     }
 
     /// @notice Action which should be executed on provided NFT
@@ -84,7 +85,9 @@ contract V3Utils is IERC721Receiver {
 
     // swap data for uni - approval must be handled to permit2
     struct UniversalRouterData {
-        bytes data;
+        bytes commands;
+        bytes[] inputs;
+        uint256 deadline;
     }
 
     /// @notice Complete description of what should be executed on provided NFT - different fields are used depending on specified WhatToDo 
@@ -598,7 +601,7 @@ contract V3Utils is IERC721Receiver {
                 }
                 
                 permit2.approve(address(tokenIn), universalRouter, uint160(amountIn), uint48(block.timestamp));
-                universalRouter.execute(data.data);
+                IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
             } else {
                 revert WrongContract();
             }
