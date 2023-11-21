@@ -596,7 +596,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         emit SetLimits(_globalLendLimit, _globalDebtLimit);
     }
 
-    // function to set reserve factor - percentage difference between Debting and lending interest
+    // function to set reserve factor - percentage difference between debt and lend interest
     function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
         reserveFactorX32 = _reserveFactorX32;
         emit SetReserveFactor(_reserveFactorX32);

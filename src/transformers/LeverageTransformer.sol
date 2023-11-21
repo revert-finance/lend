@@ -8,6 +8,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../interfaces/IVault.sol";
 
+/// @title LeverageTransformer
+/// @notice Functionality to leverage / deleverage positions direcly in one tx
 contract LeverageTransformer {
 
     error SwapFailed();
@@ -35,15 +37,13 @@ contract LeverageTransformer {
         // how much to borrow
         uint borrowAmount;
 
-        // amountIn0 is used for swap and also as minAmount0 for decreased liquidity + collected fees
+        // how much of borrowed lend token should be swapped to token0
         uint256 amountIn0;
-        // if lendtoken needs to be swapped to token0 - set values
         uint256 amountOut0Min;
         bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
 
-        // amountIn1 is used for swap and also as minAmount1 for decreased liquidity + collected fees
+        // how much of borrowed lend token should be swapped to token1
         uint256 amountIn1;
-        // if lendtoken needs to be swapped to token1 - set values
         uint256 amountOut1Min;
         bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
 
@@ -120,15 +120,13 @@ contract LeverageTransformer {
         uint128 feeAmount0;
         uint128 feeAmount1;
 
-        // amountIn0 is used for swap and also as minAmount0 for decreased liquidity + collected fees
+        // how much of token0 should be swapped to lend token
         uint256 amountIn0;
-        // if token0 needs to be swapped to targetToken - set values
         uint256 amountOut0Min;
         bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
 
-        // amountIn1 is used for swap and also as minAmount1 for decreased liquidity + collected fees
+        // how much of token1 should be swapped to lend token
         uint256 amountIn1;
-        // if token1 needs to be swapped to targetToken - set values
         uint256 amountOut1Min;
         bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
 
