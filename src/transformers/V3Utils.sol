@@ -8,6 +8,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
+import "permit2/interfaces/IPermit2.sol";
+
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
 /// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
@@ -27,6 +29,10 @@ contract V3Utils is IERC721Receiver {
 
     /// @notice Uniswap Universal Router
     address immutable public universalRouter;
+
+    // @notice Permit2 contract
+    IPermit2 immutable public permit2;
+
 
     // error types
     error Unauthorized();
@@ -54,12 +60,13 @@ contract V3Utils is IERC721Receiver {
 
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
-    /// @param _swapRouter 0x Exchange Proxy
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) {
+    /// @param _zeroxRouter 0x Exchange Proxy
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter, IPermit2 _permit2) {
         weth = IWETH9(_nonfungiblePositionManager.WETH9());
         nonfungiblePositionManager = _nonfungiblePositionManager;
         zeroxRouter = _zeroxRouter;
         universalRouter = _universalRouter;
+        permit2 = _permit2;
     }
 
     /// @notice Action which should be executed on provided NFT
@@ -75,9 +82,8 @@ contract V3Utils is IERC721Receiver {
         bytes data;
     }
 
-    // swap data for uni
+    // swap data for uni - approval must be handled to permit2
     struct UniversalRouterData {
-        
         bytes data;
     }
 
@@ -561,24 +567,42 @@ contract V3Utils is IERC721Receiver {
     // returns token amounts deltas after swap
     function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 amountOutMin, bytes memory swapData) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
         if (amountIn != 0 && swapData.length != 0 && address(tokenOut) != address(0)) {
+
             uint256 balanceInBefore = tokenIn.balanceOf(address(this));
             uint256 balanceOutBefore = tokenOut.balanceOf(address(this));
 
             // get router specific swap data
-            (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
+            (address router, bytes memory routerData) = abi.decode(swapData, (address, bytes));
 
-            // approve needed amount
-            SafeERC20.safeApprove(tokenIn, allowanceTarget, amountIn);
+            if (router == zeroxRouter) {
+                ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
 
-            // execute swap
-            (bool success,) = swapRouter.call(data);
-            if (!success) {
-                revert SwapFailed();
+                 // approve needed amount
+                SafeERC20.safeApprove(tokenIn, data.allowanceTarget, amountIn);
+
+                // execute swap
+                (bool success,) = zeroxRouter.call(data.data);
+                if (!success) {
+                    revert SwapFailed();
+                }
+
+                // reset approval
+                SafeERC20.safeApprove(tokenIn, data.allowanceTarget, 0);
+            } else if (router == universalRouter) {
+
+                UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
+
+                // only approve once to permit2
+                if (tokenIn.allowance(address(this), address(permit2)) == 0) {
+                    SafeERC20.safeApprove(tokenIn, address(permit2), type(uint256).max);
+                }
+                
+                permit2.approve(address(tokenIn), universalRouter, uint160(amountIn), uint48(block.timestamp));
+                universalRouter.execute(data.data);
+            } else {
+                revert WrongContract();
             }
-
-            // reset approval
-            SafeERC20.safeApprove(tokenIn, allowanceTarget, 0);
-
+           
             uint256 balanceInAfter = tokenIn.balanceOf(address(this));
             uint256 balanceOutAfter = tokenOut.balanceOf(address(this));
 

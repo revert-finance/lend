@@ -29,6 +29,8 @@ contract VaultIntegrationTest is Test {
 
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
+    address UNIVERSAL_ROUTER = 0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B;
+    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     address constant CHAINLINK_USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address constant CHAINLINK_DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
@@ -312,7 +314,7 @@ contract VaultIntegrationTest is Test {
 
         _setupBasicLoan(true);
 
-        V3Utils v3Utils = new V3Utils(NPM, EX0x);
+        V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
         vault.setTransformer(address(v3Utils), true);
 
         // test transforming with v3utils
@@ -359,7 +361,7 @@ contract VaultIntegrationTest is Test {
 
         _setupBasicLoan(true);
 
-        V3Utils v3Utils = new V3Utils(NPM, EX0x);
+        V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
         vault.setTransformer(address(v3Utils), true);
 
         (, ,, , ,, ,uint128 liquidity, , , , ) = NPM.positions(TEST_NFT);
