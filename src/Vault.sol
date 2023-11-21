@@ -36,6 +36,8 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     uint public constant MIN_LIQUIDATION_PENALTY_X32 = Q32 * 2 / 100; // 2%
     uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 * 7 / 100; // 7%
 
+    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
+
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
@@ -88,6 +90,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     error TransformFailed();
     error CollateralFactorExceedsMax();
     error CollateralValueLimit();
+    error ConfigError();
 
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
@@ -100,7 +103,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
     uint32 public reserveFactorX32;
 
     // percentage of lend amount which needs to be in reserves before withdrawn
-    uint32 public reserveProtectionFactorX32;
+    uint32 public reserveProtectionFactorX32 = MIN_RESERVE_PROTECTION_FACTOR_X32;
 
     // total of debt shares - increases when borrow - decreases when repay
     uint public debtSharesTotal;
@@ -399,11 +402,9 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
         Loan storage loan = loans[tokenId];
 
         uint currentDebtShares = loan.debtShares;
-        uint debt = _convertSharesToTokens(currentDebtShares, newDebtExchangeRateX96);
 
         uint repayedDebtShares;
         uint internalAmount;
-
         if (isShare) {
             repayedDebtShares = amount;
             internalAmount = _convertSharesToTokens(amount, newDebtExchangeRateX96);
@@ -581,7 +582,7 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
         // protects protocol from owner trying to set dangerous transformer
         if (transformer == address(0) || transformer == address(this) || transformer == lendToken || transformer == address(nonfungiblePositionManager)) {
-            revert TransformerNotAllowed();
+            revert ConfigError();
         }
 
         transformerAllowList[transformer] = active;
@@ -604,6 +605,9 @@ contract Vault is IVault, ERC20, Ownable, IERC721Receiver {
 
     // function to set reserve protection factor - percentage of globalLendAmount which can't be withdrawn by owner
     function setReserveProtectionFactor(uint32 _reserveProtectionFactorX32) external onlyOwner {
+        if (_reserveProtectionFactorX32 < MIN_RESERVE_PROTECTION_FACTOR_X32) {
+            revert ConfigError();
+        }
         reserveProtectionFactorX32 = _reserveProtectionFactorX32;
         emit SetReserveProtectionFactor(_reserveProtectionFactorX32);
     }

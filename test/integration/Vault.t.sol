@@ -75,7 +75,6 @@ contract VaultIntegrationTest is Test {
 
         // without reserve for now
         vault.setReserveFactor(0);
-        vault.setReserveProtectionFactor(0);
     }
 
     function _setupBasicLoan(bool borrowMax) internal {
@@ -171,7 +170,6 @@ contract VaultIntegrationTest is Test {
         // 0 borrow loan
         _setupBasicLoan(false);
 
-        (,,,uint available,) = vault.vaultInfo();
         uint lent = vault.lendInfo(WHALE_ACCOUNT);
         uint lentShares = vault.balanceOf(WHALE_ACCOUNT);
 
