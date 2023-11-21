@@ -23,7 +23,10 @@ contract V3Utils is IERC721Receiver {
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
 
     /// @notice 0x Exchange Proxy
-    address immutable public swapRouter;
+    address immutable public zeroxRouter;
+
+    /// @notice Uniswap Universal Router
+    address immutable public universalRouter;
 
     // error types
     error Unauthorized();
@@ -52,10 +55,11 @@ contract V3Utils is IERC721Receiver {
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
     /// @param _swapRouter 0x Exchange Proxy
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter) {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) {
         weth = IWETH9(_nonfungiblePositionManager.WETH9());
         nonfungiblePositionManager = _nonfungiblePositionManager;
-        swapRouter = _swapRouter;
+        zeroxRouter = _zeroxRouter;
+        universalRouter = _universalRouter;
     }
 
     /// @notice Action which should be executed on provided NFT
@@ -63,6 +67,18 @@ contract V3Utils is IERC721Receiver {
         CHANGE_RANGE,
         WITHDRAW_AND_COLLECT_AND_SWAP,
         COMPOUND_FEES
+    }
+
+    // swap data for 0x
+    struct ZeroxRouterData {
+        address allowanceTarget;
+        bytes data;
+    }
+
+    // swap data for uni
+    struct UniversalRouterData {
+        
+        bytes data;
     }
 
     /// @notice Complete description of what should be executed on provided NFT - different fields are used depending on specified WhatToDo 
