@@ -3,4 +3,3 @@
 @uniswap/v3-periphery/=lib/v3-periphery
 v3-core/=lib/v3-core/contracts
 v3-periphery/=lib/v3-periphery/contracts
-permit2/=lib/permit2/src
