@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 interface IVault {
 
-    function lendToken() external returns (address);
+    function asset() external returns (address);
     function ownerOf(uint tokenId) external returns (address);
 
     // params for creation of loan
@@ -45,9 +45,6 @@ interface IVault {
 
     function borrow(uint tokenId, uint amount) external;
     function repay(uint tokenId, uint amount, bool isShare) external returns (uint);
-
-    function deposit(uint256 amount) external;
-    function withdraw(uint256 amount, bool isShare) external;
 
     function liquidate(uint tokenId) external;
 }

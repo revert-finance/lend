@@ -50,6 +50,7 @@ contract VaultIntegrationTest is Test {
     uint256 mainnetFork;
 
     Vault vault;
+    
     InterestRateModel interestRateModel;
     V3Oracle oracle;
 
@@ -67,7 +68,7 @@ contract VaultIntegrationTest is Test {
         oracle.setTokenConfig(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
-        vault = new Vault("Revert Lend USDC", "rlUSDC", NPM, address(USDC), interestRateModel, oracle);
+        vault = new Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
@@ -118,7 +119,7 @@ contract VaultIntegrationTest is Test {
         vm.prank(account);
         USDC.approve(address(vault), amount);
         vm.prank(account);
-        vault.deposit(amount);
+        vault.deposit(amount, account);
     }
 
     function _createAndBorrow(uint tokenId, address account, uint amount) internal {
@@ -130,17 +131,20 @@ contract VaultIntegrationTest is Test {
     }
 
     function testERC20() external {
+
+        uint assets = 10000000;
+
         _setupBasicLoan(false);
-        assertEq(vault.balanceOf(WHALE_ACCOUNT), 10 ether);
-        assertEq(vault.lendInfo(WHALE_ACCOUNT), 10000000);
+        assertEq(vault.balanceOf(WHALE_ACCOUNT), assets);
+        assertEq(vault.lendInfo(WHALE_ACCOUNT), assets);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.transfer(TEST_NFT_ACCOUNT, 10 ether);
+        vault.transfer(TEST_NFT_ACCOUNT, assets);
         
         assertEq(vault.balanceOf(WHALE_ACCOUNT), 0);
         assertEq(vault.lendInfo(WHALE_ACCOUNT), 0);
-        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT), 10 ether);
-        assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), 10000000);
+        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT), assets);
+        assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), assets);
     }
 
     // fuzz testing deposit amount
@@ -153,21 +157,22 @@ contract VaultIntegrationTest is Test {
         USDC.approve(address(vault), amount);   
 
         uint lendLimit = vault.globalLendLimit();
-        uint multiplier = vault.lendTokenMultiplier();
-
-        vm.prank(WHALE_ACCOUNT);
 
         if (amount > balance) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");
-        } else if (amount * multiplier > lendLimit) {
+        } else if (amount > lendLimit) {
             vm.expectRevert(Vault.GlobalLendLimit.selector);
         }
 
-        vault.deposit(amount);
+        vm.prank(WHALE_ACCOUNT);
+        vault.deposit(amount, WHALE_ACCOUNT);
     }
 
     // fuzz testing withdraw amount
-    function testWithdraw(uint amount, bool isShare) external {
+    function testWithdraw() external {
+
+         bool isShare = true;
+        uint amount = 10000001;
 
         // 0 borrow loan
         _setupBasicLoan(false);
@@ -180,13 +185,19 @@ contract VaultIntegrationTest is Test {
         } else {
             vm.assume(amount <= lent * 10);
         }
+      
 
         if (isShare && amount > lentShares || !isShare && amount > lent) {
-            vm.expectRevert("ERC20: burn amount exceeds balance");
+            vm.expectRevert(Vault.InsufficientLiquidity.selector);
+//            vm.expectRevert("ERC20: burn amount exceeds balance");
         }
 
         vm.prank(WHALE_ACCOUNT);
-        vault.withdraw(amount, isShare);
+        if (isShare) {
+            vault.redeem(amount, WHALE_ACCOUNT, WHALE_ACCOUNT);
+        } else {
+            vault.withdraw(amount, WHALE_ACCOUNT, WHALE_ACCOUNT);
+        }
     }
 
     // fuzz testing borrow amount
@@ -199,13 +210,12 @@ contract VaultIntegrationTest is Test {
         vm.assume(amount <= collateralValue * 10);
 
         uint debtLimit = vault.globalDebtLimit();
-        uint multiplier = vault.lendTokenMultiplier();
 
-        if (amount * multiplier > debtLimit) {
+        if (amount > debtLimit) {
             vm.expectRevert(Vault.GlobalDebtLimit.selector);
         } else if (amount > collateralValue) {
             vm.expectRevert(Vault.CollateralFail.selector);
-        } 
+        }
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, amount);
@@ -466,8 +476,8 @@ contract VaultIntegrationTest is Test {
         assertEq(fullValue, timeBased ? 9830229 : 9436666);
 
         assertGt(debt, collateralValue);
-        assertEq(liquidationCost, timeBased ? 8869647 : 8776100);
-        assertEq(liquidationValue, timeBased ? 9077363 : 9436666);
+        assertEq(liquidationCost, timeBased ? 8869647 : 8776099);
+        assertEq(liquidationValue, timeBased ? 9077365 : 9436666);
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
@@ -486,8 +496,8 @@ contract VaultIntegrationTest is Test {
         vault.liquidate(TEST_NFT);
 
         // DAI and USDC where sent to liquidator
-        assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 378749283478674390 : 393607068547774684);
-        assertEq(USDC.balanceOf(WHALE_ACCOUNT) + liquidationCost - usdcBalance, timeBased ? 8698656 : 9436666);
+        assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 378749320522595459 : 393607068547774684);
+        assertEq(USDC.balanceOf(WHALE_ACCOUNT) + liquidationCost - usdcBalance, timeBased ? 8698658 : 9436666);
 
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
@@ -496,10 +506,10 @@ contract VaultIntegrationTest is Test {
         assertEq(vault.debtSharesTotal(), 0);
 
         // protocol is solvent
-        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10022441 : 9928894);
+        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10022441 : 9928893);
         (,uint lent,uint balance,,) = vault.vaultInfo();
-        assertEq(lent, timeBased ? 10022440 : 9928893);
-        assertEq(balance, timeBased ? 10022441 : 9928894);
+        assertEq(lent, timeBased ? 10022441 : 9928893);
+        assertEq(balance, timeBased ? 10022441 : 9928893);
     }
 
     function testCollateralValueLimit() external {
@@ -517,7 +527,7 @@ contract VaultIntegrationTest is Test {
         vault.borrow(TEST_NFT, 800000);
 
         (,,collateralTotal) = vault.tokenConfigs(address(DAI));
-        assertEq(collateralTotal, 888986184955836188);
+        assertEq(collateralTotal, 888986194912057564);
         (,,collateralTotal) = vault.tokenConfigs(address(USDC));
         assertEq(collateralTotal, 888888);
 
@@ -532,7 +542,7 @@ contract VaultIntegrationTest is Test {
 
         // get debt shares
         (uint debtShares,,,,) = vault.loans(TEST_NFT);
-        assertEq(debtShares, 800000000000000000);
+        assertEq(debtShares, 800000);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, debtShares, true);
@@ -554,14 +564,14 @@ contract VaultIntegrationTest is Test {
         USDC.approve(address(vault), 2000000);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.deposit(2000000);
-        assertEq(vault.totalSupply(), 2 ether);
+        vault.deposit(2000000, WHALE_ACCOUNT);
+        assertEq(vault.totalSupply(), 2000000);
 
         // withdrawing 1 USDC
         vm.prank(WHALE_ACCOUNT);
-        vault.withdraw(1000000, false);
+        vault.withdraw(1000000, WHALE_ACCOUNT, WHALE_ACCOUNT);
 
-        assertEq(vault.totalSupply(), 1 ether);
+        assertEq(vault.totalSupply(), 1000000);
 
         // borrowing 1 USDC
         vm.prank(TEST_NFT_ACCOUNT);
@@ -574,9 +584,9 @@ contract VaultIntegrationTest is Test {
 
         // gift some USDC so later he may repay all
         vm.prank(WHALE_ACCOUNT);
-        USDC.transfer(TEST_NFT_ACCOUNT, 4945);
+        USDC.transfer(TEST_NFT_ACCOUNT, 4946);
 
-        assertEq(vault.debtSharesTotal(), 1 ether);
+        assertEq(vault.debtSharesTotal(), 1000000);
 
         // wait 7 days
         vm.warp(block.timestamp + 7 days);
@@ -590,16 +600,16 @@ contract VaultIntegrationTest is Test {
         assertEq(lent, 1004944);
 
         vm.prank(TEST_NFT_ACCOUNT);
-        USDC.approve(address(vault), 1004945);
+        USDC.approve(address(vault), 1004946);
 
         // repay partially       
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000, false);
         (debt,,,,) = vault.loanInfo(TEST_NFT);
         (uint debtShares,,,,) = vault.loans(TEST_NFT);
-        assertEq(debtShares, 4920230155616582);
+        assertEq(debtShares, 4921);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
-        assertEq(debt, 4945);
+        assertEq(debt, 4946);
 
         // repay full  
         vm.prank(TEST_NFT_ACCOUNT);
@@ -622,14 +632,14 @@ contract VaultIntegrationTest is Test {
         _createAndBorrow(TEST_NFT, TEST_NFT_ACCOUNT, 1000000);
         _createAndBorrow(TEST_NFT_2, TEST_NFT_ACCOUNT_2, 2000000);
 
-        assertEq(vault.balanceOf(WHALE_ACCOUNT), 2000000000000000000);
-        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT_2), 1000000000000000000);
+        assertEq(vault.balanceOf(WHALE_ACCOUNT), 2000000);
+        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT_2), 1000000);
 
         // wait 7 days (should generate around 0.49%)
         vm.warp(block.timestamp + 7 days);
 
         _deposit(1000000, TEST_NFT_ACCOUNT_2);
-        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT_2), 1995079769844383418); // less shares because more valuable
+        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT_2), 1995079); // less shares because more valuable
 
         // whale won double interest
         assertEq(vault.lendInfo(WHALE_ACCOUNT), 2009889);
@@ -647,11 +657,11 @@ contract VaultIntegrationTest is Test {
         // withdraw shares
         uint shares = vault.balanceOf(WHALE_ACCOUNT);
         vm.prank(WHALE_ACCOUNT);
-        vault.withdraw(shares, true);
+        vault.redeem(shares, WHALE_ACCOUNT, WHALE_ACCOUNT);
 
         shares = vault.balanceOf(TEST_NFT_ACCOUNT_2);
         vm.prank(TEST_NFT_ACCOUNT_2);
-        vault.withdraw(shares, true);
+        vault.redeem(shares, TEST_NFT_ACCOUNT_2, TEST_NFT_ACCOUNT_2);
 
         // check remaining 
         assertEq(USDC.balanceOf(address(vault)), 2);

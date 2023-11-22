@@ -63,7 +63,7 @@ contract LeverageTransformer {
 
         uint amount = params.borrowAmount;
 
-        address token = IVault(msg.sender).lendToken();
+        address token = IVault(msg.sender).asset();
         IVault(msg.sender).borrow(params.tokenId, amount);
 
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
@@ -140,7 +140,7 @@ contract LeverageTransformer {
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
 
-        address token = IVault(msg.sender).lendToken();
+        address token = IVault(msg.sender).asset();
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 
         uint amount0;
