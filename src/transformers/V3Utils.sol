@@ -11,6 +11,9 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "permit2/interfaces/IPermit2.sol";
 import "../../lib/IUniversalRouter.sol";
 
+import "forge-std/console.sol";
+
+
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
 /// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
@@ -33,7 +36,6 @@ contract V3Utils is IERC721Receiver {
 
     // @notice Permit2 contract
     IPermit2 immutable public permit2;
-
 
     // error types
     error Unauthorized();
@@ -580,7 +582,7 @@ contract V3Utils is IERC721Receiver {
             if (router == zeroxRouter) {
                 ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
 
-                 // approve needed amount
+                // approve needed amount
                 SafeERC20.safeApprove(tokenIn, data.allowanceTarget, amountIn);
 
                 // execute swap
@@ -595,12 +597,22 @@ contract V3Utils is IERC721Receiver {
 
                 UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
 
+                /*
                 // only approve once to permit2
                 if (tokenIn.allowance(address(this), address(permit2)) == 0) {
                     SafeERC20.safeApprove(tokenIn, address(permit2), type(uint256).max);
                 }
                 
+                // approves tokens for this timestamp only
                 permit2.approve(address(tokenIn), universalRouter, uint160(amountIn), uint48(block.timestamp));
+
+                // swap data must contain PERMIT2_TRANSFER_FROM instruction with amountIn
+                IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
+                */
+
+                // tokens are transfered to Universalrouter directly (must sweep afterwards)
+                tokenIn.transfer(universalRouter, amountIn);
+
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
             } else {
                 revert WrongContract();

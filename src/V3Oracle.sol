@@ -88,6 +88,43 @@ contract V3Oracle is IV3Oracle, Ownable {
         chainlinkReferenceToken = _chainlinkReferenceToken;
     }
 
+    // gets value of a uniswap v3 lp position in specified token
+    // uses configured oracles and verfies price on second oracle - if fails - reverts
+    // returns complete value and fee-only value
+    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint256 feeValue, uint price0X06, uint price1X06) {
+
+        (address token0, address token1,, uint amount0, uint amount1, uint fees0, uint fees1) = getPositionBreakdown(tokenId);
+
+        uint price0X96;
+        uint price1X96;
+        uint cachedReferencePriceX96;
+
+        (price0X96, cachedReferencePriceX96) = _getReferenceTokenPriceX96(token0, cachedReferencePriceX96);
+        (price1X96, cachedReferencePriceX96) = _getReferenceTokenPriceX96(token1, cachedReferencePriceX96);
+        
+        uint priceTokenX96;
+        if (token0 == token) {
+            priceTokenX96 = price0X96;
+        } else if (token1 == token) {
+            priceTokenX96 = price1X96;
+        } else {
+            (priceTokenX96, ) = _getReferenceTokenPriceX96(token, cachedReferencePriceX96);
+        }
+
+        value = (price0X96 * (amount0 + fees0) / Q96 + price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
+        feeValue = (price0X96 * fees0 / Q96 + price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
+        price0X06 = price0X96 * Q96 / priceTokenX96;
+        price1X06 = price1X96 * Q96 / priceTokenX96;
+    }
+
+    // gets breakdown of a uniswap v3 position (liquidity, current liquidity amounts, uncollected fees)
+    function getPositionBreakdown(uint256 tokenId) override public view returns (address token0, address token1, uint128 liquidity, uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
+        PositionState memory state = _initializeState(tokenId);
+        (token0, token1) = (state.token0, state.token1);
+        (amount0, amount1, fees0, fees1) = _getAmounts(state);
+        liquidity = state.liquidity;
+    }
+
     // Sets or updates the feed configuration for a token
     // Can only be called by the owner of the contract
     function setTokenConfig(address token, AggregatorV3Interface feed, uint32 maxFeedAge, IUniswapV3Pool pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external onlyOwner {
@@ -133,33 +170,7 @@ contract V3Oracle is IV3Oracle, Ownable {
         emit OracleModeUpdated(token, mode);
     }
 
-    // gets value of a uniswap v3 lp position in specified token
-    // uses configured oracles and verfies price on second oracle - if fails - reverts
-    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint256 feeValue, uint price0X06, uint price1X06) {
 
-        (address token0, address token1,, uint amount0, uint amount1, uint fees0, uint fees1) = getPositionBreakdown(tokenId);
-
-        uint price0X96;
-        uint price1X96;
-        uint cachedReferencePriceX96;
-
-        (price0X96, cachedReferencePriceX96) = _getReferenceTokenPriceX96(token0, cachedReferencePriceX96);
-        (price1X96, cachedReferencePriceX96) = _getReferenceTokenPriceX96(token1, cachedReferencePriceX96);
-        
-        uint priceTokenX96;
-        if (token0 == token) {
-            priceTokenX96 = price0X96;
-        } else if (token1 == token) {
-            priceTokenX96 = price1X96;
-        } else {
-            (priceTokenX96, ) = _getReferenceTokenPriceX96(token, cachedReferencePriceX96);
-        }
-
-        value = (price0X96 * (amount0 + fees0) / Q96 + price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
-        feeValue = (price0X96 * fees0 / Q96 + price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
-        price0X06 = price0X96 * Q96 / priceTokenX96;
-        price1X06 = price1X96 * Q96 / priceTokenX96;
-    }
 
     // Returns the price for a token using the selected oracle mode given as reference token value
     // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode
@@ -278,13 +289,6 @@ contract V3Oracle is IV3Oracle, Ownable {
         int24 tick;
         uint160 sqrtPriceX96Lower;
         uint160 sqrtPriceX96Upper;
-    }
-
-    function getPositionBreakdown(uint256 tokenId) public view returns (address token0, address token1, uint128 liquidity, uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
-        PositionState memory state = _initializeState(tokenId);
-        (token0, token1) = (state.token0, state.token1);
-        (amount0, amount1, fees0, fees1) = _getAmounts(state);
-        liquidity = state.liquidity;
     }
 
     function _initializeState(uint tokenId) internal view returns (PositionState memory state) {

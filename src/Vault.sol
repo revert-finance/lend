@@ -3,13 +3,11 @@ pragma solidity ^0.8.0;
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
-
 import "v3-core/libraries/FullMath.sol";
 import "v3-core/libraries/TickMath.sol";
 import 'v3-core/libraries/FixedPoint128.sol';
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
-
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
@@ -681,9 +679,10 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
             assets = amount;
             shares = _convertToShares(assets, newLendExchangeRateX96, Math.Rounding.Down);
         }
-        
+
         // pull lend tokens
         IERC20(asset).transferFrom(msg.sender, address(this), assets);
+
         _mint(receiver, shares);
 
         if (totalSupply() > globalLendLimit) {
