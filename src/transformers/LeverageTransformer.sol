@@ -1,32 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "./Transformer.sol";
 
 import "../interfaces/IVault.sol";
 
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
-contract LeverageTransformer {
+contract LeverageTransformer is Transformer {
 
-    error SwapFailed();
-    error SlippageError();
-
-    event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
-
-    address immutable public factory;
-    INonfungiblePositionManager immutable public nonfungiblePositionManager;
-    
-    /// @notice 0x Exchange Proxy
-    address immutable public swapRouter;
-
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _swapRouter) {
-        nonfungiblePositionManager = _nonfungiblePositionManager;
-        factory = _nonfungiblePositionManager.factory();
-        swapRouter = _swapRouter;
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) Transformer(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
     }
 
     struct LeverageUpParams {
@@ -178,42 +164,6 @@ contract LeverageTransformer {
         }
         if (amount > 0) {
             IERC20(token).transfer(params.recipient, amount);
-        }
-    }
-
-    function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 amountOutMin, bytes memory swapData) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
-        if (amountIn != 0 && swapData.length != 0 && address(tokenOut) != address(0)) {
-            uint256 balanceInBefore = tokenIn.balanceOf(address(this));
-            uint256 balanceOutBefore = tokenOut.balanceOf(address(this));
-
-            // get router specific swap data
-            (address allowanceTarget, bytes memory data) = abi.decode(swapData, (address, bytes));
-
-            // approve needed amount
-            SafeERC20.safeApprove(tokenIn, allowanceTarget, amountIn);
-
-            // execute swap
-            (bool success,) = swapRouter.call(data);
-            if (!success) {
-                revert SwapFailed();
-            }
-
-            // reset approval
-            SafeERC20.safeApprove(tokenIn, allowanceTarget, 0);
-
-            uint256 balanceInAfter = tokenIn.balanceOf(address(this));
-            uint256 balanceOutAfter = tokenOut.balanceOf(address(this));
-
-            amountInDelta = balanceInBefore - balanceInAfter;
-            amountOutDelta = balanceOutAfter - balanceOutBefore;
-
-            // amountMin slippage check
-            if (amountOutDelta < amountOutMin) {
-                revert SlippageError();
-            }
-
-            // event for any swap with exact swapped value
-            emit Swap(address(tokenIn), address(tokenOut), amountInDelta, amountOutDelta);
         }
     }
 }
