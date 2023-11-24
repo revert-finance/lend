@@ -380,10 +380,11 @@ contract VaultIntegrationTest is Test {
         uint swapAmountIn = 10000000000000000;
         uint swapAmountMinOut = 100;
 
-        // universalrouter swap data (single swap command) - swap 0.01 DAI to USDC
-        bytes[] memory inputs = new bytes[](1);
+        // universalrouter swap data (single swap command) - swap 0.01 DAI to USDC - and sweep
+        bytes[] memory inputs = new bytes[](2);
         inputs[0] = abi.encode(address(v3Utils), swapAmountIn, swapAmountMinOut, abi.encodePacked(address(DAI), uint24(500), address(USDC)), false);
-        bytes memory swapData = abi.encode(UNIVERSAL_ROUTER, abi.encode(V3Utils.UniversalRouterData(hex"00", inputs, block.timestamp)));
+        inputs[1] = abi.encode(address(DAI), address(v3Utils), 0);
+        bytes memory swapData = abi.encode(UNIVERSAL_ROUTER, abi.encode(V3Utils.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
         // test transforming with v3utils - changing range
         V3Utils.Instructions memory inst = V3Utils.Instructions(
@@ -414,9 +415,9 @@ contract VaultIntegrationTest is Test {
         );
 
         // some collateral gets lost during change-range (fees which are not added completely in this case) - needs repayment before
-        //vm.expectRevert(Vault.CollateralFail.selector);
-        //vm.prank(TEST_NFT_ACCOUNT);
-        //vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+        vm.expectRevert(Vault.CollateralFail.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
         // needs to repay a part first
         _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
@@ -436,11 +437,11 @@ contract VaultIntegrationTest is Test {
 
         // new loan has been created
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(tokenId);
-        assertEq(liquidity, 19255343290647761);
+        assertEq(liquidity, 19275744032345419);
         (debt, fullValue, collateralValue,,) = vault.loanInfo(tokenId);
         assertEq(debt, 7847206);
-        assertEq(collateralValue, 8663962);
-        assertEq(fullValue, 9626625);
+        assertEq(collateralValue, 8673141);
+        assertEq(fullValue, 9636824);
     }
 
     function testLiquidationTimeBased() external {
