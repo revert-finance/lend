@@ -50,6 +50,7 @@ contract LeverageTransformer is Transformer {
         uint amount = params.borrowAmount;
 
         address token = IVault(msg.sender).asset();
+
         IVault(msg.sender).borrow(params.tokenId, amount);
 
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);

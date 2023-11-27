@@ -21,8 +21,6 @@ import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
-import "forge-std/console.sol";
-
 /// @title Vault for token lending / borrowing using LP positions as collateral
 /// ERC20 Token represent shares of lent tokens
 contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
