@@ -44,7 +44,7 @@ interface IVault {
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1);
 
     function borrow(uint tokenId, uint amount) external;
-    function repay(uint tokenId, uint amount, bool isShare) external returns (uint);
+    function repay(uint tokenId, uint amount, bool isShare) external;
 
     function liquidate(uint tokenId) external;
 }

@@ -489,7 +489,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     }
 
     // repays borrowed tokens. can be denominated in token or debt share amount
-    function repay(uint tokenId, uint amount, bool isShare) external override returns (uint) {
+    function repay(uint tokenId, uint amount, bool isShare) external override {
 
         (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
 
@@ -529,8 +529,6 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         }
 
         emit Repay(tokenId, msg.sender, owner, assets, shares);
-
-        return amount;
     }
 
     // state used in liquidation function to avoid stack too deep errors

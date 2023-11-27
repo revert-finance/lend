@@ -141,20 +141,19 @@ contract LeverageTransformer is Transformer {
         
         uint amount = token == token0 ? amount0 : (token == token1 ? amount1 : 0);
 
-        if (params.amountIn0 > 0) {
+        if (params.amountIn0 > 0 && token != token0) {
             (uint amountIn, uint amountOut) = _swap(IERC20(token0), IERC20(token), params.amountIn0, params.amountOut0Min, params.swapData0);
             amount0 -= amountIn;
             amount += amountOut;
         }
-        if (params.amountIn1 > 0) {
+        if (params.amountIn1 > 0 && token != token1) {
             (uint amountIn, uint amountOut) = _swap(IERC20(token1), IERC20(token), params.amountIn1, params.amountOut1Min, params.swapData1);
             amount1 -= amountIn;
             amount += amountOut;
         }
 
         IERC20(token).approve(msg.sender, amount);
-        uint repayed = IVault(msg.sender).repay(params.tokenId, amount, false);
-        amount -= repayed;
+        IVault(msg.sender).repay(params.tokenId, amount, false);
 
         // send leftover tokens
         if (amount0 > 0 && token != token0) {
@@ -162,9 +161,6 @@ contract LeverageTransformer is Transformer {
         }
         if (amount1 > 0 && token != token1) {
             IERC20(token1).transfer(params.recipient, amount1);
-        }
-        if (amount > 0) {
-            IERC20(token).transfer(params.recipient, amount);
         }
     }
 }
