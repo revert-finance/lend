@@ -8,6 +8,10 @@ import "permit2/interfaces/IPermit2.sol";
 
 import "./Transformer.sol";
 
+import "forge-std/console.sol";
+
+
+
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
 /// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
@@ -373,6 +377,9 @@ contract V3Utils is Transformer, IERC721Receiver {
 
     function _prepareAddApproved(IERC20 token0, IERC20 token1, IERC20 otherToken, uint256 amount0, uint256 amount1, uint256 amountOther) internal {
         (uint needed0, uint needed1, uint neededOther) = _prepareAdd(token0, token1, otherToken, amount0, amount1, amountOther);
+
+        console.log(needed0, needed1, neededOther);
+
         if (needed0 > 0) {
             SafeERC20.safeTransferFrom(token0, msg.sender, address(this), needed0);
         }
@@ -474,7 +481,7 @@ contract V3Utils is Transformer, IERC721Receiver {
             needed0 = amount0 - amountAdded0;
         }
         if (amount1 > amountAdded1) {
-           needed1 = amount0 - amountAdded0;
+           needed1 = amount1 - amountAdded1;
         }
         if (amountOther > amountAddedOther && address(otherToken) != address(0) && token0 != otherToken && token1 != otherToken) {
             neededOther = amountOther - amountAddedOther;
