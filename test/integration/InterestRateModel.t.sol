@@ -21,6 +21,8 @@ contract InterestRateModelIntegrationTest is Test {
 
         // 5% base rate - after 80% - 109% (like in compound v2 deployed) 
         interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
+
+        
     }
 
     function testUtilizationRates() external {
