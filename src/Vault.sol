@@ -317,8 +317,13 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         if (transformedTokenId == 0) {
             _updateGlobalInterest();
 
-            // parameters sent define owner, and initial borrow amount
-            CreateParams memory params = abi.decode(data, (CreateParams));
+            // parameters sent define owner, and initial borrow amount, initial transform
+            CreateParams memory params;
+            if (data.length > 0) {
+                params = abi.decode(data, (CreateParams));
+            } else {
+                params.owner = from;
+            }            
 
             loans[tokenId] = Loan(0, params.owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
 
