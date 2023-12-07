@@ -8,10 +8,6 @@ import "permit2/interfaces/IPermit2.sol";
 
 import "./Transformer.sol";
 
-import "forge-std/console.sol";
-
-
-
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
 /// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.

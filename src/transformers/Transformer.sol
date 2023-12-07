@@ -80,8 +80,8 @@ abstract contract Transformer {
                 SafeERC20.safeApprove(tokenIn, data.allowanceTarget, 0);
             } else if (router == universalRouter) {
                 UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
-                // tokens are transfered to Universalrouter directly (must sweep afterwards)
-                tokenIn.transfer(universalRouter, amountIn);
+                // tokens are transfered to Universalrouter directly (data.commands must include sweep action!)
+                SafeERC20.safeTransfer(tokenIn, universalRouter, amountIn);
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
             } else {
                 revert WrongContract();
