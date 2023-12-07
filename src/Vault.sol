@@ -84,7 +84,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     error NotLiquidatable();
     error InterestNotUpdated();
     error RepayExceedsDebt();
-    error TransformerNotAllowed();
+    error TransformNotAllowed();
     error TransformFailed();
     error CollateralFactorExceedsMax();
     error CollateralValueLimit();
@@ -98,20 +98,20 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     mapping(address => TokenConfig) public tokenConfigs;
 
     // percentage of interest which is kept in the protocol for reserves
-    uint32 public reserveFactorX32;
+    uint32 public reserveFactorX32 = 0;
 
     // percentage of lend amount which needs to be in reserves before withdrawn
     uint32 public reserveProtectionFactorX32 = MIN_RESERVE_PROTECTION_FACTOR_X32;
 
     // total of debt shares - increases when borrow - decreases when repay
-    uint public debtSharesTotal;
+    uint public debtSharesTotal = 0;
 
-    uint public lastExchangeRateUpdate;
+    uint public lastExchangeRateUpdate = 0;
     uint public lastDebtExchangeRateX96 = Q96;
     uint public lastLendExchangeRateX96 = Q96;
 
-    uint public globalDebtLimit;
-    uint public globalLendLimit;
+    uint public globalDebtLimit = 0;
+    uint public globalLendLimit = 0;
 
     // lender balances are handled with ERC-20 mint/burn
 
@@ -127,7 +127,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     }
     mapping(uint => Loan) public loans; // tokenID -> loan mapping
 
-    uint transformedTokenId; // transient (when available in dencun)
+    uint transformedTokenId = 0; // transient (when available in dencun)
 
     mapping(address => bool) transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
     mapping(address => mapping(address => bool)) transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
@@ -365,8 +365,8 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
     // method which allows a contract to transform a loan by borrowing and adding collateral in an atomic fashion
     function transform(uint tokenId, address transformer, bytes calldata data) external override returns (uint) {
-        if (!transformerAllowList[transformer]) {
-            revert TransformerNotAllowed();
+        if (tokenId == 0 || !transformerAllowList[transformer]) {
+            revert TransformNotAllowed();
         }
         if (transformedTokenId > 0) {
             revert Reentrancy();
@@ -399,7 +399,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
             revert NotOwner();
         }
 
-        // remove access for msg.sender
+        // remove access for transformer 
         nonfungiblePositionManager.approve(address(0), tokenId);
 
         uint debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
@@ -456,7 +456,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     {
         // this method is not allowed during transform - can be called directly on nftmanager if needed from transform contract
         if (transformedTokenId > 0) {
-            revert TransformerNotAllowed();
+            revert TransformNotAllowed();
         }
 
         address owner = loans[params.tokenId].owner;
@@ -558,7 +558,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
         // liquidation is not allowed during transformer mode
         if (transformedTokenId > 0) {
-            revert TransformerNotAllowed();
+            revert TransformNotAllowed();
         }
 
         LiquidateState memory state;
