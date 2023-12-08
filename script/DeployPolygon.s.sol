@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 
 import "../src/InterestRateModel.sol";
 import "../src/V3Oracle.sol";
-import "../src/Vault.sol";
+import "../src/V3Vault.sol";
 
 contract DeployPolygon is Script {
 
@@ -36,7 +36,7 @@ contract DeployPolygon is Script {
         //oracle.setTokenConfig(WBTC, AggregatorV3Interface(0xc907E116054Ad103354f2D350FD2514433D57F6f), 3600, IUniswapV3Pool(0x847b64f9d3A95e977D157866447a5C0A5dFa0Ee5), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 100);
 
 
-        Vault vault = new Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
+        V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(USDC, uint32(Q32 * 9 / 10), 100000000); // 90% collateral factor - max 100 USDC collateral value
         vault.setTokenConfig(WMATIC, uint32(Q32 * 8 / 10), 100000000); // 80% collateral factor - max 100 USDC collateral value
         vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), 100000000); // 80% collateral factor - max 100 USDC collateral value

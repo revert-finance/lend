@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IVault {
+interface IV3Vault {
 
     function asset() external returns (address);
     function ownerOf(uint tokenId) external returns (address);

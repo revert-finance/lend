@@ -6,7 +6,7 @@ import "forge-std/console.sol";
 
 // base contracts
 import "../../src/V3Oracle.sol";
-import "../../src/Vault.sol";
+import "../../src/V3Vault.sol";
 import "../../src/InterestRateModel.sol";
 
 // transformers
@@ -14,7 +14,7 @@ import "../../src/transformers/LeverageTransformer.sol";
 import "../../src/transformers/V3Utils.sol";
 
 
-contract VaultIntegrationTest is Test {
+contract V3VaultIntegrationTest is Test {
    
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
@@ -49,7 +49,7 @@ contract VaultIntegrationTest is Test {
 
     uint256 mainnetFork;
 
-    Vault vault;
+    V3Vault vault;
     
     InterestRateModel interestRateModel;
     V3Oracle oracle;
@@ -68,7 +68,7 @@ contract VaultIntegrationTest is Test {
         oracle.setTokenConfig(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
-        vault = new Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
+        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
@@ -89,7 +89,7 @@ contract VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(vault), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, IVault.CreateParams(TEST_NFT_ACCOUNT, 0, address(0), ""));
+        vault.create(TEST_NFT, IV3Vault.CreateParams(TEST_NFT_ACCOUNT, 0, address(0), ""));
 
         (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 8847206);
@@ -127,7 +127,7 @@ contract VaultIntegrationTest is Test {
         NPM.approve(address(vault), tokenId);
 
         vm.prank(account);
-        vault.create(tokenId, IVault.CreateParams(account, amount, address(0), ""));
+        vault.create(tokenId, IV3Vault.CreateParams(account, amount, address(0), ""));
     }
 
     function testERC20() external {
@@ -161,7 +161,7 @@ contract VaultIntegrationTest is Test {
         if (amount > balance) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");
         } else if (amount > lendLimit) {
-            vm.expectRevert(Vault.GlobalLendLimit.selector);
+            vm.expectRevert(V3Vault.GlobalLendLimit.selector);
         }
 
         vm.prank(WHALE_ACCOUNT);
@@ -188,7 +188,7 @@ contract VaultIntegrationTest is Test {
       
 
         if (isShare && amount > lentShares || !isShare && amount > lent) {
-            vm.expectRevert(Vault.InsufficientLiquidity.selector);
+            vm.expectRevert(V3Vault.InsufficientLiquidity.selector);
 //            vm.expectRevert("ERC20: burn amount exceeds balance");
         }
 
@@ -212,9 +212,9 @@ contract VaultIntegrationTest is Test {
         uint debtLimit = vault.globalDebtLimit();
 
         if (amount > debtLimit) {
-            vm.expectRevert(Vault.GlobalDebtLimit.selector);
+            vm.expectRevert(V3Vault.GlobalDebtLimit.selector);
         } else if (amount > collateralValue) {
-            vm.expectRevert(Vault.CollateralFail.selector);
+            vm.expectRevert(V3Vault.CollateralFail.selector);
         }
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -240,7 +240,7 @@ contract VaultIntegrationTest is Test {
         USDC.approve(address(vault), debt);
        
         if (isShare && amount > debtShares || !isShare && amount > debt) {
-            vm.expectRevert(Vault.RepayExceedsDebt.selector);
+            vm.expectRevert(V3Vault.RepayExceedsDebt.selector);
         } 
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -356,7 +356,7 @@ contract VaultIntegrationTest is Test {
             ""
         );
 
-        vm.expectRevert(Vault.CollateralFail.selector);
+        vm.expectRevert(V3Vault.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
@@ -415,7 +415,7 @@ contract VaultIntegrationTest is Test {
         );
 
         // some collateral gets lost during change-range (fees which are not added completely in this case) - needs repayment before
-        vm.expectRevert(Vault.CollateralFail.selector);
+        vm.expectRevert(V3Vault.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
@@ -541,7 +541,7 @@ contract VaultIntegrationTest is Test {
         assertEq(collateralTotal, 888888);
 
         // borrow more doesnt work anymore - because more than max value of collateral is used
-        vm.expectRevert(Vault.CollateralValueLimit.selector);
+        vm.expectRevert(V3Vault.CollateralValueLimit.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, 200000);
 
@@ -587,7 +587,7 @@ contract VaultIntegrationTest is Test {
         NPM.approve(address(vault), TEST_NFT);
 
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, IVault.CreateParams(TEST_NFT_ACCOUNT, 1000000, address(0), ""));
+        vault.create(TEST_NFT, IV3Vault.CreateParams(TEST_NFT_ACCOUNT, 1000000, address(0), ""));
 
         assertEq(USDC.balanceOf(TEST_NFT_ACCOUNT), 1000000);
 

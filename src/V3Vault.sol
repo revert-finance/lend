@@ -17,14 +17,14 @@ import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-import "./interfaces/IVault.sol";
+import "./interfaces/IV3Vault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
-/// @title Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
+/// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any token which is configured with a collateralFactor > 0
 /// ERC20 Token represent shares of lent tokens
-contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
+contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
 
     using Math for uint256;
 
@@ -51,7 +51,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     IV3Oracle immutable public oracle;
 
     /// @notice underlying asset for lending / borrowing
-    address immutable public override(IERC4626, IVault) asset;
+    address immutable public override(IERC4626, IV3Vault) asset;
 
     /// @notice decimals of underlying token (are the same as ERC20 share token)
     uint8 immutable private assetDecimals;
