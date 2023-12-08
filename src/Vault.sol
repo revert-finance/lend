@@ -21,7 +21,8 @@ import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
-/// @title Vault for token lending / borrowing using LP positions as collateral
+/// @title Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
+/// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any token which is configured with a collateralFactor > 0
 /// ERC20 Token represent shares of lent tokens
 contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
@@ -43,24 +44,22 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
     /// @notice Uniswap v3 factory
     IUniswapV3Factory public immutable factory;
 
-    // interest rate model - immutable but configurable
+    /// @notice interest rate model implementation
     IInterestRateModel immutable public interestRateModel;
 
-    // oracle - immutable but configurable
+    /// @notice oracle implementation
     IV3Oracle immutable public oracle;
 
-    // underlying asset
+    /// @notice underlying asset for lending / borrowing
     address immutable public override(IERC4626, IVault) asset;
 
-    // decimals of underlying token (are the same as ERC20 share token)
+    /// @notice decimals of underlying token (are the same as ERC20 share token)
     uint8 immutable private assetDecimals;
 
     // events
     event ExchangeRateUpdate(uint debtExchangeRateX96, uint lendExchangeRateX96);
-
     // Deposit and Withdraw events are defined in IERC4626
-
-    event WithdrawCollateral(uint indexed tokenId, address indexed owner, address recipient, uint amount0, uint amount1);
+    event WithdrawCollateral(uint indexed tokenId, address indexed owner, address recipient, uint128 liquidity, uint amount0, uint amount1);
     event Borrow(uint indexed tokenId, address indexed owner, uint assets, uint shares);
     event Repay(uint indexed tokenId, address indexed repayer, address indexed owner, uint assets, uint shares);
     event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed owner, uint value, uint cost, uint amount0, uint amount1, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
@@ -143,7 +142,12 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
     ////////////////// EXTERNAL VIEW FUNCTIONS
 
-    /// @notice Retrieves information about the vault
+    /// @notice Retrieves global information about the vault
+    /// @return debt Total amount of debt asset tokens
+    /// @return lent Total amount of lent asset tokens
+    /// @return balance Balance of asset token in contract
+    /// @return available Available balance of asset token in contract (balance - reserves)
+    /// @return reserves Amount of reserves
     function vaultInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _calculateGlobalInterest();
         (balance, available, reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
@@ -154,6 +158,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
     /// @notice Retrieves lending information for a specified account.
     /// @param account The address of the account for which lending info is requested.
+    /// @return amount Amount of lent assets for the account
     function lendInfo(address account) external view returns (uint amount) {
         (, uint newLendExchangeRateX96) = _calculateGlobalInterest();
         amount = _convertToAssets(balanceOf(account), newLendExchangeRateX96, Math.Rounding.Down);
@@ -161,6 +166,11 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
     /// @notice Retrieves details of a loan identified by its token ID.
     /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
+    /// @return debt Amount of debt for this position
+    /// @return fullValue Current value of the position priced as asset token
+    /// @return collateralValue Current collateral value of the position priced as asset token
+    /// @return liquidationCost If position is liquidatable - cost to liquidate position - otherwise 0
+    /// @return liquidationValue If position is liquidatable - the value of the (partial) position which the liquidator recieves - otherwise 0
     function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost, uint liquidationValue)  {
         (uint newDebtExchangeRateX96,) = _calculateGlobalInterest();
 
@@ -174,37 +184,40 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         }
     }
 
-    /// @notice Retrieves owner of UniV3 Position
-    function ownerOf(uint tokenId) override external view returns (address) {
+    /// @notice Retrieves owner of a loan
+    /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
+    /// @return owner Owner of the loan
+    function ownerOf(uint tokenId) override external view returns (address owner) {
         return loans[tokenId].owner;
     }
 
 
     ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC20
+    /// @inheritdoc IERC20Metadata
     function decimals() public view override(IERC20Metadata, ERC20) returns (uint8) {
         return assetDecimals;
     }
 
     ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC4626
 
-    /** @dev See {IERC4626-totalAssets}. */
+    /// @inheritdoc IERC4626
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset).balanceOf(address(this));
     }
 
-    /** @dev See {IERC4626-convertToShares}. */
+    /// @inheritdoc IERC4626
     function convertToShares(uint256 assets) external view override returns (uint256 shares) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets,lendExchangeRateX96, Math.Rounding.Down);
     }
 
-    /** @dev See {IERC4626-convertToAssets}. */
+    /// @inheritdoc IERC4626
     function convertToAssets(uint256 shares) external view override returns (uint256 assets) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
     }
 
-    /** @dev See {IERC4626-maxDeposit}. */
+    /// @inheritdoc IERC4626
     function maxDeposit(address) external view override returns (uint256) {
          (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         uint value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
@@ -215,7 +228,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         }
     }
 
-    /** @dev See {IERC4626-maxMint}. */
+    /// @inheritdoc IERC4626
     function maxMint(address) external view override returns (uint256) {
          (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         uint value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
@@ -226,36 +239,36 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         }
     }
 
-    /** @dev See {IERC4626-maxWithdraw}. */
+    /// @inheritdoc IERC4626
     function maxWithdraw(address owner) external view override returns (uint256) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(balanceOf(owner), lendExchangeRateX96, Math.Rounding.Down);
     }
 
-    /** @dev See {IERC4626-maxRedeem}. */
+    /// @inheritdoc IERC4626
     function maxRedeem(address owner) external view override returns (uint256) {
         return balanceOf(owner);
     }
 
-    /** @dev See {IERC4626-previewDeposit}. */
+    /// @inheritdoc IERC4626
     function previewDeposit(uint256 assets) public view override returns (uint256) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
     }
 
-    /** @dev See {IERC4626-previewMint}. */
+    /// @inheritdoc IERC4626
     function previewMint(uint256 shares) public view override returns (uint256) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Up);
     }
 
-    /** @dev See {IERC4626-previewWithdraw}. */
+    /// @inheritdoc IERC4626
     function previewWithdraw(uint256 assets) public view override returns (uint256) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Up);
     }
 
-    /** @dev See {IERC4626-previewRedeem}. */
+    /// @inheritdoc IERC4626
     function previewRedeem(uint256 shares) public view override returns (uint256) {
         (, uint lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
@@ -264,25 +277,25 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
 
     ////////////////// OVERRIDDEN EXTERNAL FUNCTIONS FROM ERC4626
 
-    /** @dev See {IERC4626-deposit}. */
+    /// @inheritdoc IERC4626
     function deposit(uint256 assets, address receiver) external override returns (uint256) {
         (, uint shares) = _deposit(receiver, assets, false);
         return shares;
     }
 
-    /** @dev See {IERC4626-mint}. */
+    /// @inheritdoc IERC4626
     function mint(uint256 shares, address receiver) external override returns (uint256) {
         (uint assets,) = _deposit(receiver, shares, true);
         return assets;
     }
 
-    /** @dev See {IERC4626-withdraw}. */
+    /// @inheritdoc IERC4626
     function withdraw(uint256 assets, address receiver, address owner) external override returns (uint256) {
         (, uint shares) = _withdraw(receiver, owner, assets, false);
         return shares;
     }
 
-    /** @dev See {IERC4626-redeem}. */
+    /// @inheritdoc IERC4626
     function redeem(uint256 shares, address receiver, address owner) external override returns (uint256) {
         (uint assets,) = _withdraw(receiver, owner, shares, true);
         return assets;
@@ -307,6 +320,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         nonfungiblePositionManager.safeTransferFrom(params.owner, address(this), tokenId, abi.encode(params));
     }
 
+    /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed - sent from other contract
@@ -393,13 +407,13 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         // may have changed in the meantime
         tokenId = transformedTokenId;
 
-        // check owner not changed (NEEDED beacuse approvalForAll could be set which would fake complete ownership)
+        // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (owner != address(this)) {
             revert NotOwner();
         }
 
-        // remove access for transformer 
+        // remove access for transformer
         nonfungiblePositionManager.approve(address(0), tokenId);
 
         uint debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
@@ -490,7 +504,7 @@ contract Vault is ERC20, IVault, IERC4626, Ownable, IERC721Receiver {
         uint debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
         _requireLoanIsHealthyAndCollateralValid(params.tokenId, debt);
 
-        emit WithdrawCollateral(params.tokenId, owner, params.recipient, amount0, amount1);
+        emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
 
     // repays borrowed tokens. can be denominated in token or debt share amount
