@@ -22,7 +22,7 @@ import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
-/// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any token which is configured with a collateralFactor > 0
+/// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any 2 tokens configured with a collateralFactor > 0
 /// ERC20 Token represent shares of lent tokens
 contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
 
@@ -321,6 +321,7 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
     }
 
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
+    /// @inheritdoc IERC721Receiver
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata data) external override returns (bytes4) {
 
         // only Uniswap v3 NFTs allowed - sent from other contract
@@ -372,13 +373,19 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    // allows another address to call transform on behalf of owner
+    /// @notice Allows another address to call transform on behalf of owner
+    /// @param target The address to be permitted
+    /// @param active If it allowed or not
     function approveTransform(address target, bool active) external override {
         transformApprovals[msg.sender][target] = active;
     }
 
-    // method which allows a contract to transform a loan by borrowing and adding collateral in an atomic fashion
-    function transform(uint tokenId, address transformer, bytes calldata data) external override returns (uint) {
+    /// @notice Method which allows a contract to transform a loan by changing it (and only at the end checking collateral)
+    /// @param tokenId The token ID to be processed
+    /// @param transformer The address of a whitelisted tranformer contract
+    /// @param data Encoded tranformation params
+    /// @return newTokenId Final token ID (may be different than input token ID when the position was replaced by transformation)
+    function transform(uint tokenId, address transformer, bytes calldata data) external override returns (uint newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
         }
@@ -424,7 +431,9 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
         return tokenId;
     }
 
-
+    /// @notice Borrows specified amount using token as collateral
+    /// @param tokenId The token ID to use as collateral
+    /// @param assets How much assets to borrow
     function borrow(uint tokenId, uint assets) external override {
 
         bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
@@ -507,7 +516,10 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
 
-    // repays borrowed tokens. can be denominated in token or debt share amount
+    /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
+    /// @param tokenId The token ID to use as collateral
+    /// @param amount How many assets/debt shares to repay
+    /// @param isShare Is amount specified in assets or debt shares.
     function repay(uint tokenId, uint amount, bool isShare) external override {
 
         (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
@@ -567,7 +579,9 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
         uint amount1;
     }
 
-    // function to liquidate position - needed assets depending on current price
+    /// @notice Liquidates position - needed assets are depending on current price.
+    /// Sufficient assets need to be approved to the contract for the liquidation to succeed.
+    /// @param tokenId The token ID to liquidate
     function liquidate(uint tokenId) external override {
 
         // liquidation is not allowed during transformer mode
