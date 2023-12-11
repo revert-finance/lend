@@ -6,20 +6,8 @@ interface IV3Vault {
     function asset() external returns (address);
     function ownerOf(uint tokenId) external returns (address);
 
-    // params for creation of loan
-    struct CreateParams {
-        // owner of the loan
-        address owner;
-        // initial borrow amount
-        uint amount;
-        // initial transformer
-        address transformer;
-        // initial transformer data
-        bytes transformerData;
-    }
-
-    function create(uint256 tokenId, CreateParams calldata params) external;
-    function createWithPermit(uint256 tokenId, CreateParams calldata params, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    function create(uint256 tokenId, address recipient) external;
+    function createWithPermit(uint256 tokenId, address owner, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
 
     function approveTransform(address target, bool active) external;
     function transform(uint tokenId, address transformer, bytes calldata data) external returns (uint);

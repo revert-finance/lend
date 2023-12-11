@@ -7,11 +7,11 @@ import "./interfaces/IInterestRateModel.sol";
 
 contract InterestRateModel is Ownable, IInterestRateModel {
 
-    uint constant Q96 = 2 ** 96;
-    uint constant YEAR_SECS = 31557600; // taking into account leap years
+    uint private constant Q96 = 2 ** 96;
+    uint public constant YEAR_SECS = 31557600; // taking into account leap years
 
-    uint constant MAX_BASE_RATE = Q96 / 10; // 10%
-    uint constant MAX_MULTIPLIER = Q96 * 2; // 200%
+    uint public constant MAX_BASE_RATE = Q96 / 10; // 10%
+    uint public constant MAX_MULTIPLIER = Q96 * 2; // 200%
 
     error InvalidConfig();
 

@@ -16,6 +16,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/utils/Multicall.sol";
 
 import "./interfaces/IV3Vault.sol";
 import "./interfaces/IV3Oracle.sol";
@@ -24,12 +25,12 @@ import "./interfaces/IInterestRateModel.sol";
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any 2 tokens configured with a collateralFactor > 0
 /// ERC20 Token represent shares of lent tokens
-contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
+contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiver {
 
     using Math for uint256;
 
-    uint constant Q32 = 2 ** 32;
-    uint constant Q96 = 2 ** 96;
+    uint private constant Q32 = 2 ** 32;
+    uint private constant Q96 = 2 ** 96;
 
     uint public constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
 
@@ -305,19 +306,20 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
 
     /// @notice Creates a new collateralized position.
     /// @param tokenId The token ID associated with the new position.
-    /// @param params Struct containing parameters required for creating the position.
-    function create(uint256 tokenId, CreateParams calldata params) external override {
-        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(params));
+    /// @param recipient Address to recieve the position in the vault
+    function create(uint256 tokenId, address recipient) external override {
+        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
     /// @notice Creates a new collateralized position with a permit for token spending.
     /// @param tokenId The token ID associated with the new position.
-    /// @param params Struct containing parameters required for creating the position.
+    /// @param owner Current owner of the position (signature owner)
+    /// @param recipient Address to recieve the position in the vault
     /// @param deadline Timestamp until which the permit is valid.
     /// @param v, r, s Components of the signature for the permit.
-    function createWithPermit(uint256 tokenId, CreateParams calldata params, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external override {
+    function createWithPermit(uint256 tokenId, address owner, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external override {
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
-        nonfungiblePositionManager.safeTransferFrom(params.owner, address(this), tokenId, abi.encode(params));
+        nonfungiblePositionManager.safeTransferFrom(owner, address(this), tokenId, abi.encode(recipient));
     }
 
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
@@ -331,26 +333,11 @@ contract V3Vault is ERC20, IV3Vault, IERC4626, Ownable, IERC721Receiver {
 
         if (transformedTokenId == 0) {
             _updateGlobalInterest();
-
-            // parameters sent define owner, and initial borrow amount, initial transform
-            CreateParams memory params;
+            address owner = from;
             if (data.length > 0) {
-                params = abi.decode(data, (CreateParams));
-            } else {
-                params.owner = from;
+                owner = abi.decode(data, (address));
             }            
-
-            loans[tokenId] = Loan(0, params.owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
-
-            // direct borrow if requested
-            if (params.amount > 0) {
-                this.borrow(tokenId, params.amount);
-            }
-
-            // direct transform if requested
-            if (params.transformer != address(0)) {
-                this.transform(tokenId, params.transformer, params.transformerData);
-            }
+            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
         } else {
 
             uint oldTokenId = transformedTokenId;

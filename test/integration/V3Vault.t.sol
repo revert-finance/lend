@@ -89,7 +89,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(vault), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, IV3Vault.CreateParams(TEST_NFT_ACCOUNT, 0, address(0), ""));
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
         (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 8847206);
@@ -126,8 +126,12 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(account);
         NPM.approve(address(vault), tokenId);
 
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeWithSelector(V3Vault.create.selector, tokenId, account);
+        calls[1] = abi.encodeWithSelector(V3Vault.borrow.selector, tokenId, amount);
+
         vm.prank(account);
-        vault.create(tokenId, IV3Vault.CreateParams(account, amount, address(0), ""));
+        vault.multicall(calls);
     }
 
     function testERC20() external {
@@ -583,12 +587,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(vault.totalSupply(), 1000000);
 
         // borrowing 1 USDC
-        vm.prank(TEST_NFT_ACCOUNT);
-        NPM.approve(address(vault), TEST_NFT);
-
-        vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, IV3Vault.CreateParams(TEST_NFT_ACCOUNT, 1000000, address(0), ""));
-
+        _createAndBorrow(TEST_NFT, TEST_NFT_ACCOUNT, 1000000);
         assertEq(USDC.balanceOf(TEST_NFT_ACCOUNT), 1000000);
 
         // gift some USDC so later he may repay all

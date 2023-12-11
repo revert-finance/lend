@@ -80,7 +80,7 @@ contract VaultPolygonIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(vault), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, IV3Vault.CreateParams(TEST_NFT_ACCOUNT, 0, address(0), ""));
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
         (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 463959);

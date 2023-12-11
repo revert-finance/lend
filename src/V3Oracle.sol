@@ -15,27 +15,17 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import "../lib/AggregatorV3Interface.sol";
+
 import "./interfaces/IV3Oracle.sol";
 
-// needed chainlink interface for chainlink oracle feeds
-interface AggregatorV3Interface {
-    function latestRoundData() external view returns (
-        uint80 roundId,
-        int256 answer,
-        uint256 startedAt,
-        uint256 updatedAt,
-        uint80 answeredInRound
-    );
-
-    function decimals() external view returns (uint8);
-}
 
 /// @title Oracle to be used in Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable {
 
-    uint256 constant Q96 = 2**96;
-    uint256 constant Q128 = 2**128;
+    uint256 private constant Q96 = 2**96;
+    uint256 private constant Q128 = 2**128;
 
     error InvalidConfig();
     error NotConfiguredToken();
