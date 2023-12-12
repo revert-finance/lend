@@ -94,7 +94,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
         uint216 collateralValueLimit; // how much asset equivalent may be lent out given this collateral
-        uint collateralTotalDebtShares; // how much debt shares are theoretically backed by this collateral
+        uint totalDebtShares; // how much debt shares are theoretically backed by this collateral
     }
     mapping(address => TokenConfig) public tokenConfigs;
 
@@ -918,18 +918,18 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         // remove previous collateral - add new collateral
         if (oldShares > newShares) {
-            tokenConfigs[token0].collateralTotalDebtShares -= oldShares - newShares;
-            tokenConfigs[token1].collateralTotalDebtShares -= oldShares - newShares;
+            tokenConfigs[token0].totalDebtShares -= oldShares - newShares;
+            tokenConfigs[token1].totalDebtShares -= oldShares - newShares;
         } else {
-            tokenConfigs[token0].collateralTotalDebtShares += newShares - oldShares;
-            tokenConfigs[token1].collateralTotalDebtShares += newShares - oldShares;
+            tokenConfigs[token0].totalDebtShares += newShares - oldShares;
+            tokenConfigs[token1].totalDebtShares += newShares - oldShares;
             
             // check if current value of "estimated" used collateral is more than allowed limit
             // if collateral is decreased - never revert
-            if (_convertToAssets(tokenConfigs[token0].collateralTotalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token0].collateralValueLimit) {
+            if (_convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token0].collateralValueLimit) {
                 revert CollateralValueLimit();
             }
-            if (_convertToAssets(tokenConfigs[token1].collateralTotalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token1].collateralValueLimit) {
+            if (_convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token1].collateralValueLimit) {
                 revert CollateralValueLimit();
             }
         }        

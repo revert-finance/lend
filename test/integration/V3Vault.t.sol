@@ -528,26 +528,26 @@ contract V3VaultIntegrationTest is Test {
     function testCollateralValueLimit() external {
 
         _setupBasicLoan(false);
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 1000000); // 80% collateral factor - max 1 USDC collateral value
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 1000000); // max 1 USDC debt for DAI
 
-        (,,uint collateralTotal) = vault.tokenConfigs(address(DAI));
-        assertEq(collateralTotal, 0);
-        (,,collateralTotal) = vault.tokenConfigs(address(USDC));
-        assertEq(collateralTotal, 0);
+        (,,uint totalDebtShares) = vault.tokenConfigs(address(DAI));
+        assertEq(totalDebtShares, 0);
+        (,,totalDebtShares) = vault.tokenConfigs(address(USDC));
+        assertEq(totalDebtShares, 0);
 
         // borrow certain amount works
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, 800000);
 
-        (,,collateralTotal) = vault.tokenConfigs(address(DAI));
-        assertEq(collateralTotal, 800000);
-        (,,collateralTotal) = vault.tokenConfigs(address(USDC));
-        assertEq(collateralTotal, 800000);
+        (,,totalDebtShares) = vault.tokenConfigs(address(DAI));
+        assertEq(totalDebtShares, 800000);
+        (,,totalDebtShares) = vault.tokenConfigs(address(USDC));
+        assertEq(totalDebtShares, 800000);
 
         // borrow more doesnt work anymore - because more than max value of collateral is used
         vm.expectRevert(V3Vault.CollateralValueLimit.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.borrow(TEST_NFT, 200000);
+        vault.borrow(TEST_NFT, 200001);
 
         // repay all
         vm.prank(TEST_NFT_ACCOUNT);
@@ -561,10 +561,10 @@ contract V3VaultIntegrationTest is Test {
         vault.repay(TEST_NFT, debtShares, true);
 
         // collateral is removed
-        (,,collateralTotal) = vault.tokenConfigs(address(DAI));
-        assertEq(collateralTotal, 0);
-        (,,collateralTotal) = vault.tokenConfigs(address(USDC));
-        assertEq(collateralTotal, 0);
+        (,,totalDebtShares) = vault.tokenConfigs(address(DAI));
+        assertEq(totalDebtShares, 0);
+        (,,totalDebtShares) = vault.tokenConfigs(address(USDC));
+        assertEq(totalDebtShares, 0);
     }
 
     function testMainScenario() external {
