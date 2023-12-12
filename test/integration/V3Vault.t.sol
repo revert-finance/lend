@@ -106,7 +106,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(account);
         USDC.approve(address(vault), amount);
         if (complete) {
-            (uint debtShares,,,,) = vault.loans(tokenId);
+            (uint debtShares,,) = vault.loans(tokenId);
             vm.prank(account);
             vault.repay(tokenId, debtShares, true);
         } else {
@@ -232,7 +232,7 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         (,,uint debt,,) = vault.loanInfo(TEST_NFT);
-        (uint debtShares,,,,) = vault.loans(TEST_NFT);
+        (uint debtShares,,) = vault.loans(TEST_NFT);
 
         if (isShare) {
             vm.assume(amount <= debtShares * 10);
@@ -540,9 +540,9 @@ contract V3VaultIntegrationTest is Test {
         vault.borrow(TEST_NFT, 800000);
 
         (,,collateralTotal) = vault.tokenConfigs(address(DAI));
-        assertEq(collateralTotal, 888986194912057564);
+        assertEq(collateralTotal, 800000);
         (,,collateralTotal) = vault.tokenConfigs(address(USDC));
-        assertEq(collateralTotal, 888888);
+        assertEq(collateralTotal, 800000);
 
         // borrow more doesnt work anymore - because more than max value of collateral is used
         vm.expectRevert(V3Vault.CollateralValueLimit.selector);
@@ -554,7 +554,7 @@ contract V3VaultIntegrationTest is Test {
         USDC.approve(address(vault), 1100000);
 
         // get debt shares
-        (uint debtShares,,,,) = vault.loans(TEST_NFT);
+        (uint debtShares,,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 800000);
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -614,7 +614,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000, false);
         (debt,,,,) = vault.loanInfo(TEST_NFT);
-        (uint debtShares,,,,) = vault.loans(TEST_NFT);
+        (uint debtShares,,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 4921);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
         assertEq(debt, 4946);

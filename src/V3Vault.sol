@@ -94,7 +94,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
         uint216 collateralValueLimit; // how much asset equivalent may be lent out given this collateral
-        uint collateralTotal; // how much of this collateral token was used (at creation) of loans
+        uint collateralTotalDebtShares; // how much debt shares are theoretically backed by this collateral
     }
     mapping(address => TokenConfig) public tokenConfigs;
 
@@ -121,10 +121,6 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         uint debtShares;
         address owner;
         uint32 collateralFactorX32; // assigned at loan creation
-
-        // how much collateral of each token was reserved for this loan (at creation or last change)
-        uint collateral0;
-        uint collateral1;
     }
     mapping(uint => Loan) public loans; // tokenID -> loan mapping
 
@@ -179,7 +175,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
         bool isHealthy;
-        (isHealthy, fullValue, collateralValue,,,) = _checkLoanIsHealthy(tokenId, debt);
+        (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthy(tokenId, debt);
 
         if (!isHealthy) {
             (liquidationValue,liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
@@ -332,13 +328,14 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
             revert WrongContract();
         }
 
+        (uint debtExchangeRateX96,) = _updateGlobalInterest();
+
         if (transformedTokenId == 0) {
-            _updateGlobalInterest();
             address owner = from;
             if (data.length > 0) {
                 owner = abi.decode(data, (address));
             }            
-            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId), 0, 0);
+            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId));
         } else {
 
             uint oldTokenId = transformedTokenId;
@@ -357,7 +354,10 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
                 emit Migrate(oldTokenId, tokenId);
 
                 // clears data of old loan
-                _cleanupLoan(oldTokenId, loans[oldTokenId].owner);
+                _cleanupLoan(oldTokenId, debtExchangeRateX96, loans[oldTokenId].owner);
+
+                // sets data of new loan
+                _updateAndCheckCollateral(tokenId, debtExchangeRateX96, 0, loans[tokenId].debtShares);
             }
         }
 
@@ -415,7 +415,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         nonfungiblePositionManager.approve(address(0), tokenId);
 
         uint debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthyAndCollateralValid(tokenId, debt);
+        _requireLoanIsHealthy(tokenId, debt);
 
         transformedTokenId = 0;
 
@@ -447,11 +447,13 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
             revert GlobalDebtLimit();
         }
 
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, loan.debtShares - shares, loan.debtShares);
+
         uint debt = _convertToAssets(loan.debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
         // only does check health here if not in transform mode
         if (!isTransformMode) {
-            _requireLoanIsHealthyAndCollateralValid(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt);
         }
 
         // fails if not enough asset available
@@ -502,7 +504,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
 
         uint debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthyAndCollateralValid(params.tokenId, debt);
+        _requireLoanIsHealthy(params.tokenId, debt);
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
@@ -543,11 +545,13 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         loan.debtShares -= shares;
         debtSharesTotal -= shares;
 
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, loan.debtShares + shares, loan.debtShares);
+
         address owner = loan.owner;
 
         // if fully repayed
         if (currentShares == shares) {
-            _cleanupLoan(tokenId, owner);
+            _cleanupLoan(tokenId, newDebtExchangeRateX96, owner);
         }
 
         emit Repay(tokenId, msg.sender, owner, assets, shares);
@@ -586,7 +590,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         state.debt = _convertToAssets(loans[tokenId].debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
 
-        (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue,,) = _checkLoanIsHealthy(tokenId, state.debt);
+        (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) = _checkLoanIsHealthy(tokenId, state.debt);
         if (state.isHealthy) {
             revert NotLiquidatable();
         }
@@ -609,7 +613,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         address owner = loans[tokenId].owner;
 
         // disarm loan and send remaining position to owner
-        _cleanupLoan(tokenId, owner);
+        _cleanupLoan(tokenId, state.newDebtExchangeRateX96, owner);
 
         emit Liquidate(tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, state.amount0, state.amount1, state.reserveCost, state.missing);
     }
@@ -805,8 +809,8 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
     // cleans up loan when it is closed because of replacement, repayment or liquidation
     // send the position in its current state to owner or liquidator
-    function _cleanupLoan(uint tokenId, address recipient) internal {
-        _updateCollateral(tokenId, 0, 0, 0, 0);
+    function _cleanupLoan(uint tokenId, uint debtExchangeRateX96, address recipient) internal {
+        _updateAndCheckCollateral(tokenId, debtExchangeRateX96, loans[tokenId].debtShares, 0);
         delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId);
     }
@@ -900,58 +904,39 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * supplyRateX96 / Q96;
     }
 
-    function _requireLoanIsHealthyAndCollateralValid(uint tokenId, uint debt) internal {
-        (bool isHealthy, uint fullValue, uint collateralValue,,uint price0X96, uint price1X96) = _checkLoanIsHealthy(tokenId, debt);
+    function _requireLoanIsHealthy(uint tokenId, uint debt) internal view {
+        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt);
         if (!isHealthy) {
             revert CollateralFail();
         }
-
-        // always <= Q96 (otherwise it would be unhealthy)
-        uint debtRatioX96 = debt.mulDiv(Q96, collateralValue);
-
-        uint collateral0 = fullValue.mulDiv(debtRatioX96, price0X96);
-        uint collateral1 = fullValue.mulDiv(debtRatioX96, price1X96);
-
-        _updateCollateral(tokenId, collateral0, collateral1, price0X96, price1X96);
     }
 
-    function _updateCollateral(uint tokenId, uint collateral0, uint collateral1, uint price0X96, uint price1X96) internal {
-
-        // convert full value to both collateral tokens 
-        uint previousCollateral0 = loans[tokenId].collateral0;
-        uint previousCollateral1 = loans[tokenId].collateral1;
+    // updates collateral token configs - and check if limit is not surpassed (check is only done on increasing debt shares)
+    function _updateAndCheckCollateral(uint tokenId, uint debtExchangeRateX96, uint oldShares, uint newShares) internal {
 
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         // remove previous collateral - add new collateral
-        if (previousCollateral0 > collateral0) {
-            tokenConfigs[token0].collateralTotal -= previousCollateral0 - collateral0;
+        if (oldShares > newShares) {
+            tokenConfigs[token0].collateralTotalDebtShares -= oldShares - newShares;
+            tokenConfigs[token1].collateralTotalDebtShares -= oldShares - newShares;
         } else {
-            tokenConfigs[token0].collateralTotal += collateral0 - previousCollateral0;
-        }
-        if (previousCollateral1 > collateral1) {
-            tokenConfigs[token1].collateralTotal -= previousCollateral1 - collateral1;
-        } else {
-            tokenConfigs[token1].collateralTotal += collateral1 - previousCollateral1;
-        }
-
-        // set collateral for loan
-        loans[tokenId].collateral0 = collateral0;
-        loans[tokenId].collateral1 = collateral1;
-
-        
-        // check if current value of "estimated" used collateral is more than allowed limit
-        // if collateral is decreased - never revert
-        if (collateral0 > previousCollateral0 && tokenConfigs[token0].collateralTotal.mulDiv(price0X96, Q96) > tokenConfigs[token0].collateralValueLimit) {
-            revert CollateralValueLimit();
-        }
-        if (collateral1 > previousCollateral1 && tokenConfigs[token1].collateralTotal.mulDiv(price1X96, Q96) > tokenConfigs[token1].collateralValueLimit) {
-            revert CollateralValueLimit();
-        }
+            tokenConfigs[token0].collateralTotalDebtShares += newShares - oldShares;
+            tokenConfigs[token1].collateralTotalDebtShares += newShares - oldShares;
+            
+            // check if current value of "estimated" used collateral is more than allowed limit
+            // if collateral is decreased - never revert
+            if (_convertToAssets(tokenConfigs[token0].collateralTotalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token0].collateralValueLimit) {
+                revert CollateralValueLimit();
+            }
+            if (_convertToAssets(tokenConfigs[token1].collateralTotalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token1].collateralValueLimit) {
+                revert CollateralValueLimit();
+            }
+        }        
     }
 
-    function _checkLoanIsHealthy(uint tokenId, uint debt) internal view returns (bool isHealthy, uint fullValue, uint collateralValue, uint feeValue, uint price0X96, uint price1X96) {
-        (fullValue,feeValue,price0X96,price1X96) = oracle.getValue(tokenId, address(asset));
+    function _checkLoanIsHealthy(uint tokenId, uint debt) internal view returns (bool isHealthy, uint fullValue, uint collateralValue, uint feeValue) {
+        (fullValue,feeValue,,) = oracle.getValue(tokenId, address(asset));
         collateralValue = fullValue.mulDiv(loans[tokenId].collateralFactorX32, Q32);
         isHealthy = collateralValue >= debt;
     }
