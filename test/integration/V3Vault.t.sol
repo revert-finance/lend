@@ -651,7 +651,7 @@ contract V3VaultIntegrationTest is Test {
 
         // whale won double interest
         assertEq(vault.lendInfo(WHALE_ACCOUNT), 2009889);
-        assertEq(vault.lendInfo(TEST_NFT_ACCOUNT_2), 2004944);
+        assertEq(vault.lendInfo(TEST_NFT_ACCOUNT_2), 2004943);
 
         // repay debts
         (uint debt,,,,) = vault.loanInfo(TEST_NFT);
@@ -672,7 +672,7 @@ contract V3VaultIntegrationTest is Test {
         vault.redeem(shares, TEST_NFT_ACCOUNT_2, TEST_NFT_ACCOUNT_2);
 
         // check remaining 
-        assertEq(USDC.balanceOf(address(vault)), 2);
+        assertEq(USDC.balanceOf(address(vault)), 3);
 
         uint lent;
         uint balance;
@@ -681,10 +681,10 @@ contract V3VaultIntegrationTest is Test {
         (debt,lent,balance,available,reserves) = vault.vaultInfo();
         assertEq(debt, 0);
         assertEq(lent, 0);
-        assertEq(balance, 2);
+        assertEq(balance, 3);
         assertEq(available, 0);
-        assertEq(reserves, 2);
-        assertEq(USDC.balanceOf(address(vault)), 2);
+        assertEq(reserves, 3);
+        assertEq(USDC.balanceOf(address(vault)), 3);
 
         // get all out
         vault.withdrawReserves(reserves, address(this));

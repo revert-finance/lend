@@ -34,16 +34,18 @@ contract InterestRateModel is Ownable, IInterestRateModel {
         return debt * Q96 / (cash + debt);
     }
 
-    function getBorrowRatePerSecondX96(uint cash, uint debt) override external view returns (uint) {
+    function getRatesPerSecondX96(uint cash, uint debt) override public view returns (uint borrowRateX96, uint supplyRateX96) {
         uint utilizationRate = getUtilizationRateX96(cash, debt);
 
         if (utilizationRate <= kink) {
-            return (utilizationRate * multiplierPerSecond / Q96) + baseRatePerSecond;
+            borrowRateX96 = (utilizationRate * multiplierPerSecond / Q96) + baseRatePerSecond;
         } else {
             uint normalRate = (kink * multiplierPerSecond / Q96) + baseRatePerSecond;
             uint excessUtil = utilizationRate - kink;
-            return (excessUtil * jumpMultiplierPerSecond / Q96) + normalRate;
+            borrowRateX96 = (excessUtil * jumpMultiplierPerSecond / Q96) + normalRate;
         }
+
+        supplyRateX96 = utilizationRate * borrowRateX96 / Q96;
     }
 
     // function to update interest rate values

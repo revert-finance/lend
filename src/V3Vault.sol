@@ -64,6 +64,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     event Borrow(uint indexed tokenId, address indexed owner, uint assets, uint shares);
     event Repay(uint indexed tokenId, address indexed repayer, address indexed owner, uint assets, uint shares);
     event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed owner, uint value, uint cost, uint amount0, uint amount1, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
+    event Migrate(uint indexed oldTokenId, uint indexed newTokenId);
 
     // admin events
     event WithdrawReserves(uint256 amount, address receiver);
@@ -351,6 +352,9 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
                 // copy debt to new token
                 loans[tokenId].debtShares = loans[oldTokenId].debtShares;
                 loans[tokenId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+
+                // log to handle this special case
+                emit Migrate(oldTokenId, tokenId);
 
                 // clears data of old loan
                 _cleanupLoan(oldTokenId, loans[oldTokenId].owner);
@@ -885,20 +889,15 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         (,uint available, ) = _getAvailableBalance(oldDebtExchangeRateX96, oldLendExchangeRateX96);
 
-        uint oldDebt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
-        uint oldLend = _convertToAssets(totalSupply(), oldLendExchangeRateX96, Math.Rounding.Down);
+        uint debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
 
-        uint borrowRateX96 = interestRateModel.getBorrowRatePerSecondX96(available, oldDebt);
+        (uint borrowRateX96, uint supplyRateX96) = interestRateModel.getRatesPerSecondX96(available, debt);
+
+        supplyRateX96 = supplyRateX96.mulDiv(Q32 - reserveFactorX32, Q32);
 
         // always growing or equal
         newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * borrowRateX96 / Q96;
-
-        uint newDebt = _convertToAssets(debtSharesTotal, newDebtExchangeRateX96, Math.Rounding.Up);
-
-        uint debtGrowth = newDebt - oldDebt;
-        uint lendGrowth = debtGrowth.mulDiv(Q32 - reserveFactorX32, Q32);
-
-        newLendExchangeRateX96 = oldLendExchangeRateX96 + (oldLend > 0 ? oldLendExchangeRateX96 * lendGrowth / oldLend : 0);
+        newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * supplyRateX96 / Q96;
     }
 
     function _requireLoanIsHealthyAndCollateralValid(uint tokenId, uint debt) internal {
