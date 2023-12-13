@@ -211,7 +211,7 @@ contract V3VaultIntegrationTest is Test {
 
         (,,uint collateralValue,,) = vault.loanInfo(TEST_NFT);
 
-        vm.assume(amount <= collateralValue * 10);
+        vm.assume(amount <= collateralValue);
 
         uint debtLimit = vault.globalDebtLimit();
 

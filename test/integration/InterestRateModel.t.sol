@@ -32,13 +32,16 @@ contract InterestRateModelIntegrationTest is Test {
     }
 
     function testInterestRates() external {
-        (uint borrowRateX96,)=interestRateModel.getRatesPerSecondX96(10, 0);
+        (uint borrowRateX96, uint lendRateX96) = interestRateModel.getRatesPerSecondX96(10, 0);
         assertEq(borrowRateX96 * YEAR_SECS, 0); // 0% for 0% utilization
+        assertEq(lendRateX96 * YEAR_SECS, 0); // 0% for 0% utilization
 
-        (borrowRateX96,)=interestRateModel.getRatesPerSecondX96(10000000, 10000000);
+        (borrowRateX96,lendRateX96)=interestRateModel.getRatesPerSecondX96(10000000, 10000000);
         assertEq(borrowRateX96 * YEAR_SECS, 1980704062856608439809600800); // 2.5% per year for 50% utilization
+        assertEq(lendRateX96 * YEAR_SECS, 990352031428304219889021600); // 1.25% for 50% utilization
 
-        (borrowRateX96,)=interestRateModel.getRatesPerSecondX96(0, 10);
+        (borrowRateX96,lendRateX96)=interestRateModel.getRatesPerSecondX96(0, 10);
         assertEq(borrowRateX96 * YEAR_SECS, 20440865928680199099069868800); // 25.8% per year for 100% utilization
+        assertEq(lendRateX96 * YEAR_SECS, 20440865928680199099069868800); // 25.8% per year for 100% utilization
     }
 }
