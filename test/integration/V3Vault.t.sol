@@ -74,7 +74,7 @@ contract V3VaultIntegrationTest is Test {
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
 
         // limits 15 USDC each
-        vault.setLimits(15000000, 15000000);
+        vault.setLimits(15000000, 15000000, 15000000);
 
         // without reserve for now
         vault.setReserveFactor(0);

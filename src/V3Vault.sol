@@ -39,6 +39,8 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
     uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
 
+    uint32 public constant MAX_DAILY_DEBT_INCREASE = uint32(Q32 / 10); //10%
+
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
@@ -69,10 +71,11 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     // admin events
     event WithdrawReserves(uint256 amount, address receiver);
     event SetTransformer(address transformer, bool active);
-    event SetLimits(uint globalLendLimit, uint globalDebtLimit);
+    event SetLimits(uint globalLendLimit, uint globalDebtLimit, uint dailyDebtIncreaseLimitMin);
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint216 collateralValueLimit);
+    event SetDailyDebtIncreaseLimitMin(uint dailyDebtIncreaseLimitMin);
 
     // errors
     error Reentrancy();
@@ -80,6 +83,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     error WrongContract();
     error CollateralFail();
     error GlobalDebtLimit();
+    error DailyDebtIncreaseLimit();
     error GlobalLendLimit();
     error InsufficientLiquidity();
     error NotLiquidatable();
@@ -113,6 +117,11 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
     uint public globalDebtLimit = 0;
     uint public globalLendLimit = 0;
+
+    // daily debt increase limit handling
+    uint public dailyDebtIncreaseLimitMin = 0;
+    uint public dailyDebtIncreaseLimitLeft = 0;
+    uint public dailyDebtIncreaseLimitLastReset = 0;
 
     // lender balances are handled with ERC-20 mint/burn
 
@@ -431,6 +440,14 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         (uint newDebtExchangeRateX96, ) = _updateGlobalInterest();
 
+        // daily debt limit reset handling
+        uint debtIncreaseTime = block.timestamp / 1 days;
+        if (debtIncreaseTime > dailyDebtIncreaseLimitLastReset) {
+            uint debtIncreaseLimit = _convertToAssets(debtSharesTotal, newDebtExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE) / Q32;
+            dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
+            dailyDebtIncreaseLimitLastReset = debtIncreaseTime;
+        }
+
         Loan storage loan = loans[tokenId];
 
         // if not in transfer mode - must be called from owner or the vault itself
@@ -445,6 +462,11 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
             revert GlobalDebtLimit();
+        }
+        if (assets > dailyDebtIncreaseLimitLeft) {
+            revert DailyDebtIncreaseLimit();
+        } else {
+            dailyDebtIncreaseLimitLeft -= assets;
         }
 
         _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, loan.debtShares - shares, loan.debtShares);
@@ -544,6 +566,9 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         loan.debtShares -= shares;
         debtSharesTotal -= shares;
+
+        // when amounts are repayed - they maybe borrowed again
+        dailyDebtIncreaseLimitLeft += assets;
 
         _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, loan.debtShares + shares, loan.debtShares);
 
@@ -655,11 +680,12 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     }
 
     // function to set limits (this doesnt affect existing loans)
-    function setLimits(uint _globalLendLimit, uint _globalDebtLimit) external onlyOwner {
+    function setLimits(uint _globalLendLimit, uint _globalDebtLimit, uint _dailyDebtIncreaseLimitMin) external onlyOwner {
         globalLendLimit = _globalLendLimit;
         globalDebtLimit = _globalDebtLimit;
+        dailyDebtIncreaseLimitMin = _dailyDebtIncreaseLimitMin;
 
-        emit SetLimits(_globalLendLimit, _globalDebtLimit);
+        emit SetLimits(_globalLendLimit, _globalDebtLimit, _dailyDebtIncreaseLimitMin);
     }
 
     // function to set reserve factor - percentage difference between debt and lend interest
