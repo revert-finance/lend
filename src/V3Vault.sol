@@ -75,7 +75,6 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint216 collateralValueLimit);
-    event SetDailyDebtIncreaseLimitMin(uint dailyDebtIncreaseLimitMin);
 
     // errors
     error Reentrancy();
