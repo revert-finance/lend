@@ -4,9 +4,8 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "../Swapper.sol";
-
-import "../interfaces/IV3Vault.sol";
+import "../utils/Swapper.sol";
+import "../interfaces/IVault.sol";
 
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
@@ -49,9 +48,9 @@ contract LeverageTransformer is Swapper {
 
         uint amount = params.borrowAmount;
 
-        address token = IV3Vault(msg.sender).asset();
+        address token = IVault(msg.sender).asset();
 
-        IV3Vault(msg.sender).borrow(params.tokenId, amount);
+        IVault(msg.sender).borrow(params.tokenId, amount);
 
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 
@@ -127,7 +126,7 @@ contract LeverageTransformer is Swapper {
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
 
-        address token = IV3Vault(msg.sender).asset();
+        address token = IVault(msg.sender).asset();
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 
         uint amount0;
@@ -153,7 +152,7 @@ contract LeverageTransformer is Swapper {
         }
 
         IERC20(token).approve(msg.sender, amount);
-        IV3Vault(msg.sender).repay(params.tokenId, amount, false);
+        IVault(msg.sender).repay(params.tokenId, amount, false);
 
         // send leftover tokens
         if (amount0 > 0 && token != token0) {

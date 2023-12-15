@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-periphery/interfaces/external/IWETH9.sol";
 
-import "../lib/IUniversalRouter.sol";
+import "../../lib/IUniversalRouter.sol";
 
 // base functionality to do swaps with different routing protocols
 abstract contract Swapper {

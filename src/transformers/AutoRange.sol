@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./Automator.sol";
+import "../automators/Automator.sol";
 
 /// @title AutoRange
 /// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved (setApprovalForAll) for the contract and configured with configToken method
 /// When executed a new position is created and automatically configured the same way as the original position
+/// When position is inside Vault - transform is called
 contract AutoRange is Automator {
 
     error SameRange();
@@ -98,16 +99,26 @@ contract AutoRange is Automator {
     }
 
     /**
-     * @notice Adjust token (must be in correct state)
-     * Can only be called only from configured operator account
+     * @notice Adjust token (which is in a Vault) - via transform method
+     * Can only be called from configured operator account - vault must be configured as well
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function executeWithVault(ExecuteParams calldata params, address vault) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeWithSelector(AutoRange.execute.selector, params));
+    }
+
+    /**
+     * @notice Adjust token directly (must be in correct state)
+     * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-
-        if (!operators[msg.sender]) {
+        if (!operators[msg.sender] && !vaults[msg.sender]) { 
             revert Unauthorized();
         }
-
         ExecuteState memory state;
         PositionConfig memory config = positionConfigs[params.tokenId];
 
@@ -128,7 +139,7 @@ contract AutoRange is Automator {
 
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline);
 
-        // if only fees reward is removed before adding
+          // if only fees reward is removed before adding
         if (config.onlyFees) {
             state.protocolReward0 = state.feeAmount0 * params.rewardX64 / Q64;
             state.protocolReward1 = state.feeAmount1 * params.rewardX64 / Q64;
@@ -239,11 +250,9 @@ contract AutoRange is Automator {
 
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
-    function configToken(uint256 tokenId, PositionConfig calldata config) external {
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
-        if (owner != msg.sender) {
-            revert Unauthorized();
-        }
+    function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
+        
+        _validateOwner(tokenId, vault);
 
          // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
         if (config.lowerTickDelta > config.upperTickDelta) {

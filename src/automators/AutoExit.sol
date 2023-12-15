@@ -5,7 +5,7 @@ import "./Automator.sol";
 
 /// @title AutoExit
 /// @notice Lets a v3 position to be automatically removed (limit order) or swapped to the opposite token (stop loss order) when it reaches a certain tick. 
-/// A revert controlled bot (operator) is responsible for the execution of optimized swaps (using external swap router)
+/// A revert controlled bot (operator) is responsable for the execution of optimized swaps (using external swap router)
 /// Positions need to be approved (approve or setApprovalForAll) for the contract and configured with configToken method
 contract AutoExit is Automator {
 

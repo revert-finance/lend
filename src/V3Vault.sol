@@ -18,14 +18,14 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
-import "./interfaces/IV3Vault.sol";
+import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any 2 tokens configured with a collateralFactor > 0
 /// ERC20 Token represent shares of lent tokens
-contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiver {
+contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver {
 
     using Math for uint256;
 
@@ -54,7 +54,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     IV3Oracle immutable public oracle;
 
     /// @notice underlying asset for lending / borrowing
-    address immutable public override(IERC4626, IV3Vault) asset;
+    address immutable public override(IERC4626, IVault) asset;
 
     /// @notice decimals of underlying token (are the same as ERC20 share token)
     uint8 immutable private assetDecimals;
@@ -76,7 +76,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     event SetLimits(uint globalLendLimit, uint globalDebtLimit, uint dailyDebtIncreaseLimitMin);
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
-    event SetTokenConfig(address token, uint32 collateralFactorX32, uint216 collateralValueLimit);
+    event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
 
     // errors
     error Reentrancy();
@@ -98,7 +98,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
-        uint216 collateralValueLimit; // how much asset equivalent may be lent out given this collateral
+        uint32 collateralValueLimitFactorX32; // how much asset equivalent may be lent out given this collateral
         uint totalDebtShares; // how much debt shares are theoretically backed by this collateral
     }
     mapping(address => TokenConfig) public tokenConfigs;
@@ -338,7 +338,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
             revert WrongContract();
         }
 
-        (uint debtExchangeRateX96,) = _updateGlobalInterest();
+        (uint debtExchangeRateX96, uint lendExchangeRateX96) = _updateGlobalInterest();
 
         if (transformedTokenId == 0) {
             address owner = from;
@@ -368,7 +368,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, loans[oldTokenId].owner);
 
                 // sets data of new loan
-                _updateAndCheckCollateral(tokenId, debtExchangeRateX96, 0, loans[tokenId].debtShares);
+                _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, loans[tokenId].debtShares);
             }
         }
 
@@ -471,7 +471,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
             dailyDebtIncreaseLimitLeft -= assets;
         }
 
-        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, loan.debtShares - shares, loan.debtShares);
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loan.debtShares - shares, loan.debtShares);
 
         uint debt = _convertToAssets(loan.debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
@@ -539,7 +539,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     /// @param isShare Is amount specified in assets or debt shares.
     function repay(uint tokenId, uint amount, bool isShare) external override {
 
-        (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
+        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
         Loan storage loan = loans[tokenId];
 
@@ -572,7 +572,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         // when amounts are repayed - they maybe borrowed again
         dailyDebtIncreaseLimitLeft += assets;
 
-        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, loan.debtShares + shares, loan.debtShares);
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loan.debtShares + shares, loan.debtShares);
 
         address owner = loan.owner;
 
@@ -708,13 +708,13 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     // function to set token config
     // how much is collateral factor for this token
     // how much of it maybe used as collateral max measured in asset quantity
-    function setTokenConfig(address token, uint32 collateralFactorX32, uint216 collateralValueLimit) external onlyOwner {
+    function setTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32) external onlyOwner {
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
         tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
-        tokenConfigs[token].collateralValueLimit = collateralValueLimit;
-        emit SetTokenConfig(token, collateralFactorX32, collateralValueLimit);
+        tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
+        emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
     }
 
     ////////////////// INTERNAL FUNCTIONS
@@ -837,8 +837,8 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
     // cleans up loan when it is closed because of replacement, repayment or liquidation
     // send the position in its current state to owner or liquidator
-    function _cleanupLoan(uint tokenId, uint debtExchangeRateX96, address recipient) internal {
-        _updateAndCheckCollateral(tokenId, debtExchangeRateX96, loans[tokenId].debtShares, 0);
+    function _cleanupLoan(uint tokenId, uint debtExchangeRateX96, uint lendExchangeRateX96, address recipient) internal {
+        _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, loans[tokenId].debtShares, 0);
         delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId);
         emit Remove(tokenId, recipient);
@@ -941,7 +941,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     }
 
     // updates collateral token configs - and check if limit is not surpassed (check is only done on increasing debt shares)
-    function _updateAndCheckCollateral(uint tokenId, uint debtExchangeRateX96, uint oldShares, uint newShares) internal {
+    function _updateAndCheckCollateral(uint tokenId, uint debtExchangeRateX96, uint lendExchangeRateX96, uint oldShares, uint newShares) internal {
 
         (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
@@ -953,12 +953,13 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
             tokenConfigs[token0].totalDebtShares += newShares - oldShares;
             tokenConfigs[token1].totalDebtShares += newShares - oldShares;
             
-            // check if current value of "estimated" used collateral is more than allowed limit
+            // check if current value of used collateral is more than allowed limit
             // if collateral is decreased - never revert
-            if (_convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token0].collateralValueLimit) {
+            uint lentAssets = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+            if (_convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * tokenConfigs[token0].collateralValueLimitFactorX32 / Q32) {
                 revert CollateralValueLimit();
             }
-            if (_convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > tokenConfigs[token1].collateralValueLimit) {
+            if (_convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * tokenConfigs[token1].collateralValueLimitFactorX32 / Q32) {
                 revert CollateralValueLimit();
             }
         }        

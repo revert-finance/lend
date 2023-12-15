@@ -13,7 +13,8 @@ import "v3-core/libraries/FullMath.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-periphery/interfaces/external/IWETH9.sol";
 
-import "../Swapper.sol";
+import "../utils/Swapper.sol";
+import "../interfaces/IVault.sol";
 
 abstract contract Automator is Swapper, Ownable {
 
@@ -35,11 +36,15 @@ abstract contract Automator is Swapper, Ownable {
 
     // admin events
     event OperatorChanged(address newOperator, bool active);
+    event VaultChanged(address newVault, bool active);
+
     event WithdrawerChanged(address newWithdrawer);
     event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
 
     // configurable by owner
     mapping(address => bool) public operators;
+    mapping(address => bool) public vaults;
+
     address public withdrawer;
     uint32 public TWAPSeconds;
     uint16 public maxTWAPTickDifference;
@@ -67,6 +72,16 @@ abstract contract Automator is Swapper, Ownable {
     function setOperator(address _operator, bool _active) public onlyOwner {
         emit OperatorChanged(_operator, _active);
         operators[_operator] = _active;
+    }
+
+    /**
+     * @notice Owner controlled function to activate/deactivate vault address
+     * @param _vault vault
+     * @param _active active or not
+     */
+    function setVault(address _vault, bool _active) public onlyOwner {
+        emit VaultChanged(_vault, _active);
+        vaults[_vault] = _active;
     }
 
     /**
@@ -222,6 +237,22 @@ abstract contract Automator is Swapper, Ownable {
             }
         } else {
             SafeERC20.safeTransfer(token, to, amount);
+        }
+    }
+
+    function _validateOwner(uint tokenId, address vault) internal {
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (vault != address(0)) {
+            if (!vaults[vault]) {
+                revert Unauthorized();
+            }
+            owner = IVault(vault).ownerOf(tokenId);
+        } else {
+            owner = nonfungiblePositionManager.ownerOf(tokenId);
+        }
+        
+        if (owner != msg.sender) {
+            revert Unauthorized();
         }
     }
 

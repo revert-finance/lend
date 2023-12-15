@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "permit2/interfaces/IPermit2.sol";
 
-import "../Swapper.sol";
+import "../utils/Swapper.sol";
 
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
