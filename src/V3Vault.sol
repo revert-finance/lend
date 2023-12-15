@@ -60,13 +60,15 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
     uint8 immutable private assetDecimals;
 
     // events
+    event Add(uint indexed tokenId, address owner, uint oldTokenId); // when a token is added replacing another token - oldTokenId > 0
+    event Remove(uint indexed tokenId, address recipient);
+
     event ExchangeRateUpdate(uint debtExchangeRateX96, uint lendExchangeRateX96);
     // Deposit and Withdraw events are defined in IERC4626
-    event WithdrawCollateral(uint indexed tokenId, address indexed owner, address recipient, uint128 liquidity, uint amount0, uint amount1);
-    event Borrow(uint indexed tokenId, address indexed owner, uint assets, uint shares);
-    event Repay(uint indexed tokenId, address indexed repayer, address indexed owner, uint assets, uint shares);
-    event Liquidate(uint indexed tokenId, address indexed liquidator, address indexed owner, uint value, uint cost, uint amount0, uint amount1, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
-    event Migrate(uint indexed oldTokenId, uint indexed newTokenId);
+    event WithdrawCollateral(uint indexed tokenId, address owner, address recipient, uint128 liquidity, uint amount0, uint amount1);
+    event Borrow(uint indexed tokenId, address owner, uint assets, uint shares);
+    event Repay(uint indexed tokenId, address repayer, address owner, uint assets, uint shares);
+    event Liquidate(uint indexed tokenId, address liquidator, address owner, uint value, uint cost, uint amount0, uint amount1, uint reserve, uint missing); // shows exactly how liquidation amounts were divided
 
     // admin events
     event WithdrawReserves(uint256 amount, address receiver);
@@ -344,6 +346,8 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
                 owner = abi.decode(data, (address));
             }            
             loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId));
+
+            emit Add(tokenId, owner, 0);
         } else {
 
             uint oldTokenId = transformedTokenId;
@@ -358,8 +362,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
                 loans[tokenId].debtShares = loans[oldTokenId].debtShares;
                 loans[tokenId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
 
-                // log to handle this special case
-                emit Migrate(oldTokenId, tokenId);
+                emit Add(tokenId, loans[oldTokenId].owner, oldTokenId);
 
                 // clears data of old loan
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, loans[oldTokenId].owner);
@@ -437,12 +440,12 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
 
         bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
-        (uint newDebtExchangeRateX96, ) = _updateGlobalInterest();
+        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
         // daily debt limit reset handling
         uint debtIncreaseTime = block.timestamp / 1 days;
         if (debtIncreaseTime > dailyDebtIncreaseLimitLastReset) {
-            uint debtIncreaseLimit = _convertToAssets(debtSharesTotal, newDebtExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE) / Q32;
+            uint debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE) / Q32;
             dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
             dailyDebtIncreaseLimitLastReset = debtIncreaseTime;
         }
@@ -838,6 +841,7 @@ contract V3Vault is ERC20, Multicall, IV3Vault, IERC4626, Ownable, IERC721Receiv
         _updateAndCheckCollateral(tokenId, debtExchangeRateX96, loans[tokenId].debtShares, 0);
         delete loans[tokenId];
         nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId);
+        emit Remove(tokenId, recipient);
     }
 
     // calculates amount which needs to be payed to liquidate position
