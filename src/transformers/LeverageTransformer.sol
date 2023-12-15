@@ -4,15 +4,15 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "./Transformer.sol";
+import "../Swapper.sol";
 
 import "../interfaces/IV3Vault.sol";
 
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
-contract LeverageTransformer is Transformer {
+contract LeverageTransformer is Swapper {
 
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) Transformer(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
     }
 
     struct LeverageUpParams {

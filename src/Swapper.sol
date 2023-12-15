@@ -6,9 +6,10 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-periphery/interfaces/external/IWETH9.sol";
 
-import "../../lib/IUniversalRouter.sol";
+import "../lib/IUniversalRouter.sol";
 
-abstract contract Transformer {
+// base functionality to do swaps with different routing protocols
+abstract contract Swapper {
 
     error SwapFailed();
     error SlippageError();
@@ -29,7 +30,6 @@ abstract contract Transformer {
 
     /// @notice Uniswap Universal Router
     address immutable public universalRouter;
-
 
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager

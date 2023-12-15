@@ -6,13 +6,13 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "permit2/interfaces/IPermit2.sol";
 
-import "./Transformer.sol";
+import "../Swapper.sol";
 
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
 /// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
 /// It can be simply redeployed when new / better functionality is implemented
-contract V3Utils is Transformer, IERC721Receiver {
+contract V3Utils is Swapper, IERC721Receiver {
 
     using SafeCast for uint256;
 
@@ -42,7 +42,7 @@ contract V3Utils is Transformer, IERC721Receiver {
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
     /// @param _zeroxRouter 0x Exchange Proxy
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter, address _permit2) Transformer(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter, address _permit2) Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
         permit2 = IPermit2(_permit2);
     }
 
