@@ -20,7 +20,6 @@ contract V3Utils is Swapper, IERC721Receiver {
     IPermit2 immutable public permit2;
 
     // error types
-    error Unauthorized();
     error SelfSend();
     error NotSupportedWhatToDo();
     error SameToken();

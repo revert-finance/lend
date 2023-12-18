@@ -365,7 +365,7 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
                 emit Add(tokenId, loans[oldTokenId].owner, oldTokenId);
 
                 // clears data of old loan
-                _cleanupLoan(oldTokenId, debtExchangeRateX96, loans[oldTokenId].owner);
+                _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96, loans[oldTokenId].owner);
 
                 // sets data of new loan
                 _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, loans[tokenId].debtShares);
@@ -578,7 +578,7 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
 
         // if fully repayed
         if (currentShares == shares) {
-            _cleanupLoan(tokenId, newDebtExchangeRateX96, owner);
+            _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
         }
 
         emit Repay(tokenId, msg.sender, owner, assets, shares);
@@ -640,7 +640,7 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
         address owner = loans[tokenId].owner;
 
         // disarm loan and send remaining position to owner
-        _cleanupLoan(tokenId, state.newDebtExchangeRateX96, owner);
+        _cleanupLoan(tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
 
         emit Liquidate(tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, state.amount0, state.amount1, state.reserveCost, state.missing);
     }
@@ -956,10 +956,12 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
             // check if current value of used collateral is more than allowed limit
             // if collateral is decreased - never revert
             uint lentAssets = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
-            if (_convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * tokenConfigs[token0].collateralValueLimitFactorX32 / Q32) {
+            uint collateralValueLimitFactorX32 = tokenConfigs[token0].collateralValueLimitFactorX32;
+            if (collateralValueLimitFactorX32 < type(uint32).max && _convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * collateralValueLimitFactorX32 / Q32) {
                 revert CollateralValueLimit();
             }
-            if (_convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * tokenConfigs[token1].collateralValueLimitFactorX32 / Q32) {
+            collateralValueLimitFactorX32 = tokenConfigs[token1].collateralValueLimitFactorX32;
+            if (collateralValueLimitFactorX32 < type(uint32).max && _convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * collateralValueLimitFactorX32 / Q32) {
                 revert CollateralValueLimit();
             }
         }        

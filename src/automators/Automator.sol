@@ -26,7 +26,6 @@ abstract contract Automator is Swapper, Ownable {
 
     error NotConfigured();
     error NotReady();
-    error Unauthorized();
     error InvalidConfig();
     error TWAPCheckFailed();
     error EtherSendFailed();
@@ -185,21 +184,6 @@ abstract contract Automator is Swapper, Ownable {
         }
     }
 
-    // get pool for token
-    function _getPool(
-        address tokenA,
-        address tokenB,
-        uint24 fee
-    ) internal view returns (IUniswapV3Pool) {
-        return
-            IUniswapV3Pool(
-                PoolAddress.computeAddress(
-                    address(factory),
-                    PoolAddress.getPoolKey(tokenA, tokenB, fee)
-                )
-            );
-    }
-
     function _decreaseFullLiquidityAndCollect(uint256 tokenId, uint128 liquidity, uint256 amountRemoveMin0, uint256 amountRemoveMin1, uint256 deadline) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
        if (liquidity > 0) {
             // store in temporarely "misnamed" variables - see comment below
@@ -240,8 +224,8 @@ abstract contract Automator is Swapper, Ownable {
         }
     }
 
-    function _validateOwner(uint tokenId, address vault) internal {
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+    function _validateOwner(uint tokenId, address vault) internal returns (address owner) {
+        owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (vault != address(0)) {
             if (!vaults[vault]) {
                 revert Unauthorized();

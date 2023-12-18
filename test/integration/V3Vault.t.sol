@@ -69,9 +69,9 @@ contract V3VaultIntegrationTest is Test {
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
         vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
-        vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 10000000); // 90% collateral factor - max 10 USDC collateral value
-        vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), 10000000); // 80% collateral factor - max 10 USDC collateral value
+        vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100% collateral value
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100%  collateral value
+        vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100%  collateral value
 
         // limits 15 USDC each
         vault.setLimits(15000000, 15000000, 15000000);
@@ -528,7 +528,7 @@ contract V3VaultIntegrationTest is Test {
     function testCollateralValueLimit() external {
 
         _setupBasicLoan(false);
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), 1000000); // max 1 USDC debt for DAI
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), uint32(Q32 / 10)); // max 10% debt for DAI
 
         (,,uint totalDebtShares) = vault.tokenConfigs(address(DAI));
         assertEq(totalDebtShares, 0);
