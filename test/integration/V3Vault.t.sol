@@ -12,7 +12,8 @@ import "../../src/InterestRateModel.sol";
 // transformers
 import "../../src/transformers/LeverageTransformer.sol";
 import "../../src/transformers/V3Utils.sol";
-
+import "../../src/transformers/AutoRange.sol";
+import "../../src/transformers/AutoCompound.sol";
 
 contract V3VaultIntegrationTest is Test {
    
@@ -446,6 +447,47 @@ contract V3VaultIntegrationTest is Test {
         assertEq(debt, 7847206);
         assertEq(collateralValue, 8673141);
         assertEq(fullValue, 9636824);
+    }
+
+    function testTransformAutoCompound() external {
+
+        _setupBasicLoan(true);
+
+        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
+        vault.setTransformer(address(autoCompound), true);
+        autoCompound.setVault(address(vault), true);
+
+        vm.expectRevert(Swapper.Unauthorized.selector);
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(Automator.NotConfigured.selector);
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+
+        // direct auto-compound when in vault fails
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert("Not approved");
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+
+        // user hasnt approved automator
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(V3Vault.NotOwner.selector);
+        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoCompound), true);
+
+        // fails because full collateral used
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(V3Vault.CollateralFail.selector);
+        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
+
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
+
+        vm.prank(WHALE_ACCOUNT);
+        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
+
+
     }
 
     function testLiquidationTimeBased() external {

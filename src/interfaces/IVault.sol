@@ -9,7 +9,7 @@ interface IVault {
     function create(uint256 tokenId, address recipient) external;
     function createWithPermit(uint256 tokenId, address owner, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
 
-    function approveTransform(address target, bool active) external;
+    function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint tokenId, address transformer, bytes calldata data) external returns (uint);
 
     // params for decreasing liquidity of collateralized position

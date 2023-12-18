@@ -60,6 +60,8 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
     uint8 immutable private assetDecimals;
 
     // events
+    event ApprovedTransform(uint indexed tokenId, address owner, address target, bool isActive); 
+
     event Add(uint indexed tokenId, address owner, uint oldTokenId); // when a token is added replacing another token - oldTokenId > 0
     event Remove(uint indexed tokenId, address recipient);
 
@@ -137,7 +139,7 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
     uint transformedTokenId = 0; // transient (when available in dencun)
 
     mapping(address => bool) transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
-    mapping(address => mapping(address => bool)) transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
+    mapping(uint => mapping(address => bool)) transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
 
     constructor(string memory name, string memory symbol, address _asset, INonfungiblePositionManager _nonfungiblePositionManager, IInterestRateModel _interestRateModel, IV3Oracle _oracle) ERC20(name, symbol) {
         asset = _asset;
@@ -375,11 +377,17 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    /// @notice Allows another address to call transform on behalf of owner
-    /// @param target The address to be permitted
-    /// @param active If it allowed or not
-    function approveTransform(address target, bool active) external override {
-        transformApprovals[msg.sender][target] = active;
+    /// @notice Allows another address to call transform on behalf of owner (on a given token)
+    /// @param tokenId The token to be permitted
+    /// @param target The address to be allowed
+    /// @param isActive If it allowed or not
+    function approveTransform(uint tokenId, address target, bool isActive) external override {
+        if (loans[tokenId].owner != msg.sender) {
+            revert NotOwner();
+        }
+        transformApprovals[tokenId][target] = isActive;
+
+        emit ApprovedTransform(tokenId, msg.sender, target, isActive);
     }
 
     /// @notice Method which allows a contract to transform a loan by changing it (and only at the end checking collateral)
@@ -401,7 +409,7 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
         address loanOwner = loans[tokenId].owner;
 
         // only the owner of the loan, the vault itself or any approved caller can call this
-        if (loanOwner != msg.sender && address(this) != msg.sender && !transformApprovals[loanOwner][msg.sender]) {
+        if (loanOwner != msg.sender && address(this) != msg.sender && !transformApprovals[tokenId][msg.sender]) {
             revert NotOwner();
         }
 

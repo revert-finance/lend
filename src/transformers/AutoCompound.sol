@@ -44,8 +44,6 @@ contract AutoCompound is Automator {
         Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, address(0), address(0)) {
     }
 
-    // configured tokens
-    mapping(uint256 => bool) public positionConfigs;
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
 
     uint64 constant public MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
@@ -55,11 +53,9 @@ contract AutoCompound is Automator {
     struct ExecuteParams {
        // tokenid to autocompound
         uint256 tokenId;
-        
         // swap params - calculated off-chain
         bool swap0To1;
         uint256 amountIn; // if this is set to 0 no swap happens
-        bytes swapData;
     }
 
     // state used during autocompound execution
@@ -107,12 +103,7 @@ contract AutoCompound is Automator {
         }
         ExecuteState memory state;
 
-        // if called from vault - needs to be configured - otherwise approval is enough
-        if (!operators[msg.sender] && !positionConfigs[params.tokenId]) {
-            revert NotConfigured();
-        }
-
-        // collect fees
+        // collect fees - if the position doesn't have operator set or is called from vault - it won't work
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
         );
@@ -186,25 +177,6 @@ contract AutoCompound is Automator {
         emit AutoCompounded(msg.sender, params.tokenId, state.compounded0, state.compounded1, state.amount0Fees, state.amount1Fees, state.token0, state.token1);
     }
 
-    // function to configure a token to be used with this runner
-    // it needs to have approvals set for this contract beforehand
-    function configToken(uint256 tokenId, address vault, bool isActive) external {
-        
-        _validateOwner(tokenId, vault);
-
-        // must change config
-        if (positionConfigs[tokenId] == isActive) {
-            revert InvalidConfig();
-        }
-
-        positionConfigs[tokenId] = isActive;
-
-        emit PositionConfigured(
-            tokenId,
-            isActive
-        );
-    }
-
      /**
      * @notice Withdraws token balance for a address and token
      * @param tokenId Id of position to withdraw
@@ -276,5 +248,17 @@ contract AutoCompound is Automator {
         emit BalanceRemoved(tokenId, token, amount);
         SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit BalanceWithdrawn(tokenId, token, to, amount);
+    }
+
+    function _checkApprovals(IERC20 token0, IERC20 token1) internal {
+        // approve tokens once if not yet approved
+        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance0 == 0) {
+            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+        }
+        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance1 == 0) {
+            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
+        }
     }
 }
