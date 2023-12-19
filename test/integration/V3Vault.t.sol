@@ -596,8 +596,8 @@ contract V3VaultIntegrationTest is Test {
         assertEq(fullValue, timeBased ? 9830229 : 9436666);
 
         assertGt(debt, collateralValue);
-        assertEq(liquidationCost, timeBased ? 8869647 : 8776099);
-        assertEq(liquidationValue, timeBased ? 9077365 : 9436666);
+        assertEq(liquidationCost, timeBased ? 8869647 : 8492999);
+        assertEq(liquidationValue, timeBased ? 9226564 : 9436666);
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
@@ -616,8 +616,8 @@ contract V3VaultIntegrationTest is Test {
         vault.liquidate(TEST_NFT);
 
         // DAI and USDC where sent to liquidator
-        assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 378749320522595459 : 393607068547774684);
-        assertEq(USDC.balanceOf(WHALE_ACCOUNT) + liquidationCost - usdcBalance, timeBased ? 8698658 : 9436666);
+        assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 381693758226627942 : 393607068547774684);
+        assertEq(USDC.balanceOf(WHALE_ACCOUNT) + liquidationCost - usdcBalance, timeBased ? 8844913 : 9436666);
 
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
@@ -626,10 +626,10 @@ contract V3VaultIntegrationTest is Test {
         assertEq(vault.debtSharesTotal(), 0);
 
         // protocol is solvent
-        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10022441 : 9928893);
+        assertEq(USDC.balanceOf(address(vault)), timeBased ? 10022441 : 9645793);
         (,uint lent,uint balance,,) = vault.vaultInfo();
-        assertEq(lent, timeBased ? 10022441 : 9928893);
-        assertEq(balance, timeBased ? 10022441 : 9928893);
+        assertEq(lent, timeBased ? 10022441 : 9645793);
+        assertEq(balance, timeBased ? 10022441 : 9645793);
     }
 
     function testCollateralValueLimit() external {

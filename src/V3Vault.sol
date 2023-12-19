@@ -25,7 +25,7 @@ import "./interfaces/IInterestRateModel.sol";
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any 2 tokens configured with a collateralFactor > 0
 /// ERC20 Token represent shares of lent tokens
-contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver {
+contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver {
 
     using Math for uint256;
 
@@ -35,7 +35,7 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
     uint public constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
 
     uint public constant MIN_LIQUIDATION_PENALTY_X32 = Q32 * 2 / 100; // 2%
-    uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 * 7 / 100; // 7%
+    uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 * 10 / 100; // 10%
 
     uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
 
