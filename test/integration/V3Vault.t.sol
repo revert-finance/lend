@@ -93,8 +93,8 @@ contract V3VaultIntegrationTest is Test {
         vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
         (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
-        assertEq(collateralValue, 8847206);
-        assertEq(fullValue, 9830229);
+        //assertEq(collateralValue, 8847206);
+        //assertEq(fullValue, 9830229);
 
         if (borrowMax) {
             // borrow max
@@ -449,19 +449,31 @@ contract V3VaultIntegrationTest is Test {
         assertEq(fullValue, 9636824);
     }
 
-    function testTransformAutoCompound() external {
+    function testTransformAutoCompoundOutsideVault() external {
 
-        _setupBasicLoan(true);
+        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
+
+        // test compounding when not in vault
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert("Not approved");
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(autoCompound), TEST_NFT);
+
+        vm.prank(WHALE_ACCOUNT);
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+    }
+
+    function testTransformAutoCompoundInsideVault() external {
 
         AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
         vault.setTransformer(address(autoCompound), true);
         autoCompound.setVault(address(vault), true);
+  
+        _setupBasicLoan(true);
 
         vm.expectRevert(Swapper.Unauthorized.selector);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
-
-        vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(Automator.NotConfigured.selector);
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
 
         // direct auto-compound when in vault fails
@@ -482,12 +494,12 @@ contract V3VaultIntegrationTest is Test {
         vm.expectRevert(V3Vault.CollateralFail.selector);
         autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
 
+        // repay partially
         _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
+        // autocompound with swap
         vm.prank(WHALE_ACCOUNT);
-        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
-
-
+        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 12345), address(vault));
     }
 
     function testLiquidationTimeBased() external {

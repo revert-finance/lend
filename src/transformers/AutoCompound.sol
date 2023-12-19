@@ -12,8 +12,8 @@ import "../automators/Automator.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
-/// Positions need to be approved (setApproval) for the contract and configured with configToken method
-/// When position is inside Vault - transform is called
+/// Positions need to be approved (setApproval) for the contract when outside vault
+/// When position is inside Vault - owner needs to approve the position to be transformed by the contract
 contract AutoCompound is Automator {
 
     // autocompound event
@@ -149,6 +149,9 @@ contract AutoCompound is Automator {
 
             // deposit liquidity into tokenId
             if (state.maxAddAmount0 > 0 || state.maxAddAmount1 > 0) {
+
+                _checkApprovals(state.token0, state.token1);
+
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
                         params.tokenId,
@@ -250,15 +253,15 @@ contract AutoCompound is Automator {
         emit BalanceWithdrawn(tokenId, token, to, amount);
     }
 
-    function _checkApprovals(IERC20 token0, IERC20 token1) internal {
+    function _checkApprovals(address token0, address token1) internal {
         // approve tokens once if not yet approved
-        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
+        uint256 allowance0 = IERC20(token0).allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
-            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+            SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), type(uint256).max);
         }
-        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
+        uint256 allowance1 = IERC20(token1).allowance(address(this), address(nonfungiblePositionManager));
         if (allowance1 == 0) {
-            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
+            SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), type(uint256).max);
         }
     }
 }
