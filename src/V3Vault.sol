@@ -951,29 +951,30 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
 
     // updates collateral token configs - and check if limit is not surpassed (check is only done on increasing debt shares)
     function _updateAndCheckCollateral(uint tokenId, uint debtExchangeRateX96, uint lendExchangeRateX96, uint oldShares, uint newShares) internal {
+        if (oldShares != newShares) {
+            (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
-        (,,address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-
-        // remove previous collateral - add new collateral
-        if (oldShares > newShares) {
-            tokenConfigs[token0].totalDebtShares -= oldShares - newShares;
-            tokenConfigs[token1].totalDebtShares -= oldShares - newShares;
-        } else {
-            tokenConfigs[token0].totalDebtShares += newShares - oldShares;
-            tokenConfigs[token1].totalDebtShares += newShares - oldShares;
-            
-            // check if current value of used collateral is more than allowed limit
-            // if collateral is decreased - never revert
-            uint lentAssets = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
-            uint collateralValueLimitFactorX32 = tokenConfigs[token0].collateralValueLimitFactorX32;
-            if (collateralValueLimitFactorX32 < type(uint32).max && _convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * collateralValueLimitFactorX32 / Q32) {
-                revert CollateralValueLimit();
-            }
-            collateralValueLimitFactorX32 = tokenConfigs[token1].collateralValueLimitFactorX32;
-            if (collateralValueLimitFactorX32 < type(uint32).max && _convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * collateralValueLimitFactorX32 / Q32) {
-                revert CollateralValueLimit();
-            }
-        }        
+            // remove previous collateral - add new collateral
+            if (oldShares > newShares) {
+                tokenConfigs[token0].totalDebtShares -= oldShares - newShares;
+                tokenConfigs[token1].totalDebtShares -= oldShares - newShares;
+            } else {
+                tokenConfigs[token0].totalDebtShares += newShares - oldShares;
+                tokenConfigs[token1].totalDebtShares += newShares - oldShares;
+                
+                // check if current value of used collateral is more than allowed limit
+                // if collateral is decreased - never revert
+                uint lentAssets = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+                uint collateralValueLimitFactorX32 = tokenConfigs[token0].collateralValueLimitFactorX32;
+                if (collateralValueLimitFactorX32 < type(uint32).max && _convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * collateralValueLimitFactorX32 / Q32) {
+                    revert CollateralValueLimit();
+                }
+                collateralValueLimitFactorX32 = tokenConfigs[token1].collateralValueLimitFactorX32;
+                if (collateralValueLimitFactorX32 < type(uint32).max && _convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up) > lentAssets * collateralValueLimitFactorX32 / Q32) {
+                    revert CollateralValueLimit();
+                }
+            }   
+        }     
     }
 
     function _checkLoanIsHealthy(uint tokenId, uint debt) internal view returns (bool isHealthy, uint fullValue, uint collateralValue, uint feeValue) {

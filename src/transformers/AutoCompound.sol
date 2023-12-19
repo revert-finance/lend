@@ -254,7 +254,7 @@ contract AutoCompound is Automator {
     }
 
     function _checkApprovals(address token0, address token1) internal {
-        // approve tokens once if not yet approved
+        // approve tokens once if not yet approved - to save gas during compounds
         uint256 allowance0 = IERC20(token0).allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
             SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), type(uint256).max);
