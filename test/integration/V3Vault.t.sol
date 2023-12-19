@@ -502,6 +502,59 @@ contract V3VaultIntegrationTest is Test {
         autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 12345), address(vault));
     }
 
+    function testTransformAutoRangeInsideVault() external {
+
+        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault), true);
+  
+        _setupBasicLoan(true);
+
+        (, ,, , ,, ,uint128 liquidity, , , , ) = NPM.positions(TEST_NFT);
+        AutoRange.ExecuteParams memory params = AutoRange.ExecuteParams(TEST_NFT, false, 0, "", liquidity, 0, 0, block.timestamp, 0);
+
+        vm.expectRevert(Swapper.Unauthorized.selector);
+        autoRange.execute(params);
+
+        // direct auto-compound when in vault fails
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(Automator.NotConfigured.selector);
+        autoRange.execute(params);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoRange), true);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, 0));
+
+        // fails because full collateral used
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(V3Vault.CollateralFail.selector);
+        autoRange.executeWithVault(params, address(vault));
+
+        // repay partially
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
+
+        // autorange
+        vm.prank(WHALE_ACCOUNT);
+        autoRange.executeWithVault(params, address(vault));
+
+
+        // previous loan is deactivated - and sent back to owner
+        (uint debt,,,,) = vault.loanInfo(TEST_NFT);
+        assertEq(debt, 0);
+        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+
+
+        uint newTokenId = NPM.tokenByIndex(NPM.totalSupply() - 1);
+        assertEq(newTokenId, 599811);
+
+        (debt,,,,) = vault.loanInfo(newTokenId);
+        assertEq(debt, 7847206);
+        assertEq(NPM.ownerOf(newTokenId), address(vault));
+        assertEq(vault.ownerOf(newTokenId), TEST_NFT_ACCOUNT);
+    }
+
     function testLiquidationTimeBased() external {
         _testLiquidation(true);
     }

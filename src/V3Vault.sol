@@ -357,17 +357,18 @@ contract V3Vault is ERC20, Multicall, IVault, IERC4626, Ownable, IERC721Receiver
             // if in transform mode - and a new position is sent - current position is replaced and returned
             if (tokenId != oldTokenId) {
 
+                address owner = loans[oldTokenId].owner;
+
                 // set transformed token to new one
                 transformedTokenId = tokenId;
 
                 // copy debt to new token
-                loans[tokenId].debtShares = loans[oldTokenId].debtShares;
-                loans[tokenId].collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+                loans[tokenId] = Loan(loans[oldTokenId].debtShares, owner, _calculateTokenCollateralFactorX32(tokenId));
 
-                emit Add(tokenId, loans[oldTokenId].owner, oldTokenId);
+                emit Add(tokenId, owner, oldTokenId);
 
                 // clears data of old loan
-                _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96, loans[oldTokenId].owner);
+                _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96, owner);
 
                 // sets data of new loan
                 _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, loans[tokenId].debtShares);
