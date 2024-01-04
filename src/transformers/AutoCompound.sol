@@ -135,7 +135,8 @@ contract AutoCompound is Automator {
                 }
                 // if still needed - do swap
                 if (amountIn > 0) {
-                    (state.amountInDelta, state.amountOutDelta) = _poolSwap(pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn);
+                    // no slippage check done - because protected by TWAP check
+                    (state.amountInDelta, state.amountOutDelta) = _poolSwap(Swapper.PoolSwapParams(pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn, 0));
                     state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
                     state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
                 }

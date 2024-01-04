@@ -108,14 +108,28 @@ abstract contract Swapper is IUniswapV3SwapCallback {
         }
     }
 
+    struct PoolSwapParams {
+        IUniswapV3Pool pool; 
+        IERC20 token0;
+        IERC20 token1;
+        uint24 fee;
+        bool swap0For1;
+        uint256 amountIn;
+        uint256 amountOutMin;
+    }
+
     // execute swap directly on specified pool
     // amounts must be available on the contract for both tokens
-    // slippage is not checked - so this must be executed in an oracle verified context
-    function _poolSwap(IUniswapV3Pool pool, IERC20 token0, IERC20 token1, uint24 fee, bool swap0For1, uint256 amountIn) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
-        if (amountIn > 0) {
-            (int256 amount0Delta, int256 amount1Delta) = pool.swap(address(this), swap0For1, int256(amountIn), (swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1), abi.encode(swap0For1 ? token0 : token1, swap0For1 ? token1 : token0, fee));
-            amountInDelta = swap0For1 ? uint256(amount0Delta) : uint256(amount1Delta);
-            amountOutDelta = swap0For1 ? uint256(-amount1Delta) : uint256(-amount0Delta);
+    function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
+        if (params.amountIn > 0) {
+            (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(address(this), params.swap0For1, int256(params.amountIn), (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1), abi.encode(params.swap0For1 ? params.token0 : params.token1, params.swap0For1 ? params.token1 : params.token0, params.fee));
+            amountInDelta = params.swap0For1 ? uint256(amount0Delta) : uint256(amount1Delta);
+            amountOutDelta = params.swap0For1 ? uint256(-amount1Delta) : uint256(-amount0Delta);
+
+            // amountMin slippage check
+            if (amountOutDelta < params.amountOutMin) {
+                revert SlippageError();
+            }
         }
     }
 
