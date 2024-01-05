@@ -75,7 +75,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     // admin events
     event WithdrawReserves(uint256 amount, address receiver);
     event SetTransformer(address transformer, bool active);
-    event SetLimits(uint globalLendLimit, uint globalDebtLimit, uint dailyDebtIncreaseLimitMin);
+    event SetLimits(uint minLoanSize, uint globalLendLimit, uint globalDebtLimit, uint dailyDebtIncreaseLimitMin);
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
@@ -85,6 +85,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     error NotOwner();
     error WrongContract();
     error CollateralFail();
+    error MinLoanSize();
     error GlobalDebtLimit();
     error DailyDebtIncreaseLimit();
     error GlobalLendLimit();
@@ -120,6 +121,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
     uint public globalDebtLimit = 0;
     uint public globalLendLimit = 0;
+
+    // minimal size of loan (to protect from non-liquidatable positions because of gas-cost)
+    uint public minLoanSize = 0;
 
     // daily debt increase limit handling
     uint public dailyDebtIncreaseLimitMin = 0;
@@ -468,7 +472,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         uint shares = _convertToShares(assets, newDebtExchangeRateX96, Math.Rounding.Up);
 
-        loan.debtShares += shares;
+        uint loanDebtShares = loan.debtShares + shares;
+        loan.debtShares = loanDebtShares;
         debtSharesTotal += shares;
 
         if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
@@ -480,9 +485,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
             dailyDebtIncreaseLimitLeft -= assets;
         }
 
-        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loan.debtShares - shares, loan.debtShares);
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares - shares, loanDebtShares);
 
-        uint debt = _convertToAssets(loan.debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+        uint debt = _convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+
+        if (debt < minLoanSize) {
+            revert MinLoanSize();
+        }
 
         // only does check health here if not in transform mode
         if (!isTransformMode) {
@@ -588,6 +597,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         // if fully repayed
         if (currentShares == shares) {
             _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
+        } else {
+            // if resulting loan is too small - revert
+            if (_convertToAssets(loan.debtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
+                revert MinLoanSize();
+            }
         }
 
         emit Repay(tokenId, msg.sender, owner, assets, shares);
@@ -691,12 +705,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     }
 
     // function to set limits (this doesnt affect existing loans)
-    function setLimits(uint _globalLendLimit, uint _globalDebtLimit, uint _dailyDebtIncreaseLimitMin) external onlyOwner {
+    function setLimits(uint _minLoanSize, uint _globalLendLimit, uint _globalDebtLimit, uint _dailyDebtIncreaseLimitMin) external onlyOwner {
+
+        minLoanSize = _minLoanSize;
         globalLendLimit = _globalLendLimit;
         globalDebtLimit = _globalDebtLimit;
         dailyDebtIncreaseLimitMin = _dailyDebtIncreaseLimitMin;
 
-        emit SetLimits(_globalLendLimit, _globalDebtLimit, _dailyDebtIncreaseLimitMin);
+        emit SetLimits(_minLoanSize, _globalLendLimit, _globalDebtLimit, _dailyDebtIncreaseLimitMin);
     }
 
     // function to set reserve factor - percentage difference between debt and lend interest

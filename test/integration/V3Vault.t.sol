@@ -75,7 +75,7 @@ contract V3VaultIntegrationTest is Test {
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100%  collateral value
 
         // limits 15 USDC each
-        vault.setLimits(15000000, 15000000, 15000000);
+        vault.setLimits(0, 15000000, 15000000, 15000000);
 
         // without reserve for now
         vault.setReserveFactor(0);
@@ -93,8 +93,8 @@ contract V3VaultIntegrationTest is Test {
         vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
         (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
-        //assertEq(collateralValue, 8847206);
-        //assertEq(fullValue, 9830229);
+        assertEq(collateralValue, 8847206);
+        assertEq(fullValue, 9830229);
 
         if (borrowMax) {
             // borrow max
@@ -133,6 +133,39 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(account);
         vault.multicall(calls);
+    }
+
+    function testMinLoanSize() external {
+
+        uint minLoanSize = 1000000;
+
+        vault.setLimits(1000000, 15000000, 15000000, 15000000);
+
+         // lend 10 USDC
+        _deposit(10000000, WHALE_ACCOUNT);
+
+        // add collateral
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.expectRevert(V3Vault.MinLoanSize.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, minLoanSize - 1);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, minLoanSize);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), minLoanSize);
+
+        vm.expectRevert(V3Vault.MinLoanSize.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, 1, false);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, minLoanSize, false);
     }
 
     function testERC20() external {
@@ -630,6 +663,12 @@ contract V3VaultIntegrationTest is Test {
         (,uint lent,uint balance,,) = vault.vaultInfo();
         assertEq(lent, timeBased ? 10022441 : 9645793);
         assertEq(balance, timeBased ? 10022441 : 9645793);
+
+        // there maybe some amounts left in position
+        (,,, uint256 amount0, uint256 amount1,,) = oracle.getPositionBreakdown(TEST_NFT);
+        assertEq(amount0, timeBased ? 11913310321146741 : 0);
+        assertEq(amount1, timeBased ? 591753 : 0);
+
     }
 
     function testCollateralValueLimit() external {
