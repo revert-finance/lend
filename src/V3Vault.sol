@@ -23,8 +23,8 @@ import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
-/// @notice The vault manages ONE asset for lending / borrowing, but collateral positions can composed of any 2 tokens configured with a collateralFactor > 0
-/// ERC20 Token represent shares of lent tokens
+/// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
+/// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
 contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver {
 
     using Math for uint256;

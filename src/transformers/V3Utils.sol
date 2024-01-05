@@ -122,7 +122,7 @@ contract V3Utils is Swapper, IERC721Receiver {
         nonfungiblePositionManager.permit(address(this), tokenId, instructions.deadline, v, r, s);
         return execute(tokenId, instructions);
 
-        // NOTE: previous operator can not be reset as operator set by approve can not change approvals - so this operator will stay until reset
+        // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
     }
 
     /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
@@ -167,7 +167,7 @@ contract V3Utils is Swapper, IERC721Receiver {
         } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
             uint256 targetAmount;
             if (token0 != instructions.targetToken) {
-                (uint256 amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token0), IERC20(instructions.targetToken), amount0, instructions.amountOut0Min, instructions.swapData0);
+                (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(Swapper.RouterSwapParams(IERC20(token0), IERC20(instructions.targetToken), amount0, instructions.amountOut0Min, instructions.swapData0));
                 if (amountInDelta < amount0) {
                     _transferToken(instructions.recipient, IERC20(token0), amount0 - amountInDelta, instructions.unwrap);
                 }
@@ -176,7 +176,7 @@ contract V3Utils is Swapper, IERC721Receiver {
                 targetAmount += amount0; 
             }
             if (token1 != instructions.targetToken) {
-                (uint256 amountInDelta, uint256 amountOutDelta) = _swap(IERC20(token1), IERC20(instructions.targetToken), amount1, instructions.amountOut1Min, instructions.swapData1);
+                (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(Swapper.RouterSwapParams(IERC20(token1), IERC20(instructions.targetToken), amount1, instructions.amountOut1Min, instructions.swapData1));
                 if (amountInDelta < amount1) {
                     _transferToken(instructions.recipient, IERC20(token1), amount1 - amountInDelta, instructions.unwrap);
                 }
@@ -250,7 +250,7 @@ contract V3Utils is Swapper, IERC721Receiver {
         }        
 
         uint256 amountInDelta;
-        (amountInDelta, amountOut) = _swap(params.tokenIn, params.tokenOut, params.amountIn, params.minAmountOut, params.swapData);
+        (amountInDelta, amountOut) = _routerSwap(Swapper.RouterSwapParams(params.tokenIn, params.tokenOut, params.amountIn, params.minAmountOut, params.swapData));
 
         // send swapped amount of tokenOut
         if (amountOut != 0) {
@@ -539,20 +539,20 @@ contract V3Utils is Swapper, IERC721Receiver {
             if (params.amount0 < params.amountIn1) {
                 revert AmountError();
             }
-            (uint256 amountInDelta, uint256 amountOutDelta) = _swap(params.token0, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1);
+            (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(Swapper.RouterSwapParams(params.token0, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1));
             total0 = params.amount0 - amountInDelta;
             total1 = params.amount1 + amountOutDelta;
         } else if (params.swapSourceToken == params.token1) { 
             if (params.amount1 < params.amountIn0) {
                 revert AmountError();
             }
-            (uint256 amountInDelta, uint256 amountOutDelta) = _swap(params.token1, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0);
+            (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(Swapper.RouterSwapParams(params.token1, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0));
             total1 = params.amount1 - amountInDelta;
             total0 = params.amount0 + amountOutDelta;
         } else if (address(params.swapSourceToken) != address(0)) {
 
-            (uint256 amountInDelta0, uint256 amountOutDelta0) = _swap(params.swapSourceToken, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0);
-            (uint256 amountInDelta1, uint256 amountOutDelta1) = _swap(params.swapSourceToken, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1);
+            (uint256 amountInDelta0, uint256 amountOutDelta0) = _routerSwap(Swapper.RouterSwapParams(params.swapSourceToken, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0));
+            (uint256 amountInDelta1, uint256 amountOutDelta1) = _routerSwap(Swapper.RouterSwapParams(params.swapSourceToken, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1));
             total0 = params.amount0 + amountOutDelta0;
             total1 = params.amount1 + amountOutDelta1;
 

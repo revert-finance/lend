@@ -60,51 +60,59 @@ abstract contract Swapper is IUniswapV3SwapCallback {
         uint256 deadline;
     }
 
+    struct RouterSwapParams {
+        IERC20 tokenIn;
+        IERC20 tokenOut;
+        uint256 amountIn;
+        uint256 amountOutMin;
+        bytes swapData;
+    }
+
      // general swap function which uses external router with off-chain calculated swap instructions
     // does slippage check with amountOutMin param
     // returns token amounts deltas after swap
-    function _swap(IERC20 tokenIn, IERC20 tokenOut, uint256 amountIn, uint256 amountOutMin, bytes memory swapData) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
-        if (amountIn != 0 && swapData.length != 0 && address(tokenOut) != address(0)) {
+    function _routerSwap(RouterSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
+        if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0)) {
 
-            uint256 balanceInBefore = tokenIn.balanceOf(address(this));
-            uint256 balanceOutBefore = tokenOut.balanceOf(address(this));
+            uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
+            uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
 
             // get router specific swap data
-            (address router, bytes memory routerData) = abi.decode(swapData, (address, bytes));
+            (address router, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
 
             if (router == zeroxRouter) {
                 ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
                 // approve needed amount
-                SafeERC20.safeApprove(tokenIn, data.allowanceTarget, amountIn);
+                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, params.amountIn);
                 // execute swap
                 (bool success,) = zeroxRouter.call(data.data);
                 if (!success) {
                     revert SwapFailed();
                 }
                 // reset approval
-                SafeERC20.safeApprove(tokenIn, data.allowanceTarget, 0);
+                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, 0);
             } else if (router == universalRouter) {
                 UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
                 // tokens are transfered to Universalrouter directly (data.commands must include sweep action!)
-                SafeERC20.safeTransfer(tokenIn, universalRouter, amountIn);
+                SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
             } else {
                 revert WrongContract();
             }
            
-            uint256 balanceInAfter = tokenIn.balanceOf(address(this));
-            uint256 balanceOutAfter = tokenOut.balanceOf(address(this));
+            uint256 balanceInAfter = params.tokenIn.balanceOf(address(this));
+            uint256 balanceOutAfter = params.tokenOut.balanceOf(address(this));
 
             amountInDelta = balanceInBefore - balanceInAfter;
             amountOutDelta = balanceOutAfter - balanceOutBefore;
 
             // amountMin slippage check
-            if (amountOutDelta < amountOutMin) {
+            if (amountOutDelta < params.amountOutMin) {
                 revert SlippageError();
             }
 
             // event for any swap with exact swapped value
-            emit Swap(address(tokenIn), address(tokenOut), amountInDelta, amountOutDelta);
+            emit Swap(address(params.tokenIn), address(params.tokenOut), amountInDelta, amountOutDelta);
         }
     }
 

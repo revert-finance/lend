@@ -58,7 +58,7 @@ contract LeverageTransformer is Swapper {
         uint amount1 = token == token1 ? amount : 0;
 
         if (params.amountIn0 > 0) {
-            (uint amountIn, uint amountOut) = _swap(IERC20(token), IERC20(token0), params.amountIn0, params.amountOut0Min, params.swapData0);
+            (uint amountIn, uint amountOut) = _routerSwap(Swapper.RouterSwapParams(IERC20(token), IERC20(token0), params.amountIn0, params.amountOut0Min, params.swapData0));
             if (token == token1) {
                 amount1 -= amountIn;
             }
@@ -66,7 +66,7 @@ contract LeverageTransformer is Swapper {
             amount0 += amountOut;
         }
         if (params.amountIn1 > 0) {
-            (uint amountIn, uint amountOut) = _swap(IERC20(token), IERC20(token1), params.amountIn1, params.amountOut1Min, params.swapData1);
+            (uint amountIn, uint amountOut) = _routerSwap(Swapper.RouterSwapParams(IERC20(token), IERC20(token1), params.amountIn1, params.amountOut1Min, params.swapData1));
             if (token == token0) {
                 amount0 -= amountIn;
             }
@@ -141,12 +141,12 @@ contract LeverageTransformer is Swapper {
         uint amount = token == token0 ? amount0 : (token == token1 ? amount1 : 0);
 
         if (params.amountIn0 > 0 && token != token0) {
-            (uint amountIn, uint amountOut) = _swap(IERC20(token0), IERC20(token), params.amountIn0, params.amountOut0Min, params.swapData0);
+            (uint amountIn, uint amountOut) = _routerSwap(Swapper.RouterSwapParams(IERC20(token0), IERC20(token), params.amountIn0, params.amountOut0Min, params.swapData0));
             amount0 -= amountIn;
             amount += amountOut;
         }
         if (params.amountIn1 > 0 && token != token1) {
-            (uint amountIn, uint amountOut) = _swap(IERC20(token1), IERC20(token), params.amountIn1, params.amountOut1Min, params.swapData1);
+            (uint amountIn, uint amountOut) = _routerSwap(Swapper.RouterSwapParams(IERC20(token1), IERC20(token), params.amountIn1, params.amountOut1Min, params.swapData1));
             amount1 -= amountIn;
             amount += amountOut;
         }
