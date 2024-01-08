@@ -27,6 +27,7 @@ contract V3Oracle is IV3Oracle, Ownable {
     uint256 private constant Q96 = 2**96;
     uint256 private constant Q128 = 2**128;
 
+    error Unauthorized();
     error InvalidConfig();
     error NotConfiguredToken();
     error InvalidPool();
@@ -35,6 +36,7 @@ contract V3Oracle is IV3Oracle, Ownable {
 
     event TokenConfigUpdated(address indexed token, TokenConfig config);
     event OracleModeUpdated(address indexed token, Mode mode);
+    event SetEmergencyAdmin(address emergencyAdmin);
 
     enum Mode {
         NOT_SET,
@@ -68,6 +70,9 @@ contract V3Oracle is IV3Oracle, Ownable {
 
     // token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
     address immutable chainlinkReferenceToken;
+
+    // address which can call special emergency actions without timelock
+    address public emergencyAdmin;
 
     // constructor: sets owner of contract
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _referenceToken, address _chainlinkReferenceToken) {
@@ -147,9 +152,12 @@ contract V3Oracle is IV3Oracle, Ownable {
         emit OracleModeUpdated(token, mode);
     }
 
-    // Updates the oracle mode for a given token
-    // Can only be called by the owner of the contract
-    function setOracleMode(address token, Mode mode) external onlyOwner {
+    // Updates the oracle mode for a given token  - this method can be called by owner OR emergencyAdmin
+    function setOracleMode(address token, Mode mode) external {
+
+        if (msg.sender != emergencyAdmin && msg.sender != owner()) {
+            revert Unauthorized();
+        }
 
         // can not be unset
         if (mode == Mode.NOT_SET) {
@@ -160,7 +168,11 @@ contract V3Oracle is IV3Oracle, Ownable {
         emit OracleModeUpdated(token, mode);
     }
 
-
+    // function to set emergency admin address
+    function setEmergencyAdmin(address admin) external onlyOwner {
+        emergencyAdmin = admin;
+        emit SetEmergencyAdmin(admin);
+    }
 
     // Returns the price for a token using the selected oracle mode given as reference token value
     // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode

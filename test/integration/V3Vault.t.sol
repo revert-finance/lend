@@ -516,7 +516,7 @@ contract V3VaultIntegrationTest is Test {
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(V3Vault.NotOwner.selector);
+        vm.expectRevert(V3Vault.Unauthorized.selector);
         autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
 
         vm.prank(TEST_NFT_ACCOUNT);

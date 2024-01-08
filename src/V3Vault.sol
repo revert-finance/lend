@@ -32,14 +32,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     uint private constant Q32 = 2 ** 32;
     uint private constant Q96 = 2 ** 96;
 
-    uint public constant MAX_COLLATERAL_FACTOR_X32 = Q32 * 90 / 100; // 90%
+    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); // 90%
 
-    uint public constant MIN_LIQUIDATION_PENALTY_X32 = Q32 * 2 / 100; // 2%
-    uint public constant MAX_LIQUIDATION_PENALTY_X32 = Q32 * 10 / 100; // 10%
+    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100); // 2%
+    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 10 / 100); // 10%
 
     uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
 
-    uint32 public constant MAX_DAILY_DEBT_INCREASE = uint32(Q32 / 10); //10%
+    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
@@ -79,10 +79,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
+    event SetEmergencyAdmin(address emergencyAdmin);
 
     // errors
+    error Unauthorized();
     error Reentrancy();
-    error NotOwner();
     error WrongContract();
     error CollateralFail();
     error MinLoanSize();
@@ -144,6 +145,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
     mapping(address => bool) transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
     mapping(uint => mapping(address => bool)) transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
+
+    // address which can call special emergency actions without timelock
+    address public emergencyAdmin;
 
     constructor(string memory name, string memory symbol, address _asset, INonfungiblePositionManager _nonfungiblePositionManager, IInterestRateModel _interestRateModel, IV3Oracle _oracle) ERC20(name, symbol) {
         asset = _asset;
@@ -388,7 +392,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     /// @param isActive If it allowed or not
     function approveTransform(uint tokenId, address target, bool isActive) external override {
         if (loans[tokenId].owner != msg.sender) {
-            revert NotOwner();
+            revert Unauthorized();
         }
         transformApprovals[tokenId][target] = isActive;
 
@@ -415,7 +419,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         // only the owner of the loan, the vault itself or any approved caller can call this
         if (loanOwner != msg.sender && address(this) != msg.sender && !transformApprovals[tokenId][msg.sender]) {
-            revert NotOwner();
+            revert Unauthorized();
         }
 
         // give access to transformer
@@ -432,7 +436,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (owner != address(this)) {
-            revert NotOwner();
+            revert Unauthorized();
         }
 
         // remove access for transformer
@@ -458,7 +462,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         // daily debt limit reset handling
         uint debtIncreaseTime = block.timestamp / 1 days;
         if (debtIncreaseTime > dailyDebtIncreaseLimitLastReset) {
-            uint debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE) / Q32;
+            uint debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE_X32) / Q32;
             dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
             dailyDebtIncreaseLimitLastReset = debtIncreaseTime;
         }
@@ -467,7 +471,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         // if not in transfer mode - must be called from owner or the vault itself
         if (!isTransformMode && loan.owner != msg.sender && address(this) != msg.sender) {
-            revert NotOwner();
+            revert Unauthorized();
         }
 
         uint shares = _convertToShares(assets, newDebtExchangeRateX96, Math.Rounding.Up);
@@ -520,7 +524,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         address owner = loans[params.tokenId].owner;
 
         if (owner != msg.sender) {
-            revert NotOwner();
+            revert Unauthorized();
         }
 
         (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
@@ -705,8 +709,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         emit SetTransformer(transformer, active);
     }
 
-    // function to set limits (this doesnt affect existing loans)
-    function setLimits(uint _minLoanSize, uint _globalLendLimit, uint _globalDebtLimit, uint _dailyDebtIncreaseLimitMin) external onlyOwner {
+    // function to set limits (this doesnt affect existing loans) - this method can be called by owner OR emergencyAdmin
+    function setLimits(uint _minLoanSize, uint _globalLendLimit, uint _globalDebtLimit, uint _dailyDebtIncreaseLimitMin) external {
+
+        if (msg.sender != emergencyAdmin && msg.sender != owner()) {
+            revert Unauthorized();
+        }
 
         minLoanSize = _minLoanSize;
         globalLendLimit = _globalLendLimit;
@@ -741,6 +749,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
         tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
+    }
+
+    // function to set emergency admin address
+    function setEmergencyAdmin(address admin) external onlyOwner {
+        emergencyAdmin = admin;
+        emit SetEmergencyAdmin(admin);
     }
 
     ////////////////// INTERNAL FUNCTIONS
