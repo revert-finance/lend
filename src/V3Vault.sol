@@ -584,13 +584,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
             IERC20(asset).transferFrom(msg.sender, address(this), assets);
         }
 
-        loan.debtShares -= shares;
+        uint loanDebtShares = loan.debtShares - shares;
+        loan.debtShares = loanDebtShares;
         debtSharesTotal -= shares;
 
         // when amounts are repayed - they maybe borrowed again
         dailyDebtIncreaseLimitLeft += assets;
 
-        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loan.debtShares + shares, loan.debtShares);
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares);
 
         address owner = loan.owner;
 
@@ -599,7 +600,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
             _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
         } else {
             // if resulting loan is too small - revert
-            if (_convertToAssets(loan.debtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
+            if (_convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
                 revert MinLoanSize();
             }
         }
