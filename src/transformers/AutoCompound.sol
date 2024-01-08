@@ -27,10 +27,6 @@ contract AutoCompound is Automator {
         address token0,
         address token1
     );
-    event PositionConfigured(
-        uint256 indexed tokenId,
-        bool isActive
-    );
 
     // config changes
     event RewardUpdated(address account, uint64 totalRewardX64);
@@ -53,9 +49,10 @@ contract AutoCompound is Automator {
     struct ExecuteParams {
        // tokenid to autocompound
         uint256 tokenId;
-        // swap params - calculated off-chain
+        // swap direction - calculated off-chain
         bool swap0To1;
-        uint256 amountIn; // if this is set to 0 no swap happens
+        // swap amount - calculated off-chain - if this is set to 0 no swap happens
+        uint256 amountIn;
     }
 
     // state used during autocompound execution
@@ -98,7 +95,7 @@ contract AutoCompound is Automator {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-        if (!operators[msg.sender] && !vaults[msg.sender]) { 
+        if (!operators[msg.sender] && !vaults[msg.sender]) {
             revert Unauthorized();
         }
         ExecuteState memory state;
