@@ -10,21 +10,21 @@ contract InterestRateModel is Ownable, IInterestRateModel {
     uint private constant Q96 = 2 ** 96;
     uint public constant YEAR_SECS = 31557600; // taking into account leap years
 
-    uint public constant MAX_BASE_RATE = Q96 / 10; // 10%
-    uint public constant MAX_MULTIPLIER = Q96 * 2; // 200%
+    uint public constant MAX_BASE_RATE_X96 = Q96 / 10; // 10%
+    uint public constant MAX_MULTIPLIER_X96 = Q96 * 2; // 200%
 
     error InvalidConfig();
 
-    event SetValues(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink);
+    event SetValues(uint baseRatePerYearX96, uint multiplierPerYearX96, uint jumpMultiplierPerYearX96, uint kinkX96);
 
     // all values are multiplied by Q96
-    uint public multiplierPerSecond;
-    uint public baseRatePerSecond;
-    uint public jumpMultiplierPerSecond;
-    uint public kink;
+    uint public multiplierPerSecondX96;
+    uint public baseRatePerSecondX96;
+    uint public jumpMultiplierPerSecondX96;
+    uint public kinkX96;
 
-    constructor(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint _kink) {
-        setValues(baseRatePerYear, multiplierPerYear, jumpMultiplierPerYear, _kink);
+    constructor(uint baseRatePerYearX96, uint multiplierPerYearX96, uint jumpMultiplierPerYearX96, uint _kinkX96) {
+        setValues(baseRatePerYearX96, multiplierPerYearX96, jumpMultiplierPerYearX96, _kinkX96);
     }
 
     function getUtilizationRateX96(uint cash, uint debt) public pure returns (uint) {
@@ -35,31 +35,31 @@ contract InterestRateModel is Ownable, IInterestRateModel {
     }
 
     function getRatesPerSecondX96(uint cash, uint debt) override public view returns (uint borrowRateX96, uint supplyRateX96) {
-        uint utilizationRate = getUtilizationRateX96(cash, debt);
+        uint utilizationRateX96 = getUtilizationRateX96(cash, debt);
 
-        if (utilizationRate <= kink) {
-            borrowRateX96 = (utilizationRate * multiplierPerSecond / Q96) + baseRatePerSecond;
+        if (utilizationRateX96 <= kinkX96) {
+            borrowRateX96 = (utilizationRateX96 * multiplierPerSecondX96 / Q96) + baseRatePerSecondX96;
         } else {
-            uint normalRate = (kink * multiplierPerSecond / Q96) + baseRatePerSecond;
-            uint excessUtil = utilizationRate - kink;
-            borrowRateX96 = (excessUtil * jumpMultiplierPerSecond / Q96) + normalRate;
+            uint normalRateX96 = (kinkX96 * multiplierPerSecondX96 / Q96) + baseRatePerSecondX96;
+            uint excessUtilX96 = utilizationRateX96 - kinkX96;
+            borrowRateX96 = (excessUtilX96 * jumpMultiplierPerSecondX96 / Q96) + normalRateX96;
         }
 
-        supplyRateX96 = utilizationRate * borrowRateX96 / Q96;
+        supplyRateX96 = utilizationRateX96 * borrowRateX96 / Q96;
     }
 
     // function to update interest rate values
-    function setValues(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint _kink) public onlyOwner {
+    function setValues(uint baseRatePerYearX96, uint multiplierPerYearX96, uint jumpMultiplierPerYearX96, uint _kinkX96) public onlyOwner {
         
-        if (baseRatePerYear > MAX_BASE_RATE || multiplierPerYear > MAX_MULTIPLIER || jumpMultiplierPerYear > MAX_MULTIPLIER) {
+        if (baseRatePerYearX96 > MAX_BASE_RATE_X96 || multiplierPerYearX96 > MAX_MULTIPLIER_X96 || jumpMultiplierPerYearX96 > MAX_MULTIPLIER_X96) {
             revert InvalidConfig();
         }
         
-        baseRatePerSecond = baseRatePerYear / YEAR_SECS;
-        multiplierPerSecond = multiplierPerYear / YEAR_SECS;
-        jumpMultiplierPerSecond = jumpMultiplierPerYear / YEAR_SECS;
-        kink = _kink;
+        baseRatePerSecondX96 = baseRatePerYearX96 / YEAR_SECS;
+        multiplierPerSecondX96 = multiplierPerYearX96 / YEAR_SECS;
+        jumpMultiplierPerSecondX96 = jumpMultiplierPerYearX96 / YEAR_SECS;
+        kinkX96 = _kinkX96;
 
-        emit SetValues(baseRatePerYear, multiplierPerYear, jumpMultiplierPerYear, _kink);
+        emit SetValues(baseRatePerYearX96, multiplierPerYearX96, jumpMultiplierPerYearX96, _kinkX96);
     }
 }
