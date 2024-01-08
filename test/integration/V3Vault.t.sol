@@ -844,4 +844,14 @@ contract V3VaultIntegrationTest is Test {
         assertEq(reserves, 0);
         assertEq(USDC.balanceOf(address(vault)), 0);
     }
+
+    function testEmergencyAdmin() external {
+        vm.expectRevert(V3Vault.Unauthorized.selector);
+        vm.prank(WHALE_ACCOUNT);
+        vault.setLimits(0, 0, 0, 0);
+
+        vault.setEmergencyAdmin(WHALE_ACCOUNT);
+        vm.prank(WHALE_ACCOUNT);
+        vault.setLimits(0, 0, 0, 0);
+    }
 }

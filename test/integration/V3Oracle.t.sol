@@ -12,6 +12,8 @@ contract V3OracleIntegrationTest is Test {
     uint constant Q32 = 2 ** 32;
     uint constant Q96 = 2 ** 96;
 
+    address constant WHALE_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
+
     IERC20 constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20 constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     IERC20 constant DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
@@ -85,5 +87,15 @@ contract V3OracleIntegrationTest is Test {
     function testInvalidPoolConfig() external {
         vm.expectRevert(V3Oracle.InvalidPool.selector);
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
+    }
+
+    function testEmergencyAdmin() external {
+        vm.expectRevert(V3Oracle.Unauthorized.selector);
+        vm.prank(WHALE_ACCOUNT);
+        oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
+
+        oracle.setEmergencyAdmin(WHALE_ACCOUNT);
+        vm.prank(WHALE_ACCOUNT);
+        oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
     }
 }
