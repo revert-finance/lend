@@ -424,6 +424,8 @@ contract V3VaultIntegrationTest is Test {
         inputs[1] = abi.encode(address(DAI), address(v3Utils), 0);
         bytes memory swapData = abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
+
+
         // test transforming with v3utils - changing range
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.CHANGE_RANGE,
@@ -460,10 +462,13 @@ contract V3VaultIntegrationTest is Test {
         // needs to repay a part first
         _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
+        (uint oldDebt,,,,) = vault.loanInfo(TEST_NFT);
+
         vm.prank(TEST_NFT_ACCOUNT);
         uint tokenId = vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
         assertGt(tokenId, TEST_NFT);
+
 
         // old loan has been removed
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(TEST_NFT);
@@ -477,7 +482,10 @@ contract V3VaultIntegrationTest is Test {
         (, ,, , ,, ,liquidity, , , , ) = NPM.positions(tokenId);
         assertEq(liquidity, 19275744032345419);
         (debt, fullValue, collateralValue,,) = vault.loanInfo(tokenId);
-        assertEq(debt, 7847206);
+
+        // debt with new NFT as collateral must be the same amount as before
+        assertEq(debt, oldDebt);
+        
         assertEq(collateralValue, 8673141);
         assertEq(fullValue, 9636824);
     }
