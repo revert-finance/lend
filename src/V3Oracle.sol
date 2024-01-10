@@ -19,7 +19,6 @@ import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
 
-
 /// @title Oracle to be used in Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable {
@@ -64,11 +63,11 @@ contract V3Oracle is IV3Oracle, Ownable {
     address immutable public factory;
     INonfungiblePositionManager immutable public nonfungiblePositionManager;
 
-    // token which is used in TWAP pools
+    // common token which is used in TWAP pools
     address immutable referenceToken;
     uint8 immutable referenceTokenDecimals;
 
-    // token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
+    // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
     address immutable chainlinkReferenceToken;
 
     // address which can call special emergency actions without timelock
@@ -217,6 +216,7 @@ contract V3Oracle is IV3Oracle, Ownable {
 
         if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
             uint256 difference = priceX96 > verifyPriceX96 ? (priceX96 - verifyPriceX96) * 10000 / priceX96 : (verifyPriceX96 - priceX96) * 10000 / verifyPriceX96;
+
             // if too big difference - revert (if this happens for a longer time - manual oracle mode adjustment is needed)
             if (difference >= feedConfig.maxDifference) {
                 revert PriceDifferenceExceeded();

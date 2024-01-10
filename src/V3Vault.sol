@@ -321,14 +321,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
     ////////////////// EXTERNAL FUNCTIONS
 
-    /// @notice Creates a new collateralized position.
+    /// @notice Creates a new collateralized position (transfer approved position)
     /// @param tokenId The token ID associated with the new position.
     /// @param recipient Address to recieve the position in the vault
     function create(uint256 tokenId, address recipient) external override {
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
-    /// @notice Creates a new collateralized position with a permit for token spending.
+    /// @notice Creates a new collateralized position with a permit for token spending (transfer position with permit)
     /// @param tokenId The token ID associated with the new position.
     /// @param owner Current owner of the position (signature owner)
     /// @param recipient Address to recieve the position in the vault
