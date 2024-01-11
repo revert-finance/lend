@@ -19,7 +19,7 @@ import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
 
-/// @title Oracle to be used in Vault to calculate position values
+/// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable {
 
