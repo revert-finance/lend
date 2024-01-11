@@ -6,7 +6,7 @@ import "forge-std/console.sol";
 
 import "../../../src/transformers/V3Utils.sol";
 
-abstract contract IntegrationTestBase is Test {
+abstract contract AutomatorIntegrationTestBase is Test {
     
     uint256 constant Q64 = 2**64;
 

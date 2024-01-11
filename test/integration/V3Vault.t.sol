@@ -15,6 +15,8 @@ import "../../src/transformers/V3Utils.sol";
 import "../../src/transformers/AutoRange.sol";
 import "../../src/transformers/AutoCompound.sol";
 
+import "../../src/utils/Liquidator.sol";
+
 contract V3VaultIntegrationTest is Test {
    
     uint constant Q32 = 2 ** 32;
@@ -678,6 +680,54 @@ contract V3VaultIntegrationTest is Test {
         assertEq(amount1, timeBased ? 591753 : 0);
 
     }
+
+    function testLiquidationWithFlashloan() external {
+
+        _setupBasicLoan(true);
+
+        // wait 7 day - interest growing
+        vm.warp(block.timestamp + 7 days);
+
+        // debt is greater than collateral value
+        (uint debt,,,uint liquidationCost, uint liquidationValue) = vault.loanInfo(TEST_NFT);
+
+        assertEq(debt, 8869647);
+        assertEq(liquidationCost, 8869647);
+        assertEq(liquidationValue, 9226564);
+
+        (address token0, address token1,,,,,) = oracle.getPositionBreakdown(TEST_NFT);
+
+        uint token0Before = IERC20(token0).balanceOf(address(this));
+        uint token1Before = IERC20(token1).balanceOf(address(this));
+       
+        Liquidator liquidator = new Liquidator(NPM, EX0x, UNIVERSAL_ROUTER);
+
+        // available from liquidation (from static call to liquidate())
+        uint amount0 = 381693758226627942;
+
+        // universalrouter swap data (single swap command) - swap available DAI to USDC - and sweep
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(address(liquidator), amount0, 0, abi.encodePacked(token0, uint24(500), token1), false);
+        inputs[1] = abi.encode(token0, address(liquidator), 0);
+        bytes memory swapData0 = abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
+
+        Swapper.RouterSwapParams memory swap0 = Swapper.RouterSwapParams(IERC20(token0), IERC20(token1), amount0, 0, swapData0);
+        Swapper.RouterSwapParams memory swap1 = Swapper.RouterSwapParams(IERC20(token1), IERC20(token1), 0, 0, "");
+      
+        liquidator.liquidate(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), swap0, swap1);
+
+        assertEq(liquidationValue - liquidationCost, 356917); // promised liquidation premium
+
+        assertEq(IERC20(token0).balanceOf(address(this)) - token0Before, 0);
+        assertEq(IERC20(token1).balanceOf(address(this)) - token1Before, 356028); // actual liquidation premium (less because of swap)
+        
+        (debt,,,,) = vault.loanInfo(TEST_NFT);
+        assertEq(debt, 0);
+
+        //  NFT was returned to owner
+        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+    }
+
 
     function testCollateralValueLimit() external {
 

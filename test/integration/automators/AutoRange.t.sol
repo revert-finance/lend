@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "./IntegrationTestBase.sol";
+import "./AutomatorIntegrationTestBase.sol";
 
 import "../../../src/transformers/AutoRange.sol";
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
-contract AutoRangeTest is IntegrationTestBase {
+contract AutoRangeTest is AutomatorIntegrationTestBase {
    
     AutoRange autoRange;
 

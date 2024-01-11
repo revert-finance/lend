@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 interface IVault {
 
+    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost, uint liquidationValue);
+
     function asset() external returns (address);
     function ownerOf(uint tokenId) external returns (address);
 
@@ -34,5 +36,5 @@ interface IVault {
     function borrow(uint tokenId, uint amount) external;
     function repay(uint tokenId, uint amount, bool isShare) external;
 
-    function liquidate(uint tokenId) external;
+    function liquidate(uint tokenId) external returns (uint256 amount0, uint256 amount1);
 }

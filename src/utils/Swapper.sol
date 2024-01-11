@@ -12,6 +12,8 @@ import "v3-periphery/interfaces/external/IWETH9.sol";
 
 import "../../lib/IUniversalRouter.sol";
 
+import "forge-std/console.sol";
+
 // base functionality to do swaps with different routing protocols
 abstract contract Swapper is IUniswapV3SwapCallback {
 
@@ -72,6 +74,7 @@ abstract contract Swapper is IUniswapV3SwapCallback {
     // does slippage check with amountOutMin param
     // returns token amounts deltas after swap
     function _routerSwap(RouterSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
+
         if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0)) {
 
             uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));

@@ -22,6 +22,8 @@ import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 
+import "forge-std/console.sol";
+
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
@@ -189,7 +191,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     /// @return collateralValue Current collateral value of the position priced as asset token
     /// @return liquidationCost If position is liquidatable - cost to liquidate position - otherwise 0
     /// @return liquidationValue If position is liquidatable - the value of the (partial) position which the liquidator recieves - otherwise 0
-    function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost, uint liquidationValue)  {
+    function loanInfo(uint tokenId) external override view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost, uint liquidationValue)  {
         (uint newDebtExchangeRateX96,) = _calculateGlobalInterest();
 
         debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
@@ -632,7 +634,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     /// @notice Liquidates position - needed assets are depending on current price.
     /// Sufficient assets need to be approved to the contract for the liquidation to succeed.
     /// @param tokenId The token ID to liquidate
-    function liquidate(uint tokenId) external override {
+    /// @return The amount of the first type of asset collected.
+    /// @return The amount of the second type of asset collected.
+    function liquidate(uint tokenId) external override returns (uint, uint) {
 
         // liquidation is not allowed during transformer mode
         if (transformedTokenId > 0) {
@@ -671,6 +675,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         _cleanupLoan(tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
 
         emit Liquidate(tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, state.amount0, state.amount1, state.reserveCost, state.missing);
+
+        return (state.amount0, state.amount1);
     }
 
     ////////////////// ADMIN FUNCTIONS only callable by owner
@@ -828,6 +834,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         available = balance > reserves ? balance - reserves : 0;
     }
 
+    // removes correct amount from position to send to liquidator
     function _sendPositionValue(uint tokenId, uint liquidationValue, uint fullValue, uint feeValue, address recipient) internal returns (uint amount0, uint amount1) {
 
         uint128 liquidity;
