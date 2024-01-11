@@ -12,6 +12,10 @@ import "../../src/InterestRateModel.sol";
 // transformers
 import "../../src/transformers/LeverageTransformer.sol";
 import "../../src/transformers/V3Utils.sol";
+import "../../src/transformers/AutoRange.sol";
+import "../../src/transformers/AutoCompound.sol";
+import "../../src/automators/AutoExit.sol";
+
 
 
 contract VaultPolygonIntegrationTest is Test {
@@ -43,6 +47,12 @@ contract VaultPolygonIntegrationTest is Test {
     InterestRateModel interestRateModel;
     V3Oracle oracle;
 
+    V3Utils v3Utils;
+    LeverageTransformer leverageTransformer;
+    AutoRange autoRange;
+    AutoCompound autoCompound;
+    AutoExit autoExit;
+
     function setUp() external {
 
         mainnetFork = vm.createFork("https://rpc.ankr.com/polygon", 50785039);
@@ -67,6 +77,24 @@ contract VaultPolygonIntegrationTest is Test {
 
         // limits 1000 USDC each
         vault.setLimits(0, 100000000, 100000000, 100000000);
+
+        // add transformers
+        v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
+        vault.setTransformer(address(v3Utils), true);
+
+        leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(leverageTransformer), true);
+
+        autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault), true);
+
+        autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
+        vault.setTransformer(address(autoCompound), true);
+        autoCompound.setVault(address(vault), true);
+
+        autoExit = new AutoExit(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        autoExit.setVault(address(vault), true);
     }
 
     function test() external {
