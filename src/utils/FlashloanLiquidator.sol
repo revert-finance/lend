@@ -9,7 +9,7 @@ import "./Swapper.sol";
 import "forge-std/console.sol";
 
 // Helper contract which does atomic liquidation by using UniV3 Flashloan
-contract Liquidator is Swapper {
+contract FlashloanLiquidator is Swapper {
 
     error NotLiquidatable();
 
@@ -18,7 +18,6 @@ contract Liquidator is Swapper {
         uint liquidationCost;
         IVault vault;
         IERC20 asset;
-        IUniswapV3Pool pool;
         RouterSwapParams swap0;
         RouterSwapParams swap1;
         address liquidator;
@@ -36,13 +35,14 @@ contract Liquidator is Swapper {
 
         address asset = vault.asset();
         bool isAsset0 = flashLoanPool.token0() == asset;
-        bytes memory data = abi.encode(FlashCallbackData(tokenId, liquidationCost, vault, IERC20(asset), flashLoanPool, swap0, swap1, msg.sender));
+        bytes memory data = abi.encode(FlashCallbackData(tokenId, liquidationCost, vault, IERC20(asset), swap0, swap1, msg.sender));
         flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
     }
 
     function uniswapV3FlashCallback(uint fee0, uint fee1, bytes calldata callbackData) external {
 
-        // doesn't need check because it doesn't hold funds - so no transfer of funds may be done
+        // for liquidation to work, this method needs to recieve funds (so no origin check is needed)
+
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
 
         SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
@@ -53,8 +53,8 @@ contract Liquidator is Swapper {
         _routerSwap(data.swap0);
         _routerSwap(data.swap1);
 
-        // transfer lent amount + fee (only one token can have fee)
-        SafeERC20.safeTransfer(data.asset, address(data.pool), data.liquidationCost + (fee0 + fee1));
+        // transfer lent amount + fee (only one token can have fee) - back to pool
+        SafeERC20.safeTransfer(data.asset, msg.sender, data.liquidationCost + (fee0 + fee1));
 
         // return all leftover tokens to liquidator
         if (data.swap0.tokenIn != data.asset) {

@@ -15,7 +15,7 @@ import "../../src/transformers/V3Utils.sol";
 import "../../src/transformers/AutoRange.sol";
 import "../../src/transformers/AutoCompound.sol";
 
-import "../../src/utils/Liquidator.sol";
+import "../../src/utils/FlashloanLiquidator.sol";
 
 contract V3VaultIntegrationTest is Test {
    
@@ -700,7 +700,7 @@ contract V3VaultIntegrationTest is Test {
         uint token0Before = IERC20(token0).balanceOf(address(this));
         uint token1Before = IERC20(token1).balanceOf(address(this));
        
-        Liquidator liquidator = new Liquidator(NPM, EX0x, UNIVERSAL_ROUTER);
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, EX0x, UNIVERSAL_ROUTER);
 
         // available from liquidation (from static call to liquidate())
         uint amount0 = 381693758226627942;
