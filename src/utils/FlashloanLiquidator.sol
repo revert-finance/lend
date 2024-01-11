@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/interfaces/callback/IUniswapV3FlashCallback.sol";
 
 import "../interfaces/IVault.sol";
 import "./Swapper.sol";
@@ -9,7 +10,7 @@ import "./Swapper.sol";
 import "forge-std/console.sol";
 
 // Helper contract which does atomic liquidation by using UniV3 Flashloan
-contract FlashloanLiquidator is Swapper {
+contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     error NotLiquidatable();
 
@@ -27,6 +28,7 @@ contract FlashloanLiquidator is Swapper {
 
     }
 
+    
     function liquidate(uint tokenId, IVault vault, IUniswapV3Pool flashLoanPool, RouterSwapParams memory swap0, RouterSwapParams memory swap1) external {
         (,,,uint liquidationCost,) = vault.loanInfo(tokenId);
         if (liquidationCost == 0) {
