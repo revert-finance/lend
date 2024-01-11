@@ -14,7 +14,7 @@ import "../automators/Automator.sol";
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
 /// Positions need to be approved (setApproval) for the contract when outside vault
 /// When position is inside Vault - owner needs to approve the position to be transformed by the contract
-contract AutoCompound is Automator {
+contract AutoCompound is Automator, Multicall {
 
     // autocompound event
     event AutoCompounded(
@@ -161,7 +161,7 @@ contract AutoCompound is Automator {
                     )
                 );
 
-                // fees are always calculated based on added amount
+                // fees are always calculated based on added amount (to incentivize optimal swap)
                 state.amount0Fees = state.compounded0 * rewardX64 / Q64;
                 state.amount1Fees = state.compounded1 * rewardX64 / Q64;
             }
@@ -179,31 +179,47 @@ contract AutoCompound is Automator {
     }
 
      /**
-     * @notice Withdraws token balance for a address and token
+     * @notice Withdraws leftover token balance for a token
      * @param tokenId Id of position to withdraw
-     * @param token Token to withdraw
      * @param to Address to send to
-     * @param amount amount to withdraw
      */
-    function withdrawBalance(uint tokenId, address token, address to, uint256 amount) external {
-        require(amount > 0, "amount==0");
-
+    function withdrawLeftoverBalances(uint tokenId, address to) external {
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
-
-        // if its the contract owner balance - use magic tokenId 0
-        if (tokenId == 0 && withdrawer != msg.sender) {
+        if (vaults[owner]) {
+            owner = IVault(owner).ownerOf(tokenId);
+        }
+        if (owner != msg.sender) {
             revert Unauthorized();
-        } else {
-            if (vaults[owner]) {
-                owner = IVault(owner).ownerOf(tokenId);
-            }
-            if (owner != msg.sender) {
-                revert Unauthorized();
-            }
         }
 
-        uint256 balance = positionBalances[tokenId][token];
-        _withdrawBalanceInternal(tokenId, token, to, balance, amount);
+        (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+
+        uint256 balance0 = positionBalances[tokenId][token0];
+        if (balance0 > 0) {
+            _withdrawBalanceInternal(tokenId, token0, to, balance0, balance0);
+        }
+        uint256 balance1 = positionBalances[tokenId][token1];
+        if (balance1 > 0) {
+            _withdrawBalanceInternal(tokenId, token1, to, balance1, balance1);
+        }
+    }
+
+    /**
+     * @notice Withdraws token balance (accumulated protocol fee)
+     * @dev The method is overriden, because it differs from standard automator fee handling
+     * @param tokens Addresses of tokens to withdraw
+     * @param to Address to send to
+     */
+    function withdrawBalances(address[] calldata tokens, address to) external override {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+        uint i;
+        uint count = tokens.length;
+        for(;i < count;++i) {
+            uint256 balance = positionBalances[0][tokens[i]];
+            _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+        }
     }
 
     /**
@@ -229,17 +245,6 @@ contract AutoCompound is Automator {
         } else if (amount < currentBalance) {
             positionBalances[tokenId][token] = amount;
             emit BalanceRemoved(tokenId, token, currentBalance - amount);
-        }
-    }
-
-    function _withdrawFullBalances(uint tokenId, address token0, address token1, address to) internal {
-        uint256 balance0 = positionBalances[tokenId][token0];
-        if (balance0 > 0) {
-            _withdrawBalanceInternal(tokenId, token0, to, balance0, balance0);
-        }
-        uint256 balance1 = positionBalances[tokenId][token1];
-        if (balance1 > 0) {
-            _withdrawBalanceInternal(tokenId, token1, to, balance1, balance1);
         }
     }
 

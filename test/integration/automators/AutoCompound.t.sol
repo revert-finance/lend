@@ -25,7 +25,7 @@ contract AutoCompoundTest is IntegrationTestBase {
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
     }
 
-    function testCompoundNoSwap() external {
+    function testCompoundNoSwapAndLeftover() external {
 
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.approve(address(autoCompound), TEST_NFT_2);
@@ -38,6 +38,42 @@ contract AutoCompoundTest is IntegrationTestBase {
 
         (, , , , , , , liquidity, , , , ) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 99102324844935209920);
+
+        uint daiLeftover = autoCompound.positionBalances(TEST_NFT_2, address(DAI));
+        uint wethLeftover = autoCompound.positionBalances(TEST_NFT_2, address(WETH_ERC20));
+        assertEq(daiLeftover, 311677619940061890346);
+        assertEq(wethLeftover, 1);
+
+        vm.expectRevert(Swapper.Unauthorized.selector);
+        autoCompound.withdrawLeftoverBalances(TEST_NFT_2, TEST_NFT_2_ACCOUNT);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        autoCompound.withdrawLeftoverBalances(TEST_NFT_2, TEST_NFT_2_ACCOUNT);
+
+        daiLeftover = autoCompound.positionBalances(TEST_NFT_2, address(DAI));
+        wethLeftover = autoCompound.positionBalances(TEST_NFT_2, address(WETH_ERC20));
+        assertEq(daiLeftover, 0);
+        assertEq(wethLeftover, 0);
+
+        uint daiFee = autoCompound.positionBalances(0, address(DAI));
+        uint wethFee = autoCompound.positionBalances(0, address(WETH_ERC20));
+        assertEq(daiFee, 0);
+        assertEq(wethFee, 1940566999638732);
+
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(DAI);
+        tokens[1] = address(address(WETH_ERC20));
+
+        vm.expectRevert(Swapper.Unauthorized.selector);
+        autoCompound.withdrawBalances(tokens, WITHDRAWER_ACCOUNT);
+
+        vm.prank(WITHDRAWER_ACCOUNT);
+        autoCompound.withdrawBalances(tokens, WITHDRAWER_ACCOUNT);
+
+        daiFee = autoCompound.positionBalances(0, address(DAI));
+        wethFee = autoCompound.positionBalances(0, address(WETH_ERC20));
+        assertEq(daiFee, 0);
+        assertEq(wethFee, 0);
     }
 
     function testCompoundSwap0To1() external {

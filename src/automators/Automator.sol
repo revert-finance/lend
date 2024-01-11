@@ -99,11 +99,11 @@ abstract contract Automator is Swapper, Ownable {
     }
 
     /**
-     * @notice Withdraws token balance
+     * @notice Withdraws token balance (accumulated protocol fee)
      * @param tokens Addresses of tokens to withdraw
      * @param to Address to send to
      */
-    function withdrawBalances(address[] calldata tokens, address to) external {
+    function withdrawBalances(address[] calldata tokens, address to) external virtual {
 
         if (msg.sender != withdrawer) {
             revert Unauthorized();
