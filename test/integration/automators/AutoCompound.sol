@@ -14,6 +14,17 @@ contract AutoCompoundTest is IntegrationTestBase {
         autoCompound = new AutoCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100);
     }
 
+    function testNoAccess() external {
+        vm.expectRevert(Swapper.Unauthorized.selector);
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
+    }
+
+    function testNoApprove() external {
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert("Not approved");
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
+    }
+
     function testCompoundNoSwap() external {
 
         vm.prank(TEST_NFT_2_ACCOUNT);
