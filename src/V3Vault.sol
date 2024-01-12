@@ -41,6 +41,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
     uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
 
+    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); //10%
     uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
 
     /// @notice Uniswap v3 position manager
@@ -77,7 +78,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     // admin events
     event WithdrawReserves(uint256 amount, address receiver);
     event SetTransformer(address transformer, bool active);
-    event SetLimits(uint minLoanSize, uint globalLendLimit, uint globalDebtLimit, uint dailyDebtIncreaseLimitMin);
+    event SetLimits(uint minLoanSize, uint globalLendLimit, uint globalDebtLimit, uint dailyLendIncreaseLimitMin, uint dailyDebtIncreaseLimitMin);
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
@@ -90,8 +91,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     error CollateralFail();
     error MinLoanSize();
     error GlobalDebtLimit();
-    error DailyDebtIncreaseLimit();
     error GlobalLendLimit();
+    error DailyDebtIncreaseLimit();
+    error DailyLendIncreaseLimit();
     error InsufficientLiquidity();
     error NotLiquidatable();
     error InterestNotUpdated();
@@ -127,6 +129,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
     // minimal size of loan (to protect from non-liquidatable positions because of gas-cost)
     uint public minLoanSize = 0;
+
+    // daily lend increase limit handling
+    uint public dailyLendIncreaseLimitMin = 0;
+    uint public dailyLendIncreaseLimitLeft = 0;
+    uint public dailyLendIncreaseLimitLastReset = 0;
 
     // daily debt increase limit handling
     uint public dailyDebtIncreaseLimitMin = 0;
@@ -716,7 +723,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     }
 
     // function to set limits (this doesnt affect existing loans) - this method can be called by owner OR emergencyAdmin
-    function setLimits(uint _minLoanSize, uint _globalLendLimit, uint _globalDebtLimit, uint _dailyDebtIncreaseLimitMin) external {
+    function setLimits(uint _minLoanSize, uint _globalLendLimit, uint _globalDebtLimit, uint _dailyLendIncreaseLimitMin, uint _dailyDebtIncreaseLimitMin) external {
 
         if (msg.sender != emergencyAdmin && msg.sender != owner()) {
             revert Unauthorized();
@@ -725,9 +732,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         minLoanSize = _minLoanSize;
         globalLendLimit = _globalLendLimit;
         globalDebtLimit = _globalDebtLimit;
+        dailyLendIncreaseLimitMin = _dailyLendIncreaseLimitMin;
         dailyDebtIncreaseLimitMin = _dailyDebtIncreaseLimitMin;
 
-        emit SetLimits(_minLoanSize, _globalLendLimit, _globalDebtLimit, _dailyDebtIncreaseLimitMin);
+        emit SetLimits(_minLoanSize, _globalLendLimit, _globalDebtLimit, _dailyLendIncreaseLimitMin, _dailyDebtIncreaseLimitMin);
     }
 
     // function to set reserve factor - percentage difference between debt and lend interest
@@ -770,6 +778,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         
         (, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
+        // daily lend limit reset handling
+        uint time = block.timestamp / 1 days;
+        if (time > dailyLendIncreaseLimitLastReset) {
+            uint lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_LEND_INCREASE_X32) / Q32;
+            dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
+            dailyLendIncreaseLimitLastReset = time;
+        }
+
         if (isShare) {
             shares = amount;
             assets = _convertToAssets(shares, newLendExchangeRateX96, Math.Rounding.Up);
@@ -785,6 +801,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         if (totalSupply() > globalLendLimit) {
             revert GlobalLendLimit();
+        }
+
+        if (assets > dailyLendIncreaseLimitLeft) {
+            revert DailyLendIncreaseLimit();
+        } else {
+            dailyLendIncreaseLimitLeft -= assets;
         }
 
         emit Deposit(msg.sender, receiver, assets, shares);
@@ -817,6 +839,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         // fails if not enough shares
         _burn(owner, shares);
         IERC20(asset).transfer(receiver, assets);
+
+        // when amounts are withdrawn - they may be deposited again
+        dailyLendIncreaseLimitLeft += assets;
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }

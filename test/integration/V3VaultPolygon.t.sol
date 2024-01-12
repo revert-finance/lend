@@ -76,7 +76,7 @@ contract VaultPolygonIntegrationTest is Test {
         vault.setTokenConfig(WBTC, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100% collateral value
 
         // limits 1000 USDC each
-        vault.setLimits(0, 100000000, 100000000, 100000000);
+        vault.setLimits(0, 100000000, 100000000, 100000000, 100000000);
 
         // add transformers
         v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);

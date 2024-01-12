@@ -43,7 +43,7 @@ contract DeployPolygon is Script {
         vault.setTokenConfig(WBTC, uint32(Q32 * 8 / 10), 100000000); // 80% collateral factor - max 100 USDC collateral value
 
         // limits 1000 USDC each
-        vault.setLimits(0, 100000000, 100000000, 100000000);
+        vault.setLimits(0, 100000000, 100000000, 100000000, 100000000);
 
         vm.stopBroadcast();
     }

@@ -77,7 +77,7 @@ contract V3VaultIntegrationTest is Test {
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100%  collateral value
 
         // limits 15 USDC each
-        vault.setLimits(0, 15000000, 15000000, 15000000);
+        vault.setLimits(0, 15000000, 15000000, 15000000, 15000000);
 
         // without reserve for now
         vault.setReserveFactor(0);
@@ -141,7 +141,7 @@ contract V3VaultIntegrationTest is Test {
 
         uint minLoanSize = 1000000;
 
-        vault.setLimits(1000000, 15000000, 15000000, 15000000);
+        vault.setLimits(1000000, 15000000, 15000000, 15000000, 15000000);
 
          // lend 10 USDC
         _deposit(10000000, WHALE_ACCOUNT);
@@ -909,10 +909,10 @@ contract V3VaultIntegrationTest is Test {
     function testEmergencyAdmin() external {
         vm.expectRevert(V3Vault.Unauthorized.selector);
         vm.prank(WHALE_ACCOUNT);
-        vault.setLimits(0, 0, 0, 0);
+        vault.setLimits(0, 0, 0, 0, 0);
 
         vault.setEmergencyAdmin(WHALE_ACCOUNT);
         vm.prank(WHALE_ACCOUNT);
-        vault.setLimits(0, 0, 0, 0);
+        vault.setLimits(0, 0, 0, 0, 0);
     }
 }
