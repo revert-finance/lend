@@ -215,7 +215,6 @@ contract V3VaultIntegrationTest is Test {
     function testWithdraw(uint amount) external {
 
         bool isShare = true;
-        uint amount = 10000001;
 
         // 0 borrow loan
         _setupBasicLoan(false);

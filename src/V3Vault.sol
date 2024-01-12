@@ -468,13 +468,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
-        // daily debt limit reset handling
-        uint debtIncreaseTime = block.timestamp / 1 days;
-        if (debtIncreaseTime > dailyDebtIncreaseLimitLastReset) {
-            uint debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE_X32) / Q32;
-            dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
-            dailyDebtIncreaseLimitLastReset = debtIncreaseTime;
-        }
+        _handleDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
         Loan storage loan = loans[tokenId];
 
@@ -735,6 +729,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         dailyLendIncreaseLimitMin = _dailyLendIncreaseLimitMin;
         dailyDebtIncreaseLimitMin = _dailyDebtIncreaseLimitMin;
 
+        (, uint newLendExchangeRateX96) = _updateGlobalInterest();
+
+        _handleDailyLendIncreaseLimit(newLendExchangeRateX96, true);
+        _handleDailyDebtIncreaseLimit(newLendExchangeRateX96, true);
+
         emit SetLimits(_minLoanSize, _globalLendLimit, _globalDebtLimit, _dailyLendIncreaseLimitMin, _dailyDebtIncreaseLimitMin);
     }
 
@@ -778,13 +777,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         
         (, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
-        // daily lend limit reset handling
-        uint time = block.timestamp / 1 days;
-        if (time > dailyLendIncreaseLimitLastReset) {
-            uint lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_LEND_INCREASE_X32) / Q32;
-            dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
-            dailyLendIncreaseLimitLastReset = time;
-        }
+        _handleDailyLendIncreaseLimit(newLendExchangeRateX96, false);
 
         if (isShare) {
             shares = amount;
@@ -1038,6 +1031,26 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
                 }
             }   
         }     
+    }
+
+    function _handleDailyLendIncreaseLimit(uint newLendExchangeRateX96, bool force) internal {
+        // daily lend limit reset handling
+        uint time = block.timestamp / 1 days;
+        if (force || time > dailyLendIncreaseLimitLastReset) {
+            uint lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_LEND_INCREASE_X32) / Q32;
+            dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
+            dailyLendIncreaseLimitLastReset = time;
+        }
+    }
+
+    function _handleDailyDebtIncreaseLimit(uint newLendExchangeRateX96, bool force) internal {
+        // daily debt limit reset handling
+        uint time = block.timestamp / 1 days;
+        if (force || time > dailyDebtIncreaseLimitLastReset) {
+            uint debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * (Q32 + MAX_DAILY_DEBT_INCREASE_X32) / Q32;
+            dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
+            dailyDebtIncreaseLimitLastReset = time;
+        }
     }
 
     function _checkLoanIsHealthy(uint tokenId, uint debt) internal view returns (bool isHealthy, uint fullValue, uint collateralValue, uint feeValue) {
