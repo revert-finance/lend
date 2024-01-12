@@ -9,7 +9,7 @@ import "./Swapper.sol";
 
 import "forge-std/console.sol";
 
-// Helper contract which does atomic liquidation by using UniV3 Flashloan
+/// @title Helper contract which allows atomic liquidation and needed swaps by using UniV3 Flashloan
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     error NotLiquidatable();
@@ -58,7 +58,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     function uniswapV3FlashCallback(uint fee0, uint fee1, bytes calldata callbackData) external {
 
-        // for liquidation to work, this method needs to recieve funds (so no origin check is needed)
+        // no origin check is needed - because the contract doesn't hold any funds - there is no benefit in calling uniswapV3FlashCallback() from another context
 
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
 

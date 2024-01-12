@@ -5,6 +5,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IInterestRateModel.sol";
 
+/// @title Model for interest rate calculation used in Vault
+/// @notice Calculates both borrow and supply rate
 contract InterestRateModel is Ownable, IInterestRateModel {
 
     uint private constant Q96 = 2 ** 96;
