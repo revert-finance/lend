@@ -468,7 +468,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
-        _handleDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
+        _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
         Loan storage loan = loans[tokenId];
 
@@ -731,8 +731,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
         (, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
-        _handleDailyLendIncreaseLimit(newLendExchangeRateX96, true);
-        _handleDailyDebtIncreaseLimit(newLendExchangeRateX96, true);
+        // force reset daily limits with new values
+        _resetDailyLendIncreaseLimit(newLendExchangeRateX96, true);
+        _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, true);
 
         emit SetLimits(_minLoanSize, _globalLendLimit, _globalDebtLimit, _dailyLendIncreaseLimitMin, _dailyDebtIncreaseLimitMin);
     }
@@ -777,7 +778,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         
         (, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
-        _handleDailyLendIncreaseLimit(newLendExchangeRateX96, false);
+        _resetDailyLendIncreaseLimit(newLendExchangeRateX96, false);
 
         if (isShare) {
             shares = amount;
@@ -1033,7 +1034,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         }     
     }
 
-    function _handleDailyLendIncreaseLimit(uint newLendExchangeRateX96, bool force) internal {
+    function _resetDailyLendIncreaseLimit(uint newLendExchangeRateX96, bool force) internal {
         // daily lend limit reset handling
         uint time = block.timestamp / 1 days;
         if (force || time > dailyLendIncreaseLimitLastReset) {
@@ -1043,7 +1044,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         }
     }
 
-    function _handleDailyDebtIncreaseLimit(uint newLendExchangeRateX96, bool force) internal {
+    function _resetDailyDebtIncreaseLimit(uint newLendExchangeRateX96, bool force) internal {
         // daily debt limit reset handling
         uint time = block.timestamp / 1 days;
         if (force || time > dailyDebtIncreaseLimitLastReset) {
