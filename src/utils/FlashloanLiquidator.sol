@@ -13,6 +13,7 @@ import "forge-std/console.sol";
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     error NotLiquidatable();
+    error NotEnoughReward();
 
     struct FlashCallbackData {
         uint tokenId;
@@ -22,23 +23,37 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         RouterSwapParams swap0;
         RouterSwapParams swap1;
         address liquidator;
+        uint minReward;
     }
 
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
 
     }
 
-    
-    function liquidate(uint tokenId, IVault vault, IUniswapV3Pool flashLoanPool, RouterSwapParams memory swap0, RouterSwapParams memory swap1) external {
-        (,,,uint liquidationCost,) = vault.loanInfo(tokenId);
+    struct LiquidateParams {
+        uint tokenId; // loan to liquidate
+        IVault vault; // vault where the loan is
+        IUniswapV3Pool flashLoanPool; // pool which is used for flashloan - may not be used in the swaps below
+        uint256 amount0In; // how much of token0 to swap to asset (0 if no swap should be done)
+        bytes swapData0; // swap data for token0 swap
+        uint256 amount1In; // how much of token1 to swap to asset (0 if no swap should be done)
+        bytes swapData1; // swap data for token1 swap
+        uint minReward; // min reward amount (works as a global slippage control for complete operation)
+    }
+
+    /// @notice Liquidates a loan, using a Uniswap Flashloan
+    function liquidate(LiquidateParams calldata params) external {
+        (,,,uint liquidationCost,) = params.vault.loanInfo(params.tokenId);
         if (liquidationCost == 0) {
             revert NotLiquidatable();
         }
 
-        address asset = vault.asset();
-        bool isAsset0 = flashLoanPool.token0() == asset;
-        bytes memory data = abi.encode(FlashCallbackData(tokenId, liquidationCost, vault, IERC20(asset), swap0, swap1, msg.sender));
-        flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
+        (,,address token0,address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+        address asset = params.vault.asset();
+        
+        bool isAsset0 = params.flashLoanPool.token0() == asset;
+        bytes memory data = abi.encode(FlashCallbackData(params.tokenId, liquidationCost, params.vault, IERC20(asset), RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0), RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1), msg.sender, params.minReward));
+        params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
     }
 
     function uniswapV3FlashCallback(uint fee0, uint fee1, bytes calldata callbackData) external {
@@ -73,10 +88,12 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         }
         {
             uint balance = data.asset.balanceOf(address(this));
+            if (balance < data.minReward) {
+                revert NotEnoughReward();
+            }
             if (balance > 0) {
                 SafeERC20.safeTransfer(data.asset, data.liquidator, balance);
             }
         }
-
     }
 }

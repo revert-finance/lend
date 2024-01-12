@@ -711,10 +711,13 @@ contract V3VaultIntegrationTest is Test {
         inputs[1] = abi.encode(token0, address(liquidator), 0);
         bytes memory swapData0 = abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
-        Swapper.RouterSwapParams memory swap0 = Swapper.RouterSwapParams(IERC20(token0), IERC20(token1), amount0, 0, swapData0);
-        Swapper.RouterSwapParams memory swap1 = Swapper.RouterSwapParams(IERC20(token1), IERC20(token1), 0, 0, "");
-      
-        liquidator.liquidate(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), swap0, swap1);
+        vm.expectRevert(FlashloanLiquidator.NotEnoughReward.selector);
+        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029));
+
+        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356028));
+
+        vm.expectRevert(FlashloanLiquidator.NotLiquidatable.selector);
+        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0));
 
         assertEq(liquidationValue - liquidationCost, 356917); // promised liquidation premium
 
