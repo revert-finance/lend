@@ -77,7 +77,7 @@ contract V3VaultIntegrationTest is Test {
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100%  collateral value
 
         // limits 15 USDC each
-        vault.setLimits(0, 15000000, 15000000, 15000000, 15000000);
+        vault.setLimits(0, 15000000, 15000000, 12000000, 12000000);
 
         // without reserve for now
         vault.setReserveFactor(0);
@@ -197,11 +197,14 @@ contract V3VaultIntegrationTest is Test {
         USDC.approve(address(vault), amount);   
 
         uint lendLimit = vault.globalLendLimit();
+        uint dailyDepositLimit = vault.dailyLendIncreaseLimitMin();
 
         if (amount > balance) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");
         } else if (amount > lendLimit) {
             vm.expectRevert(V3Vault.GlobalLendLimit.selector);
+        } else if (amount > dailyDepositLimit) {
+            vm.expectRevert(V3Vault.DailyLendIncreaseLimit.selector);
         }
 
         vm.prank(WHALE_ACCOUNT);
@@ -209,9 +212,9 @@ contract V3VaultIntegrationTest is Test {
     }
 
     // fuzz testing withdraw amount
-    function testWithdraw() external {
+    function testWithdraw(uint amount) external {
 
-         bool isShare = true;
+        bool isShare = true;
         uint amount = 10000001;
 
         // 0 borrow loan
@@ -226,10 +229,8 @@ contract V3VaultIntegrationTest is Test {
             vm.assume(amount <= lent * 10);
         }
       
-
         if (isShare && amount > lentShares || !isShare && amount > lent) {
             vm.expectRevert(V3Vault.InsufficientLiquidity.selector);
-//            vm.expectRevert("ERC20: burn amount exceeds balance");
         }
 
         vm.prank(WHALE_ACCOUNT);
@@ -247,12 +248,15 @@ contract V3VaultIntegrationTest is Test {
 
         (,,uint collateralValue,,) = vault.loanInfo(TEST_NFT);
 
-        vm.assume(amount <= collateralValue);
+        vm.assume(amount <= collateralValue * 100);
 
         uint debtLimit = vault.globalDebtLimit();
+        uint increaseLimit = vault.dailyDebtIncreaseLimitMin();
 
         if (amount > debtLimit) {
             vm.expectRevert(V3Vault.GlobalDebtLimit.selector);
+        } else if (amount > increaseLimit) {
+            vm.expectRevert(V3Vault.DailyDebtIncreaseLimit.selector);
         } else if (amount > collateralValue) {
             vm.expectRevert(V3Vault.CollateralFail.selector);
         }
