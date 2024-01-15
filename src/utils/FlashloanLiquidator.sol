@@ -63,7 +63,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
 
         SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
-        (uint amount0, uint amount1) = data.vault.liquidate(data.tokenId);
+        data.vault.liquidate(data.tokenId);
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);
 
         // do swaps
