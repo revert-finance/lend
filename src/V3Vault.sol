@@ -13,7 +13,6 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
@@ -27,7 +26,7 @@ import "forge-std/console.sol";
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
-contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver {
+contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver {
 
     using Math for uint256;
 
@@ -57,7 +56,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     IV3Oracle immutable public oracle;
 
     /// @notice underlying asset for lending / borrowing
-    address immutable public override(IERC4626, IVault) asset;
+    address immutable public override asset;
 
     /// @notice decimals of underlying token (are the same as ERC20 share token)
     uint8 immutable private assetDecimals;
@@ -176,7 +175,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     /// @return balance Balance of asset token in contract
     /// @return available Available balance of asset token in contract (balance - reserves)
     /// @return reserves Amount of reserves
-    function vaultInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
+    function vaultInfo() external override view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
         (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _calculateGlobalInterest();
         (balance, available, reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
 
@@ -187,7 +186,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     /// @notice Retrieves lending information for a specified account.
     /// @param account The address of the account for which lending info is requested.
     /// @return amount Amount of lent assets for the account
-    function lendInfo(address account) external view returns (uint amount) {
+    function lendInfo(address account) external override view returns (uint amount) {
         (, uint newLendExchangeRateX96) = _calculateGlobalInterest();
         amount = _convertToAssets(balanceOf(account), newLendExchangeRateX96, Math.Rounding.Down);
     }
@@ -629,16 +628,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         uint fullValue;
         uint collateralValue;
         uint feeValue;
-        uint amount0;
-        uint amount1;
     }
 
     /// @notice Liquidates position - needed assets are depending on current price.
     /// Sufficient assets need to be approved to the contract for the liquidation to succeed.
     /// @param tokenId The token ID to liquidate
-    /// @return The amount of the first type of asset collected.
-    /// @return The amount of the second type of asset collected.
-    function liquidate(uint tokenId) external override returns (uint, uint) {
+    /// @return amount0 The amount of the first type of asset collected.
+    /// @return amount1 The amount of the second type of asset collected.
+    function liquidate(uint tokenId) external override returns (uint amount0, uint amount1) {
 
         // liquidation is not allowed during transformer mode
         if (transformedTokenId > 0) {
@@ -669,16 +666,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         debtSharesTotal -= loans[tokenId].debtShares;
 
         // send promised collateral tokens to liquidator
-        (state.amount0, state.amount1) = _sendPositionValue(tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
+        (amount0, amount1) = _sendPositionValue(tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
 
         address owner = loans[tokenId].owner;
 
         // disarm loan and send remaining position to owner
         _cleanupLoan(tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
 
-        emit Liquidate(tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, state.amount0, state.amount1, state.reserveCost, state.missing);
-
-        return (state.amount0, state.amount1);
+        emit Liquidate(tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, amount0, amount1, state.reserveCost, state.missing);
     }
 
     ////////////////// ADMIN FUNCTIONS only callable by owner

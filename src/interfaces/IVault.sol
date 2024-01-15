@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IVault {
+import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
+interface IVault is IERC4626 {
+
+    function vaultInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves);
+    function lendInfo(address account) external view returns (uint amount);
     function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost, uint liquidationValue);
 
-    function asset() external returns (address);
     function ownerOf(uint tokenId) external returns (address);
 
     function create(uint256 tokenId, address recipient) external;
