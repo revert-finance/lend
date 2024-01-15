@@ -120,6 +120,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
     // total of debt shares - increases when borrow - decreases when repay
     uint public debtSharesTotal = 0;
 
+    // exchange rates are Q96 at the beginning - 1 share token per 1 asset token
     uint public lastExchangeRateUpdate = 0;
     uint public lastDebtExchangeRateX96 = Q96;
     uint public lastLendExchangeRateX96 = Q96;
@@ -410,8 +411,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
 
     /// @notice Method which allows a contract to transform a loan by changing it (and only at the end checking collateral)
     /// @param tokenId The token ID to be processed
-    /// @param transformer The address of a whitelisted tranformer contract
-    /// @param data Encoded tranformation params
+    /// @param transformer The address of a whitelisted transformer contract
+    /// @param data Encoded transformation params
     /// @return newTokenId Final token ID (may be different than input token ID when the position was replaced by transformation)
     function transform(uint tokenId, address transformer, bytes calldata data) external override returns (uint newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
@@ -995,8 +996,15 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC4626, IERC721Receiver
         supplyRateX96 = supplyRateX96.mulDiv(Q32 - reserveFactorX32, Q32);
 
         // always growing or equal
-        newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * borrowRateX96 / Q96;
-        newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * (block.timestamp - lastExchangeRateUpdate) * supplyRateX96 / Q96;
+        uint lastRateUpdate = lastExchangeRateUpdate;
+
+        if (lastRateUpdate > 0) {
+            newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * (block.timestamp - lastRateUpdate) * borrowRateX96 / Q96;
+            newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * (block.timestamp - lastRateUpdate) * supplyRateX96 / Q96;
+        } else {
+            newDebtExchangeRateX96 = oldDebtExchangeRateX96;
+            newLendExchangeRateX96 = oldLendExchangeRateX96;
+        }
     }
 
     function _requireLoanIsHealthy(uint tokenId, uint debt) internal view {
