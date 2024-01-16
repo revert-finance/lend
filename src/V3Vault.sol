@@ -20,13 +20,14 @@ import "@openzeppelin/contracts/utils/Multicall.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IErrors.sol";
 
 import "forge-std/console.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
-contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver {
+contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors {
 
     using Math for uint256;
 
@@ -83,25 +84,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver {
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
     event SetEmergencyAdmin(address emergencyAdmin);
 
-    // errors
-    error Unauthorized();
-    error Reentrancy();
-    error WrongContract();
-    error CollateralFail();
-    error MinLoanSize();
-    error GlobalDebtLimit();
-    error GlobalLendLimit();
-    error DailyDebtIncreaseLimit();
-    error DailyLendIncreaseLimit();
-    error InsufficientLiquidity();
-    error NotLiquidatable();
-    error InterestNotUpdated();
-    error RepayExceedsDebt();
-    error TransformNotAllowed();
-    error TransformFailed();
-    error CollateralFactorExceedsMax();
-    error CollateralValueLimit();
-    error ConfigError();
 
     struct TokenConfig {
         uint32 collateralFactorX32; // how much this token is valued as collateral
@@ -705,7 +687,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver {
 
         // protects protocol from owner trying to set dangerous transformer
         if (transformer == address(0) || transformer == address(this) || transformer == asset || transformer == address(nonfungiblePositionManager)) {
-            revert ConfigError();
+            revert InvalidConfig();
         }
 
         transformerAllowList[transformer] = active;
@@ -743,7 +725,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver {
     // function to set reserve protection factor - percentage of globalLendAmount which can't be withdrawn by owner
     function setReserveProtectionFactor(uint32 _reserveProtectionFactorX32) external onlyOwner {
         if (_reserveProtectionFactorX32 < MIN_RESERVE_PROTECTION_FACTOR_X32) {
-            revert ConfigError();
+            revert InvalidConfig();
         }
         reserveProtectionFactorX32 = _reserveProtectionFactorX32;
         emit SetReserveProtectionFactor(_reserveProtectionFactorX32);

@@ -8,6 +8,8 @@ import "forge-std/console.sol";
 import "../../src/V3Oracle.sol";
 import "v3-core/interfaces/pool/IUniswapV3PoolDerivedState.sol";
 
+import "../../src/interfaces/IErrors.sol";
+
 contract V3OracleIntegrationTest is Test {
    
     uint constant Q32 = 2 ** 32;
@@ -78,20 +80,20 @@ contract V3OracleIntegrationTest is Test {
     }
 
     function testNonExistingToken() external {
-        vm.expectRevert(V3Oracle.NotConfiguredToken.selector);
+        vm.expectRevert(IErrors.NotConfigured.selector);
         oracle.getValue(TEST_NFT, address(WBTC));
 
-        vm.expectRevert(V3Oracle.NotConfiguredToken.selector);
+        vm.expectRevert(IErrors.NotConfigured.selector);
         oracle.getValue(TEST_NFT_UNI, address(WETH));
     }
 
     function testInvalidPoolConfig() external {
-        vm.expectRevert(V3Oracle.InvalidPool.selector);
+        vm.expectRevert(IErrors.InvalidPool.selector);
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 500);
     }
 
     function testEmergencyAdmin() external {
-        vm.expectRevert(V3Oracle.Unauthorized.selector);
+        vm.expectRevert(IErrors.Unauthorized.selector);
         vm.prank(WHALE_ACCOUNT);
         oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
 
@@ -102,11 +104,11 @@ contract V3OracleIntegrationTest is Test {
 
     function testChainlinkError() external {
         vm.mockCall(CHAINLINK_DAI_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(-1), block.timestamp, block.timestamp, uint80(0)));
-        vm.expectRevert(V3Oracle.ChainlinkPriceError.selector);
+        vm.expectRevert(IErrors.ChainlinkPriceError.selector);
         oracle.getValue(TEST_NFT, address(WETH));
 
         vm.mockCall(CHAINLINK_DAI_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(0), uint256(0), uint256(0), uint80(0)));
-        vm.expectRevert(V3Oracle.ChainlinkPriceError.selector);
+        vm.expectRevert(IErrors.ChainlinkPriceError.selector);
         oracle.getValue(TEST_NFT, address(WETH));
     }
 
@@ -115,7 +117,7 @@ contract V3OracleIntegrationTest is Test {
         // change call to simulate oracle difference in chainlink
         vm.mockCall(CHAINLINK_DAI_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0)));
 
-        vm.expectRevert(V3Oracle.PriceDifferenceExceeded.selector);
+        vm.expectRevert(IErrors.PriceDifferenceExceeded.selector);
         oracle.getValue(TEST_NFT, address(WETH));
         
         // works with normal prices
@@ -127,7 +129,7 @@ contract V3OracleIntegrationTest is Test {
         int56[] memory tickCumulatives = new int56[](2);
         uint160[] memory secondsPerLiquidityCumulativeX128s = new uint160[](2);
         vm.mockCall(UNISWAP_DAI_USDC, abi.encodeWithSelector(IUniswapV3PoolDerivedState.observe.selector), abi.encode(tickCumulatives, secondsPerLiquidityCumulativeX128s));
-        vm.expectRevert(V3Oracle.PriceDifferenceExceeded.selector);
+        vm.expectRevert(IErrors.PriceDifferenceExceeded.selector);
         oracle.getValue(TEST_NFT, address(WETH));
         
     }

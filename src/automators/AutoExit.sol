@@ -9,9 +9,6 @@ import "./Automator.sol";
 /// Positions need to be approved (approve or setApprovalForAll) for the contract and configured with configToken method
 contract AutoExit is Automator {
 
-    error NoLiquidity();
-    error MissingSwapData();
-
     event Executed(
         uint256 indexed tokenId,
         address account,

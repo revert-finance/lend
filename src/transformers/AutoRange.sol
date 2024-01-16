@@ -10,10 +10,6 @@ import "../automators/Automator.sol";
 /// When position is inside Vault - transform is called
 contract AutoRange is Automator {
 
-    error SameRange();
-    error NotSupportedFeeTier();
-    error SwapAmountTooLarge();
-
     event RangeChanged(
         uint256 indexed oldTokenId, 
         uint256 indexed newTokenId

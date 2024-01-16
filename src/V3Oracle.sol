@@ -18,20 +18,14 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
+import "./interfaces/IErrors.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
-contract V3Oracle is IV3Oracle, Ownable {
+contract V3Oracle is IV3Oracle, Ownable, IErrors {
 
     uint256 private constant Q96 = 2**96;
     uint256 private constant Q128 = 2**128;
-
-    error Unauthorized();
-    error InvalidConfig();
-    error NotConfiguredToken();
-    error InvalidPool();
-    error ChainlinkPriceError();
-    error PriceDifferenceExceeded();
 
     event TokenConfigUpdated(address indexed token, TokenConfig config);
     event OracleModeUpdated(address indexed token, Mode mode);
@@ -184,7 +178,7 @@ contract V3Oracle is IV3Oracle, Ownable {
         TokenConfig memory feedConfig = feedConfigs[token];
 
         if (feedConfig.mode == Mode.NOT_SET) {
-            revert NotConfiguredToken();
+            revert NotConfigured();
         }
 
         uint256 verifyPriceX96;

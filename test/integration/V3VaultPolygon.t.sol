@@ -16,7 +16,7 @@ import "../../src/transformers/AutoRange.sol";
 import "../../src/transformers/AutoCompound.sol";
 import "../../src/automators/AutoExit.sol";
 
-
+import "../../src/interfaces/IErrors.sol";
 
 contract VaultPolygonIntegrationTest is Test {
    

@@ -24,15 +24,6 @@ abstract contract Automator is Swapper, Ownable {
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
 
-    error NotConfigured();
-    error NotReady();
-    error InvalidConfig();
-    error TWAPCheckFailed();
-    error EtherSendFailed();
-    error NotWETH();
-    error LiquidityChanged();
-    error ExceedsMaxReward();
-
     // admin events
     event OperatorChanged(address newOperator, bool active);
     event VaultChanged(address newVault, bool active);

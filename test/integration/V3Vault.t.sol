@@ -17,6 +17,8 @@ import "../../src/transformers/AutoCompound.sol";
 
 import "../../src/utils/FlashloanLiquidator.sol";
 
+import "../../src/interfaces/IErrors.sol";
+
 contract V3VaultIntegrationTest is Test {
    
     uint constant Q32 = 2 ** 32;
@@ -152,7 +154,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
-        vm.expectRevert(V3Vault.MinLoanSize.selector);
+        vm.expectRevert(IErrors.MinLoanSize.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, minLoanSize - 1);
 
@@ -162,7 +164,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         USDC.approve(address(vault), minLoanSize);
 
-        vm.expectRevert(V3Vault.MinLoanSize.selector);
+        vm.expectRevert(IErrors.MinLoanSize.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1, false);
 
@@ -202,9 +204,9 @@ contract V3VaultIntegrationTest is Test {
         if (amount > balance) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");
         } else if (amount > lendLimit) {
-            vm.expectRevert(V3Vault.GlobalLendLimit.selector);
+            vm.expectRevert(IErrors.GlobalLendLimit.selector);
         } else if (amount > dailyDepositLimit) {
-            vm.expectRevert(V3Vault.DailyLendIncreaseLimit.selector);
+            vm.expectRevert(IErrors.DailyLendIncreaseLimit.selector);
         }
 
         vm.prank(WHALE_ACCOUNT);
@@ -229,7 +231,7 @@ contract V3VaultIntegrationTest is Test {
         }
       
         if (isShare && amount > lentShares || !isShare && amount > lent) {
-            vm.expectRevert(V3Vault.InsufficientLiquidity.selector);
+            vm.expectRevert(IErrors.InsufficientLiquidity.selector);
         }
 
         vm.prank(WHALE_ACCOUNT);
@@ -253,11 +255,11 @@ contract V3VaultIntegrationTest is Test {
         uint increaseLimit = vault.dailyDebtIncreaseLimitMin();
 
         if (amount > debtLimit) {
-            vm.expectRevert(V3Vault.GlobalDebtLimit.selector);
+            vm.expectRevert(IErrors.GlobalDebtLimit.selector);
         } else if (amount > increaseLimit) {
-            vm.expectRevert(V3Vault.DailyDebtIncreaseLimit.selector);
+            vm.expectRevert(IErrors.DailyDebtIncreaseLimit.selector);
         } else if (amount > collateralValue) {
-            vm.expectRevert(V3Vault.CollateralFail.selector);
+            vm.expectRevert(IErrors.CollateralFail.selector);
         }
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -283,7 +285,7 @@ contract V3VaultIntegrationTest is Test {
         USDC.approve(address(vault), debt);
        
         if (isShare && amount > debtShares || !isShare && amount > debt) {
-            vm.expectRevert(V3Vault.RepayExceedsDebt.selector);
+            vm.expectRevert(IErrors.RepayExceedsDebt.selector);
         } 
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -399,7 +401,7 @@ contract V3VaultIntegrationTest is Test {
             ""
         );
 
-        vm.expectRevert(V3Vault.CollateralFail.selector);
+        vm.expectRevert(IErrors.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
@@ -460,7 +462,7 @@ contract V3VaultIntegrationTest is Test {
         );
 
         // some collateral gets lost during change-range (fees which are not added completely in this case) - needs repayment before
-        vm.expectRevert(V3Vault.CollateralFail.selector);
+        vm.expectRevert(IErrors.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
 
@@ -519,7 +521,7 @@ contract V3VaultIntegrationTest is Test {
   
         _setupBasicLoan(true);
 
-        vm.expectRevert(Swapper.Unauthorized.selector);
+        vm.expectRevert(IErrors.Unauthorized.selector);
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
 
         // direct auto-compound when in vault fails
@@ -529,7 +531,7 @@ contract V3VaultIntegrationTest is Test {
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(V3Vault.Unauthorized.selector);
+        vm.expectRevert(IErrors.Unauthorized.selector);
         autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -537,7 +539,7 @@ contract V3VaultIntegrationTest is Test {
 
         // fails because full collateral used
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(V3Vault.CollateralFail.selector);
+        vm.expectRevert(IErrors.CollateralFail.selector);
         autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
 
         // repay partially
@@ -559,12 +561,12 @@ contract V3VaultIntegrationTest is Test {
         (, ,, , ,, ,uint128 liquidity, , , , ) = NPM.positions(TEST_NFT);
         AutoRange.ExecuteParams memory params = AutoRange.ExecuteParams(TEST_NFT, false, 0, "", liquidity, 0, 0, block.timestamp, 0);
 
-        vm.expectRevert(Swapper.Unauthorized.selector);
+        vm.expectRevert(IErrors.Unauthorized.selector);
         autoRange.execute(params);
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(Automator.NotConfigured.selector);
+        vm.expectRevert(IErrors.NotConfigured.selector);
         autoRange.execute(params);
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -575,7 +577,7 @@ contract V3VaultIntegrationTest is Test {
 
         // fails because full collateral used
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(V3Vault.CollateralFail.selector);
+        vm.expectRevert(IErrors.CollateralFail.selector);
         autoRange.executeWithVault(params, address(vault));
 
         // repay partially
@@ -714,12 +716,12 @@ contract V3VaultIntegrationTest is Test {
         inputs[1] = abi.encode(token0, address(liquidator), 0);
         bytes memory swapData0 = abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
-        vm.expectRevert(FlashloanLiquidator.NotEnoughReward.selector);
+        vm.expectRevert(IErrors.NotEnoughReward.selector);
         liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029));
 
         liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356028));
 
-        vm.expectRevert(FlashloanLiquidator.NotLiquidatable.selector);
+        vm.expectRevert(IErrors.NotLiquidatable.selector);
         liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0));
 
         assertEq(liquidationValue - liquidationCost, 356917); // promised liquidation premium
@@ -755,7 +757,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(totalDebtShares, 800000);
 
         // borrow more doesnt work anymore - because more than max value of collateral is used
-        vm.expectRevert(V3Vault.CollateralValueLimit.selector);
+        vm.expectRevert(IErrors.CollateralValueLimit.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, 200001);
 
@@ -910,7 +912,7 @@ contract V3VaultIntegrationTest is Test {
     }
 
     function testEmergencyAdmin() external {
-        vm.expectRevert(V3Vault.Unauthorized.selector);
+        vm.expectRevert(IErrors.Unauthorized.selector);
         vm.prank(WHALE_ACCOUNT);
         vault.setLimits(0, 0, 0, 0, 0);
 

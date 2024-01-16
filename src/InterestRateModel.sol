@@ -4,18 +4,17 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IErrors.sol";
 
 /// @title Model for interest rate calculation used in Vault
 /// @notice Calculates both borrow and supply rate
-contract InterestRateModel is Ownable, IInterestRateModel {
+contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
 
     uint private constant Q96 = 2 ** 96;
     uint public constant YEAR_SECS = 31557600; // taking into account leap years
 
     uint public constant MAX_BASE_RATE_X96 = Q96 / 10; // 10%
     uint public constant MAX_MULTIPLIER_X96 = Q96 * 2; // 200%
-
-    error InvalidConfig();
 
     event SetValues(uint baseRatePerYearX96, uint multiplierPerYearX96, uint jumpMultiplierPerYearX96, uint kinkX96);
 

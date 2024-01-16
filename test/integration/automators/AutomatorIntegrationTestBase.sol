@@ -5,6 +5,8 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import "../../../src/transformers/V3Utils.sol";
+import "../../../src/interfaces/IErrors.sol";
+
 
 abstract contract AutomatorIntegrationTestBase is Test {
     

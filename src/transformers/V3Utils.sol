@@ -19,18 +19,6 @@ contract V3Utils is Swapper, IERC721Receiver {
     // @notice Permit2 contract
     IPermit2 immutable public permit2;
 
-    // error types
-    error SelfSend();
-    error NotSupportedWhatToDo();
-    error SameToken();
-    error AmountError();
-    error CollectError();
-    error TransferError();
-    error EtherSendFailed();
-    error TooMuchEtherSent();
-    error NoEtherToken();
-    error NotWETH();
-
     // events
     event CompoundFees(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
     event ChangeRange(uint256 indexed tokenId, uint256 newTokenId);
