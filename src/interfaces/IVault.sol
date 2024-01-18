@@ -39,5 +39,20 @@ interface IVault is IERC4626 {
     function borrow(uint tokenId, uint amount) external;
     function repay(uint tokenId, uint amount, bool isShare) external;
 
-    function liquidate(uint tokenId) external returns (uint256 amount0, uint256 amount1);
+    struct LiquidateParams {
+        // token to liquidate
+        uint256 tokenId;
+        
+        // expected debt shares - reverts if changed in the meantime
+        uint256 debtShares;
+
+        // min amount to recieve
+        uint256 amount0Min;
+        uint256 amount1Min;
+
+        // recipient of rewarded tokens
+        address recipient;
+    }
+
+    function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);
 }

@@ -64,9 +64,9 @@ contract VaultPolygonIntegrationTest is Test {
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
         oracle.setTokenConfig(USDC, AggregatorV3Interface(0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7), 3600, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0);
-        oracle.setTokenConfig(WMATIC, AggregatorV3Interface(0xAB594600376Ec9fD91F8e885dADF0CE036862dE0), 3600, IUniswapV3Pool(0xA374094527e1673A86dE625aa59517c5dE346d32), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 100);
-        oracle.setTokenConfig(WETH, AggregatorV3Interface(0xF9680D99D6C9589e2a93a78A04A279e509205945), 3600, IUniswapV3Pool(0x45dDa9cb7c25131DF268515131f647d726f50608), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 100);
-        oracle.setTokenConfig(WBTC, AggregatorV3Interface(0xc907E116054Ad103354f2D350FD2514433D57F6f), 3600, IUniswapV3Pool(0x847b64f9d3A95e977D157866447a5C0A5dFa0Ee5), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 100);
+        oracle.setTokenConfig(WMATIC, AggregatorV3Interface(0xAB594600376Ec9fD91F8e885dADF0CE036862dE0), 3600, IUniswapV3Pool(0xA374094527e1673A86dE625aa59517c5dE346d32), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
+        oracle.setTokenConfig(WETH, AggregatorV3Interface(0xF9680D99D6C9589e2a93a78A04A279e509205945), 3600, IUniswapV3Pool(0x45dDa9cb7c25131DF268515131f647d726f50608), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
+        oracle.setTokenConfig(WBTC, AggregatorV3Interface(0xc907E116054Ad103354f2D350FD2514433D57F6f), 3600, IUniswapV3Pool(0x847b64f9d3A95e977D157866447a5C0A5dFa0Ee5), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
 
 
         vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);

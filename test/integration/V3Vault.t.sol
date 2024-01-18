@@ -633,6 +633,16 @@ contract V3VaultIntegrationTest is Test {
             vm.mockCall(CHAINLINK_DAI_USD, abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector), abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0)));
         }
 
+        if (!timeBased) {
+
+            // should revert because oracle and pool price are different
+            vm.expectRevert(IErrors.PriceDifferenceExceeded.selector);
+            (debt, fullValue,collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT);
+
+            // ignore difference - now it will work
+            oracle.setMaxPoolPriceDifference(10001);
+        }
+
         // debt is greater than collateral value
         (debt, fullValue,collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT);
 
@@ -650,9 +660,11 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
 
+        (uint debtShares,,) = vault.loans(TEST_NFT);
+
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
-        vault.liquidate(TEST_NFT);
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT));
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
@@ -660,8 +672,9 @@ contract V3VaultIntegrationTest is Test {
         uint daiBalance = DAI.balanceOf(WHALE_ACCOUNT);
         uint usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
 
+
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(TEST_NFT);
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT));
 
         // DAI and USDC where sent to liquidator
         assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 381693758226627942 : 393607068547774684);
@@ -680,7 +693,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(balance, timeBased ? 10022441 : 9645793);
 
         // there maybe some amounts left in position
-        (,,, uint256 amount0, uint256 amount1,,) = oracle.getPositionBreakdown(TEST_NFT);
+        (,,,, uint256 amount0, uint256 amount1,,) = oracle.getPositionBreakdown(TEST_NFT);
         assertEq(amount0, timeBased ? 11913310321146741 : 0);
         assertEq(amount1, timeBased ? 591753 : 0);
 
@@ -700,7 +713,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(liquidationCost, 8869647);
         assertEq(liquidationValue, 9226564);
 
-        (address token0, address token1,,,,,) = oracle.getPositionBreakdown(TEST_NFT);
+        (address token0, address token1,,,,,,) = oracle.getPositionBreakdown(TEST_NFT);
 
         uint token0Before = IERC20(token0).balanceOf(address(this));
         uint token1Before = IERC20(token1).balanceOf(address(this));
@@ -716,13 +729,15 @@ contract V3VaultIntegrationTest is Test {
         inputs[1] = abi.encode(token0, address(liquidator), 0);
         bytes memory swapData0 = abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
-        vm.expectRevert(IErrors.NotEnoughReward.selector);
-        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029));
+        (uint debtShares,,) = vault.loans(TEST_NFT);
 
-        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356028));
+        vm.expectRevert(IErrors.NotEnoughReward.selector);
+        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029));
+
+        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356028));
 
         vm.expectRevert(IErrors.NotLiquidatable.selector);
-        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0));
+        liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0));
 
         assertEq(liquidationValue - liquidationCost, 356917); // promised liquidation premium
 

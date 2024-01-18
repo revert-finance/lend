@@ -14,6 +14,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     struct FlashCallbackData {
         uint tokenId;
+        uint debtShares;
         uint liquidationCost;
         IVault vault;
         IERC20 asset;
@@ -29,6 +30,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     struct LiquidateParams {
         uint tokenId; // loan to liquidate
+        uint debtShares; // debt shares calculation is based on
         IVault vault; // vault where the loan is
         IUniswapV3Pool flashLoanPool; // pool which is used for flashloan - may not be used in the swaps below
         uint256 amount0In; // how much of token0 to swap to asset (0 if no swap should be done)
@@ -49,7 +51,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         address asset = params.vault.asset();
         
         bool isAsset0 = params.flashLoanPool.token0() == asset;
-        bytes memory data = abi.encode(FlashCallbackData(params.tokenId, liquidationCost, params.vault, IERC20(asset), RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0), RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1), msg.sender, params.minReward));
+        bytes memory data = abi.encode(FlashCallbackData(params.tokenId, params.debtShares, liquidationCost, params.vault, IERC20(asset), RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0), RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1), msg.sender, params.minReward));
         params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
     }
 
@@ -60,7 +62,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
 
         SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
-        data.vault.liquidate(data.tokenId);
+        data.vault.liquidate(IVault.LiquidateParams(data.tokenId, data.debtShares, data.swap0.amountIn, data.swap1.amountIn, address(this)));
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);
 
         // do swaps

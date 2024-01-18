@@ -614,10 +614,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     /// @notice Liquidates position - needed assets are depending on current price.
     /// Sufficient assets need to be approved to the contract for the liquidation to succeed.
-    /// @param tokenId The token ID to liquidate
+    /// @param params The params defining liquidation
     /// @return amount0 The amount of the first type of asset collected.
     /// @return amount1 The amount of the second type of asset collected.
-    function liquidate(uint tokenId) external override returns (uint amount0, uint amount1) {
+    function liquidate(LiquidateParams calldata params) external override returns (uint amount0, uint amount1) {
 
         // liquidation is not allowed during transformer mode
         if (transformedTokenId > 0) {
@@ -628,9 +628,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         (state.newDebtExchangeRateX96, state.newLendExchangeRateX96) = _updateGlobalInterest();
 
-        state.debt = _convertToAssets(loans[tokenId].debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
+        uint debtShares = loans[params.tokenId].debtShares;
+        if (debtShares != params.debtShares) {
+            revert DebtChanged();
+        }
 
-        (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) = _checkLoanIsHealthy(tokenId, state.debt);
+        state.debt = _convertToAssets(debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
+
+        (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) = _checkLoanIsHealthy(params.tokenId, state.debt);
         if (state.isHealthy) {
             revert NotLiquidatable();
         }
@@ -645,17 +650,21 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         // take value from liquidator
         IERC20(asset).transferFrom(msg.sender, address(this), state.liquidatorCost);
 
-        debtSharesTotal -= loans[tokenId].debtShares;
+        debtSharesTotal -= debtShares;
 
         // send promised collateral tokens to liquidator
-        (amount0, amount1) = _sendPositionValue(tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
+        (amount0, amount1) = _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
 
-        address owner = loans[tokenId].owner;
+        if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
+            revert SlippageError();
+        }
+
+        address owner = loans[params.tokenId].owner;
 
         // disarm loan and send remaining position to owner
-        _cleanupLoan(tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
+        _cleanupLoan(params.tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
 
-        emit Liquidate(tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, amount0, amount1, state.reserveCost, state.missing);
+        emit Liquidate(params.tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, amount0, amount1, state.reserveCost, state.missing);
     }
 
     ////////////////// ADMIN FUNCTIONS only callable by owner
@@ -844,7 +853,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             fees0 = type(uint128).max;
             fees1 = type(uint128).max;
         } else {
-            (,,liquidity,,,fees0,fees1) = oracle.getPositionBreakdown(tokenId);
+            (,,,liquidity,,,fees0,fees1) = oracle.getPositionBreakdown(tokenId);
 
             // only take needed fees
             if (liquidationValue < feeValue) {

@@ -24,11 +24,14 @@ import "./interfaces/IErrors.sol";
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable, IErrors {
 
+    uint16 public constant MIN_PRICE_DIFFERENCE = 200; //2%
+
     uint256 private constant Q96 = 2**96;
     uint256 private constant Q128 = 2**128;
 
     event TokenConfigUpdated(address indexed token, TokenConfig config);
     event OracleModeUpdated(address indexed token, Mode mode);
+    event SetMaxPoolPriceDifference(uint16 maxPoolPriceDifference);
     event SetEmergencyAdmin(address emergencyAdmin);
 
     enum Mode {
@@ -61,6 +64,8 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     address immutable referenceToken;
     uint8 immutable referenceTokenDecimals;
 
+    uint16 maxPoolPriceDifference = MIN_PRICE_DIFFERENCE; // max price difference between oracle derived price and pool price x10000
+
     // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
     address immutable chainlinkReferenceToken;
 
@@ -79,16 +84,14 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     // gets value of a uniswap v3 lp position in specified token
     // uses configured oracles and verfies price on second oracle - if fails - reverts
     // returns complete value and fee-only value
-    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint256 feeValue, uint price0X06, uint price1X06) {
+    function getValue(uint tokenId, address token) override external view returns (uint256 value, uint256 feeValue, uint price0X96, uint price1X96) {
 
-        (address token0, address token1,, uint amount0, uint amount1, uint fees0, uint fees1) = getPositionBreakdown(tokenId);
+        (address token0, address token1, uint24 fee,, uint amount0, uint amount1, uint fees0, uint fees1) = getPositionBreakdown(tokenId);
 
-        uint price0X96;
-        uint price1X96;
-        uint cachedReferencePriceX96;
+        uint cachedChainlinkReferencePriceX96;
 
-        (price0X96, cachedReferencePriceX96) = _getReferenceTokenPriceX96(token0, cachedReferencePriceX96);
-        (price1X96, cachedReferencePriceX96) = _getReferenceTokenPriceX96(token1, cachedReferencePriceX96);
+        (price0X96, cachedChainlinkReferencePriceX96) = _getReferenceTokenPriceX96(token0, cachedChainlinkReferencePriceX96);
+        (price1X96, cachedChainlinkReferencePriceX96) = _getReferenceTokenPriceX96(token1, cachedChainlinkReferencePriceX96);
         
         uint priceTokenX96;
         if (token0 == token) {
@@ -96,21 +99,48 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         } else if (token1 == token) {
             priceTokenX96 = price1X96;
         } else {
-            (priceTokenX96, ) = _getReferenceTokenPriceX96(token, cachedReferencePriceX96);
+            (priceTokenX96, ) = _getReferenceTokenPriceX96(token, cachedChainlinkReferencePriceX96);
         }
 
         value = (price0X96 * (amount0 + fees0) / Q96 + price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
         feeValue = (price0X96 * fees0 / Q96 + price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
-        price0X06 = price0X96 * Q96 / priceTokenX96;
-        price1X06 = price1X96 * Q96 / priceTokenX96;
+        price0X96 = price0X96 * Q96 / priceTokenX96;
+        price1X96 = price1X96 * Q96 / priceTokenX96;
+
+        // checks derived pool price for price manipulation attacks
+        uint derivedPoolPriceX96 = price0X96 * Q96 / price1X96;
+        _checkPoolPrice(token0, token1, fee, derivedPoolPriceX96);
+    }
+
+    function _checkPoolPrice(address token0, address token1, uint24 fee, uint derivedPoolPriceX96) internal view {
+        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        uint priceX96 = _getReferencePoolPriceX96(pool, 0);
+        _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
+    }
+
+    function _requireMaxDifference(uint priceX96, uint verifyPriceX96, uint maxDifferenceX10000) internal view {
+        uint256 differenceX10000 = priceX96 > verifyPriceX96 ? (priceX96 - verifyPriceX96) * 10000 / priceX96 : (verifyPriceX96 - priceX96) * 10000 / verifyPriceX96;
+        // if too big difference - revert
+        if (differenceX10000 >= maxDifferenceX10000) {
+            revert PriceDifferenceExceeded();
+        }
     }
 
     // gets breakdown of a uniswap v3 position (liquidity, current liquidity amounts, uncollected fees)
-    function getPositionBreakdown(uint256 tokenId) override public view returns (address token0, address token1, uint128 liquidity, uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
+    function getPositionBreakdown(uint256 tokenId) override public view returns (address token0, address token1, uint24 fee, uint128 liquidity, uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1) {
         PositionState memory state = _initializeState(tokenId);
-        (token0, token1) = (state.token0, state.token1);
+        (token0, token1, fee) = (state.token0, state.token1, state.fee);
         (amount0, amount1, fees0, fees1) = _getAmounts(state);
         liquidity = state.liquidity;
+    }
+
+    // Sets the max pool difference parameter
+    function setMaxPoolPriceDifference(uint16 _maxPoolPriceDifference) external onlyOwner {
+        if (_maxPoolPriceDifference < MIN_PRICE_DIFFERENCE) {
+            revert InvalidConfig();
+        }
+        maxPoolPriceDifference = _maxPoolPriceDifference;
+        emit SetMaxPoolPriceDifference(_maxPoolPriceDifference);
     }
 
     // Sets or updates the feed configuration for a token
@@ -128,6 +158,10 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         TokenConfig memory config;
 
         if (token != referenceToken) {
+            if (maxDifference < MIN_PRICE_DIFFERENCE) {
+                revert InvalidConfig();
+            }
+
             address token0 = pool.token0();
             address token1 = pool.token1();
             if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {
@@ -209,12 +243,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         }
 
         if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
-            uint256 difference = priceX96 > verifyPriceX96 ? (priceX96 - verifyPriceX96) * 10000 / priceX96 : (verifyPriceX96 - priceX96) * 10000 / verifyPriceX96;
-
-            // if too big difference - revert (if this happens for a longer time - manual oracle mode adjustment is needed)
-            if (difference >= feedConfig.maxDifference) {
-                revert PriceDifferenceExceeded();
-            }
+            _requireMaxDifference(priceX96, verifyPriceX96, feedConfig.maxDifference);
         }
     }
 
