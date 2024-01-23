@@ -118,7 +118,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
     }
 
-    function _requireMaxDifference(uint priceX96, uint verifyPriceX96, uint maxDifferenceX10000) internal view {
+    function _requireMaxDifference(uint priceX96, uint verifyPriceX96, uint maxDifferenceX10000) internal pure {
         uint256 differenceX10000 = priceX96 > verifyPriceX96 ? (priceX96 - verifyPriceX96) * 10000 / priceX96 : (verifyPriceX96 - priceX96) * 10000 / verifyPriceX96;
         // if too big difference - revert
         if (differenceX10000 >= maxDifferenceX10000) {
@@ -359,8 +359,16 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             position.pool.feeGrowthGlobal1X128()
         );
 
-        fees0 = uint128(FullMath.mulDiv(feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128, position.liquidity, Q128));
-        fees1 = uint128(FullMath.mulDiv(feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128, position.liquidity, Q128));
+        // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
+        uint feeGrowth0;
+        uint feeGrowth1; 
+        unchecked { 
+            feeGrowth0 = feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128;
+            feeGrowth1 = feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128;
+        }
+        
+        fees0 = uint128(FullMath.mulDiv(feeGrowth0, position.liquidity, Q128));
+        fees1 = uint128(FullMath.mulDiv(feeGrowth1, position.liquidity, Q128));
     }
 
     // calculate fee growth for uncollected fees calculation
@@ -375,30 +383,19 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         (, , uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128, , , , ) = pool.ticks(tickLower);
         (, , uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128, , , , ) = pool.ticks(tickUpper);
 
-        // calculate fee growth below
-        uint256 feeGrowthBelow0X128;
-        uint256 feeGrowthBelow1X128;
-        if (tickCurrent >= tickLower) {
-            feeGrowthBelow0X128 = lowerFeeGrowthOutside0X128;
-            feeGrowthBelow1X128 = lowerFeeGrowthOutside1X128;
-        } else {
-            feeGrowthBelow0X128 = feeGrowthGlobal0X128 - lowerFeeGrowthOutside0X128;
-            feeGrowthBelow1X128 = feeGrowthGlobal1X128 - lowerFeeGrowthOutside1X128;
+        // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
+        unchecked {
+            if (tickCurrent < tickLower) {
+                feeGrowthInside0X128 = lowerFeeGrowthOutside0X128 - upperFeeGrowthOutside0X128;
+                feeGrowthInside1X128 = lowerFeeGrowthOutside1X128 - upperFeeGrowthOutside1X128;
+            } else if (tickCurrent < tickUpper) {
+                feeGrowthInside0X128 = feeGrowthGlobal0X128 - lowerFeeGrowthOutside0X128 - upperFeeGrowthOutside0X128;
+                feeGrowthInside1X128 = feeGrowthGlobal1X128 - lowerFeeGrowthOutside1X128 - upperFeeGrowthOutside1X128;
+            } else {
+                feeGrowthInside0X128 = upperFeeGrowthOutside0X128 - lowerFeeGrowthOutside0X128;
+                feeGrowthInside1X128 = upperFeeGrowthOutside1X128 - lowerFeeGrowthOutside1X128;
+            }
         }
-
-        // calculate fee growth above
-        uint256 feeGrowthAbove0X128;
-        uint256 feeGrowthAbove1X128;
-        if (tickCurrent < tickUpper) {
-            feeGrowthAbove0X128 = upperFeeGrowthOutside0X128;
-            feeGrowthAbove1X128 = upperFeeGrowthOutside1X128;
-        } else {
-            feeGrowthAbove0X128 = feeGrowthGlobal0X128 - upperFeeGrowthOutside0X128;
-            feeGrowthAbove1X128 = feeGrowthGlobal1X128 - upperFeeGrowthOutside1X128;
-        }
-
-        feeGrowthInside0X128 = feeGrowthGlobal0X128 - feeGrowthBelow0X128 - feeGrowthAbove0X128;
-        feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
     // helper method to get pool for token
