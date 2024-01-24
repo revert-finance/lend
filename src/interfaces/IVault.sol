@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 interface IVault is IERC4626 {
 
-    function vaultInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves);
+    function vaultInfo() external view returns (uint debt, uint lent, uint balance, uint available, uint reserves, uint debtExchangeRateX96, uint lendExchangeRateX96);
     function lendInfo(address account) external view returns (uint amount);
     function loanInfo(uint tokenId) external view returns (uint debt, uint fullValue, uint collateralValue, uint liquidationCost, uint liquidationValue);
 

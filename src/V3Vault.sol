@@ -157,12 +157,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @return balance Balance of asset token in contract
     /// @return available Available balance of asset token in contract (balance - reserves)
     /// @return reserves Amount of reserves
-    function vaultInfo() external override view returns (uint debt, uint lent, uint balance, uint available, uint reserves) {
-        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _calculateGlobalInterest();
-        (balance, available, reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+    function vaultInfo() external override view returns (uint debt, uint lent, uint balance, uint available, uint reserves, uint debtExchangeRateX96, uint lendExchangeRateX96) {
+        (debtExchangeRateX96, lendExchangeRateX96) = _calculateGlobalInterest();
+        (balance, available, reserves) = _getAvailableBalance(debtExchangeRateX96, lendExchangeRateX96);
 
-        debt = _convertToAssets(debtSharesTotal, newDebtExchangeRateX96, Math.Rounding.Up);
-        lent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
+        debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
+        lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
     }
 
     /// @notice Retrieves lending information for a specified account.
@@ -742,7 +742,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     // function to set token config
     // how much is collateral factor for this token
-    // how much of it maybe used as collateral max measured in asset quantity
+    // how much of it maybe used as collateral max measured as percentage of asset quantity
     function setTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32) external onlyOwner {
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();

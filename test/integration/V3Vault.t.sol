@@ -688,7 +688,7 @@ contract V3VaultIntegrationTest is Test {
 
         // protocol is solvent
         assertEq(USDC.balanceOf(address(vault)), timeBased ? 10022441 : 9645793);
-        (,uint lent,uint balance,,) = vault.vaultInfo();
+        (,uint lent,uint balance,,,,) = vault.vaultInfo();
         assertEq(lent, timeBased ? 10022441 : 9645793);
         assertEq(balance, timeBased ? 10022441 : 9645793);
 
@@ -905,7 +905,7 @@ contract V3VaultIntegrationTest is Test {
         uint balance;
         uint available;
         uint reserves;
-        (debt,lent,balance,available,reserves) = vault.vaultInfo();
+        (debt,lent,balance,available,reserves,,) = vault.vaultInfo();
         assertEq(debt, 0);
         assertEq(lent, 0);
         assertEq(balance, 3);
@@ -916,7 +916,7 @@ contract V3VaultIntegrationTest is Test {
         // get all out
         vault.withdrawReserves(reserves, address(this));
 
-        (debt,lent,balance,available,reserves) = vault.vaultInfo();
+        (debt,lent,balance,available,reserves,,) = vault.vaultInfo();
         
         assertEq(debt, 0);
         assertEq(lent, 0);
