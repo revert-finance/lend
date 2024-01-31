@@ -11,6 +11,10 @@ interface IVault is IERC4626 {
 
     function ownerOf(uint tokenId) external returns (address);
 
+    // functions for iterating over owners loans
+    function loanCount(address owner) external view returns (uint);
+    function loanAtIndex(address owner, uint index) external view returns (uint);
+
     function create(uint256 tokenId, address recipient) external;
     function createWithPermit(uint256 tokenId, address owner, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
 

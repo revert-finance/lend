@@ -111,7 +111,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(account);
         USDC.approve(address(vault), amount);
         if (complete) {
-            (uint debtShares,,) = vault.loans(tokenId);
+            (uint debtShares,) = vault.loans(tokenId);
             vm.prank(account);
             vault.repay(tokenId, debtShares, true);
         } else {
@@ -273,7 +273,7 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         (,,uint debt,,) = vault.loanInfo(TEST_NFT);
-        (uint debtShares,,) = vault.loans(TEST_NFT);
+        (uint debtShares,) = vault.loans(TEST_NFT);
 
         if (isShare) {
             vm.assume(amount <= debtShares * 10);
@@ -660,7 +660,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
 
-        (uint debtShares,,) = vault.loans(TEST_NFT);
+        (uint debtShares,) = vault.loans(TEST_NFT);
 
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
@@ -729,7 +729,7 @@ contract V3VaultIntegrationTest is Test {
         inputs[1] = abi.encode(token0, address(liquidator), 0);
         bytes memory swapData0 = abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
-        (uint debtShares,,) = vault.loans(TEST_NFT);
+        (uint debtShares,) = vault.loans(TEST_NFT);
 
         vm.expectRevert(IErrors.NotEnoughReward.selector);
         liquidator.liquidate(FlashloanLiquidator.LiquidateParams(TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029));
@@ -781,7 +781,7 @@ contract V3VaultIntegrationTest is Test {
         USDC.approve(address(vault), 1100000);
 
         // get debt shares
-        (uint debtShares,,) = vault.loans(TEST_NFT);
+        (uint debtShares,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 800000);
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -798,6 +798,7 @@ contract V3VaultIntegrationTest is Test {
 
         assertEq(vault.totalSupply(), 0);
         assertEq(vault.debtSharesTotal(), 0);
+        assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 0);
 
         // lending 2 USDC
         vm.prank(WHALE_ACCOUNT);
@@ -816,6 +817,10 @@ contract V3VaultIntegrationTest is Test {
         // borrowing 1 USDC
         _createAndBorrow(TEST_NFT, TEST_NFT_ACCOUNT, 1000000);
         assertEq(USDC.balanceOf(TEST_NFT_ACCOUNT), 1000000);
+
+        assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 1);
+        assertEq(vault.loanAtIndex(TEST_NFT_ACCOUNT, 0), TEST_NFT);
+        assertEq(vault.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
 
         // gift some USDC so later he may repay all
         vm.prank(WHALE_ACCOUNT);
@@ -841,7 +846,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, 1000000, false);
         (debt,,,,) = vault.loanInfo(TEST_NFT);
-        (uint debtShares,,) = vault.loans(TEST_NFT);
+        (uint debtShares,) = vault.loans(TEST_NFT);
         assertEq(debtShares, 4921);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
         assertEq(debt, 4946);
@@ -853,6 +858,9 @@ contract V3VaultIntegrationTest is Test {
         (debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+        assertEq(vault.ownerOf(TEST_NFT), address(0));
+
+        assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 0);
     }
 
     function testMultiLendLoan() external {

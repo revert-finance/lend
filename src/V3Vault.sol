@@ -126,11 +126,15 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     // loans are handled with this struct
     struct Loan {
-        uint debtShares;
-        address owner;
+        uint224 debtShares;
         uint32 collateralFactorX32; // assigned at loan creation
     }
     mapping(uint => Loan) public loans; // tokenID -> loan mapping
+
+    
+    mapping(address => uint256[]) private ownedTokens; // Mapping from owner address to list of owned token IDs
+    mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list
+    mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
 
     uint transformedTokenId = 0; // transient (when available in dencun)
 
@@ -197,9 +201,21 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
     /// @return owner Owner of the loan
     function ownerOf(uint tokenId) override external view returns (address owner) {
-        return loans[tokenId].owner;
+        return tokenOwner[tokenId];
     }
 
+    /// @notice Retrieves count of loans for owner (for enumerating owners loans)
+    /// @param owner Owner address
+    function loanCount(address owner) override external view returns (uint) {
+        return ownedTokens[owner].length;
+    }
+
+    /// @notice Retrieves tokenid of loan at given index for owner (for enumerating owners loans)
+    /// @param owner Owner address
+    /// @param index Index
+    function loanAtIndex(address owner, uint index) override external view returns (uint) {
+        return ownedTokens[owner][index];
+    }
 
     ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC20
     /// @inheritdoc IERC20Metadata
@@ -346,8 +362,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             if (data.length > 0) {
                 owner = abi.decode(data, (address));
             }            
-            loans[tokenId] = Loan(0, owner, _calculateTokenCollateralFactorX32(tokenId));
+            loans[tokenId] = Loan(0, _calculateTokenCollateralFactorX32(tokenId));
 
+            _addTokenToOwner(owner, tokenId);
             emit Add(tokenId, owner, 0);
         } else {
 
@@ -356,17 +373,19 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             // if in transform mode - and a new position is sent - current position is replaced and returned
             if (tokenId != oldTokenId) {
 
-                address owner = loans[oldTokenId].owner;
+                address owner = tokenOwner[oldTokenId];
 
                 // set transformed token to new one
                 transformedTokenId = tokenId;
 
                 // copy debt to new token
-                loans[tokenId] = Loan(loans[oldTokenId].debtShares, owner, _calculateTokenCollateralFactorX32(tokenId));
+                loans[tokenId] = Loan(loans[oldTokenId].debtShares, _calculateTokenCollateralFactorX32(tokenId));
 
+                _addTokenToOwner(owner, tokenId);
                 emit Add(tokenId, owner, oldTokenId);
 
                 // clears data of old loan
+                _removeTokenFromOwner(owner, oldTokenId);
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96, owner);
 
                 // sets data of new loan
@@ -382,7 +401,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @param target The address to be allowed
     /// @param isActive If it allowed or not
     function approveTransform(uint tokenId, address target, bool isActive) external override {
-        if (loans[tokenId].owner != msg.sender) {
+        if (tokenOwner[tokenId] != msg.sender) {
             revert Unauthorized();
         }
         transformApprovals[tokenId][target] = isActive;
@@ -406,7 +425,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         (uint newDebtExchangeRateX96,) = _updateGlobalInterest();
 
-        address loanOwner = loans[tokenId].owner;
+        address loanOwner = tokenOwner[tokenId];
 
         // only the owner of the loan, the vault itself or any approved caller can call this
         if (loanOwner != msg.sender && address(this) != msg.sender && !transformApprovals[tokenId][msg.sender]) {
@@ -455,14 +474,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         Loan storage loan = loans[tokenId];
 
         // if not in transfer mode - must be called from owner or the vault itself
-        if (!isTransformMode && loan.owner != msg.sender && address(this) != msg.sender) {
+        if (!isTransformMode && tokenOwner[tokenId] != msg.sender && address(this) != msg.sender) {
             revert Unauthorized();
         }
 
         uint shares = _convertToShares(assets, newDebtExchangeRateX96, Math.Rounding.Up);
 
         uint loanDebtShares = loan.debtShares + shares;
-        loan.debtShares = loanDebtShares;
+        loan.debtShares = uint224(loanDebtShares);
         debtSharesTotal += shares;
 
         if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
@@ -487,11 +506,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             _requireLoanIsHealthy(tokenId, debt);
         }
 
+        address owner = tokenOwner[tokenId];
+
         // fails if not enough asset available
         // if called from transform mode - send funds to transformer contract
-        IERC20(asset).transfer(isTransformMode ? msg.sender : loan.owner, assets);
+        IERC20(asset).transfer(isTransformMode ? msg.sender : owner, assets);
 
-        emit Borrow(tokenId, loan.owner, assets, shares);
+        emit Borrow(tokenId, owner, assets, shares);
     }
 
     /// @dev Decreases the liquidity of a given position and collects the resultant assets (and possibly additional fees) 
@@ -506,7 +527,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             revert TransformNotAllowed();
         }
 
-        address owner = loans[params.tokenId].owner;
+        address owner = tokenOwner[params.tokenId];
 
         if (owner != msg.sender) {
             revert Unauthorized();
@@ -574,7 +595,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
 
         uint loanDebtShares = loan.debtShares - shares;
-        loan.debtShares = loanDebtShares;
+        loan.debtShares = uint224(loanDebtShares);
         debtSharesTotal -= shares;
 
         // when amounts are repayed - they maybe borrowed again
@@ -582,10 +603,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares);
 
-        address owner = loan.owner;
+        address owner = tokenOwner[tokenId];
 
         // if fully repayed
         if (currentShares == shares) {
+            _removeTokenFromOwner(owner, tokenId);
             _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
         } else {
             // if resulting loan is too small - revert
@@ -659,9 +681,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             revert SlippageError();
         }
 
-        address owner = loans[params.tokenId].owner;
+        address owner = tokenOwner[params.tokenId];
 
         // disarm loan and send remaining position to owner
+        _removeTokenFromOwner(owner, params.tokenId);
         _cleanupLoan(params.tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
 
         emit Liquidate(params.tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, amount0, amount1, state.reserveCost, state.missing);
@@ -1060,5 +1083,25 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     function _convertToAssets(uint shares, uint exchangeRateX96, Math.Rounding rounding) internal pure returns(uint) {
         return shares.mulDiv(exchangeRateX96, Q96, rounding);
+    }
+
+    function _addTokenToOwner(address to, uint256 tokenId) internal {
+        ownedTokensIndex[tokenId] = ownedTokens[to].length;
+        ownedTokens[to].push(tokenId);
+        tokenOwner[tokenId] = to;
+    }
+
+    function _removeTokenFromOwner(address from, uint256 tokenId) internal {
+
+        uint256 lastTokenIndex = ownedTokens[from].length - 1;
+        uint256 tokenIndex = ownedTokensIndex[tokenId];
+        if (tokenIndex != lastTokenIndex) {
+            uint256 lastTokenId = ownedTokens[from][lastTokenIndex];
+            ownedTokens[from][tokenIndex] = lastTokenId;
+            ownedTokensIndex[lastTokenId] = tokenIndex;
+        }
+        ownedTokens[from].pop();
+        // Note that ownedTokensIndex[tokenId] is not deleted. There is no need to delete it for the gas optimization.
+        delete tokenOwner[tokenId];  // Remove the token from the token owner mapping
     }
 }
