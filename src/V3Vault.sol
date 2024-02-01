@@ -131,9 +131,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     }
     mapping(uint => Loan) public loans; // tokenID -> loan mapping
 
-    
+    // storage variables to handle enumerable token ownership
     mapping(address => uint256[]) private ownedTokens; // Mapping from owner address to list of owned token IDs
-    mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list
+    mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list (for removal without loop)
     mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
 
     uint transformedTokenId = 0; // transient (when available in dencun)
@@ -385,7 +385,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
                 emit Add(tokenId, owner, oldTokenId);
 
                 // clears data of old loan
-                _removeTokenFromOwner(owner, oldTokenId);
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96, owner);
 
                 // sets data of new loan
@@ -607,7 +606,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // if fully repayed
         if (currentShares == shares) {
-            _removeTokenFromOwner(owner, tokenId);
             _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
         } else {
             // if resulting loan is too small - revert
@@ -684,7 +682,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         address owner = tokenOwner[params.tokenId];
 
         // disarm loan and send remaining position to owner
-        _removeTokenFromOwner(owner, params.tokenId);
         _cleanupLoan(params.tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
 
         emit Liquidate(params.tokenId, msg.sender, owner, state.fullValue, state.liquidatorCost, amount0, amount1, state.reserveCost, state.missing);
@@ -912,12 +909,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     }
 
     // cleans up loan when it is closed because of replacement, repayment or liquidation
-    // send the position in its current state to owner or liquidator
-    function _cleanupLoan(uint tokenId, uint debtExchangeRateX96, uint lendExchangeRateX96, address recipient) internal {
+    // send the position in its current state to owner
+    function _cleanupLoan(uint tokenId, uint debtExchangeRateX96, uint lendExchangeRateX96, address owner) internal {
+        _removeTokenFromOwner(owner, tokenId);
         _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, loans[tokenId].debtShares, 0);
         delete loans[tokenId];
-        nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId);
-        emit Remove(tokenId, recipient);
+        nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId);
+        emit Remove(tokenId, owner);
     }
 
     // calculates amount which needs to be payed to liquidate position
@@ -1092,7 +1090,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     }
 
     function _removeTokenFromOwner(address from, uint256 tokenId) internal {
-
         uint256 lastTokenIndex = ownedTokens[from].length - 1;
         uint256 tokenIndex = ownedTokensIndex[tokenId];
         if (tokenIndex != lastTokenIndex) {
@@ -1101,7 +1098,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             ownedTokensIndex[lastTokenId] = tokenIndex;
         }
         ownedTokens[from].pop();
-        // Note that ownedTokensIndex[tokenId] is not deleted. There is no need to delete it for the gas optimization.
+        // Note that ownedTokensIndex[tokenId] is not deleted. There is no need to delete it - gas optimization
         delete tokenOwner[tokenId];  // Remove the token from the token owner mapping
     }
 }
