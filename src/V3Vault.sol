@@ -480,7 +480,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         uint shares = _convertToShares(assets, newDebtExchangeRateX96, Math.Rounding.Up);
 
         uint loanDebtShares = loan.debtShares + shares;
-        loan.debtShares = uint224(loanDebtShares);
+        loan.debtShares = SafeCast.toUint224(loanDebtShares);
         debtSharesTotal += shares;
 
         if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
@@ -594,7 +594,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
 
         uint loanDebtShares = loan.debtShares - shares;
-        loan.debtShares = uint224(loanDebtShares);
+        loan.debtShares = SafeCast.toUint224(loanDebtShares);
         debtSharesTotal -= shares;
 
         // when amounts are repayed - they maybe borrowed again
