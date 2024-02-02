@@ -943,4 +943,66 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         vault.setLimits(0, 0, 0, 0, 0);
     }
+
+    function testReserves() external {
+        vault.setReserveFactor(uint32(Q32 / 10)); // 10%
+        vault.setReserveProtectionFactor(uint32(Q32 / 100)); // 1%
+
+        _setupBasicLoan(true);
+
+        (uint debt, uint lent,,uint availableBefore,uint reserves,,) = vault.vaultInfo();
+
+        assertEq(debt, 8847206);
+        assertEq(lent, 10000000);
+        assertEq(reserves, 0);
+
+        // wait 30 days - interest growing
+        vm.warp(block.timestamp + 30 days);
+
+        uint availableAfter;
+
+        (debt, lent,,availableAfter,reserves,,) = vault.vaultInfo();
+        assertEq(debt, 8943378);
+        assertEq(lent, 10086555);
+
+        // less of cash is available because its part of reserves now
+        assertEq(reserves, availableBefore - availableAfter);
+        assertEq(reserves, 9618);
+
+        // not enough reserve generated to be above protection factor
+        vm.expectRevert(IErrors.InsufficientLiquidity.selector);
+        vault.withdrawReserves(1, address(this));
+
+        // gift some extra coins - to be able to repay all
+        vm.prank(WHALE_ACCOUNT);
+        USDC.transfer(TEST_NFT_ACCOUNT, 1000000);
+        
+        // repay all
+        _repay(debt, TEST_NFT_ACCOUNT, TEST_NFT, true);
+
+        (debt, lent,,availableAfter,reserves,,) = vault.vaultInfo();
+        assertEq(debt, 0);
+        assertEq(lent, 10086555);
+
+        // not enough reserve generated to be above protection factor
+        vm.expectRevert(IErrors.InsufficientLiquidity.selector);
+        vault.withdrawReserves(1, address(this));
+
+        // get 99% out
+        uint balance = vault.balanceOf(WHALE_ACCOUNT);
+        vm.prank(WHALE_ACCOUNT);
+        vault.redeem(balance * 99 / 100, WHALE_ACCOUNT, WHALE_ACCOUNT);
+
+        (,lent,,,reserves,,) = vault.vaultInfo();
+        assertEq(lent, 100866);
+        assertEq(reserves, 9619);
+
+        // now everything until 1 percent can be removed
+        vm.expectRevert(IErrors.InsufficientLiquidity.selector);
+        vault.withdrawReserves(9619 - lent / 100 + 1, address(this));
+
+        // now everything until 1 percent can be removed
+        vault.withdrawReserves(9619 - lent / 100, address(this));
+
+    }
 }

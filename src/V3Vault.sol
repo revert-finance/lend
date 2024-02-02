@@ -830,7 +830,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         // if caller has allowance for owners shares - may call withdraw
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
-        } 
+        }
 
         (,uint available,) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
 
