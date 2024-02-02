@@ -12,6 +12,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -509,7 +510,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // fails if not enough asset available
         // if called from transform mode - send funds to transformer contract
-        IERC20(asset).transfer(isTransformMode ? msg.sender : owner, assets);
+        SafeERC20.safeTransfer(IERC20(asset), isTransformMode ? msg.sender : owner, assets);
 
         emit Borrow(tokenId, owner, assets, shares);
     }
@@ -590,7 +591,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         if (assets > 0) {
             // fails if not enough token approved
-            IERC20(asset).transferFrom(msg.sender, address(this), assets);
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
         }
 
         uint loanDebtShares = loan.debtShares - shares;
@@ -668,7 +669,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
 
         // take value from liquidator
-        IERC20(asset).transferFrom(msg.sender, address(this), state.liquidatorCost);
+        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
 
         debtSharesTotal -= debtShares;
 
@@ -705,7 +706,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
 
         if (amount > 0) {
-            IERC20(asset).transfer(receiver, amount);
+            SafeERC20.safeTransfer(IERC20(asset), receiver, amount);
         }
 
         emit WithdrawReserves(amount, receiver);
@@ -796,7 +797,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
 
         // pull lend tokens
-        IERC20(asset).transferFrom(msg.sender, address(this), assets);
+        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
 
         _mint(receiver, shares);
 
@@ -839,7 +840,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // fails if not enough shares
         _burn(owner, shares);
-        IERC20(asset).transfer(receiver, assets);
+        SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
 
         // when amounts are withdrawn - they may be deposited again
         dailyLendIncreaseLimitLeft += assets;
