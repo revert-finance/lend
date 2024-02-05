@@ -428,7 +428,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         address loanOwner = tokenOwner[tokenId];
 
         // only the owner of the loan, the vault itself or any approved caller can call this
-        if (loanOwner != msg.sender && address(this) != msg.sender && !transformApprovals[tokenId][msg.sender]) {
+        if (loanOwner != msg.sender && !transformApprovals[tokenId][msg.sender]) {
             revert Unauthorized();
         }
 
