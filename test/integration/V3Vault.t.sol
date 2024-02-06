@@ -672,7 +672,6 @@ contract V3VaultIntegrationTest is Test {
         uint daiBalance = DAI.balanceOf(WHALE_ACCOUNT);
         uint usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
 
-
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT));
 
@@ -1003,6 +1002,77 @@ contract V3VaultIntegrationTest is Test {
 
         // now everything until 1 percent can be removed
         vault.withdrawReserves(9619 - lent / 100, address(this));
+    }
 
+    /// forge-config: default.fuzz.runs = 1024
+    function testBasicsFuzz(uint lent, uint debt, uint repay, uint withdraw) external {
+
+        uint dailyDebtIncreaseLimitMin = vault.dailyDebtIncreaseLimitMin();
+        uint dailyLendIncreaseLimitMin = vault.dailyLendIncreaseLimitMin();
+        uint globalDebtLimit = vault.globalDebtLimit();
+        uint globalLendLimit = vault.globalLendLimit();
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), lent);
+
+        uint whaleBalance = USDC.balanceOf(WHALE_ACCOUNT);
+        
+        if (whaleBalance < lent) {
+            vm.expectRevert("ERC20: transfer amount exceeds balance");
+        } else if (lent > globalLendLimit) {
+            vm.expectRevert(IErrors.GlobalLendLimit.selector);
+        } else if (lent > dailyLendIncreaseLimitMin) {
+            vm.expectRevert(IErrors.DailyLendIncreaseLimit.selector);
+        }
+        vm.prank(WHALE_ACCOUNT);
+        vault.deposit(lent, WHALE_ACCOUNT);
+
+        // add collateral
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        (,,uint collateralValue,,) = vault.loanInfo(TEST_NFT);
+
+        uint vaultBalance = USDC.balanceOf(address(vault));
+        
+        if (debt > type(uint224).max) {
+            vm.expectRevert("SafeCast: value doesn't fit in 224 bits");
+        } else if (debt > globalDebtLimit) {
+            vm.expectRevert(IErrors.GlobalDebtLimit.selector);
+        } else if (debt > dailyDebtIncreaseLimitMin) {
+            vm.expectRevert(IErrors.DailyDebtIncreaseLimit.selector);
+        } else if (collateralValue < debt) {
+            vm.expectRevert(IErrors.CollateralFail.selector);
+        } else if (vaultBalance < debt) {
+            vm.expectRevert("ERC20: transfer amount exceeds balance");
+        }
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, debt);
+
+        (uint debt,,,uint liquidationCost, uint liquidationValue) = vault.loanInfo(TEST_NFT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), repay);
+
+        whaleBalance = USDC.balanceOf(WHALE_ACCOUNT);
+        if (repay > debt) {
+            vm.expectRevert(IErrors.RepayExceedsDebt.selector);
+        } else if (whaleBalance < repay) {            
+            vm.expectRevert("ERC20: transfer amount exceeds balance");
+        } 
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.repay(TEST_NFT, repay, false);
+        
+        vaultBalance = USDC.balanceOf(address(vault));
+        lent = vault.lendInfo(WHALE_ACCOUNT);
+        if (withdraw > lent || vaultBalance < withdraw) {
+            vm.expectRevert(IErrors.InsufficientLiquidity.selector);
+        }
+        vm.prank(WHALE_ACCOUNT);
+        vault.withdraw(withdraw, WHALE_ACCOUNT, WHALE_ACCOUNT);
     }
 }

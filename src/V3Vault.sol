@@ -833,7 +833,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
 
         (,uint available,) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
-
         if (available < assets) {
             revert InsufficientLiquidity();
         }
