@@ -73,7 +73,7 @@ contract V3VaultIntegrationTest is Test {
         oracle.setTokenConfig(address(DAI), AggregatorV3Interface(CHAINLINK_DAI_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_DAI_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
         oracle.setTokenConfig(address(WETH), AggregatorV3Interface(CHAINLINK_ETH_USD), 3600 * 24 * 30, IUniswapV3Pool(UNISWAP_ETH_USDC), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 50000);
 
-        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
+        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100% collateral value
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100%  collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100%  collateral value
@@ -664,7 +664,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT, ""));
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
@@ -673,7 +673,7 @@ contract V3VaultIntegrationTest is Test {
         uint usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT, ""));
 
         // DAI and USDC where sent to liquidator
         assertEq(DAI.balanceOf(WHALE_ACCOUNT) - daiBalance, timeBased ? 381693758226627942 : 393607068547774684);
@@ -1051,8 +1051,11 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, debt);
+        
+        uint liquidationCost;
+        uint liquidationValue;
 
-        (uint debt,,,uint liquidationCost, uint liquidationValue) = vault.loanInfo(TEST_NFT);
+        (debt,,,liquidationCost, liquidationValue) = vault.loanInfo(TEST_NFT);
 
         vm.prank(TEST_NFT_ACCOUNT);
         USDC.approve(address(vault), repay);

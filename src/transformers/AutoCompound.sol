@@ -12,7 +12,7 @@ import "../automators/Automator.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
-/// Positions need to be approved (setApproval) for the contract when outside vault
+/// Positions need to be approved (approve or setApprovalForAll) for the contract when outside vault
 /// When position is inside Vault - owner needs to approve the position to be transformed by the contract
 contract AutoCompound is Automator, Multicall {
 

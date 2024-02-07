@@ -74,21 +74,21 @@ contract LeverageTransformer is Swapper {
             amount1 += amountOut;
         }
 
-        IERC20(token0).approve(address(nonfungiblePositionManager), amount0);
-        IERC20(token1).approve(address(nonfungiblePositionManager), amount1);
+        SafeERC20.safeIncreaseAllowance(IERC20(token0), address(nonfungiblePositionManager), amount0);
+        SafeERC20.safeIncreaseAllowance(IERC20(token1), address(nonfungiblePositionManager), amount1);
 
         INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = INonfungiblePositionManager.IncreaseLiquidityParams(params.tokenId, amount0, amount1, params.amountAddMin0, params.amountAddMin1, params.deadline);
         (, uint added0, uint added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
         // send leftover tokens
         if (amount0 > added0) {
-            IERC20(token0).transfer(params.recipient, amount0 - added0);
+            SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0 - added0);
         }
         if (amount1 > added1) {
-            IERC20(token1).transfer(params.recipient, amount1 - added1);
+            SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1 - added1);
         }
         if (token != token0 && token != token1 && amount > 0) {
-            IERC20(token).transfer(params.recipient, amount);
+            SafeERC20.safeTransfer(IERC20(token), params.recipient, amount);
         }
     }
 
@@ -151,15 +151,15 @@ contract LeverageTransformer is Swapper {
             amount += amountOut;
         }
 
-        IERC20(token).approve(msg.sender, amount);
+        SafeERC20.safeApprove(IERC20(token), msg.sender, amount);
         IVault(msg.sender).repay(params.tokenId, amount, false);
 
         // send leftover tokens
         if (amount0 > 0 && token != token0) {
-            IERC20(token0).transfer(params.recipient, amount0);
+            SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0);
         }
         if (amount1 > 0 && token != token1) {
-            IERC20(token1).transfer(params.recipient, amount1);
+            SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1);
         }
     }
 }

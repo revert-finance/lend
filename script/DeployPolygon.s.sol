@@ -38,7 +38,7 @@ contract DeployPolygon is Script {
         oracle.setTokenConfig(WBTC, AggregatorV3Interface(0xc907E116054Ad103354f2D350FD2514433D57F6f), 3600, IUniswapV3Pool(0x847b64f9d3A95e977D157866447a5C0A5dFa0Ee5), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
 
 
-        V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
+        V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
         vault.setTokenConfig(USDC, uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - unlimited collateral value
         vault.setTokenConfig(WMATIC, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - unlimited collateral value
         vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - unlimited collateral value

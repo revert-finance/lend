@@ -18,6 +18,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
+import "permit2/interfaces/IPermit2.sol";
+
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
@@ -56,6 +58,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     /// @notice oracle implementation
     IV3Oracle immutable public oracle;
+
+    /// @notice permit2 contract
+    IPermit2 immutable public permit2;
 
     /// @notice underlying asset for lending / borrowing
     address immutable public override asset;
@@ -145,13 +150,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
 
-    constructor(string memory name, string memory symbol, address _asset, INonfungiblePositionManager _nonfungiblePositionManager, IInterestRateModel _interestRateModel, IV3Oracle _oracle) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, address _asset, INonfungiblePositionManager _nonfungiblePositionManager, IInterestRateModel _interestRateModel, IV3Oracle _oracle, IPermit2 _permit2) ERC20(name, symbol) {
         asset = _asset;
         assetDecimals = IERC20Metadata(_asset).decimals();
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         interestRateModel = _interestRateModel;
         oracle = _oracle;
+        permit2 = _permit2;
     }
 
     ////////////////// EXTERNAL VIEW FUNCTIONS
@@ -305,13 +311,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     /// @inheritdoc IERC4626
     function deposit(uint256 assets, address receiver) external override returns (uint256) {
-        (, uint shares) = _deposit(receiver, assets, false);
+        (, uint shares) = _deposit(receiver, assets, false, "");
         return shares;
     }
 
     /// @inheritdoc IERC4626
     function mint(uint256 shares, address receiver) external override returns (uint256) {
-        (uint assets,) = _deposit(receiver, shares, true);
+        (uint assets,) = _deposit(receiver, shares, true, "");
         return assets;
     }
 
@@ -324,6 +330,16 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @inheritdoc IERC4626
     function redeem(uint256 shares, address receiver, address owner) external override returns (uint256) {
         (uint assets,) = _withdraw(receiver, owner, shares, true);
+        return assets;
+    }
+
+    function deposit(uint256 assets, address receiver, bytes calldata permitData) external override returns (uint256) {
+        (, uint shares) = _deposit(receiver, assets, false, permitData);
+        return shares;
+    }
+
+    function mint(uint256 shares, address receiver, bytes calldata permitData) external override returns (uint256) {
+        (uint assets,) = _deposit(receiver, shares, true, permitData);
         return assets;
     }
 
@@ -566,56 +582,16 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @param amount How many assets/debt shares to repay
     /// @param isShare Is amount specified in assets or debt shares.
     function repay(uint tokenId, uint amount, bool isShare) external override {
+        _repay(tokenId, amount, isShare, "");
+    }
 
-        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
-
-        Loan storage loan = loans[tokenId];
-
-        uint currentShares = loan.debtShares;
-
-        uint shares;
-        uint assets;
-
-        if (isShare) {
-            shares = amount;
-            assets = _convertToAssets(amount, newDebtExchangeRateX96, Math.Rounding.Up);
-        } else {
-            assets = amount;
-            shares = _convertToShares(amount, newDebtExchangeRateX96, Math.Rounding.Down);
-        }
-
-        // fails if too much repayed
-        if (shares > currentShares) {
-            revert RepayExceedsDebt();
-        }
-
-        if (assets > 0) {
-            // fails if not enough token approved
-            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-        }
-
-        uint loanDebtShares = loan.debtShares - shares;
-        loan.debtShares = SafeCast.toUint224(loanDebtShares);
-        debtSharesTotal -= shares;
-
-        // when amounts are repayed - they maybe borrowed again
-        dailyDebtIncreaseLimitLeft += assets;
-
-        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares);
-
-        address owner = tokenOwner[tokenId];
-
-        // if fully repayed
-        if (currentShares == shares) {
-            _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
-        } else {
-            // if resulting loan is too small - revert
-            if (_convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
-                revert MinLoanSize();
-            }
-        }
-
-        emit Repay(tokenId, msg.sender, owner, assets, shares);
+    /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
+    /// @param tokenId The token ID to use as collateral
+    /// @param amount How many assets/debt shares to repay
+    /// @param isShare Is amount specified in assets or debt shares.
+    /// @param permitData Permit2 data and signature
+    function repay(uint tokenId, uint amount, bool isShare, bytes calldata permitData) external override {
+        _repay(tokenId, amount, isShare, permitData);
     }
 
     // state used in liquidation function to avoid stack too deep errors
@@ -668,8 +644,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             state.missing = _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
         }
 
-        // take value from liquidator
-        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
+        if (params.permitData.length > 0) {
+            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) = abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+            permit2.permitTransferFrom(permit, ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost), msg.sender, signature);
+        } else {
+            // take value from liquidator
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
+        }
 
         debtSharesTotal -= debtShares;
 
@@ -782,7 +763,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     ////////////////// INTERNAL FUNCTIONS
 
 
-    function _deposit(address receiver, uint256 amount, bool isShare) internal returns (uint assets, uint shares) {
+    function _deposit(address receiver, uint256 amount, bool isShare, bytes memory permitData) internal returns (uint assets, uint shares) {
         
         (, uint newLendExchangeRateX96) = _updateGlobalInterest();
 
@@ -796,8 +777,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             shares = _convertToShares(assets, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
-        // pull lend tokens
-        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+        if (permitData.length > 0) {
+            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) = abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+            permit2.permitTransferFrom(permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature);
+        } else {
+            // fails if not enough token approved
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+        }
 
         _mint(receiver, shares);
 
@@ -847,6 +833,63 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
+    function _repay(uint tokenId, uint amount, bool isShare, bytes memory permitData) internal {
+
+        (uint newDebtExchangeRateX96, uint newLendExchangeRateX96) = _updateGlobalInterest();
+
+        Loan storage loan = loans[tokenId];
+
+        uint currentShares = loan.debtShares;
+
+        uint shares;
+        uint assets;
+
+        if (isShare) {
+            shares = amount;
+            assets = _convertToAssets(amount, newDebtExchangeRateX96, Math.Rounding.Up);
+        } else {
+            assets = amount;
+            shares = _convertToShares(amount, newDebtExchangeRateX96, Math.Rounding.Down);
+        }
+
+        // fails if too much repayed
+        if (shares > currentShares) {
+            revert RepayExceedsDebt();
+        }
+
+        if (assets > 0) {
+            if (permitData.length > 0) {
+                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) = abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+                permit2.permitTransferFrom(permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature);
+            } else {
+                // fails if not enough token approved
+                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+            }
+        }
+
+        uint loanDebtShares = loan.debtShares - shares;
+        loan.debtShares = SafeCast.toUint224(loanDebtShares);
+        debtSharesTotal -= shares;
+
+        // when amounts are repayed - they maybe borrowed again
+        dailyDebtIncreaseLimitLeft += assets;
+
+        _updateAndCheckCollateral(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares);
+
+        address owner = tokenOwner[tokenId];
+
+        // if fully repayed
+        if (currentShares == shares) {
+            _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
+        } else {
+            // if resulting loan is too small - revert
+            if (_convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
+                revert MinLoanSize();
+            }
+        }
+
+        emit Repay(tokenId, msg.sender, owner, assets, shares);
+    }
 
     // checks how much balance is available - excluding reserves
     function _getAvailableBalance(uint debtExchangeRateX96, uint lendExchangeRateX96) internal view returns (uint balance, uint available, uint reserves) {

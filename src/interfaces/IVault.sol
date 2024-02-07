@@ -42,6 +42,7 @@ interface IVault is IERC4626 {
 
     function borrow(uint tokenId, uint amount) external;
     function repay(uint tokenId, uint amount, bool isShare) external;
+    function repay(uint tokenId, uint amount, bool isShare, bytes calldata permitData) external;
 
     struct LiquidateParams {
         // token to liquidate
@@ -56,7 +57,14 @@ interface IVault is IERC4626 {
 
         // recipient of rewarded tokens
         address recipient;
+
+        // if permit2 signatures are used - set this
+        bytes permitData;
     }
 
     function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);
+
+    // deposit functions with permit2
+    function deposit(uint256 assets, address receiver, bytes calldata permitData) external returns (uint256);
+    function mint(uint256 shares, address receiver, bytes calldata permitData) external returns (uint256);
 }
