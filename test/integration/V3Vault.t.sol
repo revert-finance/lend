@@ -1078,4 +1078,51 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         vault.withdraw(withdraw, WHALE_ACCOUNT, WHALE_ACCOUNT);
     }
+
+    function testDepositWithPermit2() external {
+        uint amount = 1000000;
+        uint privateKey = 123;
+        address addr = vm.addr(privateKey);
+
+        // give coins
+        vm.deal(addr, 1 ether);
+        vm.prank(WHALE_ACCOUNT);
+        USDC.transfer(addr, amount);
+
+        vm.prank(addr);
+        USDC.approve(PERMIT2, type(uint256).max);   
+
+        ISignatureTransfer.PermitTransferFrom memory tf = ISignatureTransfer.PermitTransferFrom(ISignatureTransfer.TokenPermissions(address(USDC), amount), 1234567890, block.timestamp);
+        bytes memory signature = _getPermitTransferToSignature(tf, privateKey, address(vault));
+        bytes memory permitData = abi.encode(tf, signature);
+
+        assertEq(vault.lendInfo(addr), 0);
+
+        vm.prank(addr);
+        vault.deposit(amount, addr, permitData);
+
+        assertEq(vault.lendInfo(addr), 1000000);
+    }
+
+    function _getPermitTransferToSignature(
+        ISignatureTransfer.PermitTransferFrom memory permit,
+        uint256 privateKey,
+        address to
+    ) internal returns (bytes memory sig) {
+        bytes32 _PERMIT_TRANSFER_FROM_TYPEHASH = keccak256("PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)");
+        bytes32 _TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
+        bytes32 tokenPermissions = keccak256(abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted));
+        bytes32 msgHash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                IPermit2(PERMIT2).DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(_PERMIT_TRANSFER_FROM_TYPEHASH, tokenPermissions, to, permit.nonce, permit.deadline)
+                )
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, msgHash);
+        return bytes.concat(r, s, bytes1(v));
+    }
 }
