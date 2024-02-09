@@ -14,7 +14,7 @@ import "../automators/Automator.sol";
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
 /// Positions need to be approved (approve or setApprovalForAll) for the contract when outside vault
 /// When position is inside Vault - owner needs to approve the position to be transformed by the contract
-contract AutoCompound is Automator, Multicall {
+contract AutoCompound is Automator, Multicall, ReentrancyGuard {
     // autocompound event
     event AutoCompounded(
         address account,
@@ -99,7 +99,7 @@ contract AutoCompound is Automator, Multicall {
      * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
-    function execute(ExecuteParams calldata params) external {
+    function execute(ExecuteParams calldata params) external nonReentrant {
         if (!operators[msg.sender] && !vaults[msg.sender]) {
             revert Unauthorized();
         }
@@ -198,7 +198,7 @@ contract AutoCompound is Automator, Multicall {
      * @param tokenId Id of position to withdraw
      * @param to Address to send to
      */
-    function withdrawLeftoverBalances(uint256 tokenId, address to) external {
+    function withdrawLeftoverBalances(uint256 tokenId, address to) external nonReentrant {
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (vaults[owner]) {
             owner = IVault(owner).ownerOf(tokenId);
@@ -225,7 +225,7 @@ contract AutoCompound is Automator, Multicall {
      * @param tokens Addresses of tokens to withdraw
      * @param to Address to send to
      */
-    function withdrawBalances(address[] calldata tokens, address to) external override {
+    function withdrawBalances(address[] calldata tokens, address to) external nonReentrant override {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }
