@@ -6,9 +6,7 @@ import "./AutomatorIntegrationTestBase.sol";
 import "../../../src/transformers/AutoCompound.sol";
 import "../../../src/interfaces/IErrors.sol";
 
-
 contract AutoCompoundTest is AutomatorIntegrationTestBase {
-    
     AutoCompound autoCompound;
 
     function setUp() external {
@@ -28,12 +26,11 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
     }
 
     function _testWithdrawLeftover() internal {
+        uint256 baiBalance = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint256 wethBalance = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
 
-        uint baiBalance = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
-        uint wethBalance = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
-
-        uint daiLeftover = autoCompound.positionBalances(TEST_NFT_2, address(DAI));
-        uint wethLeftover = autoCompound.positionBalances(TEST_NFT_2, address(WETH_ERC20));
+        uint256 daiLeftover = autoCompound.positionBalances(TEST_NFT_2, address(DAI));
+        uint256 wethLeftover = autoCompound.positionBalances(TEST_NFT_2, address(WETH_ERC20));
 
         vm.expectRevert(IErrors.Unauthorized.selector);
         autoCompound.withdrawLeftoverBalances(TEST_NFT_2, TEST_NFT_2_ACCOUNT);
@@ -41,8 +38,8 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         vm.prank(TEST_NFT_2_ACCOUNT);
         autoCompound.withdrawLeftoverBalances(TEST_NFT_2, TEST_NFT_2_ACCOUNT);
 
-        uint baiBalanceAfter = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
-        uint wethBalanceAfter = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint256 baiBalanceAfter = DAI.balanceOf(TEST_NFT_2_ACCOUNT);
+        uint256 wethBalanceAfter = WETH_ERC20.balanceOf(TEST_NFT_2_ACCOUNT);
 
         assertEq(baiBalanceAfter - baiBalance, daiLeftover);
         assertEq(wethBalanceAfter - wethBalance, wethLeftover);
@@ -53,9 +50,9 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(wethLeftover, 0);
     }
 
-    function _testWithdrawProtocolFee(uint expectedDaiFee, uint expectedWethFee) internal {
-        uint daiFee = autoCompound.positionBalances(0, address(DAI));
-        uint wethFee = autoCompound.positionBalances(0, address(WETH_ERC20));
+    function _testWithdrawProtocolFee(uint256 expectedDaiFee, uint256 expectedWethFee) internal {
+        uint256 daiFee = autoCompound.positionBalances(0, address(DAI));
+        uint256 wethFee = autoCompound.positionBalances(0, address(WETH_ERC20));
         assertEq(daiFee, expectedDaiFee);
         assertEq(wethFee, expectedWethFee);
 
@@ -76,37 +73,34 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
     }
 
     function testCompoundNoSwapAndLeftover() external {
-
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.approve(address(autoCompound), TEST_NFT_2);
 
-        (, , , , , , , uint128 liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
 
-        (, , , , , , , liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+        (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 99102324844935209920);
-
 
         _testWithdrawLeftover();
         _testWithdrawProtocolFee(0, 1940566999638732);
     }
 
     function testCompoundSwap0To1() external {
-
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.approve(address(autoCompound), TEST_NFT_2);
 
-        (, , , , , , , uint128 liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, true, 123456789012345678));
 
         // more liquidity than without swap
-        (, , , , , , , liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+        (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 99117944276318382811);
 
         _testWithdrawLeftover();
@@ -114,18 +108,17 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
     }
 
     function testCompoundSwap1To0() external {
-
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.approve(address(autoCompound), TEST_NFT_2);
 
-        (, , , , , , , uint128 liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 1234567890123456));
 
         // less liquidity than without swap
-        (, , , , , , , liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+        (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 98864783327532224693);
 
         _testWithdrawLeftover();

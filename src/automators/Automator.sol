@@ -17,7 +17,6 @@ import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
 abstract contract Automator is Swapper, Ownable {
-
     uint256 internal constant Q64 = 2 ** 64;
     uint256 internal constant Q96 = 2 ** 96;
 
@@ -39,7 +38,15 @@ abstract contract Automator is Swapper, Ownable {
     uint32 public TWAPSeconds;
     uint16 public maxTWAPTickDifference;
 
-    constructor(INonfungiblePositionManager npm, address _operator, address _withdrawer, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference, address _zeroxRouter, address _universalRouter) Swapper(npm, _zeroxRouter, _universalRouter) {
+    constructor(
+        INonfungiblePositionManager npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference,
+        address _zeroxRouter,
+        address _universalRouter
+    ) Swapper(npm, _zeroxRouter, _universalRouter) {
         setOperator(_operator, true);
         setWithdrawer(_withdrawer);
         setTWAPConfig(_maxTWAPTickDifference, _TWAPSeconds);
@@ -95,14 +102,13 @@ abstract contract Automator is Swapper, Ownable {
      * @param to Address to send to
      */
     function withdrawBalances(address[] calldata tokens, address to) external virtual {
-
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }
 
-        uint i;
-        uint count = tokens.length;
-        for(;i < count;++i) {
+        uint256 i;
+        uint256 count = tokens.length;
+        for (; i < count; ++i) {
             uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
             if (balance > 0) {
                 _transferToken(to, IERC20(tokens[i]), balance, true);
@@ -115,7 +121,6 @@ abstract contract Automator is Swapper, Ownable {
      * @param to Address to send to
      */
     function withdrawETH(address to) external {
-
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }
@@ -131,10 +136,16 @@ abstract contract Automator is Swapper, Ownable {
 
     // validate if swap can be done with specified oracle parameters - if not possible reverts
     // if possible returns minAmountOut
-    function _validateSwap(bool swap0For1, uint256 amountIn, IUniswapV3Pool pool, uint32 twapPeriod, uint16 maxTickDifference, uint64 maxPriceDifferenceX64) internal view returns (uint256 amountOutMin, int24 currentTick, uint160 sqrtPriceX96, uint256 priceX96) {
-        
+    function _validateSwap(
+        bool swap0For1,
+        uint256 amountIn,
+        IUniswapV3Pool pool,
+        uint32 twapPeriod,
+        uint16 maxTickDifference,
+        uint64 maxPriceDifferenceX64
+    ) internal view returns (uint256 amountOutMin, int24 currentTick, uint160 sqrtPriceX96, uint256 priceX96) {
         // get current price and tick
-        (sqrtPriceX96,currentTick,,,,,) = pool.slot0();
+        (sqrtPriceX96, currentTick,,,,,) = pool.slot0();
 
         // check if current tick not too far from TWAP
         if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
@@ -152,7 +163,11 @@ abstract contract Automator is Swapper, Ownable {
 
     // Checks if there was not more tick difference
     // returns false if not enough data available or tick difference >= maxDifference
-    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference) internal view returns (bool) {
+    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference)
+        internal
+        view
+        returns (bool)
+    {
         (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
         if (twapOk) {
             return twapTick - currentTick >= -int16(maxDifference) && twapTick - currentTick <= int16(maxDifference);
@@ -175,26 +190,23 @@ abstract contract Automator is Swapper, Ownable {
         }
     }
 
-    function _decreaseFullLiquidityAndCollect(uint256 tokenId, uint128 liquidity, uint256 amountRemoveMin0, uint256 amountRemoveMin1, uint256 deadline) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
-       if (liquidity > 0) {
+    function _decreaseFullLiquidityAndCollect(
+        uint256 tokenId,
+        uint128 liquidity,
+        uint256 amountRemoveMin0,
+        uint256 amountRemoveMin1,
+        uint256 deadline
+    ) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
+        if (liquidity > 0) {
             // store in temporarely "misnamed" variables - see comment below
             (feeAmount0, feeAmount1) = nonfungiblePositionManager.decreaseLiquidity(
-                    INonfungiblePositionManager.DecreaseLiquidityParams(
-                        tokenId,
-                        liquidity,
-                        amountRemoveMin0,
-                        amountRemoveMin1,
-                        deadline
-                    )
-                );
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    tokenId, liquidity, amountRemoveMin0, amountRemoveMin1, deadline
+                )
+            );
         }
         (amount0, amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(
-                tokenId,
-                address(this),
-                type(uint128).max,
-                type(uint128).max
-            )
+            INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
         // fee amount is what was collected additionally to liquidity amount
@@ -206,7 +218,7 @@ abstract contract Automator is Swapper, Ownable {
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
         if (address(weth) == address(token) && unwrap) {
             weth.withdraw(amount);
-            (bool sent, ) = to.call{value: amount}("");
+            (bool sent,) = to.call{value: amount}("");
             if (!sent) {
                 revert EtherSendFailed();
             }
@@ -215,7 +227,7 @@ abstract contract Automator is Swapper, Ownable {
         }
     }
 
-    function _validateOwner(uint tokenId, address vault) internal returns (address owner) {
+    function _validateOwner(uint256 tokenId, address vault) internal returns (address owner) {
         owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (vault != address(0)) {
             if (!vaults[vault]) {
@@ -225,7 +237,7 @@ abstract contract Automator is Swapper, Ownable {
         } else {
             owner = nonfungiblePositionManager.ownerOf(tokenId);
         }
-        
+
         if (owner != msg.sender) {
             revert Unauthorized();
         }

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 interface IErrors {
-
     error Unauthorized();
     error Reentrancy();
     error NotConfigured();

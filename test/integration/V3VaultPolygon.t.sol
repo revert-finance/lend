@@ -19,11 +19,10 @@ import "../../src/automators/AutoExit.sol";
 import "../../src/interfaces/IErrors.sol";
 
 contract VaultPolygonIntegrationTest is Test {
-   
-    uint constant Q32 = 2 ** 32;
-    uint constant Q96 = 2 ** 96;
+    uint256 constant Q32 = 2 ** 32;
+    uint256 constant Q96 = 2 ** 96;
 
-    uint constant YEAR_SECS = 31557600; // taking into account leap years
+    uint256 constant YEAR_SECS = 31557600; // taking into account leap years
 
     address constant WHALE_ACCOUNT = 0x9c2bd617b77961ee2c5e3038dFb0c822cb75d82a;
 
@@ -43,7 +42,7 @@ contract VaultPolygonIntegrationTest is Test {
     uint256 mainnetFork;
 
     V3Vault vault;
-    
+
     InterestRateModel interestRateModel;
     V3Oracle oracle;
 
@@ -54,22 +53,53 @@ contract VaultPolygonIntegrationTest is Test {
     AutoExit autoExit;
 
     function setUp() external {
-
         mainnetFork = vm.createFork("https://rpc.ankr.com/polygon", 50785039);
         vm.selectFork(mainnetFork);
 
-        // 5% base rate - after 80% - 109% (like in compound v2 deployed) 
+        // 5% base rate - after 80% - 109% (like in compound v2 deployed)
         interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
-        oracle.setTokenConfig(USDC, AggregatorV3Interface(0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7), 3600, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0);
-        oracle.setTokenConfig(WMATIC, AggregatorV3Interface(0xAB594600376Ec9fD91F8e885dADF0CE036862dE0), 3600, IUniswapV3Pool(0xA374094527e1673A86dE625aa59517c5dE346d32), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
-        oracle.setTokenConfig(WETH, AggregatorV3Interface(0xF9680D99D6C9589e2a93a78A04A279e509205945), 3600, IUniswapV3Pool(0x45dDa9cb7c25131DF268515131f647d726f50608), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
-        oracle.setTokenConfig(WBTC, AggregatorV3Interface(0xc907E116054Ad103354f2D350FD2514433D57F6f), 3600, IUniswapV3Pool(0x847b64f9d3A95e977D157866447a5C0A5dFa0Ee5), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200);
+        oracle.setTokenConfig(
+            USDC,
+            AggregatorV3Interface(0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7),
+            3600,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.TWAP,
+            0
+        );
+        oracle.setTokenConfig(
+            WMATIC,
+            AggregatorV3Interface(0xAB594600376Ec9fD91F8e885dADF0CE036862dE0),
+            3600,
+            IUniswapV3Pool(0xA374094527e1673A86dE625aa59517c5dE346d32),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
+        oracle.setTokenConfig(
+            WETH,
+            AggregatorV3Interface(0xF9680D99D6C9589e2a93a78A04A279e509205945),
+            3600,
+            IUniswapV3Pool(0x45dDa9cb7c25131DF268515131f647d726f50608),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
+        oracle.setTokenConfig(
+            WBTC,
+            AggregatorV3Interface(0xc907E116054Ad103354f2D350FD2514433D57F6f),
+            3600,
+            IUniswapV3Pool(0x847b64f9d3A95e977D157866447a5C0A5dFa0Ee5),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
 
-
-        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
+        vault =
+            new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
         vault.setTokenConfig(USDC, uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100% collateral value
         vault.setTokenConfig(WMATIC, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100% collateral value
         vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100% collateral value
@@ -110,7 +140,7 @@ contract VaultPolygonIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
-        (, uint fullValue, uint collateralValue,,) = vault.loanInfo(TEST_NFT);
+        (, uint256 fullValue, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(collateralValue, 463959);
         assertEq(fullValue, 579950);
 

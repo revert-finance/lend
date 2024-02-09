@@ -4,11 +4,10 @@ pragma solidity ^0.8.0;
 import "./Automator.sol";
 
 /// @title AutoExit
-/// @notice Lets a v3 position to be automatically removed (limit order) or swapped to the opposite token (stop loss order) when it reaches a certain tick. 
+/// @notice Lets a v3 position to be automatically removed (limit order) or swapped to the opposite token (stop loss order) when it reaches a certain tick.
 /// A revert controlled bot (operator) is responsable for the execution of optimized swaps (using external swap router)
 /// Positions need to be approved (approve or setApprovalForAll) for the contract and configured with configToken method
 contract AutoExit is Automator {
-
     event Executed(
         uint256 indexed tokenId,
         address account,
@@ -31,9 +30,15 @@ contract AutoExit is Automator {
         uint64 maxRewardX64
     );
 
-    constructor(INonfungiblePositionManager _npm, address _operator, address _withdrawer, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference, address _zeroxRouter, address _universalRouter) 
-        Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {
-    }
+    constructor(
+        INonfungiblePositionManager _npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference,
+        address _zeroxRouter,
+        address _universalRouter
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {}
 
     // define how stoploss / limit should be handled
     struct PositionConfig {
@@ -52,7 +57,7 @@ contract AutoExit is Automator {
     }
 
     // configured tokens
-    mapping (uint256 => PositionConfig) public positionConfigs;
+    mapping(uint256 => PositionConfig) public positionConfigs;
 
     /// @notice params for execute()
     struct ExecuteParams {
@@ -93,7 +98,6 @@ contract AutoExit is Automator {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-
         if (!operators[msg.sender]) {
             revert Unauthorized();
         }
@@ -105,12 +109,16 @@ contract AutoExit is Automator {
             revert NotConfigured();
         }
 
-        if (config.onlyFees && params.rewardX64 > config.maxRewardX64 || !config.onlyFees && params.rewardX64 > config.maxRewardX64) {
+        if (
+            config.onlyFees && params.rewardX64 > config.maxRewardX64
+                || !config.onlyFees && params.rewardX64 > config.maxRewardX64
+        ) {
             revert ExceedsMaxReward();
         }
 
         // get position info
-        (,,state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
+            nonfungiblePositionManager.positions(params.tokenId);
 
         // so can be executed only once
         if (state.liquidity == 0) {
@@ -121,18 +129,20 @@ contract AutoExit is Automator {
         }
 
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (,state.tick,,,,,) = state.pool.slot0();
+        (, state.tick,,,,,) = state.pool.slot0();
 
         // not triggered
         if (config.token0TriggerTick <= state.tick && state.tick < config.token1TriggerTick) {
             revert NotReady();
         }
-    
+
         state.isAbove = state.tick >= config.token1TriggerTick;
         state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
-       
+
         // decrease full liquidity for given position - and return fees as well
-        (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline);
+        (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
+            params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+        );
 
         // swap to other token
         if (state.isSwap) {
@@ -147,11 +157,26 @@ contract AutoExit is Automator {
             }
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
-            
-            // checks if price in valid oracle range and calculates amountOutMin
-            (state.amountOutMin,,,) = _validateSwap(!state.isAbove, state.swapAmount, state.pool, TWAPSeconds, maxTWAPTickDifference, state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64);
 
-            (state.amountInDelta, state.amountOutDelta) = _routerSwap(Swapper.RouterSwapParams(state.isAbove ? IERC20(state.token1) : IERC20(state.token0), state.isAbove ? IERC20(state.token0) : IERC20(state.token1), state.swapAmount, state.amountOutMin, params.swapData));
+            // checks if price in valid oracle range and calculates amountOutMin
+            (state.amountOutMin,,,) = _validateSwap(
+                !state.isAbove,
+                state.swapAmount,
+                state.pool,
+                TWAPSeconds,
+                maxTWAPTickDifference,
+                state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64
+            );
+
+            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    state.isAbove ? IERC20(state.token1) : IERC20(state.token0),
+                    state.isAbove ? IERC20(state.token0) : IERC20(state.token1),
+                    state.swapAmount,
+                    state.amountOutMin,
+                    params.swapData
+                )
+            );
 
             state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
             state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
@@ -169,7 +194,7 @@ contract AutoExit is Automator {
             state.amount0 -= (config.onlyFees ? state.feeAmount0 : state.amount0) * params.rewardX64 / Q64;
             state.amount1 -= (config.onlyFees ? state.feeAmount1 : state.amount1) * params.rewardX64 / Q64;
         }
- 
+
         state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
         if (state.amount0 > 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
@@ -183,7 +208,9 @@ contract AutoExit is Automator {
         emit PositionConfigured(params.tokenId, false, false, false, 0, 0, 0, 0, false, 0);
 
         // log event
-        emit Executed(params.tokenId, msg.sender, state.isSwap, state.amount0, state.amount1, state.token0, state.token1);
+        emit Executed(
+            params.tokenId, msg.sender, state.isSwap, state.amount0, state.amount1, state.token0, state.token1
+        );
     }
 
     // function to configure a token to be used with this runner

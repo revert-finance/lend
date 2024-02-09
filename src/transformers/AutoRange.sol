@@ -9,11 +9,7 @@ import "../automators/Automator.sol";
 /// When executed a new position is created and automatically configured the same way as the original position
 /// When position is inside Vault - transform is called
 contract AutoRange is Automator {
-
-    event RangeChanged(
-        uint256 indexed oldTokenId, 
-        uint256 indexed newTokenId
-    );
+    event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
     event PositionConfigured(
         uint256 indexed tokenId,
         int32 lowerTickLimit,
@@ -26,9 +22,15 @@ contract AutoRange is Automator {
         uint64 maxRewardX64
     );
 
-    constructor(INonfungiblePositionManager _npm, address _operator, address _withdrawer, uint32 _TWAPSeconds, uint16 _maxTWAPTickDifference, address _zeroxRouter, address _universalRouter) 
-        Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {
-    }
+    constructor(
+        INonfungiblePositionManager _npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference,
+        address _zeroxRouter,
+        address _universalRouter
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {}
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
@@ -45,7 +47,7 @@ contract AutoRange is Automator {
     }
 
     // configured tokens
-    mapping (uint256 => PositionConfig) public positionConfigs;
+    mapping(uint256 => PositionConfig) public positionConfigs;
 
     /// @notice params for execute()
     struct ExecuteParams {
@@ -57,7 +59,7 @@ contract AutoRange is Automator {
         uint256 amountRemoveMin0; // min amount to be removed from liquidity
         uint256 amountRemoveMin1; // min amount to be removed from liquidity
         uint256 deadline; // for uniswap operations - operator promises fair value
-        uint64 rewardX64;  // which reward will be used for protocol, can be max configured amount (considering onlyFees)
+        uint64 rewardX64; // which reward will be used for protocol, can be max configured amount (considering onlyFees)
     }
 
     struct ExecuteState {
@@ -70,27 +72,20 @@ contract AutoRange is Automator {
         int24 tickLower;
         int24 tickUpper;
         int24 currentTick;
-
         uint256 amount0;
         uint256 amount1;
         uint256 feeAmount0;
         uint256 feeAmount1;
-
         uint256 maxAddAmount0;
         uint256 maxAddAmount1;
-
         uint256 amountAdded0;
         uint256 amountAdded1;
-
         uint128 liquidity;
-
         uint256 protocolReward0;
         uint256 protocolReward1;
         uint256 amountOutMin;
         uint256 amountInDelta;
         uint256 amountOutDelta;
-
-
         uint256 newTokenId;
     }
 
@@ -103,7 +98,9 @@ contract AutoRange is Automator {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeWithSelector(AutoRange.execute.selector, params));
+        IVault(vault).transform(
+            params.tokenId, address(this), abi.encodeWithSelector(AutoRange.execute.selector, params)
+        );
     }
 
     /**
@@ -112,7 +109,7 @@ contract AutoRange is Automator {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-        if (!operators[msg.sender] && !vaults[msg.sender]) { 
+        if (!operators[msg.sender] && !vaults[msg.sender]) {
             revert Unauthorized();
         }
         ExecuteState memory state;
@@ -122,20 +119,26 @@ contract AutoRange is Automator {
             revert NotConfigured();
         }
 
-        if (config.onlyFees && params.rewardX64 > config.maxRewardX64 || !config.onlyFees && params.rewardX64 > config.maxRewardX64) {
+        if (
+            config.onlyFees && params.rewardX64 > config.maxRewardX64
+                || !config.onlyFees && params.rewardX64 > config.maxRewardX64
+        ) {
             revert ExceedsMaxReward();
         }
 
         // get position info
-        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity, , , , ) =  nonfungiblePositionManager.positions(params.tokenId);
+        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
+            nonfungiblePositionManager.positions(params.tokenId);
 
         if (state.liquidity != params.liquidity) {
             revert LiquidityChanged();
         }
 
-        (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline);
+        (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
+            params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+        );
 
-          // if only fees reward is removed before adding
+        // if only fees reward is removed before adding
         if (config.onlyFees) {
             state.protocolReward0 = state.feeAmount0 * params.rewardX64 / Q64;
             state.protocolReward1 = state.feeAmount1 * params.rewardX64 / Q64;
@@ -151,53 +154,72 @@ contract AutoRange is Automator {
         state.pool = _getPool(state.token0, state.token1, state.fee);
 
         // check oracle for swap
-        (state.amountOutMin,state.currentTick,,) = _validateSwap(params.swap0To1, params.amountIn, state.pool, TWAPSeconds, maxTWAPTickDifference, params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64);
+        (state.amountOutMin, state.currentTick,,) = _validateSwap(
+            params.swap0To1,
+            params.amountIn,
+            state.pool,
+            TWAPSeconds,
+            maxTWAPTickDifference,
+            params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
+        );
 
-        if (state.currentTick < state.tickLower - config.lowerTickLimit || state.currentTick >= state.tickUpper + config.upperTickLimit) {
-
+        if (
+            state.currentTick < state.tickLower - config.lowerTickLimit
+                || state.currentTick >= state.tickUpper + config.upperTickLimit
+        ) {
             int24 tickSpacing = _getTickSpacing(state.fee);
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             // check if new range same as old range
-            if (baseTick + config.lowerTickDelta == state.tickLower && baseTick + config.upperTickDelta == state.tickUpper) {
+            if (
+                baseTick + config.lowerTickDelta == state.tickLower
+                    && baseTick + config.upperTickDelta == state.tickUpper
+            ) {
                 revert SameRange();
             }
 
-            (state.amountInDelta, state.amountOutDelta) = _routerSwap(Swapper.RouterSwapParams(params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1), params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0), params.amountIn, state.amountOutMin, params.swapData));
+            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
+                    params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0),
+                    params.amountIn,
+                    state.amountOutMin,
+                    params.swapData
+                )
+            );
 
             state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
             state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
-                
+
             // max amount to add - removing max potential fees (if config.onlyFees - the have been removed already)
             state.maxAddAmount0 = config.onlyFees ? state.amount0 : state.amount0 * Q64 / (params.rewardX64 + Q64);
             state.maxAddAmount1 = config.onlyFees ? state.amount1 : state.amount1 * Q64 / (params.rewardX64 + Q64);
 
-            INonfungiblePositionManager.MintParams memory mintParams = 
-                INonfungiblePositionManager.MintParams(
-                    address(state.token0), 
-                    address(state.token1), 
-                    state.fee, 
-                    SafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
-                    SafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
-                    state.maxAddAmount0,
-                    state.maxAddAmount1,
-                    0,
-                    0,
-                    address(this), // is sent to real recipient aftwards
-                    params.deadline
-                );
+            INonfungiblePositionManager.MintParams memory mintParams = INonfungiblePositionManager.MintParams(
+                address(state.token0),
+                address(state.token1),
+                state.fee,
+                SafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
+                SafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
+                state.maxAddAmount0,
+                state.maxAddAmount1,
+                0,
+                0,
+                address(this), // is sent to real recipient aftwards
+                params.deadline
+            );
 
-            // approve npm 
+            // approve npm
             SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
             SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
 
             // mint is done to address(this) first - its not a safemint
-            (state.newTokenId,,state.amountAdded0,state.amountAdded1) = nonfungiblePositionManager.mint(mintParams);
+            (state.newTokenId,, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.mint(mintParams);
 
             // remove remaining approval
             SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
             SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
-            
+
             state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
 
             // send it to current owner
@@ -238,7 +260,6 @@ contract AutoRange is Automator {
             emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, 0);
 
             emit RangeChanged(params.tokenId, state.newTokenId);
-
         } else {
             revert NotReady();
         }
@@ -247,10 +268,9 @@ contract AutoRange is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
-        
         _validateOwner(tokenId, vault);
 
-         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
+        // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
         if (config.lowerTickDelta > config.upperTickDelta) {
             revert InvalidConfig();
         }

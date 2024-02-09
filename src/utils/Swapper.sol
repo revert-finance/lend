@@ -17,27 +17,30 @@ import "forge-std/console.sol";
 
 // base functionality to do swaps with different routing protocols
 abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
-
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
     /// @notice Wrapped native token address
-    IWETH9 immutable public weth;
+    IWETH9 public immutable weth;
 
-    address immutable public factory;
+    address public immutable factory;
 
     /// @notice Uniswap v3 position manager
-    INonfungiblePositionManager immutable public nonfungiblePositionManager;
+    INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
     /// @notice 0x Exchange Proxy
-    address immutable public zeroxRouter;
+    address public immutable zeroxRouter;
 
     /// @notice Uniswap Universal Router
-    address immutable public universalRouter;
+    address public immutable universalRouter;
 
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
     /// @param _zeroxRouter 0x Exchange Proxy
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter) {
+    constructor(
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        address _zeroxRouter,
+        address _universalRouter
+    ) {
         weth = IWETH9(_nonfungiblePositionManager.WETH9());
         factory = _nonfungiblePositionManager.factory();
         nonfungiblePositionManager = _nonfungiblePositionManager;
@@ -66,13 +69,14 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
         bytes swapData;
     }
 
-     // general swap function which uses external router with off-chain calculated swap instructions
+    // general swap function which uses external router with off-chain calculated swap instructions
     // does slippage check with amountOutMin param
     // returns token amounts deltas after swap
-    function _routerSwap(RouterSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
-
+    function _routerSwap(RouterSwapParams memory params)
+        internal
+        returns (uint256 amountInDelta, uint256 amountOutDelta)
+    {
         if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0)) {
-
             uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
             uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
 
@@ -98,7 +102,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
             } else {
                 revert WrongContract();
             }
-           
+
             uint256 balanceInAfter = params.tokenIn.balanceOf(address(this));
             uint256 balanceOutAfter = params.tokenOut.balanceOf(address(this));
 
@@ -116,7 +120,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
     }
 
     struct PoolSwapParams {
-        IUniswapV3Pool pool; 
+        IUniswapV3Pool pool;
         IERC20 token0;
         IERC20 token1;
         uint24 fee;
@@ -129,7 +133,17 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
     // amounts must be available on the contract for both tokens
     function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
         if (params.amountIn > 0) {
-            (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(address(this), params.swap0For1, int256(params.amountIn), (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1), abi.encode(params.swap0For1 ? params.token0 : params.token1, params.swap0For1 ? params.token1 : params.token0, params.fee));
+            (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(
+                address(this),
+                params.swap0For1,
+                int256(params.amountIn),
+                (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
+                abi.encode(
+                    params.swap0For1 ? params.token0 : params.token1,
+                    params.swap0For1 ? params.token1 : params.token0,
+                    params.fee
+                )
+            );
             amountInDelta = params.swap0For1 ? uint256(amount0Delta) : uint256(amount1Delta);
             amountOutDelta = params.swap0For1 ? uint256(-amount1Delta) : uint256(-amount0Delta);
 
@@ -142,7 +156,6 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
 
     // swap callback function where amount for swap is payed
     function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
-
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
 
         // check if really called from pool
@@ -157,17 +170,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
     }
 
     // get pool for token
-    function _getPool(
-        address tokenA,
-        address tokenB,
-        uint24 fee
-    ) internal view returns (IUniswapV3Pool) {
-        return
-            IUniswapV3Pool(
-                PoolAddress.computeAddress(
-                    address(factory),
-                    PoolAddress.getPoolKey(tokenA, tokenB, fee)
-                )
-            );
+    function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
+        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
     }
 }
