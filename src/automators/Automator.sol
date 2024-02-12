@@ -228,7 +228,12 @@ abstract contract Automator is Swapper, Ownable {
     }
 
     function _validateOwner(uint256 tokenId, address vault) internal returns (address owner) {
-        owner = nonfungiblePositionManager.ownerOf(tokenId);
+
+        // msg.sender must not be a vault
+        if (vaults[msg.sender]) {
+            revert Unauthorized();
+        }
+
         if (vault != address(0)) {
             if (!vaults[vault]) {
                 revert Unauthorized();

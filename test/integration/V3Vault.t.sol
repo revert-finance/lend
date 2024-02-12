@@ -602,7 +602,7 @@ contract V3VaultIntegrationTest is Test {
         vm.expectRevert(IErrors.Unauthorized.selector);
         autoRange.execute(params);
 
-        // direct auto-compound when in vault fails
+        // direct auto-range when in vault fails
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(IErrors.NotConfigured.selector);
         autoRange.execute(params);
@@ -621,9 +621,14 @@ contract V3VaultIntegrationTest is Test {
         // repay partially
         _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
+        uint previousDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
+
         // autorange
         vm.prank(WHALE_ACCOUNT);
         autoRange.executeWithVault(params, address(vault));
+
+        // check leftover tokens were sent to real owner
+        assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - previousDAI, 299539766920961007);
 
         // previous loan is deactivated - and sent back to owner
         (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);

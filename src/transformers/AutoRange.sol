@@ -64,7 +64,7 @@ contract AutoRange is Automator {
 
     struct ExecuteState {
         address owner;
-        address currentOwner;
+        address realOwner;
         IUniswapV3Pool pool;
         address token0;
         address token1;
@@ -221,8 +221,14 @@ contract AutoRange is Automator {
             SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
 
             state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
+            
+            // get the real owner - if owner is vault - for sending leftover tokens
+            state.realOwner = state.owner;
+            if (vaults[state.owner]) {
+                state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
+            }
 
-            // send it to current owner
+            // send the new nft to the owner / vault
             nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId);
 
             // protocol reward is calculated based on added amount (to incentivize optimal swap done by operator)
@@ -233,12 +239,12 @@ contract AutoRange is Automator {
                 state.amount1 -= state.protocolReward1;
             }
 
-            // send leftover to owner
+            // send leftover to real owner
             if (state.amount0 - state.amountAdded0 > 0) {
-                _transferToken(state.owner, IERC20(state.token0), state.amount0 - state.amountAdded0, true);
+                _transferToken(state.realOwner, IERC20(state.token0), state.amount0 - state.amountAdded0, true);
             }
             if (state.amount1 - state.amountAdded1 > 0) {
-                _transferToken(state.owner, IERC20(state.token1), state.amount1 - state.amountAdded1, true);
+                _transferToken(state.realOwner, IERC20(state.token1), state.amount1 - state.amountAdded1, true);
             }
 
             // copy token config for new token
@@ -268,6 +274,7 @@ contract AutoRange is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
+
         _validateOwner(tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated

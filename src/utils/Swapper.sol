@@ -13,8 +13,6 @@ import "v3-periphery/interfaces/external/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
 import "../interfaces/IErrors.sol";
 
-import "forge-std/console.sol";
-
 // base functionality to do swaps with different routing protocols
 abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);

@@ -7,8 +7,6 @@ import "v3-core/interfaces/callback/IUniswapV3FlashCallback.sol";
 import "../interfaces/IVault.sol";
 import "./Swapper.sol";
 
-import "forge-std/console.sol";
-
 /// @title Helper contract which allows atomic liquidation and needed swaps by using UniV3 Flashloan
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
     struct FlashCallbackData {
