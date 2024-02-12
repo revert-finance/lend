@@ -1131,7 +1131,7 @@ contract V3VaultIntegrationTest is Test {
         vault.withdraw(withdraw, WHALE_ACCOUNT, WHALE_ACCOUNT);
     }
 
-    function testDepositWithPermit2() external {
+    function testDepositAndRepayWithPermit2() external {
         uint256 amount = 1000000;
         uint256 privateKey = 123;
         address addr = vm.addr(privateKey);
@@ -1139,13 +1139,13 @@ contract V3VaultIntegrationTest is Test {
         // give coins
         vm.deal(addr, 1 ether);
         vm.prank(WHALE_ACCOUNT);
-        USDC.transfer(addr, amount);
+        USDC.transfer(addr, amount * 2);
 
         vm.prank(addr);
         USDC.approve(PERMIT2, type(uint256).max);
 
         ISignatureTransfer.PermitTransferFrom memory tf = ISignatureTransfer.PermitTransferFrom(
-            ISignatureTransfer.TokenPermissions(address(USDC), amount), 1234567890, block.timestamp
+            ISignatureTransfer.TokenPermissions(address(USDC), amount), 1, block.timestamp
         );
         bytes memory signature = _getPermitTransferToSignature(tf, privateKey, address(vault));
         bytes memory permitData = abi.encode(tf, signature);
@@ -1154,8 +1154,29 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(addr);
         vault.deposit(amount, addr, permitData);
-
         assertEq(vault.lendInfo(addr), 1000000);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, amount);
+
+        (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
+        assertEq(debt, 1000000);
+
+        tf = ISignatureTransfer.PermitTransferFrom(
+            ISignatureTransfer.TokenPermissions(address(USDC), amount), 2, block.timestamp
+        );
+        signature = _getPermitTransferToSignature(tf, privateKey, address(vault));
+        permitData = abi.encode(tf, signature);
+
+        vm.prank(addr);
+        vault.repay(TEST_NFT, amount, false, permitData);
+
+        (debt,,,,) = vault.loanInfo(TEST_NFT);
+        assertEq(debt, 0);
     }
 
     function _getPermitTransferToSignature(

@@ -102,10 +102,10 @@ contract VaultPolygonIntegrationTest is Test {
 
         vault =
             new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
-        vault.setTokenConfig(USDC, type(uint32).max); // 90% collateral factor - max 100% collateral value
-        vault.setTokenConfig(WMATIC, type(uint32).max); // 80% collateral factor - max 100% collateral value
-        vault.setTokenConfig(WETH, type(uint32).max); // 80% collateral factor - max 100% collateral value
-        vault.setTokenConfig(WBTC, type(uint32).max); // 80% collateral factor - max 100% collateral value
+        vault.setTokenConfig(USDC, type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WMATIC, type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WETH, type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WBTC, type(uint32).max); // max 100% collateral value
 
         vault.setPoolConfig(WMATIC_USDC_005, uint32(Q32 * 8 / 10));  // 80% collateral factor
 
