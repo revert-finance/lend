@@ -36,6 +36,8 @@ contract VaultPolygonIntegrationTest is Test {
     address constant WETH = 0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619;
     address constant WBTC = 0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6;
 
+    address constant WMATIC_USDC_005 = 0xA374094527e1673A86dE625aa59517c5dE346d32;
+
     address constant TEST_NFT_ACCOUNT = 0x8df57E3D9dDde355dCE1adb19eBCe93419ffa0FB;
     uint256 constant TEST_NFT = 1052991;
 
@@ -74,7 +76,7 @@ contract VaultPolygonIntegrationTest is Test {
             WMATIC,
             AggregatorV3Interface(0xAB594600376Ec9fD91F8e885dADF0CE036862dE0),
             3600,
-            IUniswapV3Pool(0xA374094527e1673A86dE625aa59517c5dE346d32),
+            IUniswapV3Pool(WMATIC_USDC_005),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
@@ -100,10 +102,12 @@ contract VaultPolygonIntegrationTest is Test {
 
         vault =
             new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
-        vault.setTokenConfig(USDC, uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100% collateral value
-        vault.setTokenConfig(WMATIC, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100% collateral value
-        vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100% collateral value
-        vault.setTokenConfig(WBTC, uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100% collateral value
+        vault.setTokenConfig(USDC, type(uint32).max); // 90% collateral factor - max 100% collateral value
+        vault.setTokenConfig(WMATIC, type(uint32).max); // 80% collateral factor - max 100% collateral value
+        vault.setTokenConfig(WETH, type(uint32).max); // 80% collateral factor - max 100% collateral value
+        vault.setTokenConfig(WBTC, type(uint32).max); // 80% collateral factor - max 100% collateral value
+
+        vault.setPoolConfig(WMATIC_USDC_005, uint32(Q32 * 8 / 10));  // 80% collateral factor
 
         // limits 1000 USDC each
         vault.setLimits(0, 100000000, 100000000, 100000000, 100000000);

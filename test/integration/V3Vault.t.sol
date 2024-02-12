@@ -42,6 +42,7 @@ contract V3VaultIntegrationTest is Test {
 
     address constant UNISWAP_DAI_USDC = 0x5777d92f208679DB4b9778590Fa3CAB3aC9e2168; // 0.01% pool
     address constant UNISWAP_ETH_USDC = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640; // 0.05% pool
+    address constant UNISWAP_DAI_USDC_005 = 0x6c6Bc977E13Df9b0de53b251522280BB72383700; // 0.05% pool
 
     address constant TEST_NFT_ACCOUNT = 0x3b8ccaa89FcD432f1334D35b10fF8547001Ce3e5;
     uint256 constant TEST_NFT = 126; // DAI/USDC 0.05% - in range (-276330/-276320)
@@ -97,9 +98,11 @@ contract V3VaultIntegrationTest is Test {
 
         vault =
             new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
-        vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100% collateral value
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor - max 100%  collateral value
-        vault.setTokenConfig(address(WETH), uint32(Q32 * 8 / 10), type(uint32).max); // 80% collateral factor - max 100%  collateral value
+        vault.setTokenConfig(address(USDC), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(address(DAI), type(uint32).max);  // max 100% collateral value
+        vault.setTokenConfig(address(WETH), type(uint32).max); // max 100% collateral value
+
+        vault.setPoolConfig(UNISWAP_DAI_USDC_005, uint32(Q32 * 9 / 10));  // 90% collateral factor
 
         // limits 15 USDC each
         vault.setLimits(0, 15000000, 15000000, 12000000, 12000000);
@@ -806,20 +809,20 @@ contract V3VaultIntegrationTest is Test {
 
     function testCollateralValueLimit() external {
         _setupBasicLoan(false);
-        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), uint32(Q32 / 10)); // max 10% debt for DAI
+        vault.setTokenConfig(address(DAI), uint32(Q32 / 10)); // max 10% debt for DAI
 
-        (,, uint256 totalDebtShares) = vault.tokenConfigs(address(DAI));
+        (,uint256 totalDebtShares) = vault.tokenConfigs(address(DAI));
         assertEq(totalDebtShares, 0);
-        (,, totalDebtShares) = vault.tokenConfigs(address(USDC));
+        (,totalDebtShares) = vault.tokenConfigs(address(USDC));
         assertEq(totalDebtShares, 0);
 
         // borrow certain amount works
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, 800000);
 
-        (,, totalDebtShares) = vault.tokenConfigs(address(DAI));
+        (,totalDebtShares) = vault.tokenConfigs(address(DAI));
         assertEq(totalDebtShares, 800000);
-        (,, totalDebtShares) = vault.tokenConfigs(address(USDC));
+        (,totalDebtShares) = vault.tokenConfigs(address(USDC));
         assertEq(totalDebtShares, 800000);
 
         // borrow more doesnt work anymore - because more than max value of collateral is used
@@ -839,9 +842,9 @@ contract V3VaultIntegrationTest is Test {
         vault.repay(TEST_NFT, debtShares, true);
 
         // collateral is removed
-        (,, totalDebtShares) = vault.tokenConfigs(address(DAI));
+        (,totalDebtShares) = vault.tokenConfigs(address(DAI));
         assertEq(totalDebtShares, 0);
-        (,, totalDebtShares) = vault.tokenConfigs(address(USDC));
+        (,totalDebtShares) = vault.tokenConfigs(address(USDC));
         assertEq(totalDebtShares, 0);
     }
 

@@ -104,15 +104,22 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     );
     event SetReserveFactor(uint32 reserveFactorX32);
     event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
-    event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
+    event SetTokenConfig(address token, uint32 collateralValueLimitFactorX32);
+    event SetPoolConfig(address pool, uint32 collateralFactorX32);
+    
     event SetEmergencyAdmin(address emergencyAdmin);
 
-    struct TokenConfig {
-        uint32 collateralFactorX32; // how much this token is valued as collateral
-        uint32 collateralValueLimitFactorX32; // how much asset equivalent may be lent out given this collateral
-        uint256 totalDebtShares; // how much debt shares are theoretically backed by this collateral
+    // configured pools
+    struct PoolConfig {
+        uint32 collateralFactorX32; // how much this pool is valued as collateral
     }
+    mapping(address => PoolConfig) public poolConfigs;
 
+    // configured tokens
+    struct TokenConfig {
+        uint32 collateralValueLimitFactorX32; // how much asset equivalent may be lent out given this collateral
+        uint224 totalDebtShares; // how much debt shares are theoretically backed by this collateral
+    }
     mapping(address => TokenConfig) public tokenConfigs;
 
     // percentage of interest which is kept in the protocol for reserves
@@ -150,7 +157,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     // loans are handled with this struct
     struct Loan {
         uint224 debtShares;
-        uint32 collateralFactorX32; // assigned at loan creation
+        address pool;
     }
 
     mapping(uint256 => Loan) public loans; // tokenID -> loan mapping
@@ -443,7 +450,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             if (data.length > 0) {
                 owner = abi.decode(data, (address));
             }
-            loans[tokenId] = Loan(0, _calculateTokenCollateralFactorX32(tokenId));
+            loans[tokenId] = Loan(0, _getPool(tokenId));
 
             _addTokenToOwner(owner, tokenId);
             emit Add(tokenId, owner, 0);
@@ -458,7 +465,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
                 transformedTokenId = tokenId;
 
                 // copy debt to new token
-                loans[tokenId] = Loan(loans[oldTokenId].debtShares, _calculateTokenCollateralFactorX32(tokenId));
+                loans[tokenId] = Loan(loans[oldTokenId].debtShares, _getPool(tokenId));
 
                 _addTokenToOwner(owner, tokenId);
                 emit Add(tokenId, owner, oldTokenId);
@@ -839,18 +846,26 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     }
 
     // function to set token config
-    // how much is collateral factor for this token
     // how much of it maybe used as collateral max measured as percentage of asset quantity
-    function setTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32)
+    function setTokenConfig(address token, uint32 collateralValueLimitFactorX32)
+        external
+        onlyOwner
+    {
+        tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
+        emit SetTokenConfig(token, collateralValueLimitFactorX32);
+    }
+
+    // function to set pool config
+    // how much is collateral factor for this pool
+    function setPoolConfig(address pool, uint32 collateralFactorX32)
         external
         onlyOwner
     {
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
-        tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
-        tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
-        emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
+        poolConfigs[pool].collateralFactorX32 = collateralFactorX32;
+        emit SetPoolConfig(pool, collateralFactorX32);
     }
 
     // function to set emergency admin address
@@ -1126,12 +1141,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
         }
     }
-
-    function _calculateTokenCollateralFactorX32(uint256 tokenId) internal view returns (uint32) {
-        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-        uint32 factor0X32 = tokenConfigs[token0].collateralFactorX32;
-        uint32 factor1X32 = tokenConfigs[token1].collateralFactorX32;
-        return factor0X32 > factor1X32 ? factor1X32 : factor0X32;
+    
+    function _getPool(uint256 tokenId) internal view returns (address) {
+        (,, address token0, address token1, uint24 fee,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        return PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(token0, token1, fee));
     }
 
     function _updateGlobalInterest()
@@ -1201,11 +1214,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
             // remove previous collateral - add new collateral
             if (oldShares > newShares) {
-                tokenConfigs[token0].totalDebtShares -= oldShares - newShares;
-                tokenConfigs[token1].totalDebtShares -= oldShares - newShares;
+                tokenConfigs[token0].totalDebtShares -= SafeCast.toUint224(oldShares - newShares);
+                tokenConfigs[token1].totalDebtShares -= SafeCast.toUint224(oldShares - newShares);
             } else {
-                tokenConfigs[token0].totalDebtShares += newShares - oldShares;
-                tokenConfigs[token1].totalDebtShares += newShares - oldShares;
+                tokenConfigs[token0].totalDebtShares += SafeCast.toUint224(newShares - oldShares);
+                tokenConfigs[token1].totalDebtShares += SafeCast.toUint224(newShares - oldShares);
 
                 // check if current value of used collateral is more than allowed limit
                 // if collateral is decreased - never revert
@@ -1260,7 +1273,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
     {
         (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
-        collateralValue = fullValue.mulDiv(loans[tokenId].collateralFactorX32, Q32);
+        collateralValue = fullValue.mulDiv(poolConfigs[loans[tokenId].pool].collateralFactorX32, Q32);
         isHealthy = collateralValue >= debt;
     }
 
