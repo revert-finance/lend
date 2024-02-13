@@ -18,6 +18,7 @@ contract V3UtilsIntegrationTest is Test {
     IERC20 constant DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
 
     address constant WHALE_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
+    address constant DAI_WHALE_ACCOUNT = 0x2fEb1512183545f48f6b9C5b4EbfCaF49CfCa6F3;
     address constant OPERATOR_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
     address constant WITHDRAWER_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
 
@@ -607,6 +608,78 @@ contract V3UtilsIntegrationTest is Test {
         assertEq(amount1, eAmount1);
     }
 
+     function testSwapAndMintPermit2() public {
+
+        // use newer fork which has permit2
+        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 18521658);
+        vm.selectFork(mainnetFork);
+        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
+
+        
+        uint256 amountDAI = 1 ether;
+        uint256 amountUSDC = 1000000;
+        uint256 privateKey = 123;
+        address addr = vm.addr(privateKey);
+
+        // give coins
+        vm.deal(addr, 1 ether);
+        vm.prank(WHALE_ACCOUNT);
+        USDC.transfer(addr, amountUSDC);
+
+        vm.prank(DAI_WHALE_ACCOUNT);
+        DAI.transfer(addr, amountDAI);
+
+        vm.prank(addr);
+        USDC.approve(PERMIT2, type(uint256).max);
+
+        vm.prank(addr);
+        DAI.approve(PERMIT2, type(uint256).max);
+
+        ISignatureTransfer.TokenPermissions[] memory permissions = new ISignatureTransfer.TokenPermissions[](2);
+        permissions[0] = ISignatureTransfer.TokenPermissions(address(DAI), amountDAI);
+        permissions[1] = ISignatureTransfer.TokenPermissions(address(USDC), amountUSDC);
+
+        ISignatureTransfer.PermitBatchTransferFrom memory tf = ISignatureTransfer.PermitBatchTransferFrom(
+            permissions, 1, block.timestamp
+        );
+
+        bytes memory signature = _getPermitBatchTransferFromSignature(tf, privateKey, address(v3utils));
+        bytes memory permitData = abi.encode(tf, signature);
+
+        V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
+            DAI,
+            USDC,
+            500,
+            MIN_TICK_500, 
+            -MIN_TICK_500,
+            amountDAI,
+            amountUSDC,
+            addr,
+            addr,
+            block.timestamp,
+            IERC20(address(0)),
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            permitData
+        );
+
+        vm.prank(addr);
+        (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = v3utils.swapAndMint(params);
+
+        assertEq(tokenId, 599811);
+        assertEq(liquidity, 999808574760);
+        assertEq(amount0, 999617186163914918);
+        assertEq(amount1, 1000000);
+    }
+
+
     function testSwapAndMintWithETH() public {
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
             DAI,
@@ -902,5 +975,39 @@ contract V3UtilsIntegrationTest is Test {
 
     function _getInvalidSwapData() internal view returns (bytes memory) {
         return abi.encode(EX0x, hex"1234567890");
+    }
+
+    function _getPermitBatchTransferFromSignature(
+        ISignatureTransfer.PermitBatchTransferFrom memory permit,
+        uint256 privateKey,
+        address to
+    ) internal returns (bytes memory sig) {
+        bytes32 _PERMIT_BATCH_TRANSFER_FROM_TYPEHASH = keccak256(
+            "PermitBatchTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
+        );
+        bytes32 _TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
+        bytes32[] memory tokenPermissions = new bytes32[](permit.permitted.length);
+        for (uint256 i = 0; i < permit.permitted.length; ++i) {
+            tokenPermissions[i] = keccak256(abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted[i]));
+        }
+
+        bytes32 msgHash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                IPermit2(PERMIT2).DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        _PERMIT_BATCH_TRANSFER_FROM_TYPEHASH,
+                        keccak256(abi.encodePacked(tokenPermissions)),
+                        to,
+                        permit.nonce,
+                        permit.deadline
+                    )
+                )
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, msgHash);
+        return bytes.concat(r, s, bytes1(v));
     }
 }

@@ -1147,7 +1147,7 @@ contract V3VaultIntegrationTest is Test {
         ISignatureTransfer.PermitTransferFrom memory tf = ISignatureTransfer.PermitTransferFrom(
             ISignatureTransfer.TokenPermissions(address(USDC), amount), 1, block.timestamp
         );
-        bytes memory signature = _getPermitTransferToSignature(tf, privateKey, address(vault));
+        bytes memory signature = _getPermitTransferFromSignature(tf, privateKey, address(vault));
         bytes memory permitData = abi.encode(tf, signature);
 
         assertEq(vault.lendInfo(addr), 0);
@@ -1169,7 +1169,7 @@ contract V3VaultIntegrationTest is Test {
         tf = ISignatureTransfer.PermitTransferFrom(
             ISignatureTransfer.TokenPermissions(address(USDC), amount), 2, block.timestamp
         );
-        signature = _getPermitTransferToSignature(tf, privateKey, address(vault));
+        signature = _getPermitTransferFromSignature(tf, privateKey, address(vault));
         permitData = abi.encode(tf, signature);
 
         vm.prank(addr);
@@ -1179,7 +1179,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(debt, 0);
     }
 
-    function _getPermitTransferToSignature(
+    function _getPermitTransferFromSignature(
         ISignatureTransfer.PermitTransferFrom memory permit,
         uint256 privateKey,
         address to
