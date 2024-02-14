@@ -170,7 +170,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     uint256 private transformedTokenId = 0; // transient (when available in dencun)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
-    mapping(uint256 => mapping(address => bool)) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
+    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
@@ -491,7 +491,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         if (tokenOwner[tokenId] != msg.sender) {
             revert Unauthorized();
         }
-        transformApprovals[tokenId][target] = isActive;
+        transformApprovals[msg.sender][tokenId][target] = isActive;
 
         emit ApprovedTransform(tokenId, msg.sender, target, isActive);
     }
@@ -519,7 +519,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         address loanOwner = tokenOwner[tokenId];
 
         // only the owner of the loan, the vault itself or any approved caller can call this
-        if (loanOwner != msg.sender && !transformApprovals[tokenId][msg.sender]) {
+        if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
         }
 
