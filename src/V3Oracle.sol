@@ -54,19 +54,19 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     }
 
     // token => config mapping
-    mapping(address => TokenConfig) feedConfigs;
+    mapping(address => TokenConfig) public feedConfigs;
 
     address public immutable factory;
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
     // common token which is used in TWAP pools
-    address immutable referenceToken;
-    uint8 immutable referenceTokenDecimals;
+    address public immutable referenceToken;
+    uint8 public immutable referenceTokenDecimals;
 
-    uint16 maxPoolPriceDifference = MIN_PRICE_DIFFERENCE; // max price difference between oracle derived price and pool price x10000
+    uint16 public maxPoolPriceDifference = MIN_PRICE_DIFFERENCE; // max price difference between oracle derived price and pool price x10000
 
     // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
-    address immutable chainlinkReferenceToken;
+    address public immutable chainlinkReferenceToken;
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
