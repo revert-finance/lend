@@ -221,7 +221,7 @@ contract AutoRange is Automator {
             SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
 
             state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
-            
+
             // get the real owner - if owner is vault - for sending leftover tokens
             state.realOwner = state.owner;
             if (vaults[state.owner]) {
@@ -274,7 +274,6 @@ contract AutoRange is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
-
         _validateOwner(tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated

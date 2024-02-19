@@ -225,7 +225,7 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
      * @param tokens Addresses of tokens to withdraw
      * @param to Address to send to
      */
-    function withdrawBalances(address[] calldata tokens, address to) external nonReentrant override {
+    function withdrawBalances(address[] calldata tokens, address to) external override nonReentrant {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }

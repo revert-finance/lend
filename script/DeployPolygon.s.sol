@@ -72,13 +72,10 @@ contract DeployPolygon is Script {
 
         V3Vault vault =
             new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
-        vault.setTokenConfig(USDC, type(uint32).max); // max 100% collateral value
-        vault.setTokenConfig(WMATIC, type(uint32).max);  // max 100% collateral value
-        vault.setTokenConfig(WETH, type(uint32).max);  // max 100% collateral value
-        vault.setTokenConfig(WBTC, type(uint32).max); // max 100% collateral value
-
-        
-        vault.setPoolConfig(WMATIC_USDC_005, uint32(Q32 * 8 / 10)); // 80% collateral factor
+        vault.setTokenConfig(USDC, uint32(Q32 * 8 / 10), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WMATIC, uint32(Q32 * 8 / 10), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WBTC, uint32(Q32 * 8 / 10), type(uint32).max); // max 100% collateral value
 
         // limits 100 USDC each
         vault.setLimits(0, 100000000, 100000000, 100000000, 100000000);

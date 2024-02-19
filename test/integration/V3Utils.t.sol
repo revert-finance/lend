@@ -608,14 +608,12 @@ contract V3UtilsIntegrationTest is Test {
         assertEq(amount1, eAmount1);
     }
 
-     function testSwapAndMintPermit2() public {
-
+    function testSwapAndMintPermit2() public {
         // use newer fork which has permit2
         mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 18521658);
         vm.selectFork(mainnetFork);
         v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
 
-        
         uint256 amountDAI = 1 ether;
         uint256 amountUSDC = 1000000;
         uint256 privateKey = 123;
@@ -639,9 +637,8 @@ contract V3UtilsIntegrationTest is Test {
         permissions[0] = ISignatureTransfer.TokenPermissions(address(DAI), amountDAI);
         permissions[1] = ISignatureTransfer.TokenPermissions(address(USDC), amountUSDC);
 
-        ISignatureTransfer.PermitBatchTransferFrom memory tf = ISignatureTransfer.PermitBatchTransferFrom(
-            permissions, 1, block.timestamp
-        );
+        ISignatureTransfer.PermitBatchTransferFrom memory tf =
+            ISignatureTransfer.PermitBatchTransferFrom(permissions, 1, block.timestamp);
 
         bytes memory signature = _getPermitBatchTransferFromSignature(tf, privateKey, address(v3utils));
         bytes memory permitData = abi.encode(tf, signature);
@@ -650,7 +647,7 @@ contract V3UtilsIntegrationTest is Test {
             DAI,
             USDC,
             500,
-            MIN_TICK_500, 
+            MIN_TICK_500,
             -MIN_TICK_500,
             amountDAI,
             amountUSDC,
@@ -678,7 +675,6 @@ contract V3UtilsIntegrationTest is Test {
         assertEq(amount0, 999617186163914918);
         assertEq(amount1, 1000000);
     }
-
 
     function testSwapAndMintWithETH() public {
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
