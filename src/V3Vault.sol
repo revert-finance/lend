@@ -1261,7 +1261,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
     {
         (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
-        uint collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+        uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
         isHealthy = collateralValue >= debt;
     }
