@@ -383,11 +383,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         return assets;
     }
 
+    // deposit using permit2 data
     function deposit(uint256 assets, address receiver, bytes calldata permitData) external override returns (uint256) {
         (, uint256 shares) = _deposit(receiver, assets, false, permitData);
         return shares;
     }
 
+    // mint using permit2 data
     function mint(uint256 shares, address receiver, bytes calldata permitData) external override returns (uint256) {
         (uint256 assets,) = _deposit(receiver, shares, true, permitData);
         return assets;

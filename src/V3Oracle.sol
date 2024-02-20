@@ -118,6 +118,9 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         price1X96 = price1X96 * Q96 / priceTokenX96;
 
         // checks derived pool price for price manipulation attacks
+        // this prevents manipulations of pool to get distorted proportions of collateral tokens - for borrowing
+        // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
+        // will move price back to reasonable range and enable liquidation
         uint256 derivedPoolPriceX96 = price0X96 * Q96 / price1X96;
         _checkPoolPrice(token0, token1, fee, derivedPoolPriceX96);
     }
