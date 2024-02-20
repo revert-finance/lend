@@ -1,4 +1,4 @@
-# revert lendoor
+# Revert Lend
 
 This repository contains the smart contracts for Revert Lend protocol.
 
