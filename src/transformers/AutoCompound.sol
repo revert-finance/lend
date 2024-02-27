@@ -254,7 +254,7 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
 
     function _setBalance(uint256 tokenId, address token, uint256 amount) internal {
         uint256 currentBalance = positionBalances[tokenId][token];
-        if (amount > currentBalance || amount < currentBalance) {
+        if (amount != currentBalance) {
             positionBalances[tokenId][token] = amount;
             if (amount > currentBalance) {
                 emit BalanceAdded(tokenId, token, amount - currentBalance);
