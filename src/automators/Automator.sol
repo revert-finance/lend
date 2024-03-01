@@ -11,8 +11,8 @@ import "v3-core/libraries/TickMath.sol";
 import "v3-core/libraries/FullMath.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-import "v3-periphery/interfaces/external/IWETH9.sol";
 
+import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 

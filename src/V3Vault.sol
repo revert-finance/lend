@@ -25,8 +25,6 @@ import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 import "./interfaces/IErrors.sol";
 
-import "forge-std/console.sol";
-
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
@@ -761,8 +759,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     ////////////////// ADMIN FUNCTIONS only callable by owner
 
-    // function to withdraw protocol reserves
-    // only allows to withdraw excess reserves (> globalLendAmount * reserveProtectionFactor)
+    /// @notice withdraw protocol reserves (onlyOwner)
+    /// only allows to withdraw excess reserves (> globalLendAmount * reserveProtectionFactor)
+    /// @param amount amount to withdraw
+    /// @param receiver receiver address
     function withdrawReserves(uint256 amount, address receiver) external onlyOwner {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
 
@@ -783,7 +783,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit WithdrawReserves(amount, receiver);
     }
 
-    // function to configure transformer contract
+    /// @notice configure transformer contract (onlyOwner)
+    /// @param transformer address of transformer contract
+    /// @param active should the transformer be active?
     function setTransformer(address transformer, bool active) external onlyOwner {
         // protects protocol from owner trying to set dangerous transformer
         if (
@@ -797,7 +799,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit SetTransformer(transformer, active);
     }
 
-    // function to set limits (this doesnt affect existing loans) - this method can be called by owner OR emergencyAdmin
+    /// @notice set limits (this doesnt affect existing loans) - this method can be called by owner OR emergencyAdmin
+    /// @param _minLoanSize min size of a loan - trying to create smaller loans will revert
+    /// @param _globalLendLimit global limit of lent amount
+    /// @param _globalDebtLimit global limit of debt amount
+    /// @param _dailyLendIncreaseLimitMin min daily increasable amount of lent amount
+    /// @param _dailyDebtIncreaseLimitMin min daily increasable amount of debt amount
     function setLimits(
         uint256 _minLoanSize,
         uint256 _globalLendLimit,
@@ -826,13 +833,15 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         );
     }
 
-    // function to set reserve factor - percentage difference between debt and lend interest
+    /// @notice sets reserve factor - percentage difference between debt and lend interest (onlyOwner)
+    /// @param _reserveFactorX32 reserve factor multiplied by Q32
     function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
         reserveFactorX32 = _reserveFactorX32;
         emit SetReserveFactor(_reserveFactorX32);
     }
 
-    // function to set reserve protection factor - percentage of globalLendAmount which can't be withdrawn by owner
+    /// @notice sets reserve protection factor - percentage of globalLendAmount which can't be withdrawn by owner (onlyOwner)
+    /// @param _reserveProtectionFactorX32 reserve protection factor multiplied by Q32
     function setReserveProtectionFactor(uint32 _reserveProtectionFactorX32) external onlyOwner {
         if (_reserveProtectionFactorX32 < MIN_RESERVE_PROTECTION_FACTOR_X32) {
             revert InvalidConfig();
@@ -841,9 +850,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit SetReserveProtectionFactor(_reserveProtectionFactorX32);
     }
 
-    // function to set token config
-    // how much is collateral factor for this token
-    // how much of it maybe used as collateral max measured as percentage of asset quantity
+    /// @notice Sets or updates the configuration for a token (onlyOwner)
+    /// @param token Token to configure
+    /// @param collateralFactorX32 collateral factor for this token mutiplied by Q32
+    /// @param collateralValueLimitFactorX32 how much of it maybe used as collateral measured as percentage of total lent assets mutiplied by Q32
     function setTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32)
         external
         onlyOwner
@@ -856,7 +866,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
     }
 
-    // function to set emergency admin address
+    /// @notice Updates emergency admin address (onlyOwner)
+    /// @param admin Emergency admin address
     function setEmergencyAdmin(address admin) external onlyOwner {
         emergencyAdmin = admin;
         emit SetEmergencyAdmin(admin);

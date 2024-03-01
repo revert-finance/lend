@@ -84,9 +84,15 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         chainlinkReferenceToken = _chainlinkReferenceToken;
     }
 
-    // gets value of a uniswap v3 lp position in specified token
-    // uses configured oracles and verfies price on second oracle - if fails - reverts
-    // returns complete value and fee-only value
+    /// @notice Gets value and prices of a uniswap v3 lp position in specified token
+    /// @dev uses configured oracles and verfies price on second oracle - if fails - reverts
+    /// @dev all involved tokens must be configured in oracle - otherwise reverts
+    /// @param tokenId tokenId of position
+    /// @param token address of token in which value and prices should be given
+    /// @return value value of complete position at current prices
+    /// @return feeValue value of positions fees only at current prices
+    /// @return price0X96 price of token0
+    /// @return price1X96 price of token1
     function getValue(uint256 tokenId, address token)
         external
         view
@@ -144,7 +150,16 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         }
     }
 
-    // gets breakdown of a uniswap v3 position (liquidity, current liquidity amounts, uncollected fees)
+    /// @notice Gets breakdown of a uniswap v3 position (tokens and fee tier, liquidity, current liquidity amounts, uncollected fees)
+    /// @param tokenId tokenId of position
+    /// @return token0 token0 of position
+    /// @return token1 token1 of position
+    /// @return fee fee tier of position
+    /// @return liquidity liquidity of position
+    /// @return amount0 current amount token0
+    /// @return amount1 current amount token1
+    /// @return fees0 current token0 fees of position
+    /// @return fees1 current token1 fees of position
     function getPositionBreakdown(uint256 tokenId)
         public
         view
@@ -166,7 +181,8 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         liquidity = state.liquidity;
     }
 
-    // Sets the max pool difference parameter
+    /// @notice Sets the max pool difference parameter (onlyOwner)
+    /// @param _maxPoolPriceDifference Set max allowable difference between pool price and derived oracle pool price
     function setMaxPoolPriceDifference(uint16 _maxPoolPriceDifference) external onlyOwner {
         if (_maxPoolPriceDifference < MIN_PRICE_DIFFERENCE) {
             revert InvalidConfig();
@@ -175,8 +191,14 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         emit SetMaxPoolPriceDifference(_maxPoolPriceDifference);
     }
 
-    // Sets or updates the feed configuration for a token
-    // Can only be called by the owner of the contract
+    /// @notice Sets or updates the feed configuration for a token (onlyOwner)
+    /// @param token Token to configure
+    /// @param feed Chainlink feed to this token (matching chainlinkReferenceToken)
+    /// @param maxFeedAge Max allowable chainlink feed age
+    /// @param pool TWAP reference pool (matching referenceToken)
+    /// @param twapSeconds TWAP period to use
+    /// @param mode Mode how both oracle should be used
+    /// @param maxDifference Max allowable difference between both oracle prices
     function setTokenConfig(
         address token,
         AggregatorV3Interface feed,
@@ -222,7 +244,9 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         emit OracleModeUpdated(token, mode);
     }
 
-    // Updates the oracle mode for a given token  - this method can be called by owner OR emergencyAdmin
+    /// @notice Updates the oracle mode for a given token  - this method can be called by owner OR emergencyAdmin
+    /// @param token Token to configure
+    /// @param mode Mode to set
     function setOracleMode(address token, Mode mode) external {
         if (msg.sender != emergencyAdmin && msg.sender != owner()) {
             revert Unauthorized();
@@ -237,7 +261,8 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         emit OracleModeUpdated(token, mode);
     }
 
-    // function to set emergency admin address
+    /// @notice Updates emergency admin address (onlyOwner)
+    /// @param admin Emergency admin address
     function setEmergencyAdmin(address admin) external onlyOwner {
         emergencyAdmin = admin;
         emit SetEmergencyAdmin(admin);

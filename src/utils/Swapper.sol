@@ -8,8 +8,8 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-import "v3-periphery/interfaces/external/IWETH9.sol";
 
+import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
 import "../interfaces/IErrors.sol";
 

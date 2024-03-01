@@ -25,6 +25,11 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
     uint256 public jumpMultiplierPerSecondX96;
     uint256 public kinkX96;
 
+    /// @notice Creates interest rate model
+    /// @param baseRatePerYearX96 Base rate per year multiplied by Q96
+    /// @param multiplierPerYearX96 Multiplier for utilization rate below kink multiplied by Q96
+    /// @param jumpMultiplierPerYearX96 Multiplier for utilization rate above kink multiplied by Q96
+    /// @param _kinkX96 Kink percentage multiplied by Q96
     constructor(
         uint256 baseRatePerYearX96,
         uint256 multiplierPerYearX96,
@@ -34,6 +39,10 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
         setValues(baseRatePerYearX96, multiplierPerYearX96, jumpMultiplierPerYearX96, _kinkX96);
     }
 
+    /// @notice Returns utilization rate X96 given cash and debt
+    /// @param cash Current available cash 
+    /// @param debt Current debt
+    /// @return Utilization rate between 0 and Q96
     function getUtilizationRateX96(uint256 cash, uint256 debt) public pure returns (uint256) {
         if (debt == 0) {
             return 0;
@@ -41,6 +50,11 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
         return debt * Q96 / (cash + debt);
     }
 
+    /// @notice Returns interest rates X96 given cash and debt
+    /// @param cash Current available cash 
+    /// @param debt Current debt
+    /// @return borrowRateX96 borrow rate multiplied by Q96
+    /// @return supplyRateX96 supply rate multiplied by Q96
     function getRatesPerSecondX96(uint256 cash, uint256 debt)
         public
         view
@@ -60,7 +74,11 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
         supplyRateX96 = utilizationRateX96 * borrowRateX96 / Q96;
     }
 
-    // function to update interest rate values
+    /// @notice Update interest rate values (onlyOwner)
+    /// @param baseRatePerYearX96 Base rate per year multiplied by Q96
+    /// @param multiplierPerYearX96 Multiplier for utilization rate below kink multiplied by Q96
+    /// @param jumpMultiplierPerYearX96 Multiplier for utilization rate above kink multiplied by Q96
+    /// @param _kinkX96 Kink percentage multiplied by Q96
     function setValues(
         uint256 baseRatePerYearX96,
         uint256 multiplierPerYearX96,
