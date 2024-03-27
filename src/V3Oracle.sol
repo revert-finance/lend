@@ -336,7 +336,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
 
         // if stale data - revert
         (, int256 answer,, uint256 updatedAt,) = feedConfig.feed.latestRoundData();
-        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer < 0) {
+        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer <= 0) {
             revert ChainlinkPriceError();
         }
 

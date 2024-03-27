@@ -153,7 +153,7 @@ contract V3OracleIntegrationTest is Test {
         vm.mockCall(
             CHAINLINK_DAI_USD,
             abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
-            abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0))
+            abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
         );
 
         vm.expectRevert(IErrors.PriceDifferenceExceeded.selector);

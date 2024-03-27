@@ -684,7 +684,7 @@ contract V3VaultIntegrationTest is Test {
             vm.mockCall(
                 CHAINLINK_DAI_USD,
                 abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
-                abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0))
+                abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
             );
         } else {
             vault.setTokenConfig(address(DAI), uint32(Q32 * 2 / 10), type(uint32).max); // 20% collateral factor
