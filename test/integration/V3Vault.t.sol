@@ -52,6 +52,10 @@ contract V3VaultIntegrationTest is Test {
 
     uint256 constant TEST_NFT_UNI = 1; // WETH/UNI 0.3%
 
+    uint256 constant TEST_NFT_DAI_WETH = 548468; // DAI/WETH 0.05%
+    address constant TEST_NFT_DAI_WETH_ACCOUNT = 0x312dEeeF09E8a8BBC4a6ce2b3Fcb395813BE09Df;
+    
+
     uint256 mainnetFork;
 
     V3Vault vault;
@@ -721,7 +725,7 @@ contract V3VaultIntegrationTest is Test {
         assertGt(debt, collateralValue);
         assertEq(
             liquidationCost,
-            lType == LiquidationType.TimeBased ? 8869647 : (lType == LiquidationType.ValueBased ? 8492999 : 8847206)
+            lType == LiquidationType.TimeBased ? 8869647 : (lType == LiquidationType.ValueBased ? 8551946 : 8847206)
         );
         assertEq(
             liquidationValue,
@@ -767,16 +771,16 @@ contract V3VaultIntegrationTest is Test {
         // protocol is solvent
         assertEq(
             USDC.balanceOf(address(vault)),
-            lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9645793 : 10000000)
+            lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9704740 : 10000000)
         );
         (, uint256 lent, uint256 balance,,,,) = vault.vaultInfo();
         assertEq(
             lent,
-            lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9645793 : 10000000)
+            lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9704740 : 10000000)
         );
         assertEq(
             balance,
-            lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9645793 : 10000000)
+            lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9704740 : 10000000)
         );
 
         // there maybe some amounts left in position
@@ -790,6 +794,60 @@ contract V3VaultIntegrationTest is Test {
         assertEq(
             amount1, lType == LiquidationType.TimeBased ? 591753 : (lType == LiquidationType.ValueBased ? 0 : 98339)
         );
+    }
+
+    function testFreeLiquidation() external {
+        // lend 10 USDC
+        _deposit(10000000, WHALE_ACCOUNT);
+
+        // add collateral
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT_DAI_WETH);
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.create(TEST_NFT_DAI_WETH, TEST_NFT_DAI_WETH_ACCOUNT);
+
+        (uint256 debt, uint256 fullValue, uint256 collateralValue,uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        
+        assertEq(debt, 0);
+        assertEq(collateralValue, 51440100021);
+        assertEq(fullValue, 57155666697);
+        assertEq(liquidationCost, 0);
+        assertEq(liquidationValue, 0);
+
+        // borrow max
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.borrow(TEST_NFT_DAI_WETH, 10000000);
+
+        oracle.setMaxPoolPriceDifference(10001);
+
+        // make it (almost) worthless
+        vm.mockCall(
+                CHAINLINK_DAI_USD,
+                abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
+                abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
+            );
+
+        vm.mockCall(
+                CHAINLINK_ETH_USD,
+                abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
+                abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
+            );
+
+        (debt, fullValue, collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        assertEq(debt, 10000000);
+        assertEq(collateralValue, 269);
+        assertEq(fullValue, 299);
+        assertEq(liquidationCost, 0);
+        assertEq(liquidationValue, 299);
+
+        (uint256 debtShares) = vault.loans(TEST_NFT_DAI_WETH);
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, debtShares, 0, 0, WHALE_ACCOUNT, ""));
+
+        // all debt is payed
+        assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
+        assertEq(vault.debtSharesTotal(), 0);
     }
 
     function testLiquidationWithFlashloan() external {
