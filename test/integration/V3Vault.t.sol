@@ -537,13 +537,13 @@ contract V3VaultIntegrationTest is Test {
         // test compounding when not in vault
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
 
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(autoCompound), TEST_NFT);
 
         vm.prank(WHALE_ACCOUNT);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
     }
 
     function testTransformAutoCompoundInsideVault() external {
@@ -554,17 +554,17 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         vm.expectRevert(IErrors.Unauthorized.selector);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(IErrors.Unauthorized.selector);
-        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0), address(vault));
+        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp), address(vault));
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoCompound), true);
@@ -574,7 +574,7 @@ contract V3VaultIntegrationTest is Test {
 
         // autocompound with swap
         vm.prank(WHALE_ACCOUNT);
-        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 12345), address(vault));
+        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 12345, block.timestamp), address(vault));
     }
 
     function testTransformAutoRangeInsideVault() external {
@@ -726,7 +726,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, ""));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
@@ -735,7 +735,7 @@ contract V3VaultIntegrationTest is Test {
         uint256 usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, ""));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
 
         // DAI and USDC were sent to liquidator
         assertEq(
@@ -827,7 +827,7 @@ contract V3VaultIntegrationTest is Test {
 
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, ""));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
 
         // all debt is payed
         assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
@@ -868,20 +868,20 @@ contract V3VaultIntegrationTest is Test {
         vm.expectRevert(IErrors.NotEnoughReward.selector);
         liquidator.liquidate(
             FlashloanLiquidator.LiquidateParams(
-                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 1000000
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 1000000, block.timestamp
             )
         );
 
         liquidator.liquidate(
             FlashloanLiquidator.LiquidateParams(
-                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 850023
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 850023, block.timestamp
             )
         );
 
         vm.expectRevert(IErrors.NotLiquidatable.selector);
         liquidator.liquidate(
             FlashloanLiquidator.LiquidateParams(
-                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0, block.timestamp
             )
         );
 

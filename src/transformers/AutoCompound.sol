@@ -56,6 +56,8 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         bool swap0To1;
         // swap amount - calculated off-chain - if this is set to 0 no swap happens
         uint256 amountIn;
+        // for uniswap operations
+        uint256 deadline;
     }
 
     // state used during autocompound execution
@@ -163,7 +165,7 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
 
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
-                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, block.timestamp
+                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, params.deadline
                     )
                 );
 

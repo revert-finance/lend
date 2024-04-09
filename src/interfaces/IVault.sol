@@ -79,6 +79,8 @@ interface IVault is IERC4626 {
         address recipient;
         // if permit2 signatures are used - set this
         bytes permitData;
+        // for uniswap functions
+        uint deadline;
     }
 
     function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);
