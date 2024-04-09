@@ -650,8 +650,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @param tokenId The token ID to use as collateral
     /// @param amount How many assets/debt shares to repay
     /// @param isShare Is amount specified in assets or debt shares.
-    function repay(uint256 tokenId, uint256 amount, bool isShare) external override {
-        _repay(tokenId, amount, isShare, "");
+    /// @return assets The amount of the assets repayed
+    /// @return shares The amount of the shares repayed
+    function repay(uint256 tokenId, uint256 amount, bool isShare) external override returns (uint256 assets, uint256 shares) {
+        (assets, shares) = _repay(tokenId, amount, isShare, "");
     }
 
     /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
@@ -659,8 +661,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @param amount How many assets/debt shares to repay
     /// @param isShare Is amount specified in assets or debt shares.
     /// @param permitData Permit2 data and signature
-    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external override {
-        _repay(tokenId, amount, isShare, permitData);
+    /// @return assets The amount of the assets repayed
+    /// @return shares The amount of the shares repayed
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external override returns (uint256 assets, uint256 shares) {
+        (assets, shares) = _repay(tokenId, amount, isShare, permitData);
     }
 
     // state used in liquidation function to avoid stack too deep errors
@@ -696,9 +700,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         _resetDailyDebtIncreaseLimit(state.newLendExchangeRateX96, false);
 
         uint256 debtShares = loans[params.tokenId].debtShares;
-        if (debtShares != params.debtShares) {
-            revert DebtChanged();
-        }
 
         state.debt = _convertToAssets(debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
 
@@ -960,6 +961,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
         }
 
+        uint balance = balanceOf(owner);
+        if (shares > balance) {
+            shares = balance;
+            assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
+        }
+
         // if caller has allowance for owners shares - may call withdraw
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
@@ -980,16 +987,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData) internal {
+    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData) internal returns (uint256 assets, uint256 shares) {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
         _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
         Loan storage loan = loans[tokenId];
 
         uint256 currentShares = loan.debtShares;
-
-        uint256 shares;
-        uint256 assets;
 
         if (isShare) {
             shares = amount;
@@ -1003,9 +1007,14 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             revert NoSharesRepayed();
         }
 
-        // fails if too much repayed
+        if (shares == 0) {
+            revert NoSharesRepayed();
+        }
+
+        // if too much repayed - just set to max
         if (shares > currentShares) {
-            revert RepayExceedsDebt();
+            shares = currentShares;
+            assets = _convertToAssets(shares, newDebtExchangeRateX96, Math.Rounding.Up);
         }
 
         if (assets > 0) {

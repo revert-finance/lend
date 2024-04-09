@@ -30,7 +30,6 @@ interface IErrors {
     error InsufficientLiquidity();
     error NotLiquidatable();
     error InterestNotUpdated();
-    error RepayExceedsDebt();
     error TransformNotAllowed();
     error TransformFailed();
     error CollateralFactorExceedsMax();

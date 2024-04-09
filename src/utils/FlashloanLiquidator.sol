@@ -11,7 +11,6 @@ import "./Swapper.sol";
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
     struct FlashCallbackData {
         uint256 tokenId;
-        uint256 debtShares;
         uint256 liquidationCost;
         IVault vault;
         IERC20 asset;
@@ -27,7 +26,6 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     struct LiquidateParams {
         uint256 tokenId; // loan to liquidate
-        uint256 debtShares; // debt shares calculation is based on
         IVault vault; // vault where the loan is
         IUniswapV3Pool flashLoanPool; // pool which is used for flashloan - may not be used in the swaps below
         uint256 amount0In; // how much of token0 to swap to asset (0 if no swap should be done)
@@ -51,7 +49,6 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         bytes memory data = abi.encode(
             FlashCallbackData(
                 params.tokenId,
-                params.debtShares,
                 liquidationCost,
                 params.vault,
                 IERC20(asset),
@@ -72,7 +69,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
         data.vault.liquidate(
             IVault.LiquidateParams(
-                data.tokenId, data.debtShares, data.swap0.amountIn, data.swap1.amountIn, address(this), ""
+                data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), ""
             )
         );
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);

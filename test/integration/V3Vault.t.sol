@@ -307,9 +307,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         USDC.approve(address(vault), debt);
 
-        if (isShare && amount > debtShares || !isShare && amount > debt) {
-            vm.expectRevert(IErrors.RepayExceedsDebt.selector);
-        } else if (amount == 0) {
+        if (amount == 0) {
             vm.expectRevert(IErrors.NoSharesRepayed.selector);
         }
 
@@ -745,11 +743,9 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost - 1);
 
-        (uint256 debtShares) = vault.loans(TEST_NFT);
-
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT, ""));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, ""));
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
@@ -758,7 +754,7 @@ contract V3VaultIntegrationTest is Test {
         uint256 usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, debtShares, 0, 0, WHALE_ACCOUNT, ""));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, ""));
 
         // DAI and USDC were sent to liquidator
         assertEq(
@@ -848,10 +844,9 @@ contract V3VaultIntegrationTest is Test {
         assertEq(liquidationCost, 0);
         assertEq(liquidationValue, 299);
 
-        (uint256 debtShares) = vault.loans(TEST_NFT_DAI_WETH);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, debtShares, 0, 0, WHALE_ACCOUNT, ""));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, ""));
 
         // all debt is payed
         assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
@@ -888,25 +883,23 @@ contract V3VaultIntegrationTest is Test {
         bytes memory swapData0 =
             abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
 
-        (uint256 debtShares) = vault.loans(TEST_NFT);
-
         vm.expectRevert(IErrors.NotEnoughReward.selector);
         liquidator.liquidate(
             FlashloanLiquidator.LiquidateParams(
-                TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356029
             )
         );
 
         liquidator.liquidate(
             FlashloanLiquidator.LiquidateParams(
-                TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356028
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), amount0, swapData0, 0, "", 356028
             )
         );
 
         vm.expectRevert(IErrors.NotLiquidatable.selector);
         liquidator.liquidate(
             FlashloanLiquidator.LiquidateParams(
-                TEST_NFT, debtShares, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_USDC), 0, "", 0, "", 0
             )
         );
 
@@ -1238,16 +1231,14 @@ contract V3VaultIntegrationTest is Test {
         USDC.approve(address(vault), repay);
 
         whaleBalance = USDC.balanceOf(WHALE_ACCOUNT);
-        if (repay > debt) {
-            vm.expectRevert(IErrors.RepayExceedsDebt.selector);
-        } else if (whaleBalance < repay) {
+        if (whaleBalance < repay && debt >= whaleBalance) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");
         } else if (repay == 0) {
             vm.expectRevert(IErrors.NoSharesRepayed.selector);
         }
 
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.repay(TEST_NFT, repay, false);
+        (repay, ) = vault.repay(TEST_NFT, repay, false);
 
         vaultBalance = USDC.balanceOf(address(vault));
         lent = vault.lendInfo(WHALE_ACCOUNT);
