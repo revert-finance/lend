@@ -295,8 +295,13 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
                 ? _getChainlinkPriceX96(referenceToken)
                 : cachedChainlinkReferencePriceX96;
 
-            chainlinkPriceX96 = (10 ** referenceTokenDecimals) * chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96
-                / (10 ** feedConfig.tokenDecimals);
+            if (referenceTokenDecimals > feedConfig.tokenDecimals) {
+                chainlinkPriceX96 = (10 ** (referenceTokenDecimals - feedConfig.tokenDecimals)) * chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96;
+            } else if (referenceTokenDecimals < feedConfig.tokenDecimals) {
+                chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96  / (10 ** (feedConfig.tokenDecimals - referenceTokenDecimals));
+            } else {
+                chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96;
+            }    
 
             if (feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
                 verifyPriceX96 = chainlinkPriceX96;
