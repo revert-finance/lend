@@ -901,6 +901,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @notice sets reserve factor - percentage difference between debt and lend interest (onlyOwner)
     /// @param _reserveFactorX32 reserve factor multiplied by Q32
     function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
+        // update interest to be sure that reservefactor change is applied from now on
+        _updateGlobalInterest();
         reserveFactorX32 = _reserveFactorX32;
         emit SetReserveFactor(_reserveFactorX32);
     }
