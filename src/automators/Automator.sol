@@ -177,14 +177,16 @@ abstract contract Automator is Swapper, Ownable {
     }
 
     // gets twap tick from pool history if enough history available
-    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24, bool) {
+    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (int24, bool) {
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = 0; // from (before)
-        secondsAgos[1] = twapPeriod; // from (before)
+        secondsAgos[1] = twapSeconds; // from (before)
 
         // pool observe may fail when there is not enough history available
         try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            return (int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod))), true);
+            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
+            if (tickCumulatives[0] - tickCumulatives[1] < 0 && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0) tick--;
+            return (tick, true);
         } catch {
             return (0, false);
         }

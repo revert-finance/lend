@@ -361,6 +361,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             secondsAgos[1] = twapSeconds; // from (before)
             (int56[] memory tickCumulatives,) = pool.observe(secondsAgos); // pool observe may fail when there is not enough history available (only use pool with enough history!)
             int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
+            if (tickCumulatives[0] - tickCumulatives[1] < 0 && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0) tick--;
             sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
         }
 
