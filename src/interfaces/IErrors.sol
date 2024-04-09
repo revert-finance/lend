@@ -37,6 +37,8 @@ interface IErrors {
     error CollateralValueLimit();
     error NoLiquidity();
     error DebtChanged();
+    error NeedsRepay();
+    error NoSharesRepayed();
 
     error SelfSend();
     error NotSupportedWhatToDo();

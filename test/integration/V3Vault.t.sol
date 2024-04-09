@@ -308,6 +308,8 @@ contract V3VaultIntegrationTest is Test {
 
         if (isShare && amount > debtShares || !isShare && amount > debt) {
             vm.expectRevert(IErrors.RepayExceedsDebt.selector);
+        } else if (amount == 0) {
+            vm.expectRevert(IErrors.NoSharesRepayed.selector);
         }
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -635,9 +637,16 @@ contract V3VaultIntegrationTest is Test {
         // check leftover tokens were sent to real owner
         assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - previousDAI, 299539766920961007);
 
-        // previous loan is deactivated - and sent back to owner
+        // previous loan is deactivated
         (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
+
+        //still in vault
+        assertEq(NPM.ownerOf(TEST_NFT), address(vault));
+
+        // but removable by owner
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
 
         uint256 newTokenId = NPM.tokenByIndex(NPM.totalSupply() - 1);
@@ -762,8 +771,6 @@ contract V3VaultIntegrationTest is Test {
             lType == LiquidationType.TimeBased ? 8844913 : (lType == LiquidationType.ValueBased ? 9436666 : 9338327)
         );
 
-        //  NFT was returned to owner
-        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
 
         // all debt is payed
         assertEq(vault.debtSharesTotal(), 0);
@@ -910,6 +917,10 @@ contract V3VaultIntegrationTest is Test {
         (debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
 
+        // remove liquidated NFT
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
+
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
     }
@@ -1017,10 +1028,18 @@ contract V3VaultIntegrationTest is Test {
 
         (debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
-        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
-        assertEq(vault.ownerOf(TEST_NFT), address(0));
+        
+        // still in vault
+        assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 1);
+        assertEq(NPM.ownerOf(TEST_NFT), address(vault));
+        assertEq(vault.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
 
         assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 0);
+        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+        assertEq(vault.ownerOf(TEST_NFT), address(0));
     }
 
     function testMultiLendLoan() external {
@@ -1222,6 +1241,8 @@ contract V3VaultIntegrationTest is Test {
             vm.expectRevert(IErrors.RepayExceedsDebt.selector);
         } else if (whaleBalance < repay) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");
+        } else if (repay == 0) {
+            vm.expectRevert(IErrors.NoSharesRepayed.selector);
         }
 
         vm.prank(TEST_NFT_ACCOUNT);
