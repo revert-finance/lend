@@ -777,7 +777,7 @@ contract V3VaultIntegrationTest is Test {
             USDC.balanceOf(address(vault)),
             lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9704740 : 10000000)
         );
-        (, uint256 lent, uint256 balance,,,,) = vault.vaultInfo();
+        (, uint256 lent, uint256 balance,,,) = vault.vaultInfo();
         assertEq(
             lent,
             lType == LiquidationType.TimeBased ? 10022441 : (lType == LiquidationType.ValueBased ? 9704740 : 10000000)
@@ -1083,25 +1083,22 @@ contract V3VaultIntegrationTest is Test {
 
         uint256 lent;
         uint256 balance;
-        uint256 available;
         uint256 reserves;
-        (debt, lent, balance, available, reserves,,) = vault.vaultInfo();
+        (debt, lent, balance, reserves,,) = vault.vaultInfo();
         assertEq(debt, 0);
         assertEq(lent, 0);
         assertEq(balance, 3);
-        assertEq(available, 0);
         assertEq(reserves, 3);
         assertEq(USDC.balanceOf(address(vault)), 3);
 
         // get all out
         vault.withdrawReserves(reserves, address(this));
 
-        (debt, lent, balance, available, reserves,,) = vault.vaultInfo();
+        (debt, lent, balance, reserves,,) = vault.vaultInfo();
 
         assertEq(debt, 0);
         assertEq(lent, 0);
         assertEq(balance, 0);
-        assertEq(available, 0);
         assertEq(reserves, 0);
         assertEq(USDC.balanceOf(address(vault)), 0);
     }
@@ -1122,7 +1119,7 @@ contract V3VaultIntegrationTest is Test {
 
         _setupBasicLoan(true);
 
-        (uint256 debt, uint256 lent,, uint256 availableBefore, uint256 reserves,,) = vault.vaultInfo();
+        (uint256 debt, uint256 lent,, uint256 reserves,,) = vault.vaultInfo();
 
         assertEq(debt, 8847206);
         assertEq(lent, 10000000);
@@ -1131,15 +1128,12 @@ contract V3VaultIntegrationTest is Test {
         // wait 30 days - interest growing
         vm.warp(block.timestamp + 30 days);
 
-        uint256 availableAfter;
 
-        (debt, lent,, availableAfter, reserves,,) = vault.vaultInfo();
+        (debt, lent,, reserves,,) = vault.vaultInfo();
         assertEq(debt, 8943378);
         assertEq(lent, 10086555);
 
-        // less of cash is available because its part of reserves now
-        assertEq(reserves, availableBefore - availableAfter);
-        assertEq(reserves, 9618);
+        assertEq(reserves, 9617);
 
         // not enough reserve generated to be above protection factor
         vm.expectRevert(IErrors.InsufficientLiquidity.selector);
@@ -1152,7 +1146,7 @@ contract V3VaultIntegrationTest is Test {
         // repay all
         _repay(debt, TEST_NFT_ACCOUNT, TEST_NFT, true);
 
-        (debt, lent,, availableAfter, reserves,,) = vault.vaultInfo();
+        (debt, lent,, reserves,,) = vault.vaultInfo();
         assertEq(debt, 0);
         assertEq(lent, 10086555);
 
@@ -1165,16 +1159,15 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         vault.redeem(balance * 99 / 100, WHALE_ACCOUNT, WHALE_ACCOUNT);
 
-        (, lent,,, reserves,,) = vault.vaultInfo();
+        (, lent,, reserves,,) = vault.vaultInfo();
         assertEq(lent, 100866);
-        assertEq(reserves, 9619);
+        assertEq(reserves, 9618);
 
         // now everything until 1 percent can be removed
         vm.expectRevert(IErrors.InsufficientLiquidity.selector);
-        vault.withdrawReserves(9619 - lent / 100 + 1, address(this));
-
+        vault.withdrawReserves(9618 - lent / 100 + 1, address(this));
         // now everything until 1 percent can be removed
-        vault.withdrawReserves(9619 - lent / 100, address(this));
+        vault.withdrawReserves(9618 - lent / 100, address(this));
     }
 
     /// forge-config: default.fuzz.runs = 1024
