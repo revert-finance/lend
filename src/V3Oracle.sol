@@ -23,7 +23,6 @@ import "./interfaces/IErrors.sol";
 /// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable, IErrors {
-    uint16 public constant MIN_PRICE_DIFFERENCE = 200; //2%
 
     uint256 private constant Q96 = 2 ** 96;
     uint256 private constant Q128 = 2 ** 128;
@@ -63,7 +62,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     address public immutable referenceToken;
     uint8 public immutable referenceTokenDecimals;
 
-    uint16 public maxPoolPriceDifference = MIN_PRICE_DIFFERENCE; // max price difference between oracle derived price and pool price x10000
+    uint16 public maxPoolPriceDifference; // max price difference between oracle derived price and pool price x10000
 
     // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
     address public immutable chainlinkReferenceToken;
@@ -185,9 +184,6 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     /// @notice Sets the max pool difference parameter (onlyOwner)
     /// @param _maxPoolPriceDifference Set max allowable difference between pool price and derived oracle pool price
     function setMaxPoolPriceDifference(uint16 _maxPoolPriceDifference) external onlyOwner {
-        if (_maxPoolPriceDifference < MIN_PRICE_DIFFERENCE) {
-            revert InvalidConfig();
-        }
         maxPoolPriceDifference = _maxPoolPriceDifference;
         emit SetMaxPoolPriceDifference(_maxPoolPriceDifference);
     }
@@ -220,10 +216,6 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         TokenConfig memory config;
 
         if (token != referenceToken) {
-            if (maxDifference < MIN_PRICE_DIFFERENCE) {
-                revert InvalidConfig();
-            }
-
             address token0 = pool.token0();
             address token1 = pool.token1();
             if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {

@@ -63,6 +63,7 @@ contract VaultPolygonIntegrationTest is Test {
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
+        oracle.setMaxPoolPriceDifference(200);
         oracle.setTokenConfig(
             USDC,
             AggregatorV3Interface(0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7),

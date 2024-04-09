@@ -44,6 +44,7 @@ contract V3OracleIntegrationTest is Test {
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
+        oracle.setMaxPoolPriceDifference(200);
         oracle.setTokenConfig(
             address(USDC),
             AggregatorV3Interface(CHAINLINK_USDC_USD),
