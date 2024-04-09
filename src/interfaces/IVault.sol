@@ -11,7 +11,6 @@ interface IVault is IERC4626 {
             uint256 debt,
             uint256 lent,
             uint256 balance,
-            uint256 available,
             uint256 reserves,
             uint256 debtExchangeRateX96,
             uint256 lendExchangeRateX96

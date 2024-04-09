@@ -191,7 +191,6 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     /// @return debt Total amount of debt asset tokens
     /// @return lent Total amount of lent asset tokens
     /// @return balance Balance of asset token in contract
-    /// @return available Available balance of asset token in contract (balance - reserves)
     /// @return reserves Amount of reserves
     function vaultInfo()
         external
@@ -201,14 +200,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             uint256 debt,
             uint256 lent,
             uint256 balance,
-            uint256 available,
             uint256 reserves,
             uint256 debtExchangeRateX96,
             uint256 lendExchangeRateX96
         )
     {
         (debtExchangeRateX96, lendExchangeRateX96) = _calculateGlobalInterest();
-        (balance, available, reserves) = _getAvailableBalance(debtExchangeRateX96, lendExchangeRateX96);
+        (balance, reserves) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
 
         debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
         lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
@@ -305,7 +303,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         if (value >= globalLendLimit) {
             return 0;
         } else {
-            return globalLendLimit - value;
+            uint256 maxGlobalDeposit = globalLendLimit - value;
+            if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
+                return dailyLendIncreaseLimitLeft;
+            } else {
+                return maxGlobalDeposit;
+            }
         }
     }
 
@@ -316,19 +319,45 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         if (value >= globalLendLimit) {
             return 0;
         } else {
-            return _convertToShares(globalLendLimit - value, lendExchangeRateX96, Math.Rounding.Down);
+            uint256 maxGlobalDeposit = globalLendLimit - value;
+            if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
+                return _convertToShares(dailyLendIncreaseLimitLeft, lendExchangeRateX96, Math.Rounding.Down);
+            } else {
+                return _convertToShares(maxGlobalDeposit, lendExchangeRateX96, Math.Rounding.Down);
+            }
+            
         }
     }
 
     /// @inheritdoc IERC4626
     function maxWithdraw(address owner) external view override returns (uint256) {
-        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        return _convertToAssets(balanceOf(owner), lendExchangeRateX96, Math.Rounding.Down);
+        (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+
+        uint256 ownerShareBalance = balanceOf(owner);
+        uint256 ownerAssetBalance = _convertToAssets(ownerShareBalance, lendExchangeRateX96, Math.Rounding.Down);
+        
+        (uint256 balance, ) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+        if (balance > ownerAssetBalance) {
+            return ownerAssetBalance;
+        } else {
+            return _convertToAssets(balance, lendExchangeRateX96, Math.Rounding.Down);
+        }
     }
 
     /// @inheritdoc IERC4626
     function maxRedeem(address owner) external view override returns (uint256) {
-        return balanceOf(owner);
+        (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+
+        uint256 ownerShareBalance = balanceOf(owner);
+
+        (uint256 balance, ) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+        uint256 shareBalance = _convertToShares(balance, lendExchangeRateX96, Math.Rounding.Down);
+
+        if (shareBalance > ownerShareBalance) {
+            return ownerShareBalance;
+        } else {
+            return shareBalance;
+        }
     }
 
     /// @inheritdoc IERC4626
@@ -596,6 +625,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         address owner = tokenOwner[tokenId];
 
         // fails if not enough asset available
+        // it may use all balance of the contract (because "virtual" reserves do not need to be stored in contract)
         // if called from transform mode - send funds to transformer contract
         SafeERC20.safeTransfer(IERC20(asset), isTransformMode ? msg.sender : owner, assets);
 
@@ -796,7 +826,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         uint256 protected =
             _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * reserveProtectionFactorX32 / Q32;
-        (uint256 balance,, uint256 reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+        (uint256 balance,uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
         uint256 unprotected = reserves > protected ? reserves - protected : 0;
         uint256 available = balance > unprotected ? unprotected : balance;
 
@@ -961,9 +991,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
         }
 
-        uint balance = balanceOf(owner);
-        if (shares > balance) {
-            shares = balance;
+        uint ownerBalance = balanceOf(owner);
+        if (shares > ownerBalance) {
+            shares = ownerBalance;
             assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
@@ -972,8 +1002,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             _spendAllowance(owner, msg.sender, shares);
         }
 
-        (, uint256 available,) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
-        if (available < assets) {
+        (uint256 balance,) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
+        if (balance < assets) {
             revert InsufficientLiquidity();
         }
 
@@ -1056,19 +1086,16 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         emit Repay(tokenId, msg.sender, owner, assets, shares);
     }
 
-    // checks how much balance is available - excluding reserves
-    function _getAvailableBalance(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96)
+    // checks how much balance is available
+    function _getBalanceAndReserves(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96)
         internal
         view
-        returns (uint256 balance, uint256 available, uint256 reserves)
+        returns (uint256 balance, uint256 reserves)
     {
         balance = totalAssets();
-
         uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
-        uint256 lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Down);
-
+        uint256 lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
         reserves = balance + debt > lent ? balance + debt - lent : 0;
-        available = balance > reserves ? balance - reserves : 0;
     }
 
     // removes correct amount from position to send to liquidator
@@ -1171,7 +1198,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         uint256 newDebtExchangeRateX96,
         uint256 newLendExchangeRateX96
     ) internal returns (uint256 missing) {
-        (,, uint256 reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+        (,uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
 
         // if not enough - democratize debt
         if (reserveCost > reserves) {
@@ -1218,11 +1245,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         uint256 oldDebtExchangeRateX96 = lastDebtExchangeRateX96;
         uint256 oldLendExchangeRateX96 = lastLendExchangeRateX96;
 
-        (, uint256 available,) = _getAvailableBalance(oldDebtExchangeRateX96, oldLendExchangeRateX96);
+        (uint256 balance,) = _getBalanceAndReserves(oldDebtExchangeRateX96, oldLendExchangeRateX96);
 
         uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
 
-        (uint256 borrowRateX96, uint256 supplyRateX96) = interestRateModel.getRatesPerSecondX96(available, debt);
+        (uint256 borrowRateX96, uint256 supplyRateX96) = interestRateModel.getRatesPerSecondX96(balance, debt);
 
         supplyRateX96 = supplyRateX96.mulDiv(Q32 - reserveFactorX32, Q32);
 
