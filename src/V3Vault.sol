@@ -991,9 +991,9 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
         }
 
-        uint balance = balanceOf(owner);
-        if (shares > balance) {
-            shares = balance;
+        uint ownerBalance = balanceOf(owner);
+        if (shares > ownerBalance) {
+            shares = ownerBalance;
             assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
