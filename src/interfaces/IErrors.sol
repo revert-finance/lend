@@ -9,6 +9,7 @@ interface IErrors {
     error InvalidConfig();
     error TWAPCheckFailed();
     error WrongContract();
+    error InvalidToken();
 
     error SwapFailed();
     error SlippageError();

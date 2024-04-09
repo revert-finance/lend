@@ -754,6 +754,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             if (params.permitData.length > 0) {
                 (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                     abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+
+                if (permit.permitted.token != asset) {
+                    revert InvalidToken();
+                }
+
                 permit2.permitTransferFrom(
                     permit,
                     ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
@@ -954,6 +959,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         if (permitData.length > 0) {
             (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                 abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+
+            if (permit.permitted.token != asset) {
+                revert InvalidToken();
+            }
+
             permit2.permitTransferFrom(
                 permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
             );
@@ -1054,6 +1064,11 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             if (permitData.length > 0) {
                 (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                     abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+
+                if (permit.permitted.token != asset) {
+                    revert InvalidToken();
+                }
+
                 permit2.permitTransferFrom(
                     permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
                 );
