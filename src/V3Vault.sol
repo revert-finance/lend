@@ -777,7 +777,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) =
-            _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
+            _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient);
 
         if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
             revert SlippageError();
