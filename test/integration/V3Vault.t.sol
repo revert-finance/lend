@@ -700,7 +700,7 @@ contract V3VaultIntegrationTest is Test {
             (debt, fullValue, collateralValue, liquidationCost, liquidationValue) = vault.loanInfo(TEST_NFT);
 
             // ignore difference - now it will work
-            oracle.setMaxPoolPriceDifference(10001);
+            oracle.setMaxPoolPriceDifference(type(uint16).max);
         }
 
         // debt is greater than collateral value
@@ -818,7 +818,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
         vault.borrow(TEST_NFT_DAI_WETH, 10000000);
 
-        oracle.setMaxPoolPriceDifference(10001);
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         // make it (almost) worthless
         vm.mockCall(

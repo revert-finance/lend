@@ -137,7 +137,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
     }
 
-    function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint256 maxDifferenceX10000)
+    function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000)
         internal
         pure
     {
@@ -146,7 +146,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             : (verifyPriceX96 - priceX96) * 10000;
         
         // if invalid price or too big difference - revert
-        if (verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 >= maxDifferenceX10000) {
+        if ((verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 >= maxDifferenceX10000) && maxDifferenceX10000 < type(uint16).max) {
             revert PriceDifferenceExceeded();
         }
     }
