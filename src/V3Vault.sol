@@ -1339,7 +1339,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         uint256 time = block.timestamp / 1 days;
         if (force || time > dailyLendIncreaseLimitLastReset) {
             uint256 lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-                * (Q32 + MAX_DAILY_LEND_INCREASE_X32) / Q32;
+                * MAX_DAILY_LEND_INCREASE_X32 / Q32;
             dailyLendIncreaseLimitLeft =
                 dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
             dailyLendIncreaseLimitLastReset = time;
@@ -1351,7 +1351,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         uint256 time = block.timestamp / 1 days;
         if (force || time > dailyDebtIncreaseLimitLastReset) {
             uint256 debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-                * (Q32 + MAX_DAILY_DEBT_INCREASE_X32) / Q32;
+                * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
             dailyDebtIncreaseLimitLeft =
                 dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
             dailyDebtIncreaseLimitLastReset = time;
