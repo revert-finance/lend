@@ -44,6 +44,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); //10%
     uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
 
+    uint256 public constant BORROW_SAFETY_BUFFER = uint32(Q32 * 95 / 100); //95% of collateral value
+
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
@@ -244,7 +246,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
         bool isHealthy;
-        (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthy(tokenId, debt);
+        (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthy(tokenId, debt, false);
 
         if (!isHealthy) {
             (liquidationValue, liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
@@ -567,7 +569,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         nonfungiblePositionManager.approve(address(0), tokenId);
 
         uint256 debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(tokenId, debt);
+        _requireLoanIsHealthy(tokenId, debt, false);
 
         transformedTokenId = 0;
 
@@ -619,7 +621,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // only does check health here if not in transform mode
         if (!isTransformMode) {
-            _requireLoanIsHealthy(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt, true);
         }
 
         address owner = tokenOwner[tokenId];
@@ -671,7 +673,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
 
         uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(params.tokenId, debt);
+        _requireLoanIsHealthy(params.tokenId, debt, true);
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
@@ -734,7 +736,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         state.debt = _convertToAssets(debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
 
         (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) =
-            _checkLoanIsHealthy(params.tokenId, state.debt);
+            _checkLoanIsHealthy(params.tokenId, state.debt, false);
         if (state.isHealthy) {
             revert NotLiquidatable();
         }
@@ -1268,8 +1270,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
     }
 
-    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt) internal view {
-        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt);
+    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer) internal view {
+        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, withBuffer);
         if (!isHealthy) {
             revert CollateralFail();
         }
@@ -1341,7 +1343,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }
     }
 
-    function _checkLoanIsHealthy(uint256 tokenId, uint256 debt)
+    function _checkLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer)
         internal
         view
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
@@ -1349,7 +1351,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
-        isHealthy = collateralValue >= debt;
+        isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER / Q32 : collateralValue) >= debt;
     }
 
     function _convertToShares(uint256 amount, uint256 exchangeRateX96, Math.Rounding rounding)
