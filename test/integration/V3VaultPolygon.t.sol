@@ -120,14 +120,14 @@ contract VaultPolygonIntegrationTest is Test {
 
         autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
-        autoRange.setVault(address(vault), true);
+        autoRange.setVault(address(vault));
 
         autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
         vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault), true);
+        autoCompound.setVault(address(vault));
 
         autoExit = new AutoExit(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
-        autoExit.setVault(address(vault), true);
+        autoExit.setVault(address(vault));
     }
 
     function test() external {

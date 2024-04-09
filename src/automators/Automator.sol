@@ -25,7 +25,7 @@ abstract contract Automator is Swapper, Ownable {
 
     // admin events
     event OperatorChanged(address newOperator, bool active);
-    event VaultChanged(address newVault, bool active);
+    event VaultSet(address newVault);
 
     event WithdrawerChanged(address newWithdrawer);
     event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
@@ -72,13 +72,12 @@ abstract contract Automator is Swapper, Ownable {
     }
 
     /**
-     * @notice Owner controlled function to activate/deactivate vault address
+     * @notice Owner controlled function to activate vault address
      * @param _vault vault
-     * @param _active active or not
      */
-    function setVault(address _vault, bool _active) public onlyOwner {
-        emit VaultChanged(_vault, _active);
-        vaults[_vault] = _active;
+    function setVault(address _vault) external onlyOwner {
+        emit VaultSet(_vault);
+        vaults[_vault] = true;
     }
 
     /**

@@ -549,7 +549,7 @@ contract V3VaultIntegrationTest is Test {
     function testTransformAutoCompoundInsideVault() external {
         AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
         vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault), true);
+        autoCompound.setVault(address(vault));
 
         _setupBasicLoan(true);
 
@@ -580,7 +580,7 @@ contract V3VaultIntegrationTest is Test {
     function testTransformAutoRangeInsideVault() external {
         AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
-        autoRange.setVault(address(vault), true);
+        autoRange.setVault(address(vault));
 
         _setupBasicLoan(true);
 
