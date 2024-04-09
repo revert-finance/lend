@@ -269,7 +269,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         returns (uint256 priceX96, uint256 chainlinkReferencePriceX96)
     {
         if (token == referenceToken) {
-            return (Q96, chainlinkReferencePriceX96);
+            return (Q96, cachedChainlinkReferencePriceX96);
         }
 
         TokenConfig memory feedConfig = feedConfigs[token];
