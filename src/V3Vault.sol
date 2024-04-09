@@ -693,6 +693,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         (state.newDebtExchangeRateX96, state.newLendExchangeRateX96) = _updateGlobalInterest();
 
+        _resetDailyDebtIncreaseLimit(state.newLendExchangeRateX96, false);
+
         uint256 debtShares = loans[params.tokenId].debtShares;
         if (debtShares != params.debtShares) {
             revert DebtChanged();
@@ -732,6 +734,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         }        
 
         debtSharesTotal -= debtShares;
+
+        dailyDebtIncreaseLimitLeft += state.debt;
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) =
@@ -946,6 +950,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         returns (uint256 assets, uint256 shares)
     {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+        _resetDailyLendIncreaseLimit(newLendExchangeRateX96, false);
 
         if (isShare) {
             shares = amount;
@@ -977,6 +982,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
     function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData) internal {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+        _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
         Loan storage loan = loans[tokenId];
 
