@@ -962,7 +962,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         _mint(receiver, shares);
 
-        if (totalSupply() > globalLendLimit) {
+        uint256 totalSupplyValue = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
+        if (totalSupplyValue > globalLendLimit) {
             revert GlobalLendLimit();
         }
 
