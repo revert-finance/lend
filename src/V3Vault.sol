@@ -715,19 +715,21 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
                 _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
         }
 
-        if (params.permitData.length > 0) {
-            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-            permit2.permitTransferFrom(
-                permit,
-                ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
-                msg.sender,
-                signature
-            );
-        } else {
-            // take value from liquidator
-            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
-        }
+        if (state.liquidatorCost > 0) {
+            if (params.permitData.length > 0) {
+                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                    abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+                permit2.permitTransferFrom(
+                    permit,
+                    ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
+                    msg.sender,
+                    signature
+                );
+            } else {
+                // take value from liquidator
+                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
+            }
+        }        
 
         debtSharesTotal -= debtShares;
 
@@ -1111,12 +1113,18 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
             liquidationValue = debt * (Q32 + penaltyX32) / Q32;
         } else {
-            // all position value
-            liquidationValue = fullValue;
+            uint256 penalty = debt * MAX_LIQUIDATION_PENALTY_X32 / Q32;
 
-            uint256 penaltyValue = fullValue * (Q32 - MAX_LIQUIDATION_PENALTY_X32) / Q32;
-            liquidatorCost = penaltyValue;
-            reserveCost = debt - penaltyValue;
+            // if value is enough to pay penalty
+            if (fullValue > penalty) {
+                liquidatorCost = fullValue - penalty;
+            } else {
+                // this extreme case leads to free liquidation
+                liquidatorCost = 0;
+            }
+            
+            liquidationValue = fullValue;
+            reserveCost = debt - liquidatorCost; // Remaining to pay is taken from reserves
         }
     }
 
