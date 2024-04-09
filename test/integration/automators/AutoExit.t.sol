@@ -290,7 +290,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
     function testOracleCheck() external {
         // create range adjustor with more strict oracle config
-        autoExit = new AutoExit(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60 * 30, 4, EX0x, UNIVERSAL_ROUTER);
+        autoExit = new AutoExit(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60 * 30, 3, EX0x, UNIVERSAL_ROUTER);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
         NPM.setApprovalForAll(address(autoExit), true);
