@@ -18,6 +18,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         RouterSwapParams swap1;
         address liquidator;
         uint256 minReward;
+        uint256 deadline;
     }
 
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
@@ -33,6 +34,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         uint256 amount1In; // how much of token1 to swap to asset (0 if no swap should be done)
         bytes swapData1; // swap data for token1 swap
         uint256 minReward; // min reward amount (works as a global slippage control for complete operation)
+        uint256 deadline; // deadline for uniswap operations
     }
 
     /// @notice Liquidates a loan, using a Uniswap Flashloan
@@ -55,7 +57,8 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
                 RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0),
                 RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1),
                 msg.sender,
-                params.minReward
+                params.minReward,
+                params.deadline
             )
         );
         params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
@@ -69,7 +72,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
         data.vault.liquidate(
             IVault.LiquidateParams(
-                data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), ""
+                data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), "", data.deadline
             )
         );
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);

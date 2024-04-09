@@ -16,13 +16,13 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
 
     function testNoAccess() external {
         vm.expectRevert(IErrors.Unauthorized.selector);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
     function testNoApprove() external {
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
     function _testWithdrawLeftover() internal {
@@ -80,7 +80,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0, block.timestamp));
 
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 99102324844935209920);
@@ -97,7 +97,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, true, 123456789012345678));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, true, 123456789012345678, block.timestamp));
 
         // more liquidity than without swap
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
@@ -115,7 +115,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 1234567890123456));
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 1234567890123456, block.timestamp));
 
         // less liquidity than without swap
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);

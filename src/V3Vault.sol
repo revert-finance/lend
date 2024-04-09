@@ -777,7 +777,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) =
-            _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient);
+            _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient, params.deadline);
 
         if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
             revert SlippageError();
@@ -1124,7 +1124,8 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         uint256 liquidationValue,
         uint256 fullValue,
         uint256 feeValue,
-        address recipient
+        address recipient,
+        uint256 deadline
     ) internal returns (uint256 amount0, uint256 amount1) {
         uint128 liquidity;
         uint128 fees0;
@@ -1153,7 +1154,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         if (liquidity > 0) {
             nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, 0, 0, block.timestamp)
+                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, 0, 0, deadline)
             );
         }
 
