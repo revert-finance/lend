@@ -140,20 +140,19 @@ abstract contract Automator is Swapper, Ownable {
         bool swap0For1,
         uint256 amountIn,
         IUniswapV3Pool pool,
+        int24 currentTick,
+        uint160 sqrtPriceX96,
         uint32 twapPeriod,
         uint16 maxTickDifference,
         uint64 maxPriceDifferenceX64
-    ) internal view returns (uint256 amountOutMin, int24 currentTick, uint160 sqrtPriceX96, uint256 priceX96) {
-        // get current price and tick
-        (sqrtPriceX96, currentTick,,,,,) = pool.slot0();
-
+    ) internal view returns (uint256 amountOutMin) {
         // check if current tick not too far from TWAP
         if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
             revert TWAPCheckFailed();
         }
 
         // calculate min output price price and percentage
-        priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         if (swap0For1) {
             amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q96 * Q64);
         } else {

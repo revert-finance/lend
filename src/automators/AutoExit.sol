@@ -76,6 +76,8 @@ contract AutoExit is Automator {
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
+        int24 currentTick;
+        uint160 sqrtPriceX96;
         uint128 liquidity;
         uint256 amount0;
         uint256 amount1;
@@ -157,29 +159,34 @@ contract AutoExit is Automator {
             }
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
+            if (state.swapAmount != 0) {
+                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
 
-            // checks if price in valid oracle range and calculates amountOutMin
-            (state.amountOutMin,,,) = _validateSwap(
-                !state.isAbove,
-                state.swapAmount,
-                state.pool,
-                TWAPSeconds,
-                maxTWAPTickDifference,
-                state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64
-            );
-
-            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
-                Swapper.RouterSwapParams(
-                    state.isAbove ? IERC20(state.token1) : IERC20(state.token0),
-                    state.isAbove ? IERC20(state.token0) : IERC20(state.token1),
+                // checks if price in valid oracle range and calculates amountOutMin
+                state.amountOutMin = _validateSwap(
+                    !state.isAbove,
                     state.swapAmount,
-                    state.amountOutMin,
-                    params.swapData
-                )
-            );
+                    state.pool,
+                    state.currentTick,
+                    state.sqrtPriceX96,
+                    TWAPSeconds,
+                    maxTWAPTickDifference,
+                    state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64
+                );
 
-            state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
-            state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
+                (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        state.isAbove ? IERC20(state.token1) : IERC20(state.token0),
+                        state.isAbove ? IERC20(state.token0) : IERC20(state.token1),
+                        state.swapAmount,
+                        state.amountOutMin,
+                        params.swapData
+                    )
+                );
+
+                state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
+                state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
+            }
 
             // when swap and !onlyFees - protocol reward is removed only from target token (to incentivize optimal swap done by operator)
             if (!config.onlyFees) {

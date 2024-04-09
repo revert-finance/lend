@@ -490,7 +490,7 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(IErrors.TWAPCheckFailed.selector);
-        autoRange.execute(AutoRange.ExecuteParams(TEST_NFT_2, false, 0, "", liquidity, 0, 0, block.timestamp, 0));
+        autoRange.execute(AutoRange.ExecuteParams(TEST_NFT_2, false, 1000000, "", liquidity, 0, 0, block.timestamp, 0));
     }
 
     function _get03WETHToDAISwapData() internal view returns (bytes memory) {

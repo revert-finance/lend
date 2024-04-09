@@ -72,6 +72,7 @@ contract AutoRange is Automator {
         int24 tickLower;
         int24 tickUpper;
         int24 currentTick;
+        uint160 sqrtPriceX96;
         uint256 amount0;
         uint256 amount1;
         uint256 feeAmount0;
@@ -152,44 +153,51 @@ contract AutoRange is Automator {
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-
-        // check oracle for swap
-        (state.amountOutMin, state.currentTick,,) = _validateSwap(
-            params.swap0To1,
-            params.amountIn,
-            state.pool,
-            TWAPSeconds,
-            maxTWAPTickDifference,
-            params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
-        );
+        (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
 
         if (
             state.currentTick < state.tickLower - config.lowerTickLimit
                 || state.currentTick >= state.tickUpper + config.upperTickLimit
         ) {
+            // check oracle for swap
+            if (params.amountIn != 0) {
+                state.amountOutMin = _validateSwap(
+                    params.swap0To1,
+                    params.amountIn,
+                    state.pool,
+                    state.currentTick,
+                    state.sqrtPriceX96,
+                    TWAPSeconds,
+                    maxTWAPTickDifference,
+                    params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
+                );
+
+                (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
+                        params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0),
+                        params.amountIn,
+                        state.amountOutMin,
+                        params.swapData
+                    )
+                );
+
+                state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
+                state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+
+                // update tick
+                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
+            }
+
             int24 tickSpacing = _getTickSpacing(state.fee);
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
-            // check if new range same as old range
             if (
                 baseTick + config.lowerTickDelta == state.tickLower
                     && baseTick + config.upperTickDelta == state.tickUpper
             ) {
                 revert SameRange();
             }
-
-            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
-                Swapper.RouterSwapParams(
-                    params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
-                    params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0),
-                    params.amountIn,
-                    state.amountOutMin,
-                    params.swapData
-                )
-            );
-
-            state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
-            state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
 
             // max amount to add - removing max potential fees (if config.onlyFees - the have been removed already)
             state.maxAddAmount0 = config.onlyFees ? state.amount0 : state.amount0 * Q64 / (params.rewardX64 + Q64);
