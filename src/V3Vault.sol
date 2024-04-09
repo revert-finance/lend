@@ -69,7 +69,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     event ApprovedTransform(uint256 indexed tokenId, address owner, address target, bool isActive);
 
     event Add(uint256 indexed tokenId, address owner, uint256 oldTokenId); // when a token is added replacing another token - oldTokenId > 0
-    event Remove(uint256 indexed tokenId, address recipient);
+    event Remove(uint256 indexed tokenId, address owner, address recipient);
 
     event ExchangeRateUpdate(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96);
     // Deposit and Withdraw events are defined in IERC4626
@@ -759,6 +759,27 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
         );
     }
 
+    /// @notice Removes position from the vault (only possible when all repayed)
+    /// @param tokenId The token ID to use as collateral
+    /// @param recipient Address to recieve NFT
+    /// @param data Optional data to send to reciever
+    function remove(uint256 tokenId, address recipient, bytes calldata data) external {
+
+        address owner = tokenOwner[tokenId];
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+
+        uint256 debtShares = loans[tokenId].debtShares;
+        if (debtShares > 0) {
+            revert NeedsRepay();
+        }
+
+        _removeTokenFromOwner(owner, tokenId);
+        nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId, data);
+        emit Remove(tokenId, owner, recipient);
+    }
+
     ////////////////// ADMIN FUNCTIONS only callable by owner
 
     /// @notice withdraw protocol reserves (onlyOwner)
@@ -972,6 +993,10 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             shares = _convertToShares(amount, newDebtExchangeRateX96, Math.Rounding.Down);
         }
 
+        if (shares == 0) {
+            revert NoSharesRepayed();
+        }
+
         // fails if too much repayed
         if (shares > currentShares) {
             revert RepayExceedsDebt();
@@ -1076,15 +1101,12 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
     }
 
     // cleans up loan when it is closed because of replacement, repayment or liquidation
-    // send the position in its current state to owner
-    function _cleanupLoan(uint256 tokenId, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96, address owner)
-        internal
+    // the position is kept in the contract, but can be removed with remove() method
+    // because loanShares are 0
+    function _cleanupLoan(uint256 tokenId, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96, address owner) internal
     {
-        _removeTokenFromOwner(owner, tokenId);
         _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, loans[tokenId].debtShares, 0);
         delete loans[tokenId];
-        nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId);
-        emit Remove(tokenId, owner);
     }
 
     // calculates amount which needs to be payed to liquidate position
