@@ -141,11 +141,12 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         internal
         pure
     {
-        uint256 differenceX10000 = priceX96 > verifyPriceX96
-            ? (priceX96 - verifyPriceX96) * 10000 / priceX96
-            : (verifyPriceX96 - priceX96) * 10000 / verifyPriceX96;
-        // if too big difference - revert
-        if (differenceX10000 >= maxDifferenceX10000) {
+        uint256 differenceX10000 = priceX96 >= verifyPriceX96
+            ? (priceX96 - verifyPriceX96) * 10000
+            : (verifyPriceX96 - priceX96) * 10000;
+        
+        // if invalid price or too big difference - revert
+        if (verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 >= maxDifferenceX10000) {
             revert PriceDifferenceExceeded();
         }
     }
