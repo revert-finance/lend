@@ -125,8 +125,8 @@ contract V3VaultIntegrationTest is Test {
         vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
         (, uint256 fullValue, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
-        assertEq(collateralValue, 8847206);
-        assertEq(fullValue, 9830229);
+        assertEq(collateralValue, 8846179);
+        assertEq(fullValue, 9829088);
 
         if (borrowMax) {
             // borrow max
@@ -330,8 +330,8 @@ contract V3VaultIntegrationTest is Test {
         assertEq(liquidity, 18828671372106658);
 
         (uint256 debt,, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, 8404845);
-        assertEq(collateralValue, 8847206);
+        assertEq(debt, 8403870);
+        assertEq(collateralValue, 8846179);
 
         // swap 300721346401315352 DAI for USDC
         bytes memory swapDAIUSDC = abi.encode(
@@ -369,8 +369,8 @@ contract V3VaultIntegrationTest is Test {
         );
 
         (debt,, collateralValue,,) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, 3282859);
-        assertEq(collateralValue, 4235990);
+        assertEq(debt, 3281884);
+        assertEq(collateralValue, 4235476);
 
         // swap 80870 USDC for DAI (to achieve almost optimal ratio)
         bytes memory swapUSDCDAI = abi.encode(
@@ -406,8 +406,8 @@ contract V3VaultIntegrationTest is Test {
         );
 
         (debt,, collateralValue,,) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, 7363729);
-        assertEq(collateralValue, 7908458);
+        assertEq(debt, 7362754);
+        assertEq(collateralValue, 7907499);
     }
 
     function testTransformWithdrawCollect() external {
@@ -527,8 +527,8 @@ contract V3VaultIntegrationTest is Test {
         // debt with new NFT as collateral must be the same amount as before
         assertEq(debt, oldDebt);
 
-        assertEq(collateralValue, 8673141);
-        assertEq(fullValue, 9636824);
+        assertEq(collateralValue, 8672091);
+        assertEq(fullValue, 9635657);
     }
 
     function testTransformAutoCompoundOutsideVault() external {
@@ -627,7 +627,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(newTokenId, 599811);
 
         (debt,,,,) = vault.loanInfo(newTokenId);
-        assertEq(debt, 8404845);
+        assertEq(debt, 8403870);
         assertEq(NPM.ownerOf(newTokenId), address(vault));
         assertEq(vault.ownerOf(newTokenId), TEST_NFT_ACCOUNT);
     }
@@ -654,8 +654,8 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         (, uint256 fullValue, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
-        assertEq(collateralValue, 8847206);
-        assertEq(fullValue, 9830229);
+        assertEq(collateralValue, 8846179);
+        assertEq(fullValue, 9829088);
 
         // debt is equal collateral value
         (uint256 debt,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT);
@@ -673,11 +673,11 @@ contract V3VaultIntegrationTest is Test {
             interestRateModel.setValues(Q96 / 10, Q96 * 2, Q96 * 2, 0);
             vm.warp(block.timestamp + 3 days);
 
-            // collateral DAI value change -100%
+            // collateral DAI value change -50%
             vm.mockCall(
                 CHAINLINK_DAI_USD,
                 abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
-                abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0))
+                abi.encode(uint80(0), int256(50000000), block.timestamp, block.timestamp, uint80(0))
             );
         } else {
             vault.setTokenConfig(address(DAI), uint32(Q32 * 2 / 10), type(uint32).max); // 20% collateral factor
@@ -698,27 +698,27 @@ contract V3VaultIntegrationTest is Test {
         // debt only grows in time based scenario
         assertEq(
             debt,
-            lType == LiquidationType.TimeBased ? 9019579 : (lType == LiquidationType.ValueBased ? 8527792 : 8404845)
+            lType == LiquidationType.TimeBased ? 9018466 : (lType == LiquidationType.ValueBased ? 8526790 : 8403870)
         );
 
         // collateral value is lower in non time based scenario
         assertEq(
             collateralValue,
-            lType == LiquidationType.TimeBased ? 8847206 : (lType == LiquidationType.ValueBased ? 8492999 : 1966045)
+            lType == LiquidationType.TimeBased ? 8846179 : (lType == LiquidationType.ValueBased ? 4518006 : 1965817)
         );
         assertEq(
             fullValue,
-            lType == LiquidationType.TimeBased ? 9830229 : (lType == LiquidationType.ValueBased ? 9436666 : 9830229)
+            lType == LiquidationType.TimeBased ? 9829088 : (lType == LiquidationType.ValueBased ? 5020007 : 9829088)
         );
 
         assertGt(debt, collateralValue);
         assertEq(
             liquidationCost,
-            lType == LiquidationType.TimeBased ? 8928272 : (lType == LiquidationType.ValueBased ? 8527792 : 8404845)
+            lType == LiquidationType.TimeBased ? 8927242 : (lType == LiquidationType.ValueBased ? 4167329 : 8403870)
         );
         assertEq(
             liquidationValue,
-            lType == LiquidationType.TimeBased ? 9830229 : (lType == LiquidationType.ValueBased ? 8976686 : 9233331)
+            lType == LiquidationType.TimeBased ? 9829088 : (lType == LiquidationType.ValueBased ? 5020007 : 9232260)
         );
 
         vm.prank(WHALE_ACCOUNT);
@@ -742,11 +742,11 @@ contract V3VaultIntegrationTest is Test {
             DAI.balanceOf(WHALE_ACCOUNT) - daiBalance,
             lType == LiquidationType.TimeBased
                 ? 393607068547774684
-                : (lType == LiquidationType.ValueBased ? 384346643210523437 : 381827304764762831)
+                : (lType == LiquidationType.ValueBased ? 393607068547774684 : 381827258366399536)
         );
         assertEq(
             USDC.balanceOf(WHALE_ACCOUNT) + liquidationCost - usdcBalance,
-            lType == LiquidationType.TimeBased ? 9436666 : (lType == LiquidationType.ValueBased ? 8976686 : 8851546)
+            lType == LiquidationType.TimeBased ? 9436666 : (lType == LiquidationType.ValueBased ? 9436666 : 8851544)
         );
 
 
@@ -756,16 +756,16 @@ contract V3VaultIntegrationTest is Test {
         // protocol is solvent
         assertEq(
             USDC.balanceOf(address(vault)),
-            lType == LiquidationType.TimeBased ? 10523427 : (lType == LiquidationType.ValueBased ? 10122947 : 10000000)
+            lType == LiquidationType.TimeBased ? 10523372 : (lType == LiquidationType.ValueBased ? 5763459 : 10000000)
         );
         (, uint256 lent, uint256 balance,,,) = vault.vaultInfo();
         assertEq(
             lent,
-            lType == LiquidationType.TimeBased ? 10523427 : (lType == LiquidationType.ValueBased ? 10122947 : 10000000)
+            lType == LiquidationType.TimeBased ? 10523372 : (lType == LiquidationType.ValueBased ? 5763459 : 10000000)
         );
         assertEq(
             balance,
-            lType == LiquidationType.TimeBased ? 10523427 : (lType == LiquidationType.ValueBased ? 10122947 : 10000000)
+            lType == LiquidationType.TimeBased ? 10523372 : (lType == LiquidationType.ValueBased ? 5763459 : 10000000)
         );
 
         // there maybe some amounts left in position
@@ -774,10 +774,10 @@ contract V3VaultIntegrationTest is Test {
             amount0,
             lType == LiquidationType.TimeBased
                 ? 0
-                : (lType == LiquidationType.ValueBased ? 9260425337251246 : 11779763783011852)
+                : (lType == LiquidationType.ValueBased ? 0 : 305669608481265347)
         );
         assertEq(
-            amount1, lType == LiquidationType.TimeBased ? 0 : (lType == LiquidationType.ValueBased ? 459980 : 585119)
+            amount1, lType == LiquidationType.TimeBased ? 0 : (lType == LiquidationType.ValueBased ? 0 : 291191)
         );
     }
 
@@ -794,8 +794,8 @@ contract V3VaultIntegrationTest is Test {
         (uint256 debt, uint256 fullValue, uint256 collateralValue,uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
         
         assertEq(debt, 0);
-        assertEq(collateralValue, 51440100021);
-        assertEq(fullValue, 57155666697);
+        assertEq(collateralValue, 51440078684);
+        assertEq(fullValue, 57155642989);
         assertEq(liquidationCost, 0);
         assertEq(liquidationValue, 0);
 
@@ -820,10 +820,10 @@ contract V3VaultIntegrationTest is Test {
 
         (debt, fullValue, collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
         assertEq(debt, 10000000);
-        assertEq(collateralValue, 269);
-        assertEq(fullValue, 299);
+        assertEq(collateralValue, 0);
+        assertEq(fullValue, 1);
         assertEq(liquidationCost, 0);
-        assertEq(liquidationValue, 299);
+        assertEq(liquidationValue, 1);
 
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
@@ -846,8 +846,8 @@ contract V3VaultIntegrationTest is Test {
         (uint256 debt, uint256 fullValue, uint256 collateralValue,uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
         
         assertEq(debt, 0);
-        assertEq(collateralValue, 51440100021);
-        assertEq(fullValue, 57155666697);
+        assertEq(collateralValue, 51440078684);
+        assertEq(fullValue, 57155642989);
         assertEq(liquidationCost, 0);
         assertEq(liquidationValue, 0);
 
@@ -861,7 +861,7 @@ contract V3VaultIntegrationTest is Test {
         (debt, fullValue, collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
         assertEq(debt, 10000000);
         assertEq(collateralValue, 0);
-        assertEq(fullValue, 57155666697);
+        assertEq(fullValue, 57155642989);
         assertEq(liquidationCost, 10000000);
         assertEq(liquidationValue, 10999999);
 
@@ -886,9 +886,9 @@ contract V3VaultIntegrationTest is Test {
         // debt is greater than collateral value
         (uint256 debt,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT);
 
-        assertEq(debt, 9019579);
-        assertEq(liquidationCost, 8928272);
-        assertEq(liquidationValue, 9830229);
+        assertEq(debt, 9018466);
+        assertEq(liquidationCost, 8927242);
+        assertEq(liquidationValue, 9829088);
 
         (address token0, address token1,,,,,,) = oracle.getPositionBreakdown(TEST_NFT);
 
@@ -927,10 +927,10 @@ contract V3VaultIntegrationTest is Test {
             )
         );
 
-        assertEq(liquidationValue - liquidationCost, 901957); // promised liquidation premium
+        assertEq(liquidationValue - liquidationCost, 901846); // promised liquidation premium
 
         assertEq(IERC20(token0).balanceOf(address(this)) - token0Before, 11913310321146742);
-        assertEq(IERC20(token1).balanceOf(address(this)) - token1Before, 889150); // actual liquidation premium (less because of swap)
+        assertEq(IERC20(token1).balanceOf(address(this)) - token1Before, 890180); // actual liquidation premium (less because of swap)
 
         (debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
@@ -1023,8 +1023,8 @@ contract V3VaultIntegrationTest is Test {
         // verify to date values
         (uint256 debt, uint256 fullValue, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 1004945);
-        assertEq(fullValue, 9830229);
-        assertEq(collateralValue, 8847206);
+        assertEq(fullValue, 9829088);
+        assertEq(collateralValue, 8846179);
         uint256 lent = vault.lendInfo(WHALE_ACCOUNT);
         assertEq(lent, 1004944);
 
@@ -1145,7 +1145,7 @@ contract V3VaultIntegrationTest is Test {
 
         (uint256 debt, uint256 lent,, uint256 reserves,,) = vault.vaultInfo();
 
-        assertEq(debt, 8404845);
+        assertEq(debt, 8403870);
         assertEq(lent, 10000000);
         assertEq(reserves, 0);
 
@@ -1154,10 +1154,10 @@ contract V3VaultIntegrationTest is Test {
 
 
         (debt, lent,, reserves,,) = vault.vaultInfo();
-        assertEq(debt, 8462922);
-        assertEq(lent, 10052270);
+        assertEq(debt, 8461867);
+        assertEq(lent, 10052197);
 
-        assertEq(reserves, 5807);
+        assertEq(reserves, 5800);
 
         // not enough reserve generated to be above protection factor
         vm.expectRevert(IErrors.InsufficientLiquidity.selector);
@@ -1172,7 +1172,7 @@ contract V3VaultIntegrationTest is Test {
 
         (debt, lent,, reserves,,) = vault.vaultInfo();
         assertEq(debt, 0);
-        assertEq(lent, 10052270);
+        assertEq(lent, 10052197);
 
         // not enough reserve generated to be above protection factor
         vm.expectRevert(IErrors.InsufficientLiquidity.selector);
@@ -1184,8 +1184,8 @@ contract V3VaultIntegrationTest is Test {
         vault.redeem(balance * 99 / 100, WHALE_ACCOUNT, WHALE_ACCOUNT);
 
         (, lent,, reserves,,) = vault.vaultInfo();
-        assertEq(lent, 100523);
-        assertEq(reserves, 5808);
+        assertEq(lent, 100522);
+        assertEq(reserves, 5801);
 
         // now everything until 1 percent can be removed
         vm.expectRevert(IErrors.InsufficientLiquidity.selector);

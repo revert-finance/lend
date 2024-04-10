@@ -14,6 +14,8 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "../lib/AggregatorV3Interface.sol";
 
@@ -88,8 +90,8 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     /// @dev all involved tokens must be configured in oracle - otherwise reverts
     /// @param tokenId tokenId of position
     /// @param token address of token in which value and prices should be given
-    /// @return value value of complete position at current prices
-    /// @return feeValue value of positions fees only at current prices
+    /// @return value value of complete position at current oracle prices
+    /// @return feeValue value of positions fees only at current oracle prices
     /// @return price0X96 price of token0
     /// @return price1X96 price of token1
     function getValue(uint256 tokenId, address token)
@@ -98,42 +100,26 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         override
         returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96)
     {
-        (address token0, address token1, uint24 fee,, uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) =
-            getPositionBreakdown(tokenId);
+        PositionState memory state = _loadPositionState(tokenId);
+        _populatePrices(state);
+        (uint256 amount0, uint256 amount1) = _getAmounts(state);
+        (uint128 fees0, uint128 fees1) = _getFees(state);
 
-        uint256 cachedChainlinkReferencePriceX96;
-
-        (price0X96, cachedChainlinkReferencePriceX96) =
-            _getReferenceTokenPriceX96(token0, cachedChainlinkReferencePriceX96);
-        (price1X96, cachedChainlinkReferencePriceX96) =
-            _getReferenceTokenPriceX96(token1, cachedChainlinkReferencePriceX96);
-
+        // get price of quote token
         uint256 priceTokenX96;
-        if (token0 == token) {
-            priceTokenX96 = price0X96;
-        } else if (token1 == token) {
-            priceTokenX96 = price1X96;
+        if (state.token0 == token) {
+            priceTokenX96 = state.price0X96;
+        } else if (state.token1 == token) {
+            priceTokenX96 = state.price1X96;
         } else {
-            (priceTokenX96,) = _getReferenceTokenPriceX96(token, cachedChainlinkReferencePriceX96);
+            (priceTokenX96,) = _getReferenceTokenPriceX96(token, state.cachedChainlinkReferencePriceX96);
         }
 
-        value = (price0X96 * (amount0 + fees0) / Q96 + price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
-        feeValue = (price0X96 * fees0 / Q96 + price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
-        price0X96 = price0X96 * Q96 / priceTokenX96;
-        price1X96 = price1X96 * Q96 / priceTokenX96;
-
-        // checks derived pool price for price manipulation attacks
-        // this prevents manipulations of pool to get distorted proportions of collateral tokens - for borrowing
-        // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
-        // will move price back to reasonable range and enable liquidation
-        uint256 derivedPoolPriceX96 = price0X96 * Q96 / price1X96;
-        _checkPoolPrice(token0, token1, fee, derivedPoolPriceX96);
-    }
-
-    function _checkPoolPrice(address token0, address token1, uint24 fee, uint256 derivedPoolPriceX96) internal view {
-        IUniswapV3Pool pool = _getPool(token0, token1, fee);
-        uint256 priceX96 = _getReferencePoolPriceX96(pool, 0);
-        _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
+        // calculate outputs
+        value = (state.price0X96 * (amount0 + fees0) / Q96 + state.price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
+        feeValue = (state.price0X96 * fees0 / Q96 + state.price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
+        price0X96 = state.price0X96 * Q96 / priceTokenX96;
+        price1X96 = state.price1X96 * Q96 / priceTokenX96;
     }
 
     function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000)
@@ -161,7 +147,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     /// @return fees0 current token0 fees of position
     /// @return fees1 current token1 fees of position
     function getPositionBreakdown(uint256 tokenId)
-        public
+        external
         view
         override
         returns (
@@ -175,10 +161,32 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             uint128 fees1
         )
     {
-        PositionState memory state = _initializeState(tokenId);
+        PositionState memory state = _loadPositionState(tokenId);
+        _populatePrices(state);
         (token0, token1, fee) = (state.token0, state.token1, state.fee);
-        (amount0, amount1, fees0, fees1) = _getAmounts(state);
+        (amount0, amount1) = _getAmounts(state);
+        (fees0, fees1) = _getFees(state);
         liquidity = state.liquidity;
+    }
+
+    /// @notice Gets liquidity and uncollected fees
+    /// @param tokenId tokenId of position
+    /// @return liquidity liquidity of position
+    /// @return fees0 current token0 fees of position
+    /// @return fees1 current token1 fees of position
+    function getLiquidityAndFees(uint256 tokenId)
+        external
+        view
+        override
+        returns (
+            uint128 liquidity,
+            uint128 fees0,
+            uint128 fees1
+        )
+    {
+        PositionState memory state = _loadPositionState(tokenId);
+        liquidity = state.liquidity;
+        (fees0, fees1) = _getFees(state);
     }
 
     /// @notice Sets the max pool difference parameter (onlyOwner)
@@ -334,7 +342,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
 
         // if stale data - revert
         (, int256 answer,, uint256 updatedAt,) = feedConfig.feed.latestRoundData();
-        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer < 0) {
+        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer <= 0) {
             revert ChainlinkPriceError();
         }
 
@@ -390,9 +398,13 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         int24 tick;
         uint160 sqrtPriceX96Lower;
         uint160 sqrtPriceX96Upper;
+        uint256 price0X96;
+        uint256 price1X96;
+        uint160 derivedSqrtPriceX96;
+        uint256 cachedChainlinkReferencePriceX96;
     }
 
-    function _initializeState(uint256 tokenId) internal view returns (PositionState memory state) {
+    function _loadPositionState(uint256 tokenId) internal view returns (PositionState memory state) {
         (
             ,
             ,
@@ -422,20 +434,48 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
     }
 
-    // calculate position amounts given current price/tick
+    // gets prices according to oracle configuration (this reverts if any price is configured wrongly)
+    function _populatePrices(PositionState memory state) internal view {
+        (state.price0X96, state.cachedChainlinkReferencePriceX96) =
+            _getReferenceTokenPriceX96(state.token0, state.cachedChainlinkReferencePriceX96);
+        (state.price1X96, state.cachedChainlinkReferencePriceX96) =
+            _getReferenceTokenPriceX96(state.token1, state.cachedChainlinkReferencePriceX96);
+
+        // checks derived pool price for price manipulation attacks
+        // this prevents manipulations of pool to get distorted proportions of collateral tokens - for borrowing
+        // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
+        // will move price back to reasonable range and enable liquidation
+        uint256 derivedPoolPriceX96 = state.price0X96 * Q96 / state.price1X96;
+        
+        // current pool price
+        uint256 priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
+        _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
+
+        // calculate derived sqrt price
+        state.derivedSqrtPriceX96 = SafeCast.toUint160(Math.sqrt(derivedPoolPriceX96) * (2 ** 48));
+    }
+ 
+    // calculate position amounts given derived price from oracle
     function _getAmounts(PositionState memory state)
         internal
         view
-        returns (uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1)
+        returns (uint256 amount0, uint256 amount1)
     {
         if (state.liquidity > 0) {
             state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
             state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
             (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
-                state.sqrtPriceX96, state.sqrtPriceX96Lower, state.sqrtPriceX96Upper, state.liquidity
+                state.derivedSqrtPriceX96, state.sqrtPriceX96Lower, state.sqrtPriceX96Upper, state.liquidity
             );
         }
+    }
 
+    // calculate uncollected position fees
+    function _getFees(PositionState memory state)
+        internal
+        view
+        returns (uint128 fees0, uint128 fees1)
+    {   
         (fees0, fees1) = _getUncollectedFees(state, state.tick);
         fees0 += state.tokensOwed0;
         fees1 += state.tokensOwed1;

@@ -1137,7 +1137,7 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             fees0 = type(uint128).max;
             fees1 = type(uint128).max;
         } else {
-            (,,, liquidity,,, fees0, fees1) = oracle.getPositionBreakdown(tokenId);
+            (liquidity,fees0,fees1) = oracle.getLiquidityAndFees(tokenId);
 
             // only take needed fees
             if (liquidationValue < feeValue) {
