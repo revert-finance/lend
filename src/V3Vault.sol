@@ -1189,14 +1189,18 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
 
         // if position is more valuable than debt with max penalty
         if (fullValue >= maxPenaltyValue) {
-            // position value when position started to be liquidatable
-            uint256 startLiquidationValue = debt * fullValue / collateralValue;
-            uint256 penaltyFractionX96 =
-                (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
-            uint256 penaltyX32 = MIN_LIQUIDATION_PENALTY_X32
-                + (MAX_LIQUIDATION_PENALTY_X32 - MIN_LIQUIDATION_PENALTY_X32) * penaltyFractionX96 / Q96;
+            if (collateralValue > 0) {
+                // position value when position started to be liquidatable
+                uint256 startLiquidationValue = debt * fullValue / collateralValue;
+                uint256 penaltyFractionX96 =
+                    (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
+                uint256 penaltyX32 = MIN_LIQUIDATION_PENALTY_X32
+                    + (MAX_LIQUIDATION_PENALTY_X32 - MIN_LIQUIDATION_PENALTY_X32) * penaltyFractionX96 / Q96;
 
-            liquidationValue = debt * (Q32 + penaltyX32) / Q32;
+                liquidationValue = debt * (Q32 + penaltyX32) / Q32;
+            } else {
+                liquidationValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
+            }
         } else {
             uint256 penalty = debt * MAX_LIQUIDATION_PENALTY_X32 / Q32;
 

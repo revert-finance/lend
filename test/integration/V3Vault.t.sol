@@ -825,6 +825,48 @@ contract V3VaultIntegrationTest is Test {
         assertEq(liquidationCost, 0);
         assertEq(liquidationValue, 299);
 
+        vm.prank(WHALE_ACCOUNT);
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
+
+        // all debt is payed
+        assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
+        assertEq(vault.debtSharesTotal(), 0);
+    }
+
+    function testLiquidationWithZeroCollateralFactor() external {
+        // lend 10 USDC
+        _deposit(10000000, WHALE_ACCOUNT);
+
+        // add collateral
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT_DAI_WETH);
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.create(TEST_NFT_DAI_WETH, TEST_NFT_DAI_WETH_ACCOUNT);
+
+        (uint256 debt, uint256 fullValue, uint256 collateralValue,uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        
+        assertEq(debt, 0);
+        assertEq(collateralValue, 51440100021);
+        assertEq(fullValue, 57155666697);
+        assertEq(liquidationCost, 0);
+        assertEq(liquidationValue, 0);
+
+        // borrow max
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.borrow(TEST_NFT_DAI_WETH, 10000000);
+
+        // set collateral factor to 0
+        vault.setTokenConfig(address(DAI), 0, type(uint32).max); // 0% collateral factor / max 100% collateral value
+
+        (debt, fullValue, collateralValue,liquidationCost,liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        assertEq(debt, 10000000);
+        assertEq(collateralValue, 0);
+        assertEq(fullValue, 57155666697);
+        assertEq(liquidationCost, 10000000);
+        assertEq(liquidationValue, 10999999);
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), liquidationCost);
 
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
