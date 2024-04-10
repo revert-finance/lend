@@ -26,6 +26,8 @@ import "./interfaces/IErrors.sol";
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable, IErrors {
 
+    uint256 private constant SEQUENCER_GRACE_PERIOD_TIME = 600; // 10mins
+
     uint256 private constant Q96 = 2 ** 96;
     uint256 private constant Q128 = 2 ** 128;
 
@@ -33,6 +35,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     event OracleModeUpdated(address indexed token, Mode mode);
     event SetMaxPoolPriceDifference(uint16 maxPoolPriceDifference);
     event SetEmergencyAdmin(address emergencyAdmin);
+    event SetSequencerUptimeFeed(address sequencerUptimeFeed);
 
     enum Mode {
         NOT_SET,
@@ -71,6 +74,9 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
+
+    // feed to check sequencer up on L2s - address(0) when not needed
+    address public sequencerUptimeFeed;
 
     // constructor: sets owner of contract
     constructor(
@@ -262,6 +268,14 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         emit OracleModeUpdated(token, mode);
     }
 
+
+    /// @notice Sets sequencer uptime feed for L2 where needed
+    /// @param feed Sequencer uptime feed
+    function setSequencerUptimeFeed(address feed) external onlyOwner {
+        sequencerUptimeFeed = feed;
+        emit SetSequencerUptimeFeed(feed);
+    }
+
     /// @notice Updates emergency admin address (onlyOwner)
     /// @param admin Emergency admin address
     function setEmergencyAdmin(address admin) external onlyOwner {
@@ -336,6 +350,24 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     function _getChainlinkPriceX96(address token) internal view returns (uint256) {
         if (token == chainlinkReferenceToken) {
             return Q96;
+        }
+
+        // sequencer check on chains where needed
+        if (sequencerUptimeFeed != address(0)) {
+            (, int256 sequencerAnswer,uint256 startedAt,,) = AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
+
+            // Answer == 0: Sequencer is up
+            // Answer == 1: Sequencer is down
+            if (sequencerAnswer == 0) {
+                revert SequencerDown();
+            }
+
+            // Make sure the grace period has passed after the
+            // sequencer is back up.
+            uint256 timeSinceUp = block.timestamp - startedAt;
+            if (timeSinceUp <= SEQUENCER_GRACE_PERIOD_TIME) {
+                revert SequencerGracePeriodNotOver();
+            }
         }
 
         TokenConfig memory feedConfig = feedConfigs[token];

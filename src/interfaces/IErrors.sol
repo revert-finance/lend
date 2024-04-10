@@ -21,6 +21,8 @@ interface IErrors {
     error InvalidPool();
     error ChainlinkPriceError();
     error PriceDifferenceExceeded();
+    error SequencerDown();
+    error SequencerGracePeriodNotOver();
 
     error CollateralFail();
     error MinLoanSize();
