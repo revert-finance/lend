@@ -7,12 +7,13 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "permit2/interfaces/IPermit2.sol";
 
 import "../utils/Swapper.sol";
+import "../transformers/Transformer.sol";
 
 /// @title v3Utils v1.1
 /// @notice Utility functions for Uniswap V3 positions
-/// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
+/// It does not hold any ERC20 or NFTs.
 /// It can be simply redeployed when new / better functionality is implemented
-contract V3Utils is Swapper, IERC721Receiver {
+contract V3Utils is Transformer, Swapper, IERC721Receiver {
     using SafeCast for uint256;
 
     // @notice Permit2 contract
@@ -108,11 +109,41 @@ contract V3Utils is Swapper, IERC721Receiver {
 
         // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
     }
+  
+    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
+    /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data)
+        external
+        override
+        returns (bytes4)
+    {
+        // only Uniswap v3 NFTs allowed
+        if (msg.sender != address(nonfungiblePositionManager)) {
+            revert WrongContract();
+        }
+
+        // not allowed to send to itself
+        if (from == address(this)) {
+            revert SelfSend();
+        }
+
+        Instructions memory instructions = abi.decode(data, (Instructions));
+
+        execute(tokenId, instructions);
+
+        // return token to owner (this line guarantees that token is returned to originating owner)
+        nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
+
+        return IERC721Receiver.onERC721Received.selector;
+    }
 
     /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute
     function execute(uint256 tokenId, Instructions memory instructions) public returns (uint256 newTokenId) {
+
+        _validateCaller(nonfungiblePositionManager, tokenId);
+
         (,, address token0, address token1,,,, uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         uint256 amount0;
@@ -349,33 +380,6 @@ contract V3Utils is Swapper, IERC721Receiver {
         } else {
             revert NotSupportedWhatToDo();
         }
-    }
-
-    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
-    /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data)
-        external
-        override
-        returns (bytes4)
-    {
-        // only Uniswap v3 NFTs allowed
-        if (msg.sender != address(nonfungiblePositionManager)) {
-            revert WrongContract();
-        }
-
-        // not allowed to send to itself
-        if (from == address(this)) {
-            revert SelfSend();
-        }
-
-        Instructions memory instructions = abi.decode(data, (Instructions));
-
-        execute(tokenId, instructions);
-
-        // return token to owner (this line guarantees that token is returned to originating owner)
-        nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
-
-        return IERC721Receiver.onERC721Received.selector;
     }
 
     /// @notice Params for swap() function

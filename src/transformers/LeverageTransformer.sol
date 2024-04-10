@@ -6,10 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
+import "../transformers/Transformer.sol";
+
 
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
-contract LeverageTransformer is Swapper {
+contract LeverageTransformer is Transformer, Swapper {
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
         Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter)
     {}
@@ -38,6 +40,9 @@ contract LeverageTransformer is Swapper {
 
     // method called from transform() method in Vault
     function leverageUp(LeverageUpParams calldata params) external {
+
+        _validateCaller(nonfungiblePositionManager, params.tokenId);
+
         uint256 amount = params.borrowAmount;
 
         address token = IVault(msg.sender).asset();
@@ -121,6 +126,9 @@ contract LeverageTransformer is Swapper {
 
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
+
+        _validateCaller(nonfungiblePositionManager, params.tokenId);
+
         address token = IVault(msg.sender).asset();
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 

@@ -1338,4 +1338,58 @@ contract V3VaultIntegrationTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, msgHash);
         return bytes.concat(r, s, bytes1(v));
     }
+
+    function testTransformExploit() external {
+        // Alice
+        address ALICE_ACCOUNT = TEST_NFT_ACCOUNT;
+        uint256 ALICE_NFT = TEST_NFT;
+
+        // Malicious user
+        address EXPLOITER_ACCOUNT = TEST_NFT_ACCOUNT_2;
+        uint256 EXPLOITER_NFT = TEST_NFT_2;
+
+        // Set up an auto-compound transformer
+        AutoCompound autoCompound = new AutoCompound(
+            NPM,
+            WHALE_ACCOUNT,
+            WHALE_ACCOUNT,
+            60,
+            100
+        );
+        vault.setTransformer(address(autoCompound), true);
+        autoCompound.setVault(address(vault));
+
+        // Set fee to 2%
+        uint256 Q64 = 2 ** 64;
+        autoCompound.setReward(uint64(Q64 / 50));
+
+        // Alice decides to delegate her position to
+        // Revert bots (outside of vault) to be auto-compounded
+        vm.prank(ALICE_ACCOUNT);
+        NPM.approve(address(autoCompound), ALICE_NFT);
+
+        // Exploiter opens a position in the Vault
+        vm.startPrank(EXPLOITER_ACCOUNT);
+        NPM.approve(address(vault), EXPLOITER_NFT);
+        vault.create(EXPLOITER_NFT, EXPLOITER_ACCOUNT);
+        vm.stopPrank();
+
+        // Exploiter passes ALICE_NFT as param
+        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams(
+            ALICE_NFT,
+            false,
+            0,
+            block.timestamp
+        );
+
+        // Exploiter account uses his own token to pass validation
+        // but transforms Alice position
+        vm.expectRevert(IErrors.TransformFailed.selector);
+        vm.prank(EXPLOITER_ACCOUNT);
+        vault.transform(
+            EXPLOITER_NFT,
+            address(autoCompound),
+            abi.encodeWithSelector(AutoCompound.execute.selector, params)
+        );
+    }
 }

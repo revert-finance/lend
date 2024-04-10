@@ -16,7 +16,7 @@ import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
-abstract contract Automator is Swapper, Ownable {
+abstract contract Automator is Ownable, Swapper {
     uint256 internal constant Q64 = 2 ** 64;
     uint256 internal constant Q96 = 2 ** 96;
 
@@ -25,14 +25,11 @@ abstract contract Automator is Swapper, Ownable {
 
     // admin events
     event OperatorChanged(address newOperator, bool active);
-    event VaultSet(address newVault);
-
     event WithdrawerChanged(address newWithdrawer);
     event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
 
     // configurable by owner
     mapping(address => bool) public operators;
-    mapping(address => bool) public vaults;
 
     address public withdrawer;
     uint32 public TWAPSeconds;
@@ -69,15 +66,6 @@ abstract contract Automator is Swapper, Ownable {
     function setOperator(address _operator, bool _active) public onlyOwner {
         emit OperatorChanged(_operator, _active);
         operators[_operator] = _active;
-    }
-
-    /**
-     * @notice Owner controlled function to activate vault address
-     * @param _vault vault
-     */
-    function setVault(address _vault) external onlyOwner {
-        emit VaultSet(_vault);
-        vaults[_vault] = true;
     }
 
     /**
@@ -224,26 +212,6 @@ abstract contract Automator is Swapper, Ownable {
             }
         } else {
             SafeERC20.safeTransfer(token, to, amount);
-        }
-    }
-
-    function _validateOwner(uint256 tokenId, address vault) internal returns (address owner) {
-        // msg.sender must not be a vault
-        if (vaults[msg.sender]) {
-            revert Unauthorized();
-        }
-
-        if (vault != address(0)) {
-            if (!vaults[vault]) {
-                revert Unauthorized();
-            }
-            owner = IVault(vault).ownerOf(tokenId);
-        } else {
-            owner = nonfungiblePositionManager.ownerOf(tokenId);
-        }
-
-        if (owner != msg.sender) {
-            revert Unauthorized();
         }
     }
 
