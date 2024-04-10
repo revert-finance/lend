@@ -235,7 +235,9 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         uint256 count = tokens.length;
         for (; i < count; ++i) {
             uint256 balance = positionBalances[0][tokens[i]];
-            _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+            if (balance != 0) {
+                _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+            }
         }
     }
 
