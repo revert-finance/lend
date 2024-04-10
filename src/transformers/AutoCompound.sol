@@ -9,12 +9,13 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../automators/Automator.sol";
+import "../transformers/Transformer.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
 /// Positions need to be approved (approve or setApprovalForAll) for the contract when outside vault
 /// When position is inside Vault - owner needs to approve the position to be transformed by the contract
-contract AutoCompound is Automator, Multicall, ReentrancyGuard {
+contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     // autocompound event
     event AutoCompounded(
         address account,
@@ -102,9 +103,15 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external nonReentrant {
-        if (!operators[msg.sender] && !vaults[msg.sender]) {
-            revert Unauthorized();
+      
+        if (!operators[msg.sender]) {
+            if (vaults[msg.sender]) {
+                _validateCaller(nonfungiblePositionManager, params.tokenId);
+            } else {
+                revert Unauthorized();
+            }
         }
+        
         ExecuteState memory state;
 
         // collect fees - if the position doesn't have operator set or is called from vault - it won't work

@@ -2,13 +2,14 @@
 pragma solidity ^0.8.0;
 
 import "../automators/Automator.sol";
+import "../transformers/Transformer.sol";
 
 /// @title AutoRange
 /// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
 /// Positions need to be approved (setApprovalForAll) for the contract and configured with configToken method
 /// When executed a new position is created and automatically configured the same way as the original position
 /// When position is inside Vault - transform is called
-contract AutoRange is Automator {
+contract AutoRange is Transformer, Automator {
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
     event PositionConfigured(
         uint256 indexed tokenId,
@@ -110,9 +111,15 @@ contract AutoRange is Automator {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-        if (!operators[msg.sender] && !vaults[msg.sender]) {
-            revert Unauthorized();
+
+        if (!operators[msg.sender]) {
+            if (vaults[msg.sender]) {
+                _validateCaller(nonfungiblePositionManager, params.tokenId);
+            } else {
+                revert Unauthorized();
+            }
         }
+
         ExecuteState memory state;
         PositionConfig memory config = positionConfigs[params.tokenId];
 
@@ -282,7 +289,13 @@ contract AutoRange is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
-        _validateOwner(tokenId, vault);
+
+        // msg.sender must not be a vault
+        if (vaults[msg.sender]) {
+            revert Unauthorized();
+        }
+
+        _validateOwner(nonfungiblePositionManager, tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
         if (config.lowerTickDelta > config.upperTickDelta) {

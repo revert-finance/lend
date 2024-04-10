@@ -127,7 +127,6 @@ contract VaultPolygonIntegrationTest is Test {
         autoCompound.setVault(address(vault));
 
         autoExit = new AutoExit(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
-        autoExit.setVault(address(vault));
     }
 
     function test() external {
