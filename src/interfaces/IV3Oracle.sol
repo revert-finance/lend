@@ -24,4 +24,14 @@ interface IV3Oracle {
             uint128 fees0,
             uint128 fees1
         );
+
+    // gets liquidity and uncollected fees from position
+    function getLiquidityAndFees(uint256 tokenId)
+        external
+        view
+        returns (
+            uint128 liquidity,
+            uint128 fees0,
+            uint128 fees1
+        );
 }
