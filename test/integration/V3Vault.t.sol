@@ -786,7 +786,7 @@ contract V3VaultIntegrationTest is Test {
         (, uint256 lent, uint256 balance,,,) = vault.vaultInfo();
         assertEq(
             lent,
-            lType == LiquidationType.TimeBased ? 10523372 : (lType == LiquidationType.ValueBased ? 5763459 : 10000000)
+            lType == LiquidationType.TimeBased ? 10523371 : (lType == LiquidationType.ValueBased ? 5763458 : 10000000)
         );
         assertEq(
             balance,
@@ -1180,7 +1180,7 @@ contract V3VaultIntegrationTest is Test {
 
         (debt, lent,, reserves,,) = vault.vaultInfo();
         assertEq(debt, 8461867);
-        assertEq(lent, 10052197);
+        assertEq(lent, 10052196);
 
         assertEq(reserves, 5800);
 
@@ -1197,7 +1197,7 @@ contract V3VaultIntegrationTest is Test {
 
         (debt, lent,, reserves,,) = vault.vaultInfo();
         assertEq(debt, 0);
-        assertEq(lent, 10052197);
+        assertEq(lent, 10052196);
 
         // not enough reserve generated to be above protection factor
         vm.expectRevert(IErrors.InsufficientLiquidity.selector);
@@ -1209,7 +1209,7 @@ contract V3VaultIntegrationTest is Test {
         vault.redeem(balance * 99 / 100, WHALE_ACCOUNT, WHALE_ACCOUNT);
 
         (, lent,, reserves,,) = vault.vaultInfo();
-        assertEq(lent, 100522);
+        assertEq(lent, 100521);
         assertEq(reserves, 5801);
 
         // now everything until 1 percent can be removed

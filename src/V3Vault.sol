@@ -211,7 +211,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         (balance, reserves) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
 
         debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
-        lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+        lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Down);
     }
 
     /// @notice Retrieves lending information for a specified account.
@@ -458,7 +458,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
     /// @inheritdoc IERC721Receiver
-    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address /*operator*/, address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
@@ -543,7 +543,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         address loanOwner = tokenOwner[tokenId];
 
-        // only the owner of the loan, the vault itself or any approved caller can call this
+        // only the owner of the loan or any approved caller can call this
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
         }
@@ -583,8 +583,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         bool isTransformMode =
             transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
-        // if not in transfer mode - must be called from owner or the vault itself
-        if (!isTransformMode && tokenOwner[tokenId] != msg.sender && address(this) != msg.sender) {
+        // if not in transfer mode - must be called from owner
+        if (!isTransformMode && tokenOwner[tokenId] != msg.sender) {
             revert Unauthorized();
         }
 
@@ -1138,7 +1138,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             (liquidity,fees0,fees1) = oracle.getLiquidityAndFees(tokenId);
 
             // only take needed fees
-            if (liquidationValue < feeValue) {
+            if (liquidationValue <= feeValue) {
                 liquidity = 0;
                 fees0 = SafeCast.toUint128(liquidationValue * fees0 / feeValue);
                 fees1 = SafeCast.toUint128(liquidationValue * fees1 / feeValue);

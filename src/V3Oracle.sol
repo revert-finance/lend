@@ -137,7 +137,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
             : (verifyPriceX96 - priceX96) * 10000;
         
         // if invalid price or too big difference - revert
-        if ((verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 >= maxDifferenceX10000) && maxDifferenceX10000 < type(uint16).max) {
+        if ((verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 > maxDifferenceX10000) && maxDifferenceX10000 < type(uint16).max) {
             revert PriceDifferenceExceeded();
         }
     }

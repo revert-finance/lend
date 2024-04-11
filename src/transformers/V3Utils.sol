@@ -112,7 +112,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
   
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
     /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address /*operator*/, address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
