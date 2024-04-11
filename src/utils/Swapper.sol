@@ -101,11 +101,8 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
                 revert WrongContract();
             }
 
-            uint256 balanceInAfter = params.tokenIn.balanceOf(address(this));
-            uint256 balanceOutAfter = params.tokenOut.balanceOf(address(this));
-
-            amountInDelta = balanceInBefore - balanceInAfter;
-            amountOutDelta = balanceOutAfter - balanceOutBefore;
+            amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
+            amountOutDelta = params.tokenOut.balanceOf(address(this)) - balanceOutBefore;
 
             // amountMin slippage check
             if (amountOutDelta < params.amountOutMin) {

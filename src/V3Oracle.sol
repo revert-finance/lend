@@ -50,9 +50,9 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         uint32 maxFeedAge;
         uint8 feedDecimals;
         uint8 tokenDecimals;
+        uint32 twapSeconds;
         IUniswapV3Pool pool; // reference pool
         bool isToken0;
-        uint32 twapSeconds;
         Mode mode;
         uint16 maxDifference; // max price difference x10000
     }
@@ -237,11 +237,11 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
             }
             bool isToken0 = token0 == token;
             config = TokenConfig(
-                feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, twapSeconds, mode, maxDifference
+                feed, maxFeedAge, feedDecimals, tokenDecimals, twapSeconds, pool, isToken0, mode, maxDifference
             );
         } else {
             config = TokenConfig(
-                feed, maxFeedAge, feedDecimals, tokenDecimals, IUniswapV3Pool(address(0)), false, 0, Mode.CHAINLINK, 0
+                feed, maxFeedAge, feedDecimals, tokenDecimals, 0, IUniswapV3Pool(address(0)), false, Mode.CHAINLINK, 0
             );
         }
 
@@ -490,7 +490,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
     // calculate position amounts given derived price from oracle
     function _getAmounts(PositionState memory state)
         internal
-        view
+        pure
         returns (uint256 amount0, uint256 amount1)
     {
         if (state.liquidity > 0) {

@@ -21,6 +21,7 @@ import "../../src/interfaces/IErrors.sol";
 
 contract V3VaultIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
+    uint256 constant Q64 = 2 ** 64;
     uint256 constant Q96 = 2 ** 96;
 
     uint256 constant YEAR_SECS = 31557600; // taking into account leap years
@@ -68,7 +69,7 @@ contract V3VaultIntegrationTest is Test {
         vm.selectFork(mainnetFork);
 
         // 0% base rate - 5% multiplier - after 80% - 109% jump multiplier (like in compound v2 deployed)  (-> max rate 25.8% per year)
-        interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
+        interestRateModel = new InterestRateModel(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 * 80 / 100);
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
@@ -690,12 +691,12 @@ contract V3VaultIntegrationTest is Test {
 
         if (lType == LiquidationType.TimeBased) {
             // wait 15 days - interest growing 
-            interestRateModel.setValues(Q96 / 10, Q96 * 2, Q96 * 2, 0);
+            interestRateModel.setValues(Q64 / 10, Q64 * 2, Q64 * 2, 0);
             vm.warp(block.timestamp + 15 days);
         } else if (lType == LiquidationType.ValueBased) {
 
             // add a bit of time as well
-            interestRateModel.setValues(Q96 / 10, Q96 * 2, Q96 * 2, 0);
+            interestRateModel.setValues(Q64 / 10, Q64 * 2, Q64 * 2, 0);
             vm.warp(block.timestamp + 3 days);
 
             // collateral DAI value change -50%
@@ -905,7 +906,7 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         // wait 15 days - interest growing 
-        interestRateModel.setValues(Q96 / 10, Q96 * 2, Q96 * 2, 0);
+        interestRateModel.setValues(Q64 / 10, Q64 * 2, Q64 * 2, 0);
         vm.warp(block.timestamp + 15 days);
 
         // debt is greater than collateral value
@@ -1386,7 +1387,6 @@ contract V3VaultIntegrationTest is Test {
         autoCompound.setVault(address(vault));
 
         // Set fee to 2%
-        uint256 Q64 = 2 ** 64;
         autoCompound.setReward(uint64(Q64 / 50));
 
         // Alice decides to delegate her position to

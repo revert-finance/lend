@@ -866,7 +866,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
     // transfers token (or unwraps WETH and sends ETH)
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
-        if (address(weth) == address(token) && unwrap) {
+        if (unwrap && address(weth) == address(token)) {
             weth.withdraw(amount);
             (bool sent,) = to.call{value: amount}("");
             if (!sent) {
