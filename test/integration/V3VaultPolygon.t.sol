@@ -20,6 +20,7 @@ import "../../src/interfaces/IErrors.sol";
 
 contract VaultPolygonIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
+    uint256 constant Q64 = 2 ** 64;
     uint256 constant Q96 = 2 ** 96;
 
     uint256 constant YEAR_SECS = 31557600; // taking into account leap years
@@ -59,7 +60,7 @@ contract VaultPolygonIntegrationTest is Test {
         vm.selectFork(mainnetFork);
 
         // 5% base rate - after 80% - 109% (like in compound v2 deployed)
-        interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
+        interestRateModel = new InterestRateModel(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 * 80 / 100);
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
@@ -147,7 +148,7 @@ contract VaultPolygonIntegrationTest is Test {
         assertEq(fullValue, 579950);
 
 
-        uint256 buffer = vault.BORROW_SAFETY_BUFFER();
+        uint256 buffer = vault.BORROW_SAFETY_BUFFER_X32();
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, collateralValue * buffer / Q32);

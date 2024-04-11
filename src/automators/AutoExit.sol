@@ -104,7 +104,6 @@ contract AutoExit is Automator {
             revert Unauthorized();
         }
 
-        ExecuteState memory state;
         PositionConfig memory config = positionConfigs[params.tokenId];
 
         if (!config.isActive) {
@@ -117,6 +116,8 @@ contract AutoExit is Automator {
         ) {
             revert ExceedsMaxReward();
         }
+
+        ExecuteState memory state;
 
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
@@ -203,10 +204,10 @@ contract AutoExit is Automator {
         }
 
         state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
-        if (state.amount0 > 0) {
+        if (state.amount0 != 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
-        if (state.amount1 > 0) {
+        if (state.amount1 != 0) {
             _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
         }
 
@@ -223,15 +224,16 @@ contract AutoExit is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, PositionConfig calldata config) external {
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
-        if (owner != msg.sender) {
-            revert Unauthorized();
-        }
-
+        
         if (config.isActive) {
             if (config.token0TriggerTick >= config.token1TriggerTick) {
                 revert InvalidConfig();
             }
+        }
+        
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (owner != msg.sender) {
+            revert Unauthorized();
         }
 
         positionConfigs[tokenId] = config;

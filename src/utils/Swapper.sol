@@ -101,11 +101,8 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
                 revert WrongContract();
             }
 
-            uint256 balanceInAfter = params.tokenIn.balanceOf(address(this));
-            uint256 balanceOutAfter = params.tokenOut.balanceOf(address(this));
-
-            amountInDelta = balanceInBefore - balanceInAfter;
-            amountOutDelta = balanceOutAfter - balanceOutBefore;
+            amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
+            amountOutDelta = params.tokenOut.balanceOf(address(this)) - balanceOutBefore;
 
             // amountMin slippage check
             if (amountOutDelta < params.amountOutMin) {
@@ -130,7 +127,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
     // execute swap directly on specified pool
     // amounts must be available on the contract for both tokens
     function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
-        if (params.amountIn > 0) {
+        if (params.amountIn != 0) {
             (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(
                 address(this),
                 params.swap0For1,

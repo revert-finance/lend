@@ -41,7 +41,6 @@ interface IVault is IERC4626 {
     function create(uint256 tokenId, address recipient) external;
     function createWithPermit(
         uint256 tokenId,
-        address owner,
         address recipient,
         uint256 deadline,
         uint8 v,

@@ -54,7 +54,7 @@ contract LeverageTransformer is Transformer, Swapper {
         uint256 amount0 = token == token0 ? amount : 0;
         uint256 amount1 = token == token1 ? amount : 0;
 
-        if (params.amountIn0 > 0) {
+        if (params.amountIn0 != 0) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token), IERC20(token0), params.amountIn0, params.amountOut0Min, params.swapData0
@@ -66,7 +66,7 @@ contract LeverageTransformer is Transformer, Swapper {
             amount -= amountIn;
             amount0 += amountOut;
         }
-        if (params.amountIn1 > 0) {
+        if (params.amountIn1 != 0) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token), IERC20(token1), params.amountIn1, params.amountOut1Min, params.swapData1
@@ -95,7 +95,7 @@ contract LeverageTransformer is Transformer, Swapper {
         if (amount1 > added1) {
             SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1 - added1);
         }
-        if (token != token0 && token != token1 && amount > 0) {
+        if (token != token0 && token != token1 && amount != 0) {
             SafeERC20.safeTransfer(IERC20(token), params.recipient, amount);
         }
     }
@@ -151,7 +151,7 @@ contract LeverageTransformer is Transformer, Swapper {
 
         uint256 amount = token == token0 ? amount0 : (token == token1 ? amount1 : 0);
 
-        if (params.amountIn0 > 0 && token != token0) {
+        if (params.amountIn0 != 0 && token != token0) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token0), IERC20(token), params.amountIn0, params.amountOut0Min, params.swapData0
@@ -160,7 +160,7 @@ contract LeverageTransformer is Transformer, Swapper {
             amount0 -= amountIn;
             amount += amountOut;
         }
-        if (params.amountIn1 > 0 && token != token1) {
+        if (params.amountIn1 != 0 && token != token1) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token1), IERC20(token), params.amountIn1, params.amountOut1Min, params.swapData1
@@ -177,10 +177,10 @@ contract LeverageTransformer is Transformer, Swapper {
         if (amount > repayedAmount) {
             SafeERC20.safeTransfer(IERC20(token), params.recipient, amount - repayedAmount);
         }
-        if (amount0 > 0 && token != token0) {
+        if (amount0 != 0 && token != token0) {
             SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0);
         }
-        if (amount1 > 0 && token != token1) {
+        if (amount1 != 0 && token != token1) {
             SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1);
         }
     }

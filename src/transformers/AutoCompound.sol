@@ -93,7 +93,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
             revert Unauthorized();
         }
         IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeWithSelector(AutoCompound.execute.selector, params)
+            params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params))
         );
     }
 
@@ -130,24 +130,24 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         state.amount1 = state.amount1 + positionBalances[params.tokenId][state.token1];
 
         // only if there are balances to work with - start autocompounding process
-        if (state.amount0 > 0 || state.amount1 > 0) {
+        if (state.amount0 != 0 || state.amount1 != 0) {
             uint256 amountIn = params.amountIn;
 
             // if a swap is requested - check TWAP oracle
-            if (amountIn > 0) {
+            if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
                 (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;
-                if (tSecs > 0) {
+                if (tSecs != 0) {
                     if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
                         // if there is no valid TWAP - disable swap
                         amountIn = 0;
                     }
                 }
                 // if still needed - do swap
-                if (amountIn > 0) {
+                if (amountIn != 0) {
                     // no slippage check done - because protected by TWAP check
                     (state.amountInDelta, state.amountOutDelta) = _poolSwap(
                         Swapper.PoolSwapParams(
@@ -167,7 +167,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
             state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
 
             // deposit liquidity into tokenId
-            if (state.maxAddAmount0 > 0 || state.maxAddAmount1 > 0) {
+            if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
                 _checkApprovals(state.token0, state.token1);
 
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
@@ -219,11 +219,11 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         uint256 balance0 = positionBalances[tokenId][token0];
-        if (balance0 > 0) {
+        if (balance0 != 0) {
             _withdrawBalanceInternal(tokenId, token0, to, balance0, balance0);
         }
         uint256 balance1 = positionBalances[tokenId][token1];
-        if (balance1 > 0) {
+        if (balance1 != 0) {
             _withdrawBalanceInternal(tokenId, token1, to, balance1, balance1);
         }
     }
@@ -241,9 +241,10 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         uint256 i;
         uint256 count = tokens.length;
         for (; i < count; ++i) {
-            uint256 balance = positionBalances[0][tokens[i]];
+            address token = tokens[i];
+            uint256 balance = positionBalances[0][token];
             if (balance != 0) {
-                _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+                _withdrawBalanceInternal(0, token, to, balance, balance);
             }
         }
     }
@@ -279,7 +280,8 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         internal
     {
         require(amount <= balance, "amount>balance");
-        positionBalances[tokenId][token] = positionBalances[tokenId][token] - amount;
+        balance -= amount;
+        positionBalances[tokenId][token] = balance;
         emit BalanceRemoved(tokenId, token, amount);
         SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit BalanceWithdrawn(tokenId, token, to, amount);

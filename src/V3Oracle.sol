@@ -13,7 +13,7 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -24,7 +24,7 @@ import "./interfaces/IErrors.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
-contract V3Oracle is IV3Oracle, Ownable, IErrors {
+contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
 
     uint256 private constant SEQUENCER_GRACE_PERIOD_TIME = 600; // 10mins
 
@@ -50,9 +50,9 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
         uint32 maxFeedAge;
         uint8 feedDecimals;
         uint8 tokenDecimals;
+        uint32 twapSeconds;
         IUniswapV3Pool pool; // reference pool
         bool isToken0;
-        uint32 twapSeconds;
         Mode mode;
         uint16 maxDifference; // max price difference x10000
     }
@@ -137,7 +137,7 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             : (verifyPriceX96 - priceX96) * 10000;
         
         // if invalid price or too big difference - revert
-        if ((verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 >= maxDifferenceX10000) && maxDifferenceX10000 < type(uint16).max) {
+        if ((verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 > maxDifferenceX10000) && maxDifferenceX10000 < type(uint16).max) {
             revert PriceDifferenceExceeded();
         }
     }
@@ -237,11 +237,11 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             }
             bool isToken0 = token0 == token;
             config = TokenConfig(
-                feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, twapSeconds, mode, maxDifference
+                feed, maxFeedAge, feedDecimals, tokenDecimals, twapSeconds, pool, isToken0, mode, maxDifference
             );
         } else {
             config = TokenConfig(
-                feed, maxFeedAge, feedDecimals, tokenDecimals, IUniswapV3Pool(address(0)), false, 0, Mode.CHAINLINK, 0
+                feed, maxFeedAge, feedDecimals, tokenDecimals, 0, IUniswapV3Pool(address(0)), false, Mode.CHAINLINK, 0
             );
         }
 
@@ -490,10 +490,10 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
     // calculate position amounts given derived price from oracle
     function _getAmounts(PositionState memory state)
         internal
-        view
+        pure
         returns (uint256 amount0, uint256 amount1)
     {
-        if (state.liquidity > 0) {
+        if (state.liquidity != 0) {
             state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
             state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
             (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
@@ -536,8 +536,8 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             feeGrowth1 = feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128;
         }
 
-        fees0 = uint128(FullMath.mulDiv(feeGrowth0, position.liquidity, Q128));
-        fees1 = uint128(FullMath.mulDiv(feeGrowth1, position.liquidity, Q128));
+        fees0 = SafeCast.toUint128(FullMath.mulDiv(feeGrowth0, position.liquidity, Q128));
+        fees1 = SafeCast.toUint128(FullMath.mulDiv(feeGrowth1, position.liquidity, Q128));
     }
 
     // calculate fee growth for uncollected fees calculation

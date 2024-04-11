@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -16,7 +16,7 @@ import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
-abstract contract Automator is Ownable, Swapper {
+abstract contract Automator is Ownable2Step, Swapper {
     uint256 internal constant Q64 = 2 ** 64;
     uint256 internal constant Q96 = 2 ** 96;
 
@@ -96,9 +96,10 @@ abstract contract Automator is Ownable, Swapper {
         uint256 i;
         uint256 count = tokens.length;
         for (; i < count; ++i) {
-            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
-            if (balance > 0) {
-                _transferToken(to, IERC20(tokens[i]), balance, true);
+            address token = tokens[i];
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            if (balance != 0) {
+                _transferToken(to, IERC20(token), balance, true);
             }
         }
     }
@@ -113,7 +114,7 @@ abstract contract Automator is Ownable, Swapper {
         }
 
         uint256 balance = address(this).balance;
-        if (balance > 0) {
+        if (balance != 0) {
             (bool sent,) = to.call{value: balance}("");
             if (!sent) {
                 revert EtherSendFailed();
@@ -185,7 +186,7 @@ abstract contract Automator is Ownable, Swapper {
         uint256 amountRemoveMin1,
         uint256 deadline
     ) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
-        if (liquidity > 0) {
+        if (liquidity != 0) {
             // store in temporarely "misnamed" variables - see comment below
             (feeAmount0, feeAmount1) = nonfungiblePositionManager.decreaseLiquidity(
                 INonfungiblePositionManager.DecreaseLiquidityParams(
@@ -204,7 +205,7 @@ abstract contract Automator is Ownable, Swapper {
 
     // transfers token (or unwraps WETH and sends ETH)
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
-        if (address(weth) == address(token) && unwrap) {
+        if (unwrap && address(weth) == address(token)) {
             weth.withdraw(amount);
             (bool sent,) = to.call{value: amount}("");
             if (!sent) {

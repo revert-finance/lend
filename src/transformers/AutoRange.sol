@@ -101,7 +101,7 @@ contract AutoRange is Transformer, Automator {
             revert Unauthorized();
         }
         IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeWithSelector(AutoRange.execute.selector, params)
+            params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params))
         );
     }
 
@@ -120,7 +120,6 @@ contract AutoRange is Transformer, Automator {
             }
         }
 
-        ExecuteState memory state;
         PositionConfig memory config = positionConfigs[params.tokenId];
 
         if (config.lowerTickDelta == config.upperTickDelta) {
@@ -133,6 +132,8 @@ contract AutoRange is Transformer, Automator {
         ) {
             revert ExceedsMaxReward();
         }
+
+        ExecuteState memory state;
 
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
@@ -255,10 +256,10 @@ contract AutoRange is Transformer, Automator {
             }
 
             // send leftover to real owner
-            if (state.amount0 - state.amountAdded0 > 0) {
+            if (state.amount0 - state.amountAdded0 != 0) {
                 _transferToken(state.realOwner, IERC20(state.token0), state.amount0 - state.amountAdded0, true);
             }
-            if (state.amount1 - state.amountAdded1 > 0) {
+            if (state.amount1 - state.amountAdded1 != 0) {
                 _transferToken(state.realOwner, IERC20(state.token1), state.amount1 - state.amountAdded1, true);
             }
 
