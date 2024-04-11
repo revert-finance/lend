@@ -494,7 +494,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
                 _addTokenToOwner(owner, tokenId);
                 emit Add(tokenId, owner, oldTokenId);
 
-                // clears data of old loan
+                // remove debt from old loan
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96);
 
                 // sets data of new loan
@@ -781,7 +781,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             revert SlippageError();
         }
 
-        // disarm loan and send remaining position to owner
+        // remove debt from loan
         _cleanupLoan(params.tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
 
         emit Liquidate(
@@ -1085,10 +1085,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares
         );
 
-        // if fully repayed
-        if (currentShares == shares) {
-            _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96);
-        } else {
+        // if not fully repayed - check for loan size
+        if (currentShares != shares) {
             // if resulting loan is too small - revert
             if (_convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
                 revert MinLoanSize();
