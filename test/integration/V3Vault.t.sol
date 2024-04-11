@@ -130,7 +130,7 @@ contract V3VaultIntegrationTest is Test {
 
         if (borrowMax) {
             // borrow max
-            uint256 buffer = vault.BORROW_SAFETY_BUFFER();
+            uint256 buffer = vault.BORROW_SAFETY_BUFFER_X32();
             vm.prank(TEST_NFT_ACCOUNT);
             vault.borrow(TEST_NFT, collateralValue * buffer / Q32);
         }
@@ -279,7 +279,7 @@ contract V3VaultIntegrationTest is Test {
         uint256 debtLimit = vault.globalDebtLimit();
         uint256 increaseLimit = vault.dailyDebtIncreaseLimitMin();
 
-        uint256 buffer = vault.BORROW_SAFETY_BUFFER();
+        uint256 buffer = vault.BORROW_SAFETY_BUFFER_X32();
 
         if (amount > debtLimit) {
             vm.expectRevert(IErrors.GlobalDebtLimit.selector);
@@ -659,7 +659,7 @@ contract V3VaultIntegrationTest is Test {
 
         // debt is equal collateral value
         (uint256 debt,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, collateralValue * vault.BORROW_SAFETY_BUFFER() / Q32);
+        assertEq(debt, collateralValue * vault.BORROW_SAFETY_BUFFER_X32() / Q32);
         assertEq(liquidationCost, 0);
         assertEq(liquidationValue, 0);
 

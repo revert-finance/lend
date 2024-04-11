@@ -44,7 +44,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); //10%
     uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
 
-    uint256 public constant BORROW_SAFETY_BUFFER = uint32(Q32 * 95 / 100); //95% of collateral value
+    uint256 public constant BORROW_SAFETY_BUFFER_X32 = uint32(Q32 * 95 / 100); //95% of collateral value
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
@@ -117,12 +117,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
     mapping(address => TokenConfig) public tokenConfigs;
 
-    // percentage of interest which is kept in the protocol for reserves
-    uint32 public reserveFactorX32 = 0;
-
-    // percentage of lend amount which needs to be in reserves before withdrawn
-    uint32 public reserveProtectionFactorX32 = MIN_RESERVE_PROTECTION_FACTOR_X32;
-
     // total of debt shares - increases when borrow - decreases when repay
     uint256 public debtSharesTotal = 0;
 
@@ -168,6 +162,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
+
+    // percentage of interest which is kept in the protocol for reserves
+    uint32 public reserveFactorX32 = 0;
+
+    // percentage of lend amount which needs to be in reserves before withdrawn
+    uint32 public reserveProtectionFactorX32 = MIN_RESERVE_PROTECTION_FACTOR_X32;
 
     constructor(
         string memory name,
@@ -1373,7 +1373,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
-        isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER / Q32 : collateralValue) >= debt;
+        isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
     }
 
     function _convertToShares(uint256 amount, uint256 exchangeRateX96, Math.Rounding rounding)
