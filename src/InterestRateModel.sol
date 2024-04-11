@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import "./interfaces/IInterestRateModel.sol";
 import "./interfaces/IErrors.sol";
 
 /// @title Model for interest rate calculation used in Vault
 /// @notice Calculates both borrow and supply rate
-contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
+contract InterestRateModel is Ownable2Step, IInterestRateModel, IErrors {
     uint256 private constant Q96 = 2 ** 96;
     uint256 public constant YEAR_SECS = 31557600; // taking into account leap years
 

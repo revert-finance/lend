@@ -13,7 +13,7 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -24,7 +24,7 @@ import "./interfaces/IErrors.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
-contract V3Oracle is IV3Oracle, Ownable, IErrors {
+contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
 
     uint256 private constant SEQUENCER_GRACE_PERIOD_TIME = 600; // 10mins
 
@@ -536,8 +536,8 @@ contract V3Oracle is IV3Oracle, Ownable, IErrors {
             feeGrowth1 = feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128;
         }
 
-        fees0 = uint128(FullMath.mulDiv(feeGrowth0, position.liquidity, Q128));
-        fees1 = uint128(FullMath.mulDiv(feeGrowth1, position.liquidity, Q128));
+        fees0 = SafeCast.toUint128(FullMath.mulDiv(feeGrowth0, position.liquidity, Q128));
+        fees1 = SafeCast.toUint128(FullMath.mulDiv(feeGrowth1, position.liquidity, Q128));
     }
 
     // calculate fee growth for uncollected fees calculation

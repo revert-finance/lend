@@ -14,7 +14,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
@@ -28,7 +28,7 @@ import "./interfaces/IErrors.sol";
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
-contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors {
+contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IErrors {
     using Math for uint256;
 
     uint256 private constant Q32 = 2 ** 32;
@@ -1142,13 +1142,13 @@ contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors 
             // only take needed fees
             if (liquidationValue < feeValue) {
                 liquidity = 0;
-                fees0 = uint128(liquidationValue * fees0 / feeValue);
-                fees1 = uint128(liquidationValue * fees1 / feeValue);
+                fees0 = SafeCast.toUint128(liquidationValue * fees0 / feeValue);
+                fees1 = SafeCast.toUint128(liquidationValue * fees1 / feeValue);
             } else {
                 // take all fees and needed liquidity
                 fees0 = type(uint128).max;
                 fees1 = type(uint128).max;
-                liquidity = uint128((liquidationValue - feeValue) * liquidity / (fullValue - feeValue));
+                liquidity = SafeCast.toUint128((liquidationValue - feeValue) * liquidity / (fullValue - feeValue));
             }
         }
 

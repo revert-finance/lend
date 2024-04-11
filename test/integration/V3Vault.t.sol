@@ -161,8 +161,8 @@ contract V3VaultIntegrationTest is Test {
         NPM.approve(address(vault), tokenId);
 
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeWithSelector(V3Vault.create.selector, tokenId, account);
-        calls[1] = abi.encodeWithSelector(V3Vault.borrow.selector, tokenId, amount);
+        calls[0] = abi.encodeCall(V3Vault.create, (tokenId, account));
+        calls[1] = abi.encodeCall(V3Vault.borrow, (tokenId, amount));
 
         vm.prank(account);
         vault.multicall(calls);
@@ -365,7 +365,7 @@ contract V3VaultIntegrationTest is Test {
         // execute leveragedown
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(
-            TEST_NFT, address(transformer), abi.encodeWithSelector(LeverageTransformer.leverageDown.selector, params)
+            TEST_NFT, address(transformer), abi.encodeCall(LeverageTransformer.leverageDown, (params))
         );
 
         (debt,, collateralValue,,) = vault.loanInfo(TEST_NFT);
@@ -402,7 +402,7 @@ contract V3VaultIntegrationTest is Test {
         // execute leverageup
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(
-            TEST_NFT, address(transformer), abi.encodeWithSelector(LeverageTransformer.leverageUp.selector, params2)
+            TEST_NFT, address(transformer), abi.encodeCall(LeverageTransformer.leverageUp, (params2))
         );
 
         (debt,, collateralValue,,) = vault.loanInfo(TEST_NFT);
@@ -446,7 +446,7 @@ contract V3VaultIntegrationTest is Test {
         );
 
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.transform(TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst));
+        vault.transform(TEST_NFT, address(v3Utils), abi.encodeCall(V3Utils.execute, (TEST_NFT, inst)));
     }
 
     function testTransformChangeRange() external {
@@ -506,7 +506,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         uint256 tokenId = vault.transform(
-            TEST_NFT, address(v3Utils), abi.encodeWithSelector(V3Utils.execute.selector, TEST_NFT, inst)
+            TEST_NFT, address(v3Utils), abi.encodeCall(V3Utils.execute, (TEST_NFT, inst))
         );
 
         assertGt(tokenId, TEST_NFT);
@@ -1389,7 +1389,7 @@ contract V3VaultIntegrationTest is Test {
         vault.transform(
             EXPLOITER_NFT,
             address(autoCompound),
-            abi.encodeWithSelector(AutoCompound.execute.selector, params)
+            abi.encodeCall(AutoCompound.execute, (params))
         );
     }
 }

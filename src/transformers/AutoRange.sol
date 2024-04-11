@@ -101,7 +101,7 @@ contract AutoRange is Transformer, Automator {
             revert Unauthorized();
         }
         IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeWithSelector(AutoRange.execute.selector, params)
+            params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params))
         );
     }
 

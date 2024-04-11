@@ -93,7 +93,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
             revert Unauthorized();
         }
         IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeWithSelector(AutoCompound.execute.selector, params)
+            params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params))
         );
     }
 

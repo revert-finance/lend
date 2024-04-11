@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../interfaces/IErrors.sol";
 import "../interfaces/IVault.sol";
 
-abstract contract Transformer is Ownable, IErrors {
+abstract contract Transformer is Ownable2Step, IErrors {
 
     event VaultSet(address newVault);
 

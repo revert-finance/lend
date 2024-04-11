@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -16,7 +16,7 @@ import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
-abstract contract Automator is Ownable, Swapper {
+abstract contract Automator is Ownable2Step, Swapper {
     uint256 internal constant Q64 = 2 ** 64;
     uint256 internal constant Q96 = 2 ** 96;
 
