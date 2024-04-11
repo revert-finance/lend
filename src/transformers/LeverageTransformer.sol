@@ -113,11 +113,11 @@ contract LeverageTransformer is Transformer, Swapper {
         // how much of token0 should be swapped to lend token
         uint256 amountIn0;
         uint256 amountOut0Min;
-        bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        bytes swapData0; // encoded data for swap
         // how much of token1 should be swapped to lend token
         uint256 amountIn1;
         uint256 amountOut1Min;
-        bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        bytes swapData1; // encoded data for swap
         // recipient for leftover tokens
         address recipient;
         // for all uniswap deadlineable functions
@@ -171,9 +171,12 @@ contract LeverageTransformer is Transformer, Swapper {
         }
 
         SafeERC20.safeApprove(IERC20(token), msg.sender, amount);
-        IVault(msg.sender).repay(params.tokenId, amount, false);
+        (uint256 repayedAmount,) = IVault(msg.sender).repay(params.tokenId, amount, false);
 
         // send leftover tokens
+        if (amount > repayedAmount) {
+            SafeERC20.safeTransfer(IERC20(token), params.recipient, amount - repayedAmount);
+        }
         if (amount0 > 0 && token != token0) {
             SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0);
         }
