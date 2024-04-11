@@ -1078,7 +1078,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             }
         }
 
-        uint256 loanDebtShares = loan.debtShares - shares;
+        uint256 loanDebtShares = currentShares - shares;
         loan.debtShares = loanDebtShares;
         debtSharesTotal -= shares;
 
@@ -1278,12 +1278,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         // always growing or equal
         uint256 lastRateUpdate = lastExchangeRateUpdate;
+        uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
         if (lastRateUpdate > 0) {
             newDebtExchangeRateX96 = oldDebtExchangeRateX96
-                + oldDebtExchangeRateX96 * (block.timestamp - lastRateUpdate) * borrowRateX96 / Q96;
+                + oldDebtExchangeRateX96 * timeElapsed * borrowRateX96 / Q96;
             newLendExchangeRateX96 = oldLendExchangeRateX96
-                + oldLendExchangeRateX96 * (block.timestamp - lastRateUpdate) * supplyRateX96 / Q96;
+                + oldLendExchangeRateX96 * timeElapsed * supplyRateX96 / Q96;
         } else {
             newDebtExchangeRateX96 = oldDebtExchangeRateX96;
             newLendExchangeRateX96 = oldLendExchangeRateX96;

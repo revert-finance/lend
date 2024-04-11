@@ -241,9 +241,10 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         uint256 i;
         uint256 count = tokens.length;
         for (; i < count; ++i) {
-            uint256 balance = positionBalances[0][tokens[i]];
+            address token = tokens[i];
+            uint256 balance = positionBalances[0][token];
             if (balance != 0) {
-                _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+                _withdrawBalanceInternal(0, token, to, balance, balance);
             }
         }
     }
@@ -279,7 +280,8 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         internal
     {
         require(amount <= balance, "amount>balance");
-        positionBalances[tokenId][token] = positionBalances[tokenId][token] - amount;
+        balance -= amount;
+        positionBalances[tokenId][token] = balance;
         emit BalanceRemoved(tokenId, token, amount);
         SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit BalanceWithdrawn(tokenId, token, to, amount);

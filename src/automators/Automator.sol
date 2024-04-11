@@ -96,9 +96,10 @@ abstract contract Automator is Ownable2Step, Swapper {
         uint256 i;
         uint256 count = tokens.length;
         for (; i < count; ++i) {
-            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            address token = tokens[i];
+            uint256 balance = IERC20(token).balanceOf(address(this));
             if (balance > 0) {
-                _transferToken(to, IERC20(tokens[i]), balance, true);
+                _transferToken(to, IERC20(token), balance, true);
             }
         }
     }
