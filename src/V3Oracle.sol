@@ -493,7 +493,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         pure
         returns (uint256 amount0, uint256 amount1)
     {
-        if (state.liquidity > 0) {
+        if (state.liquidity != 0) {
             state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
             state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
             (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(

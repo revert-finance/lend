@@ -1251,6 +1251,8 @@ contract V3VaultIntegrationTest is Test {
         vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
 
         (,, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
+        uint256 buffer = vault.BORROW_SAFETY_BUFFER_X32();
+
 
         uint256 vaultBalance = USDC.balanceOf(address(vault));
 
@@ -1258,7 +1260,7 @@ contract V3VaultIntegrationTest is Test {
             vm.expectRevert(IErrors.GlobalDebtLimit.selector);
         } else if (debt > dailyDebtIncreaseLimitMin) {
             vm.expectRevert(IErrors.DailyDebtIncreaseLimit.selector);
-        } else if (collateralValue < debt) {
+        } else if (collateralValue * buffer / Q32 < debt) {
             vm.expectRevert(IErrors.CollateralFail.selector);
         } else if (vaultBalance < debt) {
             vm.expectRevert("ERC20: transfer amount exceeds balance");

@@ -204,10 +204,10 @@ contract AutoExit is Automator {
         }
 
         state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
-        if (state.amount0 > 0) {
+        if (state.amount0 != 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
-        if (state.amount1 > 0) {
+        if (state.amount1 != 0) {
             _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
         }
 

@@ -98,7 +98,7 @@ abstract contract Automator is Ownable2Step, Swapper {
         for (; i < count; ++i) {
             address token = tokens[i];
             uint256 balance = IERC20(token).balanceOf(address(this));
-            if (balance > 0) {
+            if (balance != 0) {
                 _transferToken(to, IERC20(token), balance, true);
             }
         }
@@ -114,7 +114,7 @@ abstract contract Automator is Ownable2Step, Swapper {
         }
 
         uint256 balance = address(this).balance;
-        if (balance > 0) {
+        if (balance != 0) {
             (bool sent,) = to.call{value: balance}("");
             if (!sent) {
                 revert EtherSendFailed();
@@ -186,7 +186,7 @@ abstract contract Automator is Ownable2Step, Swapper {
         uint256 amountRemoveMin1,
         uint256 deadline
     ) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
-        if (liquidity > 0) {
+        if (liquidity != 0) {
             // store in temporarely "misnamed" variables - see comment below
             (feeAmount0, feeAmount1) = nonfungiblePositionManager.decreaseLiquidity(
                 INonfungiblePositionManager.DecreaseLiquidityParams(

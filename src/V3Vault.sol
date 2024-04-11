@@ -473,7 +473,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         if (oldTokenId == 0) {
             address owner = from;
-            if (data.length > 0) {
+            if (data.length != 0) {
                 owner = abi.decode(data, (address));
             }
             loans[tokenId] = Loan(0);
@@ -533,7 +533,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
         }
-        if (transformedTokenId > 0) {
+        if (transformedTokenId != 0) {
             revert Reentrancy();
         }
         transformedTokenId = tokenId;
@@ -579,7 +579,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param tokenId The token ID to use as collateral
     /// @param assets How much assets to borrow
     function borrow(uint256 tokenId, uint256 assets) external override {
-        bool isTransformMode = transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
+        bool isTransformMode = transformedTokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
         // if not in transfer mode - must be called from owner
         if (!isTransformMode && tokenOwner[tokenId] != msg.sender) {
@@ -643,7 +643,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         returns (uint256 amount0, uint256 amount1)
     {
         // this method is not allowed during transform - can be called directly on nftmanager if needed from transform contract
-        if (transformedTokenId > 0) {
+        if (transformedTokenId != 0) {
             revert TransformNotAllowed();
         }
 
@@ -719,7 +719,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @return amount1 The amount of the second type of asset collected.
     function liquidate(LiquidateParams calldata params) external override returns (uint256 amount0, uint256 amount1) {
         // liquidation is not allowed during transformer mode
-        if (transformedTokenId > 0) {
+        if (transformedTokenId != 0) {
             revert TransformNotAllowed();
         }
 
@@ -743,13 +743,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
 
         // calculate reserve (before transfering liquidation money - otherwise calculation is off)
-        if (state.reserveCost > 0) {
+        if (state.reserveCost != 0) {
             state.missing =
                 _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
         }
 
-        if (state.liquidatorCost > 0) {
-            if (params.permitData.length > 0) {
+        if (state.liquidatorCost != 0) {
+            if (params.permitData.length != 0) {
                 (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                     abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
 
@@ -809,7 +809,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         }
 
         uint256 debtShares = loans[tokenId].debtShares;
-        if (debtShares > 0) {
+        if (debtShares != 0) {
             revert NeedsRepay();
         }
 
@@ -837,7 +837,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             revert InsufficientLiquidity();
         }
 
-        if (amount > 0) {
+        if (amount != 0) {
             SafeERC20.safeTransfer(IERC20(asset), receiver, amount);
         }
 
@@ -961,7 +961,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             revert DailyLendIncreaseLimit();
         }
 
-        if (permitData.length > 0) {
+        if (permitData.length != 0) {
             (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                 abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
 
@@ -1056,8 +1056,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             assets = _convertToAssets(shares, newDebtExchangeRateX96, Math.Rounding.Up);
         }
 
-        if (assets > 0) {
-            if (permitData.length > 0) {
+        if (assets != 0) {
+            if (permitData.length != 0) {
                 (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                     abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
 
@@ -1144,7 +1144,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             }
         }
 
-        if (liquidity > 0) {
+        if (liquidity != 0) {
             nonfungiblePositionManager.decreaseLiquidity(
                 INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, 0, 0, deadline)
             );
@@ -1181,7 +1181,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         // if position is more valuable than debt with max penalty
         if (fullValue >= maxPenaltyValue) {
-            if (collateralValue > 0) {
+            if (collateralValue != 0) {
                 // position value when position started to be liquidatable
                 uint256 startLiquidationValue = debt * fullValue / collateralValue;
                 uint256 penaltyFractionX96 =
@@ -1274,7 +1274,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         uint256 lastRateUpdate = lastExchangeRateUpdate;
         uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
-        if (lastRateUpdate > 0) {
+        if (lastRateUpdate != 0) {
             newDebtExchangeRateX96 = oldDebtExchangeRateX96
                 + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
             newLendExchangeRateX96 = oldLendExchangeRateX96

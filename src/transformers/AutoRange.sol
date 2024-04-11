@@ -256,10 +256,10 @@ contract AutoRange is Transformer, Automator {
             }
 
             // send leftover to real owner
-            if (state.amount0 - state.amountAdded0 > 0) {
+            if (state.amount0 - state.amountAdded0 != 0) {
                 _transferToken(state.realOwner, IERC20(state.token0), state.amount0 - state.amountAdded0, true);
             }
-            if (state.amount1 - state.amountAdded1 > 0) {
+            if (state.amount1 - state.amountAdded1 != 0) {
                 _transferToken(state.realOwner, IERC20(state.token1), state.amount1 - state.amountAdded1, true);
             }
 
