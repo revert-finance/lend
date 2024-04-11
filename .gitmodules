@@ -14,3 +14,6 @@
 	path = lib/permit2
 	url = https://github.com/uniswap/permit2
 	branch = cc56ad0f3439c502c246fc5cfcc3db92bb8b7219
+[submodule "lib/openzeppelin-contracts"]
+	path = lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
