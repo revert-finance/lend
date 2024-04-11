@@ -227,13 +227,13 @@ contract V3VaultIntegrationTest is Test {
         uint256 lendLimit = vault.globalLendLimit();
         uint256 dailyDepositLimit = vault.dailyLendIncreaseLimitMin();
 
-        if (amount > balance) {
-            vm.expectRevert("ERC20: transfer amount exceeds balance");
-        } else if (amount > lendLimit) {
+       if (amount > lendLimit) {
             vm.expectRevert(IErrors.GlobalLendLimit.selector);
         } else if (amount > dailyDepositLimit) {
             vm.expectRevert(IErrors.DailyLendIncreaseLimit.selector);
-        }
+        } else if (amount > balance) {
+            vm.expectRevert("ERC20: transfer amount exceeds balance");
+        } 
 
         vm.prank(WHALE_ACCOUNT);
         vault.deposit(amount, WHALE_ACCOUNT);
@@ -291,6 +291,31 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.borrow(TEST_NFT, amount);
+    }
+
+    function testBorrowUnauthorized() external {
+        // 0 borrow loan
+        uint256 amount = 1e6;
+        _setupBasicLoan(false);
+
+        (,, uint256 collateralValue,,) = vault.loanInfo(TEST_NFT);
+
+        vm.assume(amount <= collateralValue * 100);
+
+        uint256 debtLimit = vault.globalDebtLimit();
+        uint256 increaseLimit = vault.dailyDebtIncreaseLimitMin();
+
+        if (amount > debtLimit) {
+            vm.expectRevert(IErrors.GlobalDebtLimit.selector);
+        } else if (amount > increaseLimit) {
+            vm.expectRevert(IErrors.DailyDebtIncreaseLimit.selector);
+        } else if (amount > collateralValue) {
+            vm.expectRevert(IErrors.CollateralFail.selector);
+        }
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(IErrors.Unauthorized.selector);
+        vault.borrow(0, amount); //NFT id hardcoded to 0 to make the function fail
     }
 
     // fuzz testing repay amount
@@ -1207,13 +1232,14 @@ contract V3VaultIntegrationTest is Test {
 
         uint256 whaleBalance = USDC.balanceOf(WHALE_ACCOUNT);
 
-        if (whaleBalance < lent) {
-            vm.expectRevert("ERC20: transfer amount exceeds balance");
-        } else if (lent > globalLendLimit) {
+        if (lent > globalLendLimit) {
             vm.expectRevert(IErrors.GlobalLendLimit.selector);
         } else if (lent > dailyLendIncreaseLimitMin) {
             vm.expectRevert(IErrors.DailyLendIncreaseLimit.selector);
+        } else if (whaleBalance < lent) {
+            vm.expectRevert("ERC20: transfer amount exceeds balance");
         }
+        
         vm.prank(WHALE_ACCOUNT);
         vault.deposit(lent, WHALE_ACCOUNT);
 

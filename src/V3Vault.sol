@@ -583,16 +583,16 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         bool isTransformMode =
             transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
+        // if not in transfer mode - must be called from owner or the vault itself
+        if (!isTransformMode && tokenOwner[tokenId] != msg.sender && address(this) != msg.sender) {
+            revert Unauthorized();
+        }
+
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
 
         _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
         Loan storage loan = loans[tokenId];
-
-        // if not in transfer mode - must be called from owner or the vault itself
-        if (!isTransformMode && tokenOwner[tokenId] != msg.sender && address(this) != msg.sender) {
-            revert Unauthorized();
-        }
 
         uint256 shares = _convertToShares(assets, newDebtExchangeRateX96, Math.Rounding.Up);
 
@@ -958,6 +958,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             shares = _convertToShares(assets, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
+        if (totalSupply() + shares > globalLendLimit) {
+            revert GlobalLendLimit();
+        }
+        if (assets > dailyLendIncreaseLimitLeft) {
+            revert DailyLendIncreaseLimit();
+        }
+
         if (permitData.length > 0) {
             (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                 abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
@@ -976,16 +983,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         _mint(receiver, shares);
 
-        uint256 totalSupplyValue = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
-        if (totalSupplyValue > globalLendLimit) {
-            revert GlobalLendLimit();
-        }
-
-        if (assets > dailyLendIncreaseLimitLeft) {
-            revert DailyLendIncreaseLimit();
-        } else {
-            dailyLendIncreaseLimitLeft -= assets;
-        }
+        dailyLendIncreaseLimitLeft -= assets;
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }

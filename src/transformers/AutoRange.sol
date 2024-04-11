@@ -120,7 +120,6 @@ contract AutoRange is Transformer, Automator {
             }
         }
 
-        ExecuteState memory state;
         PositionConfig memory config = positionConfigs[params.tokenId];
 
         if (config.lowerTickDelta == config.upperTickDelta) {
@@ -133,6 +132,8 @@ contract AutoRange is Transformer, Automator {
         ) {
             revert ExceedsMaxReward();
         }
+
+        ExecuteState memory state;
 
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
