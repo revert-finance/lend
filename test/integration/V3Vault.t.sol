@@ -1420,4 +1420,43 @@ contract V3VaultIntegrationTest is Test {
             abi.encodeCall(AutoCompound.execute, (params))
         );
     }
+
+    function test_LeverageDown() public {
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(leverageTransformer), true);
+
+        _deposit(10000000, WHALE_ACCOUNT);
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(NPM), TEST_NFT);
+        NPM.approve(address(vault), TEST_NFT);
+
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vault.borrow(TEST_NFT, 1);
+
+        LeverageTransformer.LeverageDownParams memory params = LeverageTransformer.LeverageDownParams({
+            tokenId: TEST_NFT,
+            liquidity: 1,
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            feeAmount0: 0,
+            feeAmount1: 1,
+            amountIn0: 0,
+            amountOut0Min: 0,
+            swapData0: "",
+            amountIn1: 0,
+            amountOut1Min: 0,
+            swapData1: "",
+            recipient: TEST_NFT_ACCOUNT,
+            deadline: block.timestamp
+        });
+
+        vault.transform(TEST_NFT, address(leverageTransformer), abi.encodeWithSelector(LeverageTransformer.leverageDown.selector, params));
+        
+        vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
+        vm.stopPrank();
+
+
+    }
 }
