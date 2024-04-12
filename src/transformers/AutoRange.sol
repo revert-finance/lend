@@ -291,11 +291,6 @@ contract AutoRange is Transformer, Automator {
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
 
-        // msg.sender must not be a vault
-        if (vaults[msg.sender]) {
-            revert Unauthorized();
-        }
-
         _validateOwner(nonfungiblePositionManager, tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated

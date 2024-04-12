@@ -26,6 +26,12 @@ abstract contract Transformer is Ownable2Step, IErrors {
 
     // validates if caller is owner (direct or indirect for a given position)
     function _validateOwner(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId, address vault) internal {
+        
+        // vault can not be owner
+        if (vaults[msg.sender]) {
+            revert Unauthorized();
+        }
+        
         address owner;
         if (vault != address(0)) {
             if (!vaults[vault]) {
