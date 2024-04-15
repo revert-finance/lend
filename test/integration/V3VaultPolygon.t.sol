@@ -115,9 +115,11 @@ contract VaultPolygonIntegrationTest is Test {
         // add transformers
         v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
         vault.setTransformer(address(v3Utils), true);
+        v3Utils.setVault(address(vault));
 
         leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
 
         autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
