@@ -167,8 +167,9 @@ contract LeverageTransformer is Transformer, Swapper {
             amount += amountOut;
         }
 
-        SafeERC20.safeApprove(IERC20(token), msg.sender, amount);
+        SafeERC20.safeIncreaseAllowance(IERC20(token), msg.sender, amount);
         (uint256 repayedAmount,) = IVault(msg.sender).repay(params.tokenId, amount, false);
+        SafeERC20.safeApprove(IERC20(token), msg.sender, 0);
 
         // send leftover tokens
         if (amount > repayedAmount) {

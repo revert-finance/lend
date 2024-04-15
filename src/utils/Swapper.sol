@@ -84,7 +84,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             if (router == zeroxRouter) {
                 ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
                 // approve needed amount
-                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, params.amountIn);
+                SafeERC20.safeIncreaseAllowance(params.tokenIn, data.allowanceTarget, params.amountIn);
                 // execute swap
                 (bool success,) = zeroxRouter.call(data.data);
                 if (!success) {
