@@ -29,9 +29,5 @@ interface IV3Oracle {
     function getLiquidityAndFees(uint256 tokenId)
         external
         view
-        returns (
-            uint128 liquidity,
-            uint128 fees0,
-            uint128 fees1
-        );
+        returns (uint128 liquidity, uint128 fees0, uint128 fees1);
 }

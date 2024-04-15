@@ -100,9 +100,7 @@ contract AutoRange is Transformer, Automator {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params))
-        );
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)));
     }
 
     /**
@@ -111,7 +109,6 @@ contract AutoRange is Transformer, Automator {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-
         if (!operators[msg.sender]) {
             if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
@@ -190,8 +187,10 @@ contract AutoRange is Transformer, Automator {
                     )
                 );
 
-                state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
-                state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+                state.amount0 =
+                    params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
+                state.amount1 =
+                    params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
 
                 // update tick
                 (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
@@ -290,7 +289,6 @@ contract AutoRange is Transformer, Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
-
         _validateOwner(nonfungiblePositionManager, tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated

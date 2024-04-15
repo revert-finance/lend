@@ -25,7 +25,6 @@ import "./interfaces/IErrors.sol";
 /// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
-
     uint256 private constant SEQUENCER_GRACE_PERIOD_TIME = 600; // 10mins
 
     uint256 private constant Q96 = 2 ** 96;
@@ -43,6 +42,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         TWAP_CHAINLINK_VERIFY, // using TWAP for price and chainlink to verify
         CHAINLINK, // using only chainlink directly
         TWAP // using TWAP directly
+
     }
 
     struct TokenConfig {
@@ -122,7 +122,8 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         }
 
         // calculate outputs
-        value = (state.price0X96 * (amount0 + fees0) / Q96 + state.price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
+        value = (state.price0X96 * (amount0 + fees0) / Q96 + state.price1X96 * (amount1 + fees1) / Q96) * Q96
+            / priceTokenX96;
         feeValue = (state.price0X96 * fees0 / Q96 + state.price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
         price0X96 = state.price0X96 * Q96 / priceTokenX96;
         price1X96 = state.price1X96 * Q96 / priceTokenX96;
@@ -132,12 +133,14 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         internal
         pure
     {
-        uint256 differenceX10000 = priceX96 >= verifyPriceX96
-            ? (priceX96 - verifyPriceX96) * 10000
-            : (verifyPriceX96 - priceX96) * 10000;
-        
+        uint256 differenceX10000 =
+            priceX96 >= verifyPriceX96 ? (priceX96 - verifyPriceX96) * 10000 : (verifyPriceX96 - priceX96) * 10000;
+
         // if invalid price or too big difference - revert
-        if ((verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 > maxDifferenceX10000) && maxDifferenceX10000 < type(uint16).max) {
+        if (
+            (verifyPriceX96 == 0 || differenceX10000 / verifyPriceX96 > maxDifferenceX10000)
+                && maxDifferenceX10000 < type(uint16).max
+        ) {
             revert PriceDifferenceExceeded();
         }
     }
@@ -184,11 +187,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         external
         view
         override
-        returns (
-            uint128 liquidity,
-            uint128 fees0,
-            uint128 fees1
-        )
+        returns (uint128 liquidity, uint128 fees0, uint128 fees1)
     {
         PositionState memory state = _loadPositionState(tokenId);
         liquidity = state.liquidity;
@@ -268,7 +267,6 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         emit OracleModeUpdated(token, mode);
     }
 
-
     /// @notice Sets sequencer uptime feed for L2 where needed
     /// @param feed Sequencer uptime feed
     function setSequencerUptimeFeed(address feed) external onlyOwner {
@@ -318,12 +316,14 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
                 : cachedChainlinkReferencePriceX96;
 
             if (referenceTokenDecimals > feedConfig.tokenDecimals) {
-                chainlinkPriceX96 = (10 ** (referenceTokenDecimals - feedConfig.tokenDecimals)) * chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96;
+                chainlinkPriceX96 = (10 ** (referenceTokenDecimals - feedConfig.tokenDecimals)) * chainlinkPriceX96
+                    * Q96 / chainlinkReferencePriceX96;
             } else if (referenceTokenDecimals < feedConfig.tokenDecimals) {
-                chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96  / (10 ** (feedConfig.tokenDecimals - referenceTokenDecimals));
+                chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96
+                    / (10 ** (feedConfig.tokenDecimals - referenceTokenDecimals));
             } else {
                 chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96;
-            }    
+            }
 
             if (feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
                 verifyPriceX96 = chainlinkPriceX96;
@@ -354,7 +354,8 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
 
         // sequencer check on chains where needed
         if (sequencerUptimeFeed != address(0)) {
-            (, int256 sequencerAnswer,uint256 startedAt,,) = AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
+            (, int256 sequencerAnswer, uint256 startedAt,,) =
+                AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
 
             // Answer == 0: Sequencer is up
             // Answer == 1: Sequencer is down
@@ -406,7 +407,10 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
             secondsAgos[1] = twapSeconds; // from (before)
             (int56[] memory tickCumulatives,) = pool.observe(secondsAgos); // pool observe may fail when there is not enough history available (only use pool with enough history!)
             int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
-            if (tickCumulatives[0] - tickCumulatives[1] < 0 && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0) tick--;
+            if (
+                tickCumulatives[0] - tickCumulatives[1] < 0
+                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
+            ) tick--;
             sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
         }
 
@@ -478,7 +482,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
         // will move price back to reasonable range and enable liquidation
         uint256 derivedPoolPriceX96 = state.price0X96 * Q96 / state.price1X96;
-        
+
         // current pool price
         uint256 priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
         _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
@@ -486,13 +490,9 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
         // calculate derived sqrt price
         state.derivedSqrtPriceX96 = SafeCast.toUint160(Math.sqrt(derivedPoolPriceX96) * (2 ** 48));
     }
- 
+
     // calculate position amounts given derived price from oracle
-    function _getAmounts(PositionState memory state)
-        internal
-        pure
-        returns (uint256 amount0, uint256 amount1)
-    {
+    function _getAmounts(PositionState memory state) internal pure returns (uint256 amount0, uint256 amount1) {
         if (state.liquidity != 0) {
             state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
             state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
@@ -503,11 +503,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
     }
 
     // calculate uncollected position fees
-    function _getFees(PositionState memory state)
-        internal
-        view
-        returns (uint128 fees0, uint128 fees1)
-    {   
+    function _getFees(PositionState memory state) internal view returns (uint128 fees0, uint128 fees1) {
         (fees0, fees1) = _getUncollectedFees(state, state.tick);
         fees0 += state.tokensOwed0;
         fees1 += state.tokensOwed1;

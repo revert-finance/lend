@@ -4,10 +4,9 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 interface IVault is IERC4626 {
+    function transformedTokenId() external view returns (uint256 tokenId);
 
-    function transformedTokenId() external view returns(uint256 tokenId);
-
-    function loans(uint256 tokenId) external view returns(uint256 debtShares);
+    function loans(uint256 tokenId) external view returns (uint256 debtShares);
 
     function vaultInfo()
         external
@@ -39,14 +38,8 @@ interface IVault is IERC4626 {
     function loanAtIndex(address owner, uint256 index) external view returns (uint256);
 
     function create(uint256 tokenId, address recipient) external;
-    function createWithPermit(
-        uint256 tokenId,
-        address recipient,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external;
+    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external;
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
@@ -71,7 +64,9 @@ interface IVault is IERC4626 {
 
     function borrow(uint256 tokenId, uint256 amount) external;
     function repay(uint256 tokenId, uint256 amount, bool isShare) external returns (uint256 assets, uint256 shares);
-    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external returns (uint256 assets, uint256 shares);
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
+        external
+        returns (uint256 assets, uint256 shares);
 
     struct LiquidateParams {
         // token to liquidate
@@ -84,7 +79,7 @@ interface IVault is IERC4626 {
         // if permit2 signatures are used - set this
         bytes permitData;
         // for uniswap functions
-        uint deadline;
+        uint256 deadline;
     }
 
     function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);

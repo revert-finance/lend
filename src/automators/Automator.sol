@@ -172,7 +172,10 @@ abstract contract Automator is Ownable2Step, Swapper {
         // pool observe may fail when there is not enough history available
         try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
             int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
-            if (tickCumulatives[0] - tickCumulatives[1] < 0 && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0) tick--;
+            if (
+                tickCumulatives[0] - tickCumulatives[1] < 0
+                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
+            ) tick--;
             return (tick, true);
         } catch {
             return (0, false);

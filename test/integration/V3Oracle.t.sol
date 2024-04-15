@@ -101,15 +101,15 @@ contract V3OracleIntegrationTest is Test {
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
         assertEq(valueWETH, 5253669944704203);
 
-        (uint256 valueUSDC2,,uint price0,uint price1) = oracle.getValue(TEST_NFT_DAI_WETH, address(USDC));
+        (uint256 valueUSDC2,, uint256 price0, uint256 price1) = oracle.getValue(TEST_NFT_DAI_WETH, address(USDC));
         assertEq(valueUSDC2, 57217647626);
 
         assertEq(price0, 79228371980132557);
         assertEq(price1, 148235538176146811595);
 
-        (,,,,uint amount0,uint amount1,,) = oracle.getPositionBreakdown(TEST_NFT_DAI_WETH);
+        (,,,, uint256 amount0, uint256 amount1,,) = oracle.getPositionBreakdown(TEST_NFT_DAI_WETH);
         assertEq(amount0, 29754721813133755549897);
-        assertEq(amount1, 14500423413066020069);       
+        assertEq(amount1, 14500423413066020069);
     }
 
     function testNonExistingToken() external {

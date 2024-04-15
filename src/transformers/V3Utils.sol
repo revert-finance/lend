@@ -109,10 +109,10 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
         // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
     }
-  
+
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
     /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address /*operator*/, address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
@@ -141,7 +141,6 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute
     function execute(uint256 tokenId, Instructions memory instructions) public returns (uint256 newTokenId) {
-
         _validateCaller(nonfungiblePositionManager, tokenId);
 
         (,, address token0, address token1,,,, uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);

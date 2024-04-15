@@ -41,7 +41,7 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
     }
 
     /// @notice Returns utilization rate X64 given cash and debt
-    /// @param cash Current available cash 
+    /// @param cash Current available cash
     /// @param debt Current debt
     /// @return Utilization rate between 0 and Q64
     function getUtilizationRateX64(uint256 cash, uint256 debt) public pure returns (uint256) {
@@ -52,7 +52,7 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
     }
 
     /// @notice Returns interest rates X64 given cash and debt
-    /// @param cash Current available cash 
+    /// @param cash Current available cash
     /// @param debt Current debt
     /// @return borrowRateX64 borrow rate multiplied by Q64
     /// @return supplyRateX64 supply rate multiplied by Q64

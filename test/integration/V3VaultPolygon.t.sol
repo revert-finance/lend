@@ -147,7 +147,6 @@ contract VaultPolygonIntegrationTest is Test {
         assertEq(collateralValue, 463959);
         assertEq(fullValue, 579950);
 
-
         uint256 buffer = vault.BORROW_SAFETY_BUFFER_X32();
 
         vm.prank(TEST_NFT_ACCOUNT);

@@ -9,7 +9,6 @@ import "../interfaces/IErrors.sol";
 import "../interfaces/IVault.sol";
 
 abstract contract Transformer is Ownable2Step, IErrors {
-
     event VaultSet(address newVault);
 
     // configurable by owner
@@ -25,13 +24,14 @@ abstract contract Transformer is Ownable2Step, IErrors {
     }
 
     // validates if caller is owner (direct or indirect for a given position)
-    function _validateOwner(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId, address vault) internal {
-        
+    function _validateOwner(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId, address vault)
+        internal
+    {
         // vault can not be owner
         if (vaults[msg.sender]) {
             revert Unauthorized();
         }
-        
+
         address owner;
         if (vault != address(0)) {
             if (!vaults[vault]) {
@@ -50,7 +50,7 @@ abstract contract Transformer is Ownable2Step, IErrors {
     // validates if caller is allowed to process position
     function _validateCaller(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId) internal view {
         if (vaults[msg.sender]) {
-            uint transformedTokenId = IVault(msg.sender).transformedTokenId();
+            uint256 transformedTokenId = IVault(msg.sender).transformedTokenId();
             if (tokenId != transformedTokenId) {
                 revert Unauthorized();
             }

@@ -92,9 +92,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params))
-        );
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params)));
     }
 
     /**
@@ -103,7 +101,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external nonReentrant {
-      
         if (!operators[msg.sender]) {
             if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
@@ -111,7 +108,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                 revert Unauthorized();
             }
         }
-        
+
         ExecuteState memory state;
 
         // collect fees - if the position doesn't have operator set or is called from vault - it won't work
