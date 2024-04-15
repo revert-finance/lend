@@ -347,6 +347,7 @@ contract V3VaultIntegrationTest is Test {
         // setup transformer
         LeverageTransformer transformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(transformer), true);
+        transformer.setVault(address(vault));
 
         // maximized collateral loan
         _setupBasicLoan(true);
@@ -436,6 +437,7 @@ contract V3VaultIntegrationTest is Test {
 
         V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
         vault.setTransformer(address(v3Utils), true);
+        v3Utils.setVault(address(vault));
 
         // test transforming with v3utils
         // withdraw fees - as an example
@@ -475,6 +477,7 @@ contract V3VaultIntegrationTest is Test {
 
         V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
         vault.setTransformer(address(v3Utils), true);
+        v3Utils.setVault(address(vault));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT);
         assertEq(liquidity, 18828671372106658);
@@ -1398,6 +1401,7 @@ contract V3VaultIntegrationTest is Test {
     function test_LeverageDown() public {
         LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
 
         _deposit(10000000, WHALE_ACCOUNT);
 
