@@ -839,9 +839,11 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         }
 
         if (total0 != 0) {
+            SafeERC20.safeApprove(params.token0, address(nonfungiblePositionManager), 0);
             SafeERC20.safeIncreaseAllowance(params.token0, address(nonfungiblePositionManager), total0);
         }
         if (total1 != 0) {
+            SafeERC20.safeApprove(params.token1, address(nonfungiblePositionManager), 0);
             SafeERC20.safeIncreaseAllowance(params.token1, address(nonfungiblePositionManager), total1);
         }
     }
