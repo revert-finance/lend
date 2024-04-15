@@ -11,10 +11,10 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
-import "../interfaces/IErrors.sol";
+import "../utils/Constants.sol";
 
 // base functionality to do swaps with different routing protocols
-abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
+abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
     /// @notice Wrapped native token address

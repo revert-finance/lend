@@ -20,14 +20,12 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
-import "./interfaces/IErrors.sol";
+import "./utils/Constants.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
-contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
+contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
     uint256 private constant SEQUENCER_GRACE_PERIOD_TIME = 600; // 10mins
-    uint256 private constant Q96 = 2 ** 96;
-    uint256 private constant Q128 = 2 ** 128;
 
     event TokenConfigUpdated(address indexed token, TokenConfig config);
     event OracleModeUpdated(address indexed token, Mode mode);

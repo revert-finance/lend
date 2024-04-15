@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "../../src/interfaces/IErrors.sol";
+import "../../src/utils/Constants.sol";
 import "../../src/transformers/V3Utils.sol";
 
 contract V3UtilsIntegrationTest is Test {
@@ -110,7 +110,7 @@ contract V3UtilsIntegrationTest is Test {
 
     function testSendEtherNotAllowed() external {
         bool success;
-        vm.expectRevert(IErrors.NotWETH.selector);
+        vm.expectRevert(Constants.NotWETH.selector);
         (success,) = address(v3utils).call{value: 123}("");
     }
 
@@ -188,7 +188,7 @@ contract V3UtilsIntegrationTest is Test {
         );
 
         vm.prank(TEST_NFT_ACCOUNT);
-        vm.expectRevert(IErrors.AmountError.selector);
+        vm.expectRevert(Constants.AmountError.selector);
         NPM.safeTransferFrom(TEST_NFT_ACCOUNT, address(v3utils), TEST_NFT, abi.encode(inst));
     }
 
@@ -791,7 +791,7 @@ contract V3UtilsIntegrationTest is Test {
         vm.startPrank(TEST_NFT_ACCOUNT);
         USDC.approve(address(v3utils), 1000000);
 
-        vm.expectRevert(IErrors.SlippageError.selector);
+        vm.expectRevert(Constants.SlippageError.selector);
         v3utils.swap(params);
         vm.stopPrank();
     }

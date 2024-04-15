@@ -17,8 +17,6 @@ import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
 abstract contract Automator is Ownable2Step, Swapper {
-    uint256 internal constant Q64 = 2 ** 64;
-    uint256 internal constant Q96 = 2 ** 96;
 
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%

@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "./AutomatorIntegrationTestBase.sol";
 
 import "../../../src/automators/AutoExit.sol";
-import "../../../src/interfaces/IErrors.sol";
+import "../../../src/utils/Constants.sol";
 
 contract AutoExitTest is AutomatorIntegrationTestBase {
     AutoExit autoExit;
@@ -48,7 +48,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         assertEq(liquidity, 0);
 
-        vm.expectRevert(IErrors.NoLiquidity.selector);
+        vm.expectRevert(Constants.NoLiquidity.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT, "", liquidity, 0, 0, block.timestamp, MAX_REWARD));
     }
@@ -104,7 +104,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoExit), TEST_NFT);
 
         _setConfig(TEST_NFT, true, false, false, 0, 0, -276325, type(int24).max, false);
-        vm.expectRevert(IErrors.NotReady.selector);
+        vm.expectRevert(Constants.NotReady.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT, "", state.liquidity, 0, 0, block.timestamp, MAX_REWARD));
 
@@ -134,7 +134,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         // is not runnable anymore because configuration was removed
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(IErrors.NotConfigured.selector);
+        vm.expectRevert(Constants.NotConfigured.selector);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT, "", state.liquidity, 0, 0, block.timestamp, MAX_REWARD));
 
         // add new liquidity
@@ -145,7 +145,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         _setConfig(TEST_NFT, true, true, true, uint64(Q64 / 100), uint64(Q64 / 100), -276324, type(int24).max, false);
 
         // execute without swap data fails because not allowed by config
-        vm.expectRevert(IErrors.MissingSwapData.selector);
+        vm.expectRevert(Constants.MissingSwapData.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT, "", state.liquidity, 0, 0, block.timestamp, MAX_REWARD));
 
@@ -181,7 +181,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         autoExit.setTWAPConfig(maxTWAPTickDifference, 120);
         assertEq(autoExit.TWAPSeconds(), 120);
 
-        vm.expectRevert(IErrors.InvalidConfig.selector);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         autoExit.setTWAPConfig(maxTWAPTickDifference, 30);
     }
 
@@ -190,7 +190,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         autoExit.setTWAPConfig(5, TWAPSeconds);
         assertEq(autoExit.maxTWAPTickDifference(), 5);
 
-        vm.expectRevert(IErrors.InvalidConfig.selector);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         autoExit.setTWAPConfig(600, TWAPSeconds);
     }
 
@@ -201,7 +201,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
     }
 
     function testUnauthorizedSetConfig() external {
-        vm.expectRevert(IErrors.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         autoExit.configToken(TEST_NFT_2, AutoExit.PositionConfig(false, false, false, 0, 0, 0, 0, false, MAX_REWARD));
     }
@@ -212,7 +212,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
     }
 
     function testInvalidConfig() external {
-        vm.expectRevert(IErrors.InvalidConfig.selector);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         autoExit.configToken(
             TEST_NFT, AutoExit.PositionConfig(true, false, false, 800000, -800000, 0, 0, false, MAX_REWARD)
@@ -230,7 +230,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
     }
 
     function testNonOperator() external {
-        vm.expectRevert(IErrors.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT, "", 0, 0, 0, block.timestamp, MAX_REWARD));
     }
@@ -257,7 +257,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         );
 
         // fails when sending NFT
-        vm.expectRevert(IErrors.LiquidityChanged.selector);
+        vm.expectRevert(Constants.LiquidityChanged.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT_2, "", 0, 0, 0, block.timestamp, MAX_REWARD));
     }
@@ -266,7 +266,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.setApprovalForAll(address(autoExit), true);
 
-        vm.expectRevert(IErrors.NotConfigured.selector);
+        vm.expectRevert(Constants.NotConfigured.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT, "", 0, 0, 0, block.timestamp, MAX_REWARD));
     }
@@ -283,7 +283,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2_A);
 
         // in range position cant be run
-        vm.expectRevert(IErrors.NotReady.selector);
+        vm.expectRevert(Constants.NotReady.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT_2_A, "", liquidity, 0, 0, block.timestamp, MAX_REWARD));
     }
@@ -307,7 +307,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(IErrors.TWAPCheckFailed.selector);
+        vm.expectRevert(Constants.TWAPCheckFailed.selector);
         autoExit.execute(
             AutoExit.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), liquidity, 0, 0, block.timestamp, MAX_REWARD)
         );
@@ -371,7 +371,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         // is not runnable anymore because configuration was removed
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(IErrors.NotConfigured.selector);
+        vm.expectRevert(Constants.NotConfigured.selector);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT_2, "", liquidity, 0, 0, block.timestamp, MAX_REWARD));
 
         // fee stored for owner in contract (only WETH because WETH is target token)
@@ -420,7 +420,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         // is not runnable without swap
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(IErrors.MissingSwapData.selector);
+        vm.expectRevert(Constants.MissingSwapData.selector);
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT_2, "", liquidity, 0, 0, block.timestamp, MAX_REWARD));
 
         vm.prank(OPERATOR_ACCOUNT);
@@ -432,7 +432,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         // is not runnable anymore because configuration was removed
         vm.prank(OPERATOR_ACCOUNT);
-        vm.expectRevert(IErrors.NotConfigured.selector);
+        vm.expectRevert(Constants.NotConfigured.selector);
         autoExit.execute(
             AutoExit.ExecuteParams(TEST_NFT_2, _getWETHToDAISwapData(), liquidity, 0, 0, block.timestamp, MAX_REWARD)
         );

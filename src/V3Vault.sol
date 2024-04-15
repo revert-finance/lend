@@ -23,17 +23,13 @@ import "permit2/interfaces/IPermit2.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
-import "./interfaces/IErrors.sol";
+import "./utils/Constants.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
-contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IErrors {
+contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
-
-    uint256 private constant Q32 = 2 ** 32;
-    uint256 private constant Q64 = 2 ** 64;
-    uint256 private constant Q96 = 2 ** 96;
 
     uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); // 90%
 

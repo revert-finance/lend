@@ -16,7 +16,7 @@ import "../../src/transformers/AutoRange.sol";
 import "../../src/transformers/AutoCompound.sol";
 import "../../src/automators/AutoExit.sol";
 
-import "../../src/interfaces/IErrors.sol";
+import "../../src/utils/Constants.sol";
 
 contract VaultPolygonIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;

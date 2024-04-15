@@ -5,10 +5,10 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-import "../interfaces/IErrors.sol";
+import "../utils/Constants.sol";
 import "../interfaces/IVault.sol";
 
-abstract contract Transformer is Ownable2Step, IErrors {
+abstract contract Transformer is Ownable2Step, Constants {
     event VaultSet(address newVault);
 
     // configurable by owner
