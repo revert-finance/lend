@@ -251,13 +251,15 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      */
     function setReward(uint64 _totalRewardX64) external onlyOwner {
-        require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
+        if(_totalRewardX64 > totalRewardX64) {
+            revert InvalidConfig();
+        }
         totalRewardX64 = _totalRewardX64;
         emit RewardUpdated(msg.sender, _totalRewardX64);
     }
 
     function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
-        positionBalances[tokenId][token] = positionBalances[tokenId][token] + amount;
+        positionBalances[tokenId][token] += amount;
         emit BalanceAdded(tokenId, token, amount);
     }
 
@@ -276,7 +278,9 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     function _withdrawBalanceInternal(uint256 tokenId, address token, address to, uint256 balance, uint256 amount)
         internal
     {
-        require(amount <= balance, "amount>balance");
+        if (amount > balance) {
+            revert InsufficientLiquidity();
+        }
         balance -= amount;
         positionBalances[tokenId][token] = balance;
         emit BalanceRemoved(tokenId, token, amount);

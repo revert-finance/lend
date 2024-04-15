@@ -592,7 +592,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 loanDebtShares = loan.debtShares + shares;
         loan.debtShares = loanDebtShares;
-        debtSharesTotal += shares;
+        debtSharesTotal = debtSharesTotal + shares;
 
         if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
             revert GlobalDebtLimit();
@@ -600,7 +600,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         if (assets > dailyDebtIncreaseLimitLeft) {
             revert DailyDebtIncreaseLimit();
         } else {
-            dailyDebtIncreaseLimitLeft -= assets;
+            dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft - assets;
         }
 
         _updateAndCheckCollateral(
@@ -773,9 +773,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             }
         }
 
-        debtSharesTotal -= debtShares;
+        debtSharesTotal = debtSharesTotal - debtShares;
 
-        dailyDebtIncreaseLimitLeft += state.debt;
+        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.debt;
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) = _sendPositionValue(
@@ -812,8 +812,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             revert Unauthorized();
         }
 
-        uint256 debtShares = loans[tokenId].debtShares;
-        if (debtShares != 0) {
+        if (loans[tokenId].debtShares != 0) {
             revert NeedsRepay();
         }
 
@@ -983,7 +982,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         _mint(receiver, shares);
 
-        dailyLendIncreaseLimitLeft -= assets;
+        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }
@@ -1025,7 +1024,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
 
         // when amounts are withdrawn - they may be deposited again
-        dailyLendIncreaseLimitLeft += assets;
+        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft + assets;
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
@@ -1083,10 +1082,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 loanDebtShares = currentShares - shares;
         loan.debtShares = loanDebtShares;
-        debtSharesTotal -= shares;
+        debtSharesTotal = debtSharesTotal - shares;
 
         // when amounts are repayed - they maybe borrowed again
-        dailyDebtIncreaseLimitLeft += assets;
+        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + assets;
 
         _updateAndCheckCollateral(
             tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares
