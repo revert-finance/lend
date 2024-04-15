@@ -251,7 +251,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      */
     function setReward(uint64 _totalRewardX64) external onlyOwner {
-        if(_totalRewardX64 > totalRewardX64) {
+        if (_totalRewardX64 > totalRewardX64) {
             revert InvalidConfig();
         }
         totalRewardX64 = _totalRewardX64;

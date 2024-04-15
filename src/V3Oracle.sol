@@ -26,7 +26,6 @@ import "./interfaces/IErrors.sol";
 /// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
 contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
     uint256 private constant SEQUENCER_GRACE_PERIOD_TIME = 600; // 10mins
-
     uint256 private constant Q96 = 2 ** 96;
     uint256 private constant Q128 = 2 ** 128;
 
@@ -45,6 +44,16 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
 
     }
 
+    address public immutable factory;
+    INonfungiblePositionManager public immutable nonfungiblePositionManager;
+
+    // common token which is used in TWAP pools
+    address public immutable referenceToken;
+    uint8 public immutable referenceTokenDecimals;
+
+    // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
+    address public immutable chainlinkReferenceToken;
+
     struct TokenConfig {
         AggregatorV3Interface feed; // chainlink feed
         uint32 maxFeedAge;
@@ -60,17 +69,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, IErrors {
     // token => config mapping
     mapping(address => TokenConfig) public feedConfigs;
 
-    address public immutable factory;
-    INonfungiblePositionManager public immutable nonfungiblePositionManager;
-
-    // common token which is used in TWAP pools
-    address public immutable referenceToken;
-    uint8 public immutable referenceTokenDecimals;
-
     uint16 public maxPoolPriceDifference; // max price difference between oracle derived price and pool price x10000
-
-    // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
-    address public immutable chainlinkReferenceToken;
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;

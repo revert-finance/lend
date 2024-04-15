@@ -441,7 +441,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param tokenId The token ID associated with the new position.
     /// @param recipient Address to recieve the position in the vault
     /// @param deadline Timestamp until which the permit is valid.
-    /// @param v, r, s Components of the signature for the permit.
+    /// @param v Components of the signature for the permit.
+    /// @param r Components of the signature for the permit.
+    /// @param s Components of the signature for the permit.
     function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         external
         override
