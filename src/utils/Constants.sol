@@ -6,6 +6,7 @@ abstract contract Constants {
     uint256 internal constant Q64 = 2 ** 64;
     uint256 internal constant Q96 = 2 ** 96;
     uint256 internal constant Q128 = 2 ** 128;
+    uint256 internal constant Q160 = 2 ** 160;
 
     error Unauthorized();
     error Reentrancy();
