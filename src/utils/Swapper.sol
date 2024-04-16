@@ -11,10 +11,10 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
-import "../interfaces/IErrors.sol";
+import "../utils/Constants.sol";
 
 // base functionality to do swaps with different routing protocols
-abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
+abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
     /// @notice Wrapped native token address
@@ -84,7 +84,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
             if (router == zeroxRouter) {
                 ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
                 // approve needed amount
-                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, params.amountIn);
+                SafeERC20.safeIncreaseAllowance(params.tokenIn, data.allowanceTarget, params.amountIn);
                 // execute swap
                 (bool success,) = zeroxRouter.call(data.data);
                 if (!success) {
@@ -160,8 +160,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
         }
 
         // transfer needed amount of tokenIn
-        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta));
     }
 
     // get pool for token

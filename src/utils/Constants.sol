@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-interface IErrors {
+abstract contract Constants {
+    uint256 internal constant Q32 = 2 ** 32;
+    uint256 internal constant Q64 = 2 ** 64;
+    uint256 internal constant Q96 = 2 ** 96;
+    uint256 internal constant Q128 = 2 ** 128;
+
     error Unauthorized();
     error Reentrancy();
     error NotConfigured();

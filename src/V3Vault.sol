@@ -23,17 +23,13 @@ import "permit2/interfaces/IPermit2.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
-import "./interfaces/IErrors.sol";
+import "./utils/Constants.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
-contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IErrors {
+contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
-
-    uint256 private constant Q32 = 2 ** 32;
-    uint256 private constant Q64 = 2 ** 64;
-    uint256 private constant Q96 = 2 ** 96;
 
     uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); // 90%
 
@@ -119,25 +115,25 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     mapping(address => TokenConfig) public tokenConfigs;
 
     // total of debt shares - increases when borrow - decreases when repay
-    uint256 public debtSharesTotal = 0;
+    uint256 public debtSharesTotal;
 
     // exchange rates are Q96 at the beginning - 1 share token per 1 asset token
     uint256 public lastDebtExchangeRateX96 = Q96;
     uint256 public lastLendExchangeRateX96 = Q96;
 
-    uint256 public globalDebtLimit = 0;
-    uint256 public globalLendLimit = 0;
+    uint256 public globalDebtLimit;
+    uint256 public globalLendLimit;
 
     // minimal size of loan (to protect from non-liquidatable positions because of gas-cost)
-    uint256 public minLoanSize = 0;
+    uint256 public minLoanSize;
 
     // daily lend increase limit handling
-    uint256 public dailyLendIncreaseLimitMin = 0;
-    uint256 public dailyLendIncreaseLimitLeft = 0;
+    uint256 public dailyLendIncreaseLimitMin;
+    uint256 public dailyLendIncreaseLimitLeft;
 
     // daily debt increase limit handling
-    uint256 public dailyDebtIncreaseLimitMin = 0;
-    uint256 public dailyDebtIncreaseLimitLeft = 0;
+    uint256 public dailyDebtIncreaseLimitMin;
+    uint256 public dailyDebtIncreaseLimitLeft;
 
     // lender balances are handled with ERC-20 mint/burn
 
@@ -153,7 +149,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list (for removal without loop)
     mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
 
-    uint256 public transformedTokenId = 0; // stores currently transformed token (is always reset to 0 after tx)
+    uint256 public transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
     mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
@@ -162,17 +158,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     address public emergencyAdmin;
 
     // last time exchange rate was updated
-    uint64 public lastExchangeRateUpdate = 0;
+    uint64 public lastExchangeRateUpdate;
 
     // percentage of interest which is kept in the protocol for reserves
-    uint32 public reserveFactorX32 = 0;
+    uint32 public reserveFactorX32;
 
     // percentage of lend amount which needs to be in reserves before withdrawn
     uint32 public reserveProtectionFactorX32 = MIN_RESERVE_PROTECTION_FACTOR_X32;
 
     // when limits where last reset
-    uint32 public dailyLendIncreaseLimitLastReset = 0;
-    uint32 public dailyDebtIncreaseLimitLastReset = 0;
+    uint32 public dailyLendIncreaseLimitLastReset;
+    uint32 public dailyDebtIncreaseLimitLastReset;
 
     constructor(
         string memory name,
@@ -332,7 +328,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             } else {
                 return _convertToShares(maxGlobalDeposit, lendExchangeRateX96, Math.Rounding.Down);
             }
-            
         }
     }
 
@@ -342,8 +337,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 ownerShareBalance = balanceOf(owner);
         uint256 ownerAssetBalance = _convertToAssets(ownerShareBalance, lendExchangeRateX96, Math.Rounding.Down);
-        
-        (uint256 balance, ) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+
+        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
         if (balance > ownerAssetBalance) {
             return ownerAssetBalance;
         } else {
@@ -357,7 +352,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 ownerShareBalance = balanceOf(owner);
 
-        (uint256 balance, ) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
         uint256 shareBalance = _convertToShares(balance, lendExchangeRateX96, Math.Rounding.Down);
 
         if (shareBalance > ownerShareBalance) {
@@ -442,22 +437,20 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param tokenId The token ID associated with the new position.
     /// @param recipient Address to recieve the position in the vault
     /// @param deadline Timestamp until which the permit is valid.
-    /// @param v, r, s Components of the signature for the permit.
-    function createWithPermit(
-        uint256 tokenId,
-        address recipient,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external override {
+    /// @param v Components of the signature for the permit.
+    /// @param r Components of the signature for the permit.
+    /// @param s Components of the signature for the permit.
+    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        override
+    {
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
     /// @inheritdoc IERC721Receiver
-    function onERC721Received(address /*operator*/, address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
@@ -579,7 +572,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param tokenId The token ID to use as collateral
     /// @param assets How much assets to borrow
     function borrow(uint256 tokenId, uint256 assets) external override {
-        bool isTransformMode = transformedTokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
+        bool isTransformMode =
+            transformedTokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
         // if not in transfer mode - must be called from owner
         if (!isTransformMode && tokenOwner[tokenId] != msg.sender) {
@@ -596,7 +590,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 loanDebtShares = loan.debtShares + shares;
         loan.debtShares = loanDebtShares;
-        debtSharesTotal += shares;
+        debtSharesTotal = debtSharesTotal + shares;
 
         if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
             revert GlobalDebtLimit();
@@ -604,7 +598,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         if (assets > dailyDebtIncreaseLimitLeft) {
             revert DailyDebtIncreaseLimit();
         } else {
-            dailyDebtIncreaseLimitLeft -= assets;
+            dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft - assets;
         }
 
         _updateAndCheckCollateral(
@@ -682,7 +676,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param isShare Is amount specified in assets or debt shares.
     /// @return assets The amount of the assets repayed
     /// @return shares The amount of the shares repayed
-    function repay(uint256 tokenId, uint256 amount, bool isShare) external override returns (uint256 assets, uint256 shares) {
+    function repay(uint256 tokenId, uint256 amount, bool isShare)
+        external
+        override
+        returns (uint256 assets, uint256 shares)
+    {
         (assets, shares) = _repay(tokenId, amount, isShare, "");
     }
 
@@ -693,7 +691,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param permitData Permit2 data and signature
     /// @return assets The amount of the assets repayed
     /// @return shares The amount of the shares repayed
-    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external override returns (uint256 assets, uint256 shares) {
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
+        external
+        override
+        returns (uint256 assets, uint256 shares)
+    {
         (assets, shares) = _repay(tokenId, amount, isShare, permitData);
     }
 
@@ -767,15 +769,16 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
                 // take value from liquidator
                 SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
             }
-        }        
+        }
 
-        debtSharesTotal -= debtShares;
+        debtSharesTotal = debtSharesTotal - debtShares;
 
-        dailyDebtIncreaseLimitLeft += state.debt;
+        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.debt;
 
         // send promised collateral tokens to liquidator
-        (amount0, amount1) =
-            _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient, params.deadline);
+        (amount0, amount1) = _sendPositionValue(
+            params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient, params.deadline
+        );
 
         if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
             revert SlippageError();
@@ -802,14 +805,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     /// @param recipient Address to recieve NFT
     /// @param data Optional data to send to reciever
     function remove(uint256 tokenId, address recipient, bytes calldata data) external {
-
         address owner = tokenOwner[tokenId];
         if (owner != msg.sender) {
             revert Unauthorized();
         }
 
-        uint256 debtShares = loans[tokenId].debtShares;
-        if (debtShares != 0) {
+        if (loans[tokenId].debtShares != 0) {
             revert NeedsRepay();
         }
 
@@ -829,7 +830,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 protected =
             _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * reserveProtectionFactorX32 / Q32;
-        (uint256 balance,uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
+        (uint256 balance, uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
         uint256 unprotected = reserves > protected ? reserves - protected : 0;
         uint256 available = balance > unprotected ? unprotected : balance;
 
@@ -924,8 +925,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
-        tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
-        tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
+        TokenConfig storage config = tokenConfigs[token];
+        config.collateralFactorX32 = collateralFactorX32; 
+        config.collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
     }
 
@@ -979,7 +981,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         _mint(receiver, shares);
 
-        dailyLendIncreaseLimitLeft -= assets;
+        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }
@@ -1000,7 +1002,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
         }
 
-        uint ownerBalance = balanceOf(owner);
+        uint256 ownerBalance = balanceOf(owner);
         if (shares > ownerBalance) {
             shares = ownerBalance;
             assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
@@ -1021,12 +1023,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
 
         // when amounts are withdrawn - they may be deposited again
-        dailyLendIncreaseLimitLeft += assets;
+        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft + assets;
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData) internal returns (uint256 assets, uint256 shares) {
+    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData)
+        internal
+        returns (uint256 assets, uint256 shares)
+    {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
         _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
@@ -1076,10 +1081,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
 
         uint256 loanDebtShares = currentShares - shares;
         loan.debtShares = loanDebtShares;
-        debtSharesTotal -= shares;
+        debtSharesTotal = debtSharesTotal - shares;
 
         // when amounts are repayed - they maybe borrowed again
-        dailyDebtIncreaseLimitLeft += assets;
+        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + assets;
 
         _updateAndCheckCollateral(
             tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares
@@ -1127,7 +1132,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
             fees0 = type(uint128).max;
             fees1 = type(uint128).max;
         } else {
-            (liquidity,fees0,fees1) = oracle.getLiquidityAndFees(tokenId);
+            (liquidity, fees0, fees1) = oracle.getLiquidityAndFees(tokenId);
 
             // only take needed fees
             if (liquidationValue <= feeValue) {
@@ -1156,8 +1161,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
     // cleans up loan when it is closed because of replacement, repayment or liquidation
     // the position is kept in the contract, but can be removed with remove() method
     // because loanShares are 0
-    function _cleanupLoan(uint256 tokenId, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) internal
-    {
+    function _cleanupLoan(uint256 tokenId, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) internal {
         _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, loans[tokenId].debtShares, 0);
         delete loans[tokenId];
     }
@@ -1201,7 +1205,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
                 // this extreme case leads to free liquidation
                 liquidatorCost = 0;
             }
-            
+
             liquidationValue = fullValue;
             reserveCost = debt - liquidatorCost; // Remaining to pay is taken from reserves
         }
@@ -1213,7 +1217,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         uint256 newDebtExchangeRateX96,
         uint256 newLendExchangeRateX96
     ) internal returns (uint256 missing) {
-        (,uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
+        (, uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
 
         // if not enough - democratize debt
         if (reserveCost > reserves) {
@@ -1273,10 +1277,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, IEr
         uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
         if (lastRateUpdate != 0) {
-            newDebtExchangeRateX96 = oldDebtExchangeRateX96
-                + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
-            newLendExchangeRateX96 = oldLendExchangeRateX96
-                + oldLendExchangeRateX96 * timeElapsed * supplyRateX64 / Q64;
+            newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
+            newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * timeElapsed * supplyRateX64 / Q64;
         } else {
             newDebtExchangeRateX96 = oldDebtExchangeRateX96;
             newLendExchangeRateX96 = oldLendExchangeRateX96;

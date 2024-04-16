@@ -17,8 +17,6 @@ import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
 abstract contract Automator is Ownable2Step, Swapper {
-    uint256 internal constant Q64 = 2 ** 64;
-    uint256 internal constant Q96 = 2 ** 96;
 
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
@@ -172,7 +170,10 @@ abstract contract Automator is Ownable2Step, Swapper {
         // pool observe may fail when there is not enough history available
         try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
             int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
-            if (tickCumulatives[0] - tickCumulatives[1] < 0 && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0) tick--;
+            if (
+                tickCumulatives[0] - tickCumulatives[1] < 0
+                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
+            ) tick--;
             return (tick, true);
         } catch {
             return (0, false);

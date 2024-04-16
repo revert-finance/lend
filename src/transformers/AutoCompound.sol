@@ -92,9 +92,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params))
-        );
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params)));
     }
 
     /**
@@ -103,7 +101,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external nonReentrant {
-      
         if (!operators[msg.sender]) {
             if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
@@ -111,7 +108,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                 revert Unauthorized();
             }
         }
-        
+
         ExecuteState memory state;
 
         // collect fees - if the position doesn't have operator set or is called from vault - it won't work
@@ -254,13 +251,15 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      */
     function setReward(uint64 _totalRewardX64) external onlyOwner {
-        require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
+        if (_totalRewardX64 > totalRewardX64) {
+            revert InvalidConfig();
+        }
         totalRewardX64 = _totalRewardX64;
         emit RewardUpdated(msg.sender, _totalRewardX64);
     }
 
     function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
-        positionBalances[tokenId][token] = positionBalances[tokenId][token] + amount;
+        positionBalances[tokenId][token] += amount;
         emit BalanceAdded(tokenId, token, amount);
     }
 
@@ -279,7 +278,9 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     function _withdrawBalanceInternal(uint256 tokenId, address token, address to, uint256 balance, uint256 amount)
         internal
     {
-        require(amount <= balance, "amount>balance");
+        if (amount > balance) {
+            revert InsufficientLiquidity();
+        }
         balance -= amount;
         positionBalances[tokenId][token] = balance;
         emit BalanceRemoved(tokenId, token, amount);
@@ -289,12 +290,10 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
 
     function _checkApprovals(address token0, address token1) internal {
         // approve tokens once if not yet approved - to save gas during compounds
-        uint256 allowance0 = IERC20(token0).allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
+        if (IERC20(token0).allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), type(uint256).max);
         }
-        uint256 allowance1 = IERC20(token1).allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
+        if (IERC20(token1).allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), type(uint256).max);
         }
     }

@@ -5,12 +5,12 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "./interfaces/IInterestRateModel.sol";
-import "./interfaces/IErrors.sol";
+import "./utils/Constants.sol";
 
 /// @title Model for interest rate calculation used in Vault
 /// @notice Calculates both borrow and supply rate
-contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
-    uint256 private constant Q64 = 2 ** 64;
+contract InterestRateModel is Ownable, IInterestRateModel, Constants {
+
     uint256 public constant YEAR_SECS = 31557600; // taking into account leap years
 
     uint256 public constant MAX_BASE_RATE_X64 = Q64 / 10; // 10%
@@ -41,7 +41,7 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
     }
 
     /// @notice Returns utilization rate X64 given cash and debt
-    /// @param cash Current available cash 
+    /// @param cash Current available cash
     /// @param debt Current debt
     /// @return Utilization rate between 0 and Q64
     function getUtilizationRateX64(uint256 cash, uint256 debt) public pure returns (uint256) {
@@ -52,7 +52,7 @@ contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
     }
 
     /// @notice Returns interest rates X64 given cash and debt
-    /// @param cash Current available cash 
+    /// @param cash Current available cash
     /// @param debt Current debt
     /// @return borrowRateX64 borrow rate multiplied by Q64
     /// @return supplyRateX64 supply rate multiplied by Q64

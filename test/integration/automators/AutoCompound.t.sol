@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "./AutomatorIntegrationTestBase.sol";
 
 import "../../../src/transformers/AutoCompound.sol";
-import "../../../src/interfaces/IErrors.sol";
+import "../../../src/utils/Constants.sol";
 
 contract AutoCompoundTest is AutomatorIntegrationTestBase {
     AutoCompound autoCompound;
@@ -15,7 +15,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
     }
 
     function testNoAccess() external {
-        vm.expectRevert(IErrors.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
@@ -32,7 +32,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         uint256 daiLeftover = autoCompound.positionBalances(TEST_NFT_2, address(DAI));
         uint256 wethLeftover = autoCompound.positionBalances(TEST_NFT_2, address(WETH_ERC20));
 
-        vm.expectRevert(IErrors.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         autoCompound.withdrawLeftoverBalances(TEST_NFT_2, TEST_NFT_2_ACCOUNT);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
@@ -60,7 +60,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         tokens[0] = address(DAI);
         tokens[1] = address(address(WETH_ERC20));
 
-        vm.expectRevert(IErrors.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         autoCompound.withdrawBalances(tokens, WITHDRAWER_ACCOUNT);
 
         vm.prank(WITHDRAWER_ACCOUNT);

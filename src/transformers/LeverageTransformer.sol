@@ -8,7 +8,6 @@ import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 import "../transformers/Transformer.sol";
 
-
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
 contract LeverageTransformer is Transformer, Swapper {
@@ -40,7 +39,6 @@ contract LeverageTransformer is Transformer, Swapper {
 
     // method called from transform() method in Vault
     function leverageUp(LeverageUpParams calldata params) external {
-
         _validateCaller(nonfungiblePositionManager, params.tokenId);
 
         uint256 amount = params.borrowAmount;
@@ -126,7 +124,6 @@ contract LeverageTransformer is Transformer, Swapper {
 
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
-
         _validateCaller(nonfungiblePositionManager, params.tokenId);
 
         address token = IVault(msg.sender).asset();
@@ -170,8 +167,9 @@ contract LeverageTransformer is Transformer, Swapper {
             amount += amountOut;
         }
 
-        SafeERC20.safeApprove(IERC20(token), msg.sender, amount);
+        SafeERC20.safeIncreaseAllowance(IERC20(token), msg.sender, amount);
         (uint256 repayedAmount,) = IVault(msg.sender).repay(params.tokenId, amount, false);
+        SafeERC20.safeApprove(IERC20(token), msg.sender, 0);
 
         // send leftover tokens
         if (amount > repayedAmount) {

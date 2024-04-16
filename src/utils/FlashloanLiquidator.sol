@@ -64,12 +64,12 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
     }
 
-    function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external {
+    function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external override {
         // no origin check is needed - because the contract doesn't hold any funds - there is no benefit in calling uniswapV3FlashCallback() from another context
 
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
 
-        SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
+        SafeERC20.safeIncreaseAllowance(data.asset, address(data.vault), data.liquidationCost);
         data.vault.liquidate(
             IVault.LiquidateParams(
                 data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), "", data.deadline

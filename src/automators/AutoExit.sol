@@ -185,8 +185,10 @@ contract AutoExit is Automator {
                     )
                 );
 
-                state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
-                state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
+                state.amount0 =
+                    state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
+                state.amount1 =
+                    state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
             }
 
             // when swap and !onlyFees - protocol reward is removed only from target token (to incentivize optimal swap done by operator)
@@ -224,13 +226,12 @@ contract AutoExit is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, PositionConfig calldata config) external {
-        
         if (config.isActive) {
             if (config.token0TriggerTick >= config.token1TriggerTick) {
                 revert InvalidConfig();
             }
         }
-        
+
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (owner != msg.sender) {
             revert Unauthorized();

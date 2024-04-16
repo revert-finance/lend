@@ -96,6 +96,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @param v Signature values for EIP712 permit
     /// @param r Signature values for EIP712 permit
     /// @param s Signature values for EIP712 permit
+    /// @return newTokenId Id of position (if a new one was created)
     function executeWithPermit(uint256 tokenId, Instructions memory instructions, uint8 v, bytes32 r, bytes32 s)
         public
         returns (uint256 newTokenId)
@@ -109,10 +110,10 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
         // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
     }
-  
+
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
     /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address /*operator*/, address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
@@ -140,8 +141,8 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute
+    /// @return newTokenId Id of position (if a new one was created)
     function execute(uint256 tokenId, Instructions memory instructions) public returns (uint256 newTokenId) {
-
         _validateCaller(nonfungiblePositionManager, tokenId);
 
         (,, address token0, address token1,,,, uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
@@ -396,6 +397,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
     /// @notice Swaps amountIn of tokenIn for tokenOut - returning at least minAmountOut
     /// @param params Swap configuration
+    /// @return amountOut Output amount of tokenOut
     /// If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
     /// Optionally unwraps any wrapped native token and returns native token instead
     function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
@@ -465,9 +467,12 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         bytes permitData;
     }
 
-    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position.
+    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position. Newly minted NFT and leftover tokens are returned to recipient.
     /// @param params Swap and mint configuration
-    /// Newly minted NFT and leftover tokens are returned to recipient
+    /// @return tokenId The ID of the token that represents the minted position
+    /// @return liquidity The amount of liquidity for this position
+    /// @return amount0 The amount of token0
+    /// @return amount1 The amount of token1
     function swapAndMint(SwapAndMintParams calldata params)
         external
         payable
@@ -530,9 +535,11 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         bytes permitData;
     }
 
-    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner).
+    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner). Sends any leftover tokens to recipient.
     /// @param params Swap and increase liquidity configuration
-    // Sends any leftover tokens to recipient.
+    /// @return liquidity The amount of liquidity added
+    /// @return amount0 The amount of token0 added
+    /// @return amount1 The amount of token1 added
     function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params)
         external
         payable
@@ -833,11 +840,11 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
         if (total0 != 0) {
             SafeERC20.safeApprove(params.token0, address(nonfungiblePositionManager), 0);
-            SafeERC20.safeApprove(params.token0, address(nonfungiblePositionManager), total0);
+            SafeERC20.safeIncreaseAllowance(params.token0, address(nonfungiblePositionManager), total0);
         }
         if (total1 != 0) {
             SafeERC20.safeApprove(params.token1, address(nonfungiblePositionManager), 0);
-            SafeERC20.safeApprove(params.token1, address(nonfungiblePositionManager), total1);
+            SafeERC20.safeIncreaseAllowance(params.token1, address(nonfungiblePositionManager), total1);
         }
     }
 
