@@ -925,8 +925,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
-        tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
-        tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
+        TokenConfig storage config = tokenConfigs[token];
+        config.collateralFactorX32 = collateralFactorX32; 
+        config.collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
     }
 

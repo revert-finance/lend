@@ -290,20 +290,21 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
 
         TokenConfig memory feedConfig = feedConfigs[token];
+        Mode mode = feedConfig.mode;
 
-        if (feedConfig.mode == Mode.NOT_SET) {
+        if (mode == Mode.NOT_SET) {
             revert NotConfigured();
         }
 
         uint256 verifyPriceX96;
 
         bool usesChainlink = (
-            feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY
-                || feedConfig.mode == Mode.CHAINLINK
+            mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY
+                || mode == Mode.CHAINLINK
         );
         bool usesTWAP = (
-            feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY
-                || feedConfig.mode == Mode.TWAP
+            mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY
+                || mode == Mode.TWAP
         );
 
         if (usesChainlink) {
@@ -322,7 +323,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
                 chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96;
             }
 
-            if (feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
+            if (mode == Mode.TWAP_CHAINLINK_VERIFY) {
                 verifyPriceX96 = chainlinkPriceX96;
             } else {
                 priceX96 = chainlinkPriceX96;
@@ -331,14 +332,14 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
         if (usesTWAP) {
             uint256 twapPriceX96 = _getTWAPPriceX96(feedConfig);
-            if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY) {
+            if (mode == Mode.CHAINLINK_TWAP_VERIFY) {
                 verifyPriceX96 = twapPriceX96;
             } else {
                 priceX96 = twapPriceX96;
             }
         }
 
-        if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
+        if (mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY) {
             _requireMaxDifference(priceX96, verifyPriceX96, feedConfig.maxDifference);
         }
     }

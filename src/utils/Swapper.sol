@@ -160,8 +160,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         }
 
         // transfer needed amount of tokenIn
-        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta));
     }
 
     // get pool for token

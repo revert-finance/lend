@@ -290,12 +290,10 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
 
     function _checkApprovals(address token0, address token1) internal {
         // approve tokens once if not yet approved - to save gas during compounds
-        uint256 allowance0 = IERC20(token0).allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
+        if (IERC20(token0).allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), type(uint256).max);
         }
-        uint256 allowance1 = IERC20(token1).allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
+        if (IERC20(token1).allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), type(uint256).max);
         }
     }
