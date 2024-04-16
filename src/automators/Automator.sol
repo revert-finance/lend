@@ -93,9 +93,11 @@ abstract contract Automator is Ownable2Step, Swapper {
 
         uint256 i;
         uint256 count = tokens.length;
+        address token;
+        uint256 balance;
         for (; i < count; ++i) {
-            address token = tokens[i];
-            uint256 balance = IERC20(token).balanceOf(address(this));
+            token = tokens[i];
+            balance = IERC20(token).balanceOf(address(this));
             if (balance != 0) {
                 _transferToken(to, IERC20(token), balance, true);
             }
@@ -155,7 +157,8 @@ abstract contract Automator is Ownable2Step, Swapper {
     {
         (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
         if (twapOk) {
-            return twapTick - currentTick >= -int16(maxDifference) && twapTick - currentTick <= int16(maxDifference);
+            int256 res = twapTick - currentTick;
+            return res >= -int16(maxDifference) && res <= int16(maxDifference);
         } else {
             return false;
         }

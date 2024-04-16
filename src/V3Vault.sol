@@ -142,20 +142,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 debtShares;
     }
 
-    mapping(uint256 => Loan) public loans; // tokenID -> loan mapping
+    mapping(uint256 => Loan) public override loans; // tokenID -> loan mapping
 
     // storage variables to handle enumerable token ownership
     mapping(address => uint256[]) private ownedTokens; // Mapping from owner address to list of owned token IDs
     mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list (for removal without loop)
     mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
 
-    uint256 public transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
+    uint256 public override transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
     mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
-
-    // address which can call special emergency actions without timelock
-    address public emergencyAdmin;
 
     // last time exchange rate was updated
     uint64 public lastExchangeRateUpdate;
@@ -169,6 +166,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     // when limits where last reset
     uint32 public dailyLendIncreaseLimitLastReset;
     uint32 public dailyDebtIncreaseLimitLastReset;
+
+    // address which can call special emergency actions without timelock
+    address public emergencyAdmin;
 
     constructor(
         string memory name,
@@ -481,8 +481,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 // set transformed token to new one
                 transformedTokenId = tokenId;
 
+                uint256 debtShares = loans[oldTokenId].debtShares;
+
                 // copy debt to new token
-                loans[tokenId] = Loan(loans[oldTokenId].debtShares);
+                loans[tokenId] = Loan(debtShares);
 
                 _addTokenToOwner(owner, tokenId);
                 emit Add(tokenId, owner, oldTokenId);
@@ -492,7 +494,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 // sets data of new loan
                 _updateAndCheckCollateral(
-                    tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, loans[tokenId].debtShares
+                    tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, debtShares
                 );
             }
         }
@@ -572,11 +574,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @param tokenId The token ID to use as collateral
     /// @param assets How much assets to borrow
     function borrow(uint256 tokenId, uint256 assets) external override {
-        bool isTransformMode =
-            transformedTokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
-        // if not in transfer mode - must be called from owner
-        if (!isTransformMode && tokenOwner[tokenId] != msg.sender) {
+        bool isTransformMode = tokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
+
+        address owner = tokenOwner[tokenId];
+
+        // if not in transform mode - must be called from owner
+        if (!isTransformMode && owner != msg.sender) {
             revert Unauthorized();
         }
 
@@ -615,8 +619,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (!isTransformMode) {
             _requireLoanIsHealthy(tokenId, debt, true);
         }
-
-        address owner = tokenOwner[tokenId];
 
         // fails if not enough asset available
         // it may use all balance of the contract (because "virtual" reserves do not need to be stored in contract)
