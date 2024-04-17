@@ -237,9 +237,11 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         }
         uint256 i;
         uint256 count = tokens.length;
+        uint256 balance;
+        address token;
         for (; i < count; ++i) {
-            address token = tokens[i];
-            uint256 balance = positionBalances[0][token];
+            token = tokens[i];
+            balance = positionBalances[0][token];
             if (balance != 0) {
                 _withdrawBalanceInternal(0, token, to, balance, balance);
             }

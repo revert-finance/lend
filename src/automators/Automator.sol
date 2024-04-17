@@ -93,9 +93,11 @@ abstract contract Automator is Ownable2Step, Swapper {
 
         uint256 i;
         uint256 count = tokens.length;
+        address token;
+        uint256 balance;
         for (; i < count; ++i) {
-            address token = tokens[i];
-            uint256 balance = IERC20(token).balanceOf(address(this));
+            token = tokens[i];
+            balance = IERC20(token).balanceOf(address(this));
             if (balance != 0) {
                 _transferToken(to, IERC20(token), balance, true);
             }
@@ -140,7 +142,7 @@ abstract contract Automator is Ownable2Step, Swapper {
         // calculate min output price price and percentage
         uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         if (swap0For1) {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q96 * Q64);
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q160); // Q160 = Q96 * Q64
         } else {
             amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q96, priceX96 * Q64);
         }
@@ -155,7 +157,8 @@ abstract contract Automator is Ownable2Step, Swapper {
     {
         (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
         if (twapOk) {
-            return twapTick - currentTick >= -int16(maxDifference) && twapTick - currentTick <= int16(maxDifference);
+            int256 res = twapTick - currentTick;
+            return res >= -int16(maxDifference) && res <= int16(maxDifference);
         } else {
             return false;
         }

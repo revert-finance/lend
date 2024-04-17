@@ -86,6 +86,9 @@ contract LeverageTransformer is Transformer, Swapper {
         );
         (, uint256 added0, uint256 added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
+        SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), 0);
+        SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), 0);
+
         // send leftover tokens
         if (amount0 > added0) {
             SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0 - added0);

@@ -84,21 +84,23 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         // transfer lent amount + fee (only one token can have fee) - back to pool
         SafeERC20.safeTransfer(data.asset, msg.sender, data.liquidationCost + (fee0 + fee1));
 
+        uint256 balance;
+
         // return all leftover tokens to liquidator
         if (data.swap0.tokenIn != data.asset) {
-            uint256 balance = data.swap0.tokenIn.balanceOf(address(this));
+            balance = data.swap0.tokenIn.balanceOf(address(this));
             if (balance != 0) {
                 SafeERC20.safeTransfer(data.swap0.tokenIn, data.liquidator, balance);
             }
         }
         if (data.swap1.tokenIn != data.asset) {
-            uint256 balance = data.swap1.tokenIn.balanceOf(address(this));
+            balance = data.swap1.tokenIn.balanceOf(address(this));
             if (balance != 0) {
                 SafeERC20.safeTransfer(data.swap1.tokenIn, data.liquidator, balance);
             }
         }
         {
-            uint256 balance = data.asset.balanceOf(address(this));
+            balance = data.asset.balanceOf(address(this));
             if (balance < data.minReward) {
                 revert NotEnoughReward();
             }
