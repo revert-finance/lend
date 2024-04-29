@@ -610,7 +610,7 @@ contract V3VaultIntegrationTest is Test {
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT);
         AutoRange.ExecuteParams memory params =
-            AutoRange.ExecuteParams(TEST_NFT, false, 0, "", liquidity, 0, 0, block.timestamp, 0);
+            AutoRange.ExecuteParams(TEST_NFT, false, 0, "", liquidity, 0, 0, 0, 0, block.timestamp, 0);
 
         vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.execute(params);
