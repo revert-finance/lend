@@ -22,7 +22,6 @@ abstract contract Constants {
     error MissingSwapData();
     error SwapAmountTooLarge();
 
-    error LiquidityChanged();
     error ExceedsMaxReward();
     error InvalidPool();
     error ChainlinkPriceError();

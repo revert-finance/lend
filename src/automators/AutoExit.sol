@@ -63,7 +63,6 @@ contract AutoExit is Automator {
     struct ExecuteParams {
         uint256 tokenId; // tokenid to process
         bytes swapData; // if its a swap order - must include swap data
-        uint128 liquidity; // liquidity the calculations are based on
         uint256 amountRemoveMin0; // min amount to be removed from liquidity
         uint256 amountRemoveMin1; // min amount to be removed from liquidity
         uint256 deadline; // for uniswap operations
@@ -126,9 +125,6 @@ contract AutoExit is Automator {
         // so can be executed only once
         if (state.liquidity == 0) {
             revert NoLiquidity();
-        }
-        if (state.liquidity != params.liquidity) {
-            revert LiquidityChanged();
         }
 
         state.pool = _getPool(state.token0, state.token1, state.fee);

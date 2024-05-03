@@ -56,7 +56,6 @@ contract AutoRange is Transformer, Automator {
         bool swap0To1;
         uint256 amountIn; // if this is set to 0 no swap happens
         bytes swapData;
-        uint128 liquidity; // liquidity the calculations are based on
         uint256 amountRemoveMin0; // min amount to be removed from liquidity
         uint256 amountRemoveMin1; // min amount to be removed from liquidity
         uint256 deadline; // for uniswap operations
@@ -135,10 +134,6 @@ contract AutoRange is Transformer, Automator {
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
-
-        if (state.liquidity != params.liquidity) {
-            revert LiquidityChanged();
-        }
 
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
             params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
