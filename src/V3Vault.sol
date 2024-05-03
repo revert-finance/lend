@@ -342,7 +342,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (balance > ownerAssetBalance) {
             return ownerAssetBalance;
         } else {
-            return _convertToAssets(balance, lendExchangeRateX96, Math.Rounding.Down);
+            return balance;
         }
     }
 
