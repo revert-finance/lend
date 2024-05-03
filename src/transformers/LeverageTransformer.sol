@@ -135,11 +135,13 @@ contract LeverageTransformer is Transformer, Swapper {
         uint256 amount0;
         uint256 amount1;
 
-        INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseLiquidityParams = INonfungiblePositionManager
-            .DecreaseLiquidityParams(
-            params.tokenId, params.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
-        );
-        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(decreaseLiquidityParams);
+        if (params.liquidity != 0) {
+            INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseLiquidityParams = INonfungiblePositionManager
+                .DecreaseLiquidityParams(
+                params.tokenId, params.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+            );
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(decreaseLiquidityParams);
+        }
 
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
             params.tokenId,

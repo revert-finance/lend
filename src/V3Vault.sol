@@ -651,11 +651,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
-        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-            INonfungiblePositionManager.DecreaseLiquidityParams(
-                params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
-            )
-        );
+        if (params.liquidity != 0) {
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
+                )
+            );
+        }
 
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
             params.tokenId,
