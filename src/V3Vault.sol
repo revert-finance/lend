@@ -1010,7 +1010,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 ownerBalance = balanceOf(owner);
         if (shares > ownerBalance) {
             shares = ownerBalance;
-            assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
+            assets = _convertToAssets(shares, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
         // if caller has allowance for owners shares - may call withdraw
