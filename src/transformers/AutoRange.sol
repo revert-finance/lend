@@ -159,9 +159,9 @@ contract AutoRange is Transformer, Automator {
             state.currentTick < state.tickLower - config.lowerTickLimit
                 || state.currentTick >= state.tickUpper + config.upperTickLimit
         ) {
-            // check oracle for swap
-            if (params.amountIn != 0) {
-                state.amountOutMin = _validateSwap(
+            // check TWAP deviation (this is done for swap and non-swap operations)
+            // operation is only allowed when price is close to TWAP price to prevent sandwich attacks
+            state.amountOutMin = _validateSwap(
                     params.swap0To1,
                     params.amountIn,
                     state.pool,
@@ -172,6 +172,7 @@ contract AutoRange is Transformer, Automator {
                     params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
                 );
 
+            if (params.amountIn != 0) {
                 (state.amountInDelta, state.amountOutDelta) = _routerSwap(
                     Swapper.RouterSwapParams(
                         params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
