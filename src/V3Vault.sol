@@ -342,7 +342,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (balance > ownerAssetBalance) {
             return ownerAssetBalance;
         } else {
-            return _convertToAssets(balance, lendExchangeRateX96, Math.Rounding.Down);
+            return balance;
         }
     }
 
@@ -651,11 +651,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
-        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-            INonfungiblePositionManager.DecreaseLiquidityParams(
-                params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
-            )
-        );
+        if (params.liquidity != 0) {
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
+                )
+            );
+        }
 
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
             params.tokenId,
@@ -958,7 +960,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             shares = _convertToShares(assets, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
-        if (totalSupply() + shares > globalLendLimit) {
+        uint256 newTotalAssets = _convertToAssets(totalSupply() + shares, newLendExchangeRateX96, Math.Rounding.Up);
+        if (newTotalAssets > globalLendLimit) {
             revert GlobalLendLimit();
         }
         if (assets > dailyLendIncreaseLimitLeft) {
@@ -1007,7 +1010,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 ownerBalance = balanceOf(owner);
         if (shares > ownerBalance) {
             shares = ownerBalance;
-            assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
+            assets = _convertToAssets(shares, newLendExchangeRateX96, Math.Rounding.Down);
         }
 
         // if caller has allowance for owners shares - may call withdraw

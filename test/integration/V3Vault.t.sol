@@ -241,30 +241,24 @@ contract V3VaultIntegrationTest is Test {
 
     // fuzz testing withdraw amount
     function testWithdraw(uint256 amount) external {
-        bool isShare = true;
 
         // 0 borrow loan
         _setupBasicLoan(false);
 
+        // borrow half
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, 5000000);
+
         uint256 lent = vault.lendInfo(WHALE_ACCOUNT);
-        uint256 lentShares = vault.balanceOf(WHALE_ACCOUNT);
 
-        if (isShare) {
-            vm.assume(amount <= lentShares * 10);
-        } else {
-            vm.assume(amount <= lent * 10);
-        }
+        vm.assume(amount <= lent * 2);
 
-        if (isShare && amount > lentShares || !isShare && amount > lent) {
+        if (amount > 5000000) {
             vm.expectRevert(Constants.InsufficientLiquidity.selector);
         }
 
         vm.prank(WHALE_ACCOUNT);
-        if (isShare) {
-            vault.redeem(amount, WHALE_ACCOUNT, WHALE_ACCOUNT);
-        } else {
-            vault.withdraw(amount, WHALE_ACCOUNT, WHALE_ACCOUNT);
-        }
+        vault.withdraw(amount, WHALE_ACCOUNT, WHALE_ACCOUNT);
     }
 
     // fuzz testing borrow amount
@@ -610,7 +604,7 @@ contract V3VaultIntegrationTest is Test {
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT);
         AutoRange.ExecuteParams memory params =
-            AutoRange.ExecuteParams(TEST_NFT, false, 0, "", liquidity, 0, 0, block.timestamp, 0);
+            AutoRange.ExecuteParams(TEST_NFT, false, 0, "", 0, 0, block.timestamp, 0);
 
         vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.execute(params);
@@ -1281,7 +1275,8 @@ contract V3VaultIntegrationTest is Test {
 
         vaultBalance = USDC.balanceOf(address(vault));
         lent = vault.lendInfo(WHALE_ACCOUNT);
-        if (withdraw > lent || vaultBalance < withdraw) {
+        
+        if (lent > vaultBalance && withdraw > vaultBalance && lent > 0) {
             vm.expectRevert(Constants.InsufficientLiquidity.selector);
         }
         vm.prank(WHALE_ACCOUNT);

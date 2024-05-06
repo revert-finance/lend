@@ -56,7 +56,6 @@ contract AutoRange is Transformer, Automator {
         bool swap0To1;
         uint256 amountIn; // if this is set to 0 no swap happens
         bytes swapData;
-        uint128 liquidity; // liquidity the calculations are based on
         uint256 amountRemoveMin0; // min amount to be removed from liquidity
         uint256 amountRemoveMin1; // min amount to be removed from liquidity
         uint256 deadline; // for uniswap operations
@@ -136,10 +135,6 @@ contract AutoRange is Transformer, Automator {
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
 
-        if (state.liquidity != params.liquidity) {
-            revert LiquidityChanged();
-        }
-
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
             params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
         );
@@ -164,9 +159,9 @@ contract AutoRange is Transformer, Automator {
             state.currentTick < state.tickLower - config.lowerTickLimit
                 || state.currentTick >= state.tickUpper + config.upperTickLimit
         ) {
-            // check oracle for swap
-            if (params.amountIn != 0) {
-                state.amountOutMin = _validateSwap(
+            // check TWAP deviation (this is done for swap and non-swap operations)
+            // operation is only allowed when price is close to TWAP price to prevent sandwich attacks
+            state.amountOutMin = _validateSwap(
                     params.swap0To1,
                     params.amountIn,
                     state.pool,
@@ -177,6 +172,7 @@ contract AutoRange is Transformer, Automator {
                     params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
                 );
 
+            if (params.amountIn != 0) {
                 (state.amountInDelta, state.amountOutDelta) = _routerSwap(
                     Swapper.RouterSwapParams(
                         params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
