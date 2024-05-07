@@ -7,6 +7,13 @@ import "../src/InterestRateModel.sol";
 import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 
+import "../src/transformers/V3Utils.sol";
+import "../src/transformers/AutoRange.sol";
+import "../src/transformers/AutoCompound.sol";
+import "../src/transformers/LeverageTransformer.sol";
+
+import "../src/automators/AutoExit.sol";
+
 import "../src/utils/FlashloanLiquidator.sol";
 
 contract DeployArbitrum is Script {
@@ -94,6 +101,25 @@ contract DeployArbitrum is Script {
         vault.setReserveProtectionFactor(uint32(Q32 * 5 / 100));
 
         new FlashloanLiquidator(NPM, EX0x, UNIVERSAL_ROUTER);
+
+        // deploy transformers and automators
+        V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
+        v3Utils.setVault(address(vault));
+        vault.setTransformer(address(v3Utils), true);
+
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
+        leverageTransformer.setVault(address(vault));
+        vault.setTransformer(address(leverageTransformer), true);
+        
+        AutoRange autoRange = new AutoRange(NPM, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        autoRange.setVault(address(vault));
+        vault.setTransformer(address(autoRange), true);
+ 
+        AutoCompound autoCompound = new AutoCompound(NPM, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 60, 100);
+        autoCompound.setVault(address(vault));
+        vault.setTransformer(address(autoCompound), true);
+
+        AutoExit autoExit = new AutoExit(NPM, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 60, 100, EX0x, UNIVERSAL_ROUTER);
 
         vm.stopBroadcast();
     }
