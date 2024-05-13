@@ -8,7 +8,7 @@ import "forge-std/console.sol";
 import "../../src/V3Oracle.sol";
 import "v3-core/interfaces/pool/IUniswapV3PoolDerivedState.sol";
 
-import "../../src/interfaces/IErrors.sol";
+import "../../src/utils/Constants.sol";
 
 contract V3OracleIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
@@ -35,6 +35,8 @@ contract V3OracleIntegrationTest is Test {
 
     uint256 constant TEST_NFT_UNI = 1; // WETH/UNI 0.3%
 
+    uint256 constant TEST_NFT_DAI_WETH = 548468; // DAI/WETH 0.05%
+
     uint256 mainnetFork;
     V3Oracle oracle;
 
@@ -44,6 +46,7 @@ contract V3OracleIntegrationTest is Test {
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
+        oracle.setMaxPoolPriceDifference(200);
         oracle.setTokenConfig(
             address(USDC),
             AggregatorV3Interface(CHAINLINK_USDC_USD),
@@ -75,13 +78,13 @@ contract V3OracleIntegrationTest is Test {
 
     function testConversionChainlink() external {
         (uint256 valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC));
-        assertEq(valueUSDC, 9830229);
+        assertEq(valueUSDC, 9829088);
 
         (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
-        assertEq(valueDAI, 9831304996928906441);
+        assertEq(valueDAI, 9830163872037360590);
 
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
-        assertEq(valueWETH, 5265311333743718);
+        assertEq(valueWETH, 5264700186207705);
     }
 
     function testConversionTWAP() external {
@@ -90,25 +93,35 @@ contract V3OracleIntegrationTest is Test {
         oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
 
         (uint256 valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC));
-        assertEq(valueUSDC, 9830274);
+        assertEq(valueUSDC, 9829593);
 
         (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
-        assertEq(valueDAI, 9830248010486057179);
+        assertEq(valueDAI, 9829567012286501296);
 
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
-        assertEq(valueWETH, 5254033922056302);
+        assertEq(valueWETH, 5253669944704203);
+
+        (uint256 valueUSDC2,, uint256 price0, uint256 price1) = oracle.getValue(TEST_NFT_DAI_WETH, address(USDC));
+        assertEq(valueUSDC2, 57217647626);
+
+        assertEq(price0, 79228371980132557);
+        assertEq(price1, 148235538176146811595);
+
+        (,,,, uint256 amount0, uint256 amount1,,) = oracle.getPositionBreakdown(TEST_NFT_DAI_WETH);
+        assertEq(amount0, 29754721813133755549897);
+        assertEq(amount1, 14500423413066020069);
     }
 
     function testNonExistingToken() external {
-        vm.expectRevert(IErrors.NotConfigured.selector);
+        vm.expectRevert(Constants.NotConfigured.selector);
         oracle.getValue(TEST_NFT, address(WBTC));
 
-        vm.expectRevert(IErrors.NotConfigured.selector);
+        vm.expectRevert(Constants.NotConfigured.selector);
         oracle.getValue(TEST_NFT_UNI, address(WETH));
     }
 
     function testInvalidPoolConfig() external {
-        vm.expectRevert(IErrors.InvalidPool.selector);
+        vm.expectRevert(Constants.InvalidPool.selector);
         oracle.setTokenConfig(
             address(WETH),
             AggregatorV3Interface(CHAINLINK_ETH_USD),
@@ -121,7 +134,7 @@ contract V3OracleIntegrationTest is Test {
     }
 
     function testEmergencyAdmin() external {
-        vm.expectRevert(IErrors.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(WHALE_ACCOUNT);
         oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
 
@@ -134,17 +147,17 @@ contract V3OracleIntegrationTest is Test {
         vm.mockCall(
             CHAINLINK_DAI_USD,
             abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
-            abi.encode(uint80(0), int256(-1), block.timestamp, block.timestamp, uint80(0))
+            abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0))
         );
-        vm.expectRevert(IErrors.ChainlinkPriceError.selector);
+        vm.expectRevert(Constants.ChainlinkPriceError.selector);
         oracle.getValue(TEST_NFT, address(WETH));
 
         vm.mockCall(
             CHAINLINK_DAI_USD,
             abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
-            abi.encode(uint80(0), int256(0), uint256(0), uint256(0), uint80(0))
+            abi.encode(uint80(0), int256(1), uint256(0), uint256(0), uint80(0))
         );
-        vm.expectRevert(IErrors.ChainlinkPriceError.selector);
+        vm.expectRevert(Constants.ChainlinkPriceError.selector);
         oracle.getValue(TEST_NFT, address(WETH));
     }
 
@@ -153,16 +166,16 @@ contract V3OracleIntegrationTest is Test {
         vm.mockCall(
             CHAINLINK_DAI_USD,
             abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
-            abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0))
+            abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
         );
 
-        vm.expectRevert(IErrors.PriceDifferenceExceeded.selector);
+        vm.expectRevert(Constants.PriceDifferenceExceeded.selector);
         oracle.getValue(TEST_NFT, address(WETH));
 
         // works with normal prices
         vm.clearMockedCalls();
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
-        assertEq(valueWETH, 5265311333743718);
+        assertEq(valueWETH, 5264700186207705);
 
         // change call to simulate oracle difference in univ3 twap
         int56[] memory tickCumulatives = new int56[](2);
@@ -172,7 +185,7 @@ contract V3OracleIntegrationTest is Test {
             abi.encodeWithSelector(IUniswapV3PoolDerivedState.observe.selector),
             abi.encode(tickCumulatives, secondsPerLiquidityCumulativeX128s)
         );
-        vm.expectRevert(IErrors.PriceDifferenceExceeded.selector);
+        vm.expectRevert(Constants.PriceDifferenceExceeded.selector);
         oracle.getValue(TEST_NFT, address(WETH));
     }
 }

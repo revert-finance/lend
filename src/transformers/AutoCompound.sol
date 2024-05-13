@@ -9,12 +9,13 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../automators/Automator.sol";
+import "../transformers/Transformer.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
 /// Positions need to be approved (approve or setApprovalForAll) for the contract when outside vault
 /// When position is inside Vault - owner needs to approve the position to be transformed by the contract
-contract AutoCompound is Automator, Multicall, ReentrancyGuard {
+contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     // autocompound event
     event AutoCompounded(
         address account,
@@ -56,6 +57,8 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         bool swap0To1;
         // swap amount - calculated off-chain - if this is set to 0 no swap happens
         uint256 amountIn;
+        // for uniswap operations
+        uint256 deadline;
     }
 
     // state used during autocompound execution
@@ -89,9 +92,7 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(
-            params.tokenId, address(this), abi.encodeWithSelector(AutoCompound.execute.selector, params)
-        );
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params)));
     }
 
     /**
@@ -100,9 +101,14 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external nonReentrant {
-        if (!operators[msg.sender] && !vaults[msg.sender]) {
-            revert Unauthorized();
+        if (!operators[msg.sender]) {
+            if (vaults[msg.sender]) {
+                _validateCaller(nonfungiblePositionManager, params.tokenId);
+            } else {
+                revert Unauthorized();
+            }
         }
+
         ExecuteState memory state;
 
         // collect fees - if the position doesn't have operator set or is called from vault - it won't work
@@ -121,24 +127,24 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         state.amount1 = state.amount1 + positionBalances[params.tokenId][state.token1];
 
         // only if there are balances to work with - start autocompounding process
-        if (state.amount0 > 0 || state.amount1 > 0) {
+        if (state.amount0 != 0 || state.amount1 != 0) {
             uint256 amountIn = params.amountIn;
 
             // if a swap is requested - check TWAP oracle
-            if (amountIn > 0) {
+            if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
                 (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;
-                if (tSecs > 0) {
+                if (tSecs != 0) {
                     if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
                         // if there is no valid TWAP - disable swap
                         amountIn = 0;
                     }
                 }
                 // if still needed - do swap
-                if (amountIn > 0) {
+                if (amountIn != 0) {
                     // no slippage check done - because protected by TWAP check
                     (state.amountInDelta, state.amountOutDelta) = _poolSwap(
                         Swapper.PoolSwapParams(
@@ -158,12 +164,12 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
             state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
 
             // deposit liquidity into tokenId
-            if (state.maxAddAmount0 > 0 || state.maxAddAmount1 > 0) {
+            if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
                 _checkApprovals(state.token0, state.token1);
 
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
-                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, block.timestamp
+                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, params.deadline
                     )
                 );
 
@@ -210,11 +216,11 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         uint256 balance0 = positionBalances[tokenId][token0];
-        if (balance0 > 0) {
+        if (balance0 != 0) {
             _withdrawBalanceInternal(tokenId, token0, to, balance0, balance0);
         }
         uint256 balance1 = positionBalances[tokenId][token1];
-        if (balance1 > 0) {
+        if (balance1 != 0) {
             _withdrawBalanceInternal(tokenId, token1, to, balance1, balance1);
         }
     }
@@ -231,9 +237,14 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
         }
         uint256 i;
         uint256 count = tokens.length;
+        uint256 balance;
+        address token;
         for (; i < count; ++i) {
-            uint256 balance = positionBalances[0][tokens[i]];
-            _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+            token = tokens[i];
+            balance = positionBalances[0][token];
+            if (balance != 0) {
+                _withdrawBalanceInternal(0, token, to, balance, balance);
+            }
         }
     }
 
@@ -242,13 +253,15 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      */
     function setReward(uint64 _totalRewardX64) external onlyOwner {
-        require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
+        if (_totalRewardX64 > totalRewardX64) {
+            revert InvalidConfig();
+        }
         totalRewardX64 = _totalRewardX64;
         emit RewardUpdated(msg.sender, _totalRewardX64);
     }
 
     function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
-        positionBalances[tokenId][token] = positionBalances[tokenId][token] + amount;
+        positionBalances[tokenId][token] += amount;
         emit BalanceAdded(tokenId, token, amount);
     }
 
@@ -267,8 +280,11 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
     function _withdrawBalanceInternal(uint256 tokenId, address token, address to, uint256 balance, uint256 amount)
         internal
     {
-        require(amount <= balance, "amount>balance");
-        positionBalances[tokenId][token] = positionBalances[tokenId][token] - amount;
+        if (amount > balance) {
+            revert InsufficientLiquidity();
+        }
+        balance -= amount;
+        positionBalances[tokenId][token] = balance;
         emit BalanceRemoved(tokenId, token, amount);
         SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit BalanceWithdrawn(tokenId, token, to, amount);
@@ -276,12 +292,10 @@ contract AutoCompound is Automator, Multicall, ReentrancyGuard {
 
     function _checkApprovals(address token0, address token1) internal {
         // approve tokens once if not yet approved - to save gas during compounds
-        uint256 allowance0 = IERC20(token0).allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
+        if (IERC20(token0).allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), type(uint256).max);
         }
-        uint256 allowance1 = IERC20(token1).allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
+        if (IERC20(token1).allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), type(uint256).max);
         }
     }

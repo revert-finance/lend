@@ -63,10 +63,9 @@ contract AutoExit is Automator {
     struct ExecuteParams {
         uint256 tokenId; // tokenid to process
         bytes swapData; // if its a swap order - must include swap data
-        uint128 liquidity; // liquidity the calculations are based on
         uint256 amountRemoveMin0; // min amount to be removed from liquidity
         uint256 amountRemoveMin1; // min amount to be removed from liquidity
-        uint256 deadline; // for uniswap operations - operator promises fair value
+        uint256 deadline; // for uniswap operations
         uint64 rewardX64; // which reward will be used for protocol, can be max configured amount (considering onlyFees)
     }
 
@@ -76,6 +75,8 @@ contract AutoExit is Automator {
         uint24 fee;
         int24 tickLower;
         int24 tickUpper;
+        int24 currentTick;
+        uint160 sqrtPriceX96;
         uint128 liquidity;
         uint256 amount0;
         uint256 amount1;
@@ -102,7 +103,6 @@ contract AutoExit is Automator {
             revert Unauthorized();
         }
 
-        ExecuteState memory state;
         PositionConfig memory config = positionConfigs[params.tokenId];
 
         if (!config.isActive) {
@@ -116,6 +116,8 @@ contract AutoExit is Automator {
             revert ExceedsMaxReward();
         }
 
+        ExecuteState memory state;
+
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
@@ -123,9 +125,6 @@ contract AutoExit is Automator {
         // so can be executed only once
         if (state.liquidity == 0) {
             revert NoLiquidity();
-        }
-        if (state.liquidity != params.liquidity) {
-            revert LiquidityChanged();
         }
 
         state.pool = _getPool(state.token0, state.token1, state.fee);
@@ -157,29 +156,36 @@ contract AutoExit is Automator {
             }
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
+            if (state.swapAmount != 0) {
+                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
 
-            // checks if price in valid oracle range and calculates amountOutMin
-            (state.amountOutMin,,,) = _validateSwap(
-                !state.isAbove,
-                state.swapAmount,
-                state.pool,
-                TWAPSeconds,
-                maxTWAPTickDifference,
-                state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64
-            );
-
-            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
-                Swapper.RouterSwapParams(
-                    state.isAbove ? IERC20(state.token1) : IERC20(state.token0),
-                    state.isAbove ? IERC20(state.token0) : IERC20(state.token1),
+                // checks if price in valid oracle range and calculates amountOutMin
+                state.amountOutMin = _validateSwap(
+                    !state.isAbove,
                     state.swapAmount,
-                    state.amountOutMin,
-                    params.swapData
-                )
-            );
+                    state.pool,
+                    state.currentTick,
+                    state.sqrtPriceX96,
+                    TWAPSeconds,
+                    maxTWAPTickDifference,
+                    state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64
+                );
 
-            state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
-            state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
+                (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        state.isAbove ? IERC20(state.token1) : IERC20(state.token0),
+                        state.isAbove ? IERC20(state.token0) : IERC20(state.token1),
+                        state.swapAmount,
+                        state.amountOutMin,
+                        params.swapData
+                    )
+                );
+
+                state.amount0 =
+                    state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
+                state.amount1 =
+                    state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
+            }
 
             // when swap and !onlyFees - protocol reward is removed only from target token (to incentivize optimal swap done by operator)
             if (!config.onlyFees) {
@@ -196,10 +202,10 @@ contract AutoExit is Automator {
         }
 
         state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
-        if (state.amount0 > 0) {
+        if (state.amount0 != 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
-        if (state.amount1 > 0) {
+        if (state.amount1 != 0) {
             _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
         }
 
@@ -216,15 +222,15 @@ contract AutoExit is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, PositionConfig calldata config) external {
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
-        if (owner != msg.sender) {
-            revert Unauthorized();
-        }
-
         if (config.isActive) {
             if (config.token0TriggerTick >= config.token1TriggerTick) {
                 revert InvalidConfig();
             }
+        }
+
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (owner != msg.sender) {
+            revert Unauthorized();
         }
 
         positionConfigs[tokenId] = config;

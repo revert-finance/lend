@@ -16,10 +16,11 @@ import "../../src/transformers/AutoRange.sol";
 import "../../src/transformers/AutoCompound.sol";
 import "../../src/automators/AutoExit.sol";
 
-import "../../src/interfaces/IErrors.sol";
+import "../../src/utils/Constants.sol";
 
 contract VaultPolygonIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
+    uint256 constant Q64 = 2 ** 64;
     uint256 constant Q96 = 2 ** 96;
 
     uint256 constant YEAR_SECS = 31557600; // taking into account leap years
@@ -59,10 +60,11 @@ contract VaultPolygonIntegrationTest is Test {
         vm.selectFork(mainnetFork);
 
         // 5% base rate - after 80% - 109% (like in compound v2 deployed)
-        interestRateModel = new InterestRateModel(0, Q96 * 5 / 100, Q96 * 109 / 100, Q96 * 80 / 100);
+        interestRateModel = new InterestRateModel(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 * 80 / 100);
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         oracle = new V3Oracle(NPM, address(USDC), address(0));
+        oracle.setMaxPoolPriceDifference(200);
         oracle.setTokenConfig(
             USDC,
             AggregatorV3Interface(0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7),
@@ -113,20 +115,21 @@ contract VaultPolygonIntegrationTest is Test {
         // add transformers
         v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
         vault.setTransformer(address(v3Utils), true);
+        v3Utils.setVault(address(vault));
 
         leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
 
         autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
-        autoRange.setVault(address(vault), true);
+        autoRange.setVault(address(vault));
 
         autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
         vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault), true);
+        autoCompound.setVault(address(vault));
 
         autoExit = new AutoExit(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
-        autoExit.setVault(address(vault), true);
     }
 
     function test() external {
@@ -146,7 +149,9 @@ contract VaultPolygonIntegrationTest is Test {
         assertEq(collateralValue, 463959);
         assertEq(fullValue, 579950);
 
+        uint256 buffer = vault.BORROW_SAFETY_BUFFER_X32();
+
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.borrow(TEST_NFT, collateralValue);
+        vault.borrow(TEST_NFT, collateralValue * buffer / Q32);
     }
 }

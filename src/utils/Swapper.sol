@@ -11,10 +11,10 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
-import "../interfaces/IErrors.sol";
+import "../utils/Constants.sol";
 
 // base functionality to do swaps with different routing protocols
-abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
+abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
     /// @notice Wrapped native token address
@@ -84,7 +84,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
             if (router == zeroxRouter) {
                 ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
                 // approve needed amount
-                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, params.amountIn);
+                SafeERC20.safeIncreaseAllowance(params.tokenIn, data.allowanceTarget, params.amountIn);
                 // execute swap
                 (bool success,) = zeroxRouter.call(data.data);
                 if (!success) {
@@ -101,11 +101,8 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
                 revert WrongContract();
             }
 
-            uint256 balanceInAfter = params.tokenIn.balanceOf(address(this));
-            uint256 balanceOutAfter = params.tokenOut.balanceOf(address(this));
-
-            amountInDelta = balanceInBefore - balanceInAfter;
-            amountOutDelta = balanceOutAfter - balanceOutBefore;
+            amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
+            amountOutDelta = params.tokenOut.balanceOf(address(this)) - balanceOutBefore;
 
             // amountMin slippage check
             if (amountOutDelta < params.amountOutMin) {
@@ -130,7 +127,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
     // execute swap directly on specified pool
     // amounts must be available on the contract for both tokens
     function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
-        if (params.amountIn > 0) {
+        if (params.amountIn != 0) {
             (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(
                 address(this),
                 params.swap0For1,
@@ -163,8 +160,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
         }
 
         // transfer needed amount of tokenIn
-        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta));
     }
 
     // get pool for token

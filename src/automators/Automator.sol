@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -16,23 +16,18 @@ import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
-abstract contract Automator is Swapper, Ownable {
-    uint256 internal constant Q64 = 2 ** 64;
-    uint256 internal constant Q96 = 2 ** 96;
+abstract contract Automator is Ownable2Step, Swapper {
 
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
 
     // admin events
     event OperatorChanged(address newOperator, bool active);
-    event VaultChanged(address newVault, bool active);
-
     event WithdrawerChanged(address newWithdrawer);
     event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
 
     // configurable by owner
     mapping(address => bool) public operators;
-    mapping(address => bool) public vaults;
 
     address public withdrawer;
     uint32 public TWAPSeconds;
@@ -72,16 +67,6 @@ abstract contract Automator is Swapper, Ownable {
     }
 
     /**
-     * @notice Owner controlled function to activate/deactivate vault address
-     * @param _vault vault
-     * @param _active active or not
-     */
-    function setVault(address _vault, bool _active) public onlyOwner {
-        emit VaultChanged(_vault, _active);
-        vaults[_vault] = _active;
-    }
-
-    /**
      * @notice Owner controlled function to increase TWAPSeconds / decrease maxTWAPTickDifference
      */
     function setTWAPConfig(uint16 _maxTWAPTickDifference, uint32 _TWAPSeconds) public onlyOwner {
@@ -108,10 +93,13 @@ abstract contract Automator is Swapper, Ownable {
 
         uint256 i;
         uint256 count = tokens.length;
+        address token;
+        uint256 balance;
         for (; i < count; ++i) {
-            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
-            if (balance > 0) {
-                _transferToken(to, IERC20(tokens[i]), balance, true);
+            token = tokens[i];
+            balance = IERC20(token).balanceOf(address(this));
+            if (balance != 0) {
+                _transferToken(to, IERC20(token), balance, true);
             }
         }
     }
@@ -126,7 +114,7 @@ abstract contract Automator is Swapper, Ownable {
         }
 
         uint256 balance = address(this).balance;
-        if (balance > 0) {
+        if (balance != 0) {
             (bool sent,) = to.call{value: balance}("");
             if (!sent) {
                 revert EtherSendFailed();
@@ -140,22 +128,21 @@ abstract contract Automator is Swapper, Ownable {
         bool swap0For1,
         uint256 amountIn,
         IUniswapV3Pool pool,
+        int24 currentTick,
+        uint160 sqrtPriceX96,
         uint32 twapPeriod,
         uint16 maxTickDifference,
         uint64 maxPriceDifferenceX64
-    ) internal view returns (uint256 amountOutMin, int24 currentTick, uint160 sqrtPriceX96, uint256 priceX96) {
-        // get current price and tick
-        (sqrtPriceX96, currentTick,,,,,) = pool.slot0();
-
+    ) internal view returns (uint256 amountOutMin) {
         // check if current tick not too far from TWAP
         if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
             revert TWAPCheckFailed();
         }
 
         // calculate min output price price and percentage
-        priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         if (swap0For1) {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q96 * Q64);
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q160); // Q160 = Q96 * Q64
         } else {
             amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q96, priceX96 * Q64);
         }
@@ -170,21 +157,27 @@ abstract contract Automator is Swapper, Ownable {
     {
         (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
         if (twapOk) {
-            return twapTick - currentTick >= -int16(maxDifference) && twapTick - currentTick <= int16(maxDifference);
+            int256 res = twapTick - currentTick;
+            return res >= -int16(maxDifference) && res <= int16(maxDifference);
         } else {
             return false;
         }
     }
 
     // gets twap tick from pool history if enough history available
-    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24, bool) {
+    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (int24, bool) {
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = 0; // from (before)
-        secondsAgos[1] = twapPeriod; // from (before)
+        secondsAgos[1] = twapSeconds; // from (before)
 
         // pool observe may fail when there is not enough history available
         try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            return (int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod))), true);
+            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
+            if (
+                tickCumulatives[0] - tickCumulatives[1] < 0
+                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
+            ) tick--;
+            return (tick, true);
         } catch {
             return (0, false);
         }
@@ -197,7 +190,7 @@ abstract contract Automator is Swapper, Ownable {
         uint256 amountRemoveMin1,
         uint256 deadline
     ) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
-        if (liquidity > 0) {
+        if (liquidity != 0) {
             // store in temporarely "misnamed" variables - see comment below
             (feeAmount0, feeAmount1) = nonfungiblePositionManager.decreaseLiquidity(
                 INonfungiblePositionManager.DecreaseLiquidityParams(
@@ -216,7 +209,7 @@ abstract contract Automator is Swapper, Ownable {
 
     // transfers token (or unwraps WETH and sends ETH)
     function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
-        if (address(weth) == address(token) && unwrap) {
+        if (unwrap && address(weth) == address(token)) {
             weth.withdraw(amount);
             (bool sent,) = to.call{value: amount}("");
             if (!sent) {
@@ -224,26 +217,6 @@ abstract contract Automator is Swapper, Ownable {
             }
         } else {
             SafeERC20.safeTransfer(token, to, amount);
-        }
-    }
-
-    function _validateOwner(uint256 tokenId, address vault) internal returns (address owner) {
-        // msg.sender must not be a vault
-        if (vaults[msg.sender]) {
-            revert Unauthorized();
-        }
-
-        if (vault != address(0)) {
-            if (!vaults[vault]) {
-                revert Unauthorized();
-            }
-            owner = IVault(vault).ownerOf(tokenId);
-        } else {
-            owner = nonfungiblePositionManager.ownerOf(tokenId);
-        }
-
-        if (owner != msg.sender) {
-            revert Unauthorized();
         }
     }
 

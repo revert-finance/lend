@@ -33,6 +33,8 @@ contract DeployPolygon is Script {
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)
         V3Oracle oracle = new V3Oracle(NPM, address(USDC), address(0)); //V3Oracle(0x3A22Fe0aB53478F071c66Fce166b033C35562CED)
+        oracle.setMaxPoolPriceDifference(200);
+
         oracle.setTokenConfig(
             USDC,
             AggregatorV3Interface(0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7),

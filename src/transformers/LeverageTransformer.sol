@@ -6,10 +6,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
+import "../transformers/Transformer.sol";
 
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
-contract LeverageTransformer is Swapper {
+contract LeverageTransformer is Transformer, Swapper {
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
         Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter)
     {}
@@ -38,6 +39,8 @@ contract LeverageTransformer is Swapper {
 
     // method called from transform() method in Vault
     function leverageUp(LeverageUpParams calldata params) external {
+        _validateCaller(nonfungiblePositionManager, params.tokenId);
+
         uint256 amount = params.borrowAmount;
 
         address token = IVault(msg.sender).asset();
@@ -49,7 +52,7 @@ contract LeverageTransformer is Swapper {
         uint256 amount0 = token == token0 ? amount : 0;
         uint256 amount1 = token == token1 ? amount : 0;
 
-        if (params.amountIn0 > 0) {
+        if (params.amountIn0 != 0) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token), IERC20(token0), params.amountIn0, params.amountOut0Min, params.swapData0
@@ -61,7 +64,7 @@ contract LeverageTransformer is Swapper {
             amount -= amountIn;
             amount0 += amountOut;
         }
-        if (params.amountIn1 > 0) {
+        if (params.amountIn1 != 0) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token), IERC20(token1), params.amountIn1, params.amountOut1Min, params.swapData1
@@ -83,6 +86,9 @@ contract LeverageTransformer is Swapper {
         );
         (, uint256 added0, uint256 added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
+        SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), 0);
+        SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), 0);
+
         // send leftover tokens
         if (amount0 > added0) {
             SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0 - added0);
@@ -90,7 +96,7 @@ contract LeverageTransformer is Swapper {
         if (amount1 > added1) {
             SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1 - added1);
         }
-        if (token != token0 && token != token1 && amount > 0) {
+        if (token != token0 && token != token1 && amount != 0) {
             SafeERC20.safeTransfer(IERC20(token), params.recipient, amount);
         }
     }
@@ -108,11 +114,11 @@ contract LeverageTransformer is Swapper {
         // how much of token0 should be swapped to lend token
         uint256 amountIn0;
         uint256 amountOut0Min;
-        bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        bytes swapData0; // encoded data for swap
         // how much of token1 should be swapped to lend token
         uint256 amountIn1;
         uint256 amountOut1Min;
-        bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        bytes swapData1; // encoded data for swap
         // recipient for leftover tokens
         address recipient;
         // for all uniswap deadlineable functions
@@ -121,17 +127,21 @@ contract LeverageTransformer is Swapper {
 
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
+        _validateCaller(nonfungiblePositionManager, params.tokenId);
+
         address token = IVault(msg.sender).asset();
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 
         uint256 amount0;
         uint256 amount1;
 
-        INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseLiquidityParams = INonfungiblePositionManager
-            .DecreaseLiquidityParams(
-            params.tokenId, params.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
-        );
-        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(decreaseLiquidityParams);
+        if (params.liquidity != 0) {
+            INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseLiquidityParams = INonfungiblePositionManager
+                .DecreaseLiquidityParams(
+                params.tokenId, params.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+            );
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(decreaseLiquidityParams);
+        }
 
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
             params.tokenId,
@@ -143,7 +153,7 @@ contract LeverageTransformer is Swapper {
 
         uint256 amount = token == token0 ? amount0 : (token == token1 ? amount1 : 0);
 
-        if (params.amountIn0 > 0 && token != token0) {
+        if (params.amountIn0 != 0 && token != token0) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token0), IERC20(token), params.amountIn0, params.amountOut0Min, params.swapData0
@@ -152,7 +162,7 @@ contract LeverageTransformer is Swapper {
             amount0 -= amountIn;
             amount += amountOut;
         }
-        if (params.amountIn1 > 0 && token != token1) {
+        if (params.amountIn1 != 0 && token != token1) {
             (uint256 amountIn, uint256 amountOut) = _routerSwap(
                 Swapper.RouterSwapParams(
                     IERC20(token1), IERC20(token), params.amountIn1, params.amountOut1Min, params.swapData1
@@ -162,14 +172,18 @@ contract LeverageTransformer is Swapper {
             amount += amountOut;
         }
 
-        SafeERC20.safeApprove(IERC20(token), msg.sender, amount);
-        IVault(msg.sender).repay(params.tokenId, amount, false);
+        SafeERC20.safeIncreaseAllowance(IERC20(token), msg.sender, amount);
+        (uint256 repayedAmount,) = IVault(msg.sender).repay(params.tokenId, amount, false);
+        SafeERC20.safeApprove(IERC20(token), msg.sender, 0);
 
         // send leftover tokens
-        if (amount0 > 0 && token != token0) {
+        if (amount > repayedAmount) {
+            SafeERC20.safeTransfer(IERC20(token), params.recipient, amount - repayedAmount);
+        }
+        if (amount0 != 0 && token != token0) {
             SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0);
         }
-        if (amount1 > 0 && token != token1) {
+        if (amount1 != 0 && token != token1) {
             SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1);
         }
     }

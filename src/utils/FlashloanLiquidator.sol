@@ -11,7 +11,6 @@ import "./Swapper.sol";
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
     struct FlashCallbackData {
         uint256 tokenId;
-        uint256 debtShares;
         uint256 liquidationCost;
         IVault vault;
         IERC20 asset;
@@ -19,6 +18,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         RouterSwapParams swap1;
         address liquidator;
         uint256 minReward;
+        uint256 deadline;
     }
 
     constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
@@ -27,7 +27,6 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     struct LiquidateParams {
         uint256 tokenId; // loan to liquidate
-        uint256 debtShares; // debt shares calculation is based on
         IVault vault; // vault where the loan is
         IUniswapV3Pool flashLoanPool; // pool which is used for flashloan - may not be used in the swaps below
         uint256 amount0In; // how much of token0 to swap to asset (0 if no swap should be done)
@@ -35,6 +34,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         uint256 amount1In; // how much of token1 to swap to asset (0 if no swap should be done)
         bytes swapData1; // swap data for token1 swap
         uint256 minReward; // min reward amount (works as a global slippage control for complete operation)
+        uint256 deadline; // deadline for uniswap operations
     }
 
     /// @notice Liquidates a loan, using a Uniswap Flashloan
@@ -51,28 +51,28 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         bytes memory data = abi.encode(
             FlashCallbackData(
                 params.tokenId,
-                params.debtShares,
                 liquidationCost,
                 params.vault,
                 IERC20(asset),
                 RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0),
                 RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1),
                 msg.sender,
-                params.minReward
+                params.minReward,
+                params.deadline
             )
         );
         params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
     }
 
-    function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external {
+    function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external override {
         // no origin check is needed - because the contract doesn't hold any funds - there is no benefit in calling uniswapV3FlashCallback() from another context
 
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
 
-        SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
+        SafeERC20.safeIncreaseAllowance(data.asset, address(data.vault), data.liquidationCost);
         data.vault.liquidate(
             IVault.LiquidateParams(
-                data.tokenId, data.debtShares, data.swap0.amountIn, data.swap1.amountIn, address(this), ""
+                data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), "", data.deadline
             )
         );
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);
@@ -84,25 +84,27 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         // transfer lent amount + fee (only one token can have fee) - back to pool
         SafeERC20.safeTransfer(data.asset, msg.sender, data.liquidationCost + (fee0 + fee1));
 
+        uint256 balance;
+
         // return all leftover tokens to liquidator
         if (data.swap0.tokenIn != data.asset) {
-            uint256 balance = data.swap0.tokenIn.balanceOf(address(this));
-            if (balance > 0) {
+            balance = data.swap0.tokenIn.balanceOf(address(this));
+            if (balance != 0) {
                 SafeERC20.safeTransfer(data.swap0.tokenIn, data.liquidator, balance);
             }
         }
         if (data.swap1.tokenIn != data.asset) {
-            uint256 balance = data.swap1.tokenIn.balanceOf(address(this));
-            if (balance > 0) {
+            balance = data.swap1.tokenIn.balanceOf(address(this));
+            if (balance != 0) {
                 SafeERC20.safeTransfer(data.swap1.tokenIn, data.liquidator, balance);
             }
         }
         {
-            uint256 balance = data.asset.balanceOf(address(this));
+            balance = data.asset.balanceOf(address(this));
             if (balance < data.minReward) {
                 revert NotEnoughReward();
             }
-            if (balance > 0) {
+            if (balance != 0) {
                 SafeERC20.safeTransfer(data.asset, data.liquidator, balance);
             }
         }

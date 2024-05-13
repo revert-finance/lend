@@ -4,6 +4,10 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 interface IVault is IERC4626 {
+    function transformedTokenId() external view returns (uint256 tokenId);
+
+    function loans(uint256 tokenId) external view returns (uint256 debtShares);
+
     function vaultInfo()
         external
         view
@@ -11,7 +15,6 @@ interface IVault is IERC4626 {
             uint256 debt,
             uint256 lent,
             uint256 balance,
-            uint256 available,
             uint256 reserves,
             uint256 debtExchangeRateX96,
             uint256 lendExchangeRateX96
@@ -35,15 +38,8 @@ interface IVault is IERC4626 {
     function loanAtIndex(address owner, uint256 index) external view returns (uint256);
 
     function create(uint256 tokenId, address recipient) external;
-    function createWithPermit(
-        uint256 tokenId,
-        address owner,
-        address recipient,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external;
+    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external;
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
@@ -67,14 +63,14 @@ interface IVault is IERC4626 {
         returns (uint256 amount0, uint256 amount1);
 
     function borrow(uint256 tokenId, uint256 amount) external;
-    function repay(uint256 tokenId, uint256 amount, bool isShare) external;
-    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external;
+    function repay(uint256 tokenId, uint256 amount, bool isShare) external returns (uint256 assets, uint256 shares);
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
+        external
+        returns (uint256 assets, uint256 shares);
 
     struct LiquidateParams {
         // token to liquidate
         uint256 tokenId;
-        // expected debt shares - reverts if changed in the meantime
-        uint256 debtShares;
         // min amount to recieve
         uint256 amount0Min;
         uint256 amount1Min;
@@ -82,6 +78,8 @@ interface IVault is IERC4626 {
         address recipient;
         // if permit2 signatures are used - set this
         bytes permitData;
+        // for uniswap functions
+        uint256 deadline;
     }
 
     function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);
