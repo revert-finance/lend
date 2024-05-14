@@ -44,16 +44,16 @@ contract DeployArbitrum is Script {
         oracle.setTokenConfig(
             USDC,
             AggregatorV3Interface(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3),
-            3600,
+            86400,
             IUniswapV3Pool(0xC6962004f452bE9203591991D15f6b388e09E8D0),
-            0,
+            60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            0
+            200
         );
         oracle.setTokenConfig(
             DAI,
             AggregatorV3Interface(0xc5C8E77B397E531B8EC06BFb0048328B30E9eCfB),
-            3600,
+            86400,
             IUniswapV3Pool(0xA961F0473dA4864C5eD28e00FcC53a3AAb056c1b),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
@@ -62,16 +62,16 @@ contract DeployArbitrum is Script {
         oracle.setTokenConfig(
             WETH,
             AggregatorV3Interface(0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612),
-            3600,
+            86400,
             IUniswapV3Pool(address(0)),
-            60,
+            0,
             V3Oracle.Mode.TWAP,
-            200
+            0
         );
         oracle.setTokenConfig(
             WBTC,
             AggregatorV3Interface(0x6ce185860a4963106506C203335A2910413708e9),
-            3600,
+            86400,
             IUniswapV3Pool(0x2f5e87C9312fa29aed5c179E456625D79015299c),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
@@ -80,7 +80,7 @@ contract DeployArbitrum is Script {
         oracle.setTokenConfig(
             ARB,
             AggregatorV3Interface(0xb2A824043730FE05F3DA2efaFa1CBbe83fa548D6),
-            3600,
+            86400,
             IUniswapV3Pool(0xC6F780497A95e246EB9449f5e4770916DCd6396A),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
