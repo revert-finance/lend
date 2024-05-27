@@ -1268,19 +1268,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 oldDebtExchangeRateX96 = lastDebtExchangeRateX96;
         uint256 oldLendExchangeRateX96 = lastLendExchangeRateX96;
 
-        (uint256 balance,) = _getBalanceAndReserves(oldDebtExchangeRateX96, oldLendExchangeRateX96);
-
-        uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
-
-        (uint256 borrowRateX64, uint256 supplyRateX64) = interestRateModel.getRatesPerSecondX64(balance, debt);
-
-        supplyRateX64 = supplyRateX64.mulDiv(Q32 - reserveFactorX32, Q32);
-
         // always growing or equal
         uint256 lastRateUpdate = lastExchangeRateUpdate;
         uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
         if (timeElapsed != 0 && lastRateUpdate != 0) {
+
+            (uint256 balance,) = _getBalanceAndReserves(oldDebtExchangeRateX96, oldLendExchangeRateX96);
+            uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
+            (uint256 borrowRateX64, uint256 supplyRateX64) = interestRateModel.getRatesPerSecondX64(balance, debt);
+            supplyRateX64 = supplyRateX64.mulDiv(Q32 - reserveFactorX32, Q32);
+
             newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
             newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * timeElapsed * supplyRateX64 / Q64;
         } else {
