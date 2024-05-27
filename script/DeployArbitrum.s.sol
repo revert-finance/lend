@@ -111,15 +111,15 @@ contract DeployArbitrum is Script {
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
         
-        AutoRange autoRange = new AutoRange(NPM, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRange autoRange = new AutoRange(NPM, 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF, 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF, 60, 100, EX0x, UNIVERSAL_ROUTER);
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
  
-        AutoCompound autoCompound = new AutoCompound(NPM, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 60, 100);
+        AutoCompound autoCompound = new AutoCompound(NPM, 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF, 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF, 60, 100);
         autoCompound.setVault(address(vault));
         vault.setTransformer(address(autoCompound), true);
 
-        AutoExit autoExit = new AutoExit(NPM, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 0x3895e33b91f19B279D30B1436640c87E300D2DAc, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoExit autoExit = new AutoExit(NPM, 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF, 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF, 60, 100, EX0x, UNIVERSAL_ROUTER);
 
         vm.stopBroadcast();
     }
