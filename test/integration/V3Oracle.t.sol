@@ -81,10 +81,10 @@ contract V3OracleIntegrationTest is Test {
         assertEq(valueUSDC, 9829088);
 
         (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
-        assertEq(valueDAI, 9830163872037360590);
+        assertEq(valueDAI, 9830164473705245040);
 
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
-        assertEq(valueWETH, 5264700186207705);
+        assertEq(valueWETH, 5264700508440484);
     }
 
     function testConversionTWAP() external {
@@ -96,13 +96,13 @@ contract V3OracleIntegrationTest is Test {
         assertEq(valueUSDC, 9829593);
 
         (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
-        assertEq(valueDAI, 9829567012286501296);
+        assertEq(valueDAI, 9829567935538784710);
 
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
-        assertEq(valueWETH, 5253669944704203);
+        assertEq(valueWETH, 5253670438160606);
 
         (uint256 valueUSDC2,, uint256 price0, uint256 price1) = oracle.getValue(TEST_NFT_DAI_WETH, address(USDC));
-        assertEq(valueUSDC2, 57217647626);
+        assertEq(valueUSDC2, 57217647627);
 
         assertEq(price0, 79228371980132557);
         assertEq(price1, 148235538176146811595);
@@ -175,7 +175,7 @@ contract V3OracleIntegrationTest is Test {
         // works with normal prices
         vm.clearMockedCalls();
         (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
-        assertEq(valueWETH, 5264700186207705);
+        assertEq(valueWETH, 5264700508440484);
 
         // change call to simulate oracle difference in univ3 twap
         int56[] memory tickCumulatives = new int56[](2);

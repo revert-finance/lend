@@ -109,10 +109,7 @@ contract AutoExit is Automator {
             revert NotConfigured();
         }
 
-        if (
-            config.onlyFees && params.rewardX64 > config.maxRewardX64
-                || !config.onlyFees && params.rewardX64 > config.maxRewardX64
-        ) {
+        if (params.rewardX64 > config.maxRewardX64) {
             revert ExceedsMaxReward();
         }
 

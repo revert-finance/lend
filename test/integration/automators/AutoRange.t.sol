@@ -78,8 +78,6 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
         vm.prank(TEST_NFT_2_ACCOUNT);
         autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, MAX_REWARD));
 
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
-
         // fails when sending NFT
         vm.expectRevert(abi.encodePacked("Not approved"));
 
@@ -109,8 +107,6 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
             AutoRange.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100), false, MAX_REWARD)
         ); // 1% max fee, 1% max slippage
 
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2_A);
-
         // in range position cant be adjusted
         vm.expectRevert(Constants.NotReady.selector);
         vm.prank(OPERATOR_ACCOUNT);
@@ -131,8 +127,6 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
                 0, 0, -int32(uint32(type(uint24).max)), int32(uint32(type(uint24).max)), 0, 0, false, MAX_REWARD
             )
         ); // 1% max fee, 1% max slippage
-
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
 
         // will be reverted because range Arithmetic over/underflow
         vm.expectRevert(abi.encodePacked("SafeCast: value doesn't fit in 24 bits"));
@@ -306,8 +300,6 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
             AutoRange.PositionConfig(0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100), false, MAX_REWARD)
         ); // 1% max fee, 1% max slippage
 
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
-
         vm.expectRevert(Constants.SwapAmountTooLarge.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoRange.execute(
@@ -468,8 +460,6 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
             address(0),
             AutoRange.PositionConfig(-100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100), false, MAX_REWARD)
         );
-
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
 
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);

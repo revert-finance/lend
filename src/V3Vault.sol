@@ -551,23 +551,26 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         // may have changed in the meantime
-        tokenId = transformedTokenId;
+        newTokenId = transformedTokenId;
+
+        // if token has changed - and operator was approved for old token - take over for new token
+        if (tokenId != newTokenId && transformApprovals[loanOwner][tokenId][msg.sender]) {
+            transformApprovals[loanOwner][newTokenId][msg.sender] = true;
+        }
 
         // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        address owner = nonfungiblePositionManager.ownerOf(newTokenId);
         if (owner != address(this)) {
             revert Unauthorized();
         }
 
         // remove access for transformer
-        nonfungiblePositionManager.approve(address(0), tokenId);
+        nonfungiblePositionManager.approve(address(0), newTokenId);
 
-        uint256 debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(tokenId, debt, false);
+        uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+        _requireLoanIsHealthy(newTokenId, debt, false);
 
         transformedTokenId = 0;
-
-        return tokenId;
     }
 
     /// @notice Borrows specified amount using token as collateral
@@ -623,7 +626,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // fails if not enough asset available
         // it may use all balance of the contract (because "virtual" reserves do not need to be stored in contract)
         // if called from transform mode - send funds to transformer contract
-        SafeERC20.safeTransfer(IERC20(asset), isTransformMode ? msg.sender : owner, assets);
+        SafeERC20.safeTransfer(IERC20(asset), msg.sender, assets);
 
         emit Borrow(tokenId, owner, assets, shares);
     }
@@ -968,6 +971,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert DailyLendIncreaseLimit();
         }
 
+        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
+
         if (permitData.length != 0) {
             (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
                 abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
@@ -985,8 +990,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         _mint(receiver, shares);
-
-        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }
@@ -1050,10 +1053,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         } else {
             assets = amount;
             shares = _convertToShares(amount, newDebtExchangeRateX96, Math.Rounding.Down);
-        }
-
-        if (shares == 0) {
-            revert NoSharesRepayed();
         }
 
         if (shares == 0) {
@@ -1198,7 +1197,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 liquidationValue = debt * (Q32 + penaltyX32) / Q32;
             } else {
-                liquidationValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
+                liquidationValue = maxPenaltyValue;
             }
         } else {
             uint256 penalty = debt * MAX_LIQUIDATION_PENALTY_X32 / Q32;
@@ -1281,7 +1280,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 lastRateUpdate = lastExchangeRateUpdate;
         uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
-        if (lastRateUpdate != 0) {
+        if (timeElapsed != 0 && lastRateUpdate != 0) {
             newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
             newLendExchangeRateX96 = oldLendExchangeRateX96 + oldLendExchangeRateX96 * timeElapsed * supplyRateX64 / Q64;
         } else {

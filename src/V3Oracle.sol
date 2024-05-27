@@ -119,9 +119,8 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
 
         // calculate outputs
-        value = (state.price0X96 * (amount0 + fees0) / Q96 + state.price1X96 * (amount1 + fees1) / Q96) * Q96
-            / priceTokenX96;
-        feeValue = (state.price0X96 * fees0 / Q96 + state.price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
+        value = (state.price0X96 * (amount0 + fees0) + state.price1X96 * (amount1 + fees1)) / priceTokenX96;
+        feeValue = (state.price0X96 * fees0 + state.price1X96 * fees1) / priceTokenX96;
         price0X96 = state.price0X96 * Q96 / priceTokenX96;
         price1X96 = state.price1X96 * Q96 / priceTokenX96;
     }

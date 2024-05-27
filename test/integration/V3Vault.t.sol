@@ -602,7 +602,6 @@ contract V3VaultIntegrationTest is Test {
 
         _setupBasicLoan(true);
 
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT);
         AutoRange.ExecuteParams memory params =
             AutoRange.ExecuteParams(TEST_NFT, false, 0, "", 0, 0, 0, 0, block.timestamp, 0);
 
@@ -833,10 +832,10 @@ contract V3VaultIntegrationTest is Test {
 
         (debt, fullValue, collateralValue, liquidationCost, liquidationValue) = vault.loanInfo(TEST_NFT_DAI_WETH);
         assertEq(debt, 10000000);
-        assertEq(collateralValue, 0);
-        assertEq(fullValue, 1);
+        assertEq(collateralValue, 1);
+        assertEq(fullValue, 2);
         assertEq(liquidationCost, 0);
-        assertEq(liquidationValue, 1);
+        assertEq(liquidationValue, 2);
 
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));

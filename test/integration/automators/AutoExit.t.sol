@@ -242,8 +242,6 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
             TEST_NFT_2, AutoExit.PositionConfig(true, false, false, -84121, -78240, 0, 0, false, MAX_REWARD)
         );
 
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
-
         // fails when sending NFT
         vm.expectRevert(abi.encodePacked("Not approved"));
         vm.prank(OPERATOR_ACCOUNT);
@@ -268,8 +266,6 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
             TEST_NFT_2_A, AutoExit.PositionConfig(true, false, false, -276331, -276320, 0, 0, false, MAX_REWARD)
         );
 
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2_A);
-
         // in range position cant be run
         vm.expectRevert(Constants.NotReady.selector);
         vm.prank(OPERATOR_ACCOUNT);
@@ -290,8 +286,6 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
                 true, true, true, -84121, -78240, uint64(Q64 / 100), uint64(Q64 / 100), false, MAX_REWARD
             )
         );
-
-        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
 
         // TWAPCheckFailed
         vm.prank(OPERATOR_ACCOUNT);
