@@ -27,6 +27,8 @@ contract DeployArbitrum is Script {
 
     // initially supported coins
     address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant USDC_E = 0xff970a61a04b1ca14834a43f5de4533ebddb5cc8;
+    address constant USDT = 0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9;
     address constant DAI = 0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1;
     address constant WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
     address constant WBTC = 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f;
@@ -47,6 +49,24 @@ contract DeployArbitrum is Script {
             AggregatorV3Interface(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3),
             86400,
             IUniswapV3Pool(0xC6962004f452bE9203591991D15f6b388e09E8D0),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
+        oracle.setTokenConfig(
+            USDC_E,
+            AggregatorV3Interface(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3),
+            86400,
+            IUniswapV3Pool(0xC31E54c7a869B9FcBEcc14363CF510d1c41fa443),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
+        oracle.setTokenConfig(
+            USDT,
+            AggregatorV3Interface(0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7),
+            86400,
+            IUniswapV3Pool(0x641C00A822e8b671738d32a431a4Fb6074E5c79d),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
@@ -91,14 +111,15 @@ contract DeployArbitrum is Script {
         V3Vault vault =
             new V3Vault("RLT USDC", "rltUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
         vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(USDC_E, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(DAI, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(WETH, uint32(Q32 *  775 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(WBTC, uint32(Q32 * 775 / 1000), type(uint32).max); // max 100% collateral value
-        vault.setTokenConfig(ARB, uint32(Q32 * 680 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(ARB, uint32(Q32 * 600 / 1000), type(uint32).max); // max 100% collateral value
 
-        // limits 100 USDC each
-        vault.setLimits(0, 100000000, 100000000, 100000000, 100000000);
-        vault.setReserveFactor(uint32(Q32 * 7 / 100));
+        vault.setLimits(100000, 1000000000000, 399000000000000, 100000000000, 75000000000);
+        vault.setReserveFactor(uint32(Q32 * 10 / 100));
         vault.setReserveProtectionFactor(uint32(Q32 * 5 / 100));
 
         new FlashloanLiquidator(NPM, EX0x, UNIVERSAL_ROUTER);
