@@ -360,6 +360,11 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
                 revert SequencerDown();
             }
 
+            // Make sure - feed result is valid
+            if (startedAt == 0) {
+                revert SequencerUptimeFeedInvalid();
+            }
+
             // Make sure the grace period has passed after the
             // sequencer is back up.
             uint256 timeSinceUp = block.timestamp - startedAt;
