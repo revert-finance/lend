@@ -17,7 +17,7 @@ contract ChainlinkFeedCombinatorTest is Test {
     AggregatorV3Interface constant ETH_USD_FEED = AggregatorV3Interface(0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612);
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://arb-mainnet.g.alchemy.com/v2/SFaEezHdCrU_GYWbHKYDTobVT5MnOFF4", 211619406);
+        mainnetFork = vm.createFork("https://rpc.ankr.com/arbitrum", 211619406);
         vm.selectFork(mainnetFork);
 
         combinator = new ChainlinkFeedCombinator(WSETH_ETH_FEED, ETH_USD_FEED);

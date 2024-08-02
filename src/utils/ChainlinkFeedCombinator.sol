@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "../../lib/AggregatorV3Interface.sol";
+import "v3-core/libraries/FullMath.sol";
 
 /// @title Helper contract which allows to combine 2 chainlink feeds into 1 like wstETH/ETH and ETH/USD
 contract ChainlinkFeedCombinator is AggregatorV3Interface {
@@ -30,7 +31,7 @@ contract ChainlinkFeedCombinator is AggregatorV3Interface {
         int256 secondAnswer;
         (roundId, secondAnswer, startedAt, updatedAt, answeredInRound) = secondFeed.latestRoundData();
 
-        // take oldest values
+        // take oldest values - roundId and answeredInRound dont make much sense but will be returned from the corresponding feed (which has the older data)
         if (updatedAt > firstUpdatedAt) {
             roundId = firstRoundId;
             firstStartedAt = firstStartedAt;
@@ -40,7 +41,7 @@ contract ChainlinkFeedCombinator is AggregatorV3Interface {
 
         // only do calculation with valid values - otherwise returns 0
         if (firstAnswer > 0 && secondAnswer > 0) {
-            answer = int256(uint256(firstAnswer) * uint256(secondAnswer) / firstDecimalsDivisor);
+            answer = int256(FullMath.mulDiv(uint256(firstAnswer), uint256(secondAnswer), firstDecimalsDivisor));
         }
     }
 
