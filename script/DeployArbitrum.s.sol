@@ -27,8 +27,8 @@ contract DeployArbitrum is Script {
 
     // initially supported coins
     address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address constant USDC_E = 0xff970a61a04b1ca14834a43f5de4533ebddb5cc8;
-    address constant USDT = 0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9;
+    address constant USDC_E = 0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8;
+    address constant USDT = 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9;
     address constant DAI = 0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1;
     address constant WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
     address constant WBTC = 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f;
