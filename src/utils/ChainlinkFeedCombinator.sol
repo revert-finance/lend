@@ -34,7 +34,7 @@ contract ChainlinkFeedCombinator is AggregatorV3Interface {
         // take oldest values - roundId and answeredInRound dont make much sense but will be returned from the corresponding feed (which has the older data)
         if (updatedAt > firstUpdatedAt) {
             roundId = firstRoundId;
-            firstStartedAt = firstStartedAt;
+            startedAt = firstStartedAt;
             updatedAt = firstUpdatedAt;
             answeredInRound = firstAnsweredInRound;
         }
