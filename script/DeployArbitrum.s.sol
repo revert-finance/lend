@@ -15,6 +15,7 @@ import "../src/transformers/LeverageTransformer.sol";
 import "../src/automators/AutoExit.sol";
 
 import "../src/utils/FlashloanLiquidator.sol";
+import "../src/utils/ChainlinkFeedCombinator.sol";
 
 contract DeployArbitrum is Script {
     uint256 constant Q32 = 2 ** 32;
@@ -33,12 +34,18 @@ contract DeployArbitrum is Script {
     address constant WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
     address constant WBTC = 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f;
     address constant ARB = 0x912CE59144191C1204E64559FE8253a0e49E6548;
+    address constant WSTETH = 0x5979D7b546E38E414F7E9822514be443A4800529;
+
+    AggregatorV3Interface constant WSTETH_ETH_FEED = AggregatorV3Interface(0xb523AE262D20A936BC152e6023996e46FDC2A95D);
+    AggregatorV3Interface constant ETH_USD_FEED = AggregatorV3Interface(0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612);
 
     function run() external {
         vm.startBroadcast();
-
+        
         // 5% base rate - after 80% - 109% (like in compound v2 deployed)
         InterestRateModel interestRateModel = new InterestRateModel(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 * 80 / 100);
+
+        ChainlinkFeedCombinator wstethUsdFeed = new ChainlinkFeedCombinator(WSTETH_ETH_FEED, ETH_USD_FEED);
 
         V3Oracle oracle = new V3Oracle(NPM, address(WETH), address(0));
         oracle.setMaxPoolPriceDifference(200);
@@ -107,16 +114,25 @@ contract DeployArbitrum is Script {
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
         );
+        oracle.setTokenConfig(
+            WSTETH,
+            wstethUsdFeed,
+            86400,
+            IUniswapV3Pool(0x35218a1cbaC5Bbc3E57fd9Bd38219D37571b3537),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
 
-        V3Vault vault =
-            new V3Vault("RLT USDC", "rltUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
+        V3Vault vault = new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
         vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDC_E, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
-        vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value
         vault.setTokenConfig(DAI, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(WETH, uint32(Q32 *  775 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(WBTC, uint32(Q32 * 775 / 1000), type(uint32).max); // max 100% collateral value
-        vault.setTokenConfig(ARB, uint32(Q32 * 600 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(ARB, uint32(Q32 * 600 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value
+        vault.setTokenConfig(WSTETH, uint32(Q32 * 725 / 1000), type(uint32).max); // max 100% collateral value
 
         vault.setLimits(100000, 1000000000000, 399000000000000, 100000000000, 75000000000);
         vault.setReserveFactor(uint32(Q32 * 10 / 100));
@@ -125,21 +141,21 @@ contract DeployArbitrum is Script {
         new FlashloanLiquidator(NPM, EX0x, UNIVERSAL_ROUTER);
 
         // deploy transformers and automators
-        // V3Utils v3Utils = V3Utils(0xcfd55ac7647454Ea0F7C4c9eC231e0A282B30980);
-        // v3Utils.setVault(address(vault)); - must be done on multisig
-        vault.setTransformer(0xcfd55ac7647454Ea0F7C4c9eC231e0A282B30980, true);
+        V3Utils v3Utils = V3Utils(payable(0xcfd55ac7647454Ea0F7C4c9eC231e0A282B30980));
+        v3Utils.setVault(address(vault));
+        vault.setTransformer(address(v3Utils), true);
 
         LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
         
-        //AutoRange autoRange = AutoRange(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE);
-        //autoRange.setVault(address(vault)); - must be done on multisig 
-        vault.setTransformer(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE, true);
+        AutoRange autoRange = AutoRange(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
+        autoRange.setVault(address(vault));
+        vault.setTransformer(address(autoRange), true);
  
-        //AutoCompound autoCompound = AutoCompound(0x9D97c76102E72883CD25Fa60E0f4143516d5b6db);
-        //autoCompound.setVault(address(vault)); - must be done on multisig
-        vault.setTransformer(0x9D97c76102E72883CD25Fa60E0f4143516d5b6db, true);
+        AutoCompound autoCompound = AutoCompound(payable(0x9D97c76102E72883CD25Fa60E0f4143516d5b6db));
+        autoCompound.setVault(address(vault));
+        vault.setTransformer(address(autoCompound), true);
 
         //AutoExit autoExit = AutoExit();
 
