@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 
 /// @title AutoRange
 /// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
+/// And optionally to autocompound position (depending on configuration)
 /// Positions need to be approved (setApprovalForAll) for the contract and configured with configToken method
 /// When executed a new position is created and automatically configured the same way as the original position
 /// When position is inside Vault - transform is called
-contract AutoRange is Transformer, Automator {
+contract AutoRange is Transformer, Automator, ReentrancyGuard {
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
     event PositionConfigured(
         uint256 indexed tokenId,
@@ -20,8 +23,21 @@ contract AutoRange is Transformer, Automator {
         uint64 token0SlippageX64,
         uint64 token1SlippageX64,
         bool onlyFees,
+        bool autoCompound,
         uint64 maxRewardX64
     );
+    event AutoCompounded(
+        uint256 indexed tokenId,
+        uint256 amountAdded0,
+        uint256 amountAdded1,
+        uint256 reward0,
+        uint256 reward1,
+        address token0,
+        address token1
+    );
+
+    // config changes
+    event AutoCompoundRewardUpdated(address account, uint64 totalRewardX64);
 
     constructor(
         INonfungiblePositionManager _npm,
@@ -44,6 +60,7 @@ contract AutoRange is Transformer, Automator {
         uint64 token0SlippageX64; // max price difference from current pool price for swap / Q64 for token0
         uint64 token1SlippageX64; // max price difference from current pool price for swap / Q64 for token1
         bool onlyFees; // if only fees maybe used for protocol reward
+        bool autoCompound; // if this position can be autocompounded
         uint64 maxRewardX64; // max allowed reward percentage of fees or full position
     }
 
@@ -91,6 +108,10 @@ contract AutoRange is Transformer, Automator {
         uint256 amountOutDelta;
         uint256 newTokenId;
     }
+
+    // reward handling for autocompound
+    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
+    uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
 
     /**
      * @notice Adjust token (which is in a Vault) - via transform method
@@ -268,17 +289,189 @@ contract AutoRange is Transformer, Automator {
                 config.token0SlippageX64,
                 config.token1SlippageX64,
                 config.onlyFees,
+                config.autoCompound,
                 config.maxRewardX64
             );
 
             // delete config for old position
             delete positionConfigs[params.tokenId];
-            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, 0);
+            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0);
 
             emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
             revert NotReady();
         }
+    }
+
+    /// @notice params for autoCompound()
+    struct AutoCompoundParams {
+        // tokenid to autocompound
+        uint256 tokenId;
+        // swap direction - calculated off-chain
+        bool swap0To1;
+        // swap amount - calculated off-chain - if this is set to 0 no swap happens
+        uint256 amountIn;
+        // for uniswap operations
+        uint256 deadline;
+    }
+
+    // state used during autocompound execution
+    struct AutoCompoundState {
+        address owner;
+        address realOwner;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 maxAddAmount0;
+        uint256 maxAddAmount1;
+        uint256 amount0Fees;
+        uint256 amount1Fees;
+        uint256 priceX96;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint256 compounded0;
+        uint256 compounded1;
+        int24 tick;
+        uint160 sqrtPriceX96;
+        uint256 amountInDelta;
+        uint256 amountOutDelta;
+    }
+
+    /**
+     * @notice Autocompound position (which is in a Vault) - via transform method
+     * Can only be called from configured operator account - vault must be configured as well
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function autoCompoundWithVault(AutoCompoundParams calldata params, address vault) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)));
+    }
+
+     /**
+     * @notice Autocompound position directly (must be in correct state)
+     * Can only be called only from configured operator account, or vault via transform
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function autoCompound(AutoCompoundParams calldata params) external nonReentrant {
+        if (!operators[msg.sender]) {
+            if (vaults[msg.sender]) {
+                _validateCaller(nonfungiblePositionManager, params.tokenId);
+            } else {
+                revert Unauthorized();
+            }
+        }
+
+
+        PositionConfig memory config = positionConfigs[params.tokenId];
+        if (!config.autoCompound) {
+            revert NotConfigured();
+        }
+
+        AutoCompoundState memory state;
+
+        // collect fees - if the position doesn't have operator set or is called from vault - it won't work
+        (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(
+                params.tokenId, address(this), type(uint128).max, type(uint128).max
+            )
+        );
+
+        // get position info
+        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
+            nonfungiblePositionManager.positions(params.tokenId);
+
+        // only if there are balances to work with - start autocompounding process
+        if (state.amount0 != 0 || state.amount1 != 0) {
+            uint256 amountIn = params.amountIn;
+
+            // if a swap is requested - check TWAP oracle
+            if (amountIn != 0) {
+                IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+
+                // how many seconds are needed for TWAP protection
+                uint32 tSecs = TWAPSeconds;
+                if (tSecs != 0) {
+                    if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
+                        // if there is no valid TWAP - disable swap
+                        amountIn = 0;
+                    }
+                }
+                // if still needed - do swap
+                if (amountIn != 0) {
+                    // no slippage check done - because protected by TWAP check
+                    (state.amountInDelta, state.amountOutDelta) = _poolSwap(
+                        Swapper.PoolSwapParams(
+                            pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn, 0
+                        )
+                    );
+                    state.amount0 =
+                        params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
+                    state.amount1 =
+                        params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+                }
+            }
+
+            uint256 rewardX64 = totalRewardX64;
+
+            state.maxAddAmount0 = state.amount0 * Q64 / (rewardX64 + Q64);
+            state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
+
+            // deposit liquidity into tokenId
+            if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
+                
+                // approve npm
+                SafeERC20.safeIncreaseAllowance(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
+                SafeERC20.safeIncreaseAllowance(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
+
+                (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
+                    INonfungiblePositionManager.IncreaseLiquidityParams(
+                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, params.deadline
+                    )
+                );
+
+                // remove remaining approval
+                SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
+                SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
+
+                // fees are always calculated based on added amount (to incentivize optimal swap)
+                state.amount0Fees = state.compounded0 * rewardX64 / Q64;
+                state.amount1Fees = state.compounded1 * rewardX64 / Q64;
+            }
+
+            state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
+
+            // get the real owner - if owner is vault - for sending leftover tokens
+            state.realOwner = state.owner;
+            if (vaults[state.owner]) {
+                state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
+            }
+
+
+            // return remaining tokens for owner
+            state.amount0 = state.amount0 - state.compounded0 - state.amount0Fees;
+            if (state.amount0 > 0) {
+                _transferToken(state.realOwner, IERC20(state.token0), state.amount0, true);
+            }
+            state.amount1 = state.amount1 - state.compounded1 - state.amount1Fees;
+            if (state.amount1 > 0) {
+                _transferToken(state.realOwner, IERC20(state.token1), state.amount1, true);
+            }
+        }
+
+        emit AutoCompounded(
+            params.tokenId,
+            state.compounded0,
+            state.compounded1,
+            state.amount0Fees,
+            state.amount1Fees,
+            state.token0,
+            state.token1
+        );
     }
 
     // function to configure a token to be used with this runner
@@ -302,8 +495,21 @@ contract AutoRange is Transformer, Automator {
             config.token0SlippageX64,
             config.token1SlippageX64,
             config.onlyFees,
+            config.autoCompound,
             config.maxRewardX64
         );
+    }
+
+    /**
+     * @notice Management method to lower autocompound reward(onlyOwner)
+     * @param _totalRewardX64 new total reward (can't be higher than current total reward)
+     */
+    function setAutoCompoundReward(uint64 _totalRewardX64) external onlyOwner {
+        if (_totalRewardX64 > totalRewardX64) {
+            revert InvalidConfig();
+        }
+        totalRewardX64 = _totalRewardX64;
+        emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
     }
 
     // get tick spacing for fee tier (cached when possible)

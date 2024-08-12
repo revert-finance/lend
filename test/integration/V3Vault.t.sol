@@ -595,6 +595,42 @@ contract V3VaultIntegrationTest is Test {
         );
     }
 
+    function testTransformAutoRangeAutoCompoundInsideVault() external {
+        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
+
+        _setupBasicLoan(true);
+
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+
+        // direct auto-compound when in vault fails
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert("Not approved");
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+
+        // user hasnt approved automator
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.autoCompoundWithVault(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoRange), true);
+
+        // repay partially
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
+
+        // autocompound with swap
+        vm.prank(WHALE_ACCOUNT);
+        autoRange.autoCompoundWithVault(
+            AutoRange.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
+        );
+    }
+
     function testTransformAutoRangeInsideVault() external {
         AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
@@ -617,7 +653,7 @@ contract V3VaultIntegrationTest is Test {
         vault.approveTransform(TEST_NFT, address(autoRange), true);
 
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, 0));
+        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0));
 
         uint256 previousDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
 
