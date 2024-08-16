@@ -167,7 +167,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             state.amount1 -= state.protocolReward1;
         }
 
-        if (params.swap0To1 && params.amountIn > state.amount0 || !params.swap0To1 && params.amountIn > state.amount1) {
+        if (params.amountIn > (params.swap0To1 ? state.amount0: state.amount1)) {
             revert SwapAmountTooLarge();
         }
 
