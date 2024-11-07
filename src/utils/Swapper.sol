@@ -7,11 +7,13 @@ import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "../interfaces/velodrome/IVelodromePositionManager.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
 import "../utils/Constants.sol";
+
+import "v3-periphery/libraries/PoolAddress.sol";
 
 // base functionality to do swaps with different routing protocols
 abstract contract Swapper is IUniswapV3SwapCallback, Constants {
@@ -23,7 +25,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     address public immutable factory;
 
     /// @notice Uniswap v3 position manager
-    INonfungiblePositionManager public immutable nonfungiblePositionManager;
+    IVelodromePositionManager public immutable nonfungiblePositionManager;
 
     /// @notice 0x Exchange Proxy
     address public immutable zeroxRouter;
@@ -35,7 +37,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
     /// @param _zeroxRouter 0x Exchange Proxy
     constructor(
-        INonfungiblePositionManager _nonfungiblePositionManager,
+        IVelodromePositionManager _nonfungiblePositionManager,
         address _zeroxRouter,
         address _universalRouter
     ) {

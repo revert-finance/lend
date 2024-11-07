@@ -2,8 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
-
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "../interfaces/velodrome/IVelodromePositionManager.sol";
 
 import "../utils/Constants.sol";
 import "../interfaces/IVault.sol";
@@ -24,7 +23,7 @@ abstract contract Transformer is Ownable2Step, Constants {
     }
 
     // validates if caller is owner (direct or indirect for a given position)
-    function _validateOwner(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId, address vault)
+    function _validateOwner(IVelodromePositionManager velodromeManager, uint256 tokenId, address vault)
         internal
     {
         // vault can not be owner
@@ -39,7 +38,7 @@ abstract contract Transformer is Ownable2Step, Constants {
             }
             owner = IVault(vault).ownerOf(tokenId);
         } else {
-            owner = nonfungiblePositionManager.ownerOf(tokenId);
+            owner = velodromeManager.ownerOf(tokenId);
         }
 
         if (owner != msg.sender) {
@@ -48,14 +47,14 @@ abstract contract Transformer is Ownable2Step, Constants {
     }
 
     // validates if caller is allowed to process position
-    function _validateCaller(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId) internal view {
+    function _validateCaller(IVelodromePositionManager velodromeManager, uint256 tokenId) internal view {
         if (vaults[msg.sender]) {
             uint256 transformedTokenId = IVault(msg.sender).transformedTokenId();
             if (tokenId != transformedTokenId) {
                 revert Unauthorized();
             }
         } else {
-            address owner = nonfungiblePositionManager.ownerOf(tokenId);
+            address owner = velodromeManager.ownerOf(tokenId);
             if (owner != msg.sender && owner != address(this)) {
                 revert Unauthorized();
             }

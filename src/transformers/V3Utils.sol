@@ -3,21 +3,15 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
-
-import "permit2/interfaces/IPermit2.sol";
-
 import "../utils/Swapper.sol";
 import "../transformers/Transformer.sol";
 
 /// @title v3Utils v1.1
-/// @notice Utility functions for Uniswap V3 positions
+/// @notice Utility functions for Velodrome V2 positions
 /// It does not hold any ERC20 or NFTs.
 /// It can be simply redeployed when new / better functionality is implemented
 contract V3Utils is Transformer, Swapper, IERC721Receiver {
     using SafeCast for uint256;
-
-    // @notice Permit2 contract
-    IPermit2 public immutable permit2;
 
     // events
     event CompoundFees(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
@@ -27,16 +21,13 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
 
     /// @notice Constructor
-    /// @param _nonfungiblePositionManager Uniswap v3 position manager
+    /// @param _nonfungiblePositionManager Velodrome V2 position manager
     /// @param _zeroxRouter 0x Exchange Proxy
     constructor(
-        INonfungiblePositionManager _nonfungiblePositionManager,
+        IVelodromePositionManager _nonfungiblePositionManager,
         address _zeroxRouter,
-        address _universalRouter,
-        address _permit2
-    ) Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
-        permit2 = IPermit2(_permit2);
-    }
+        address _universalRouter
+    ) Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {}
 
     /// @notice Action which should be executed on provided NFT
     enum WhatToDo {
@@ -47,7 +38,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
     /// @notice Complete description of what should be executed on provided NFT - different fields are used depending on specified WhatToDo
     struct Instructions {
-        // what action to perform on provided Uniswap v3 position
+        // what action to perform on provided position
         WhatToDo whatToDo;
         // target token for swaps (if this is address(0) no swaps are executed)
         address targetToken;
@@ -76,7 +67,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         // for adding liquidity slippage
         uint256 amountAddMin0;
         uint256 amountAddMin1;
-        // for all uniswap deadlineable functions
+        // for all deadlineable functions
         uint256 deadline;
         // left over tokens will be sent to this address
         address recipient;
@@ -90,27 +81,6 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         bytes swapAndMintReturnData;
     }
 
-    /// @notice Execute instruction with EIP712 permit
-    /// @param tokenId Token to process
-    /// @param instructions Instructions to execute
-    /// @param v Signature values for EIP712 permit
-    /// @param r Signature values for EIP712 permit
-    /// @param s Signature values for EIP712 permit
-    /// @return newTokenId Id of position (if a new one was created)
-    function executeWithPermit(uint256 tokenId, Instructions memory instructions, uint8 v, bytes32 r, bytes32 s)
-        public
-        returns (uint256 newTokenId)
-    {
-        if (nonfungiblePositionManager.ownerOf(tokenId) != msg.sender) {
-            revert Unauthorized();
-        }
-
-        nonfungiblePositionManager.permit(address(this), tokenId, instructions.deadline, v, r, s);
-        return execute(tokenId, instructions);
-
-        // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
-    }
-
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
     /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
     function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
@@ -118,7 +88,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         override
         returns (bytes4)
     {
-        // only Uniswap v3 NFTs allowed
+        // only Velodrome V2 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
@@ -405,15 +375,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
             revert SameToken();
         }
 
-        if (params.permitData.length != 0) {
-            (ISignatureTransfer.PermitBatchTransferFrom memory pbtf, bytes memory signature) =
-                abi.decode(params.permitData, (ISignatureTransfer.PermitBatchTransferFrom, bytes));
-            _prepareAddPermit2(
-                params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0, pbtf, signature
-            );
-        } else {
-            _prepareAddApproved(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
-        }
+        _prepareAddApproved(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
 
         uint256 amountInDelta;
         (amountInDelta, amountOut) = _routerSwap(
@@ -482,29 +444,14 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
             revert SameToken();
         }
 
-        if (params.permitData.length != 0) {
-            (ISignatureTransfer.PermitBatchTransferFrom memory pbtf, bytes memory signature) =
-                abi.decode(params.permitData, (ISignatureTransfer.PermitBatchTransferFrom, bytes));
-            _prepareAddPermit2(
-                params.token0,
-                params.token1,
-                params.swapSourceToken,
-                params.amount0,
-                params.amount1,
-                params.amountIn0 + params.amountIn1,
-                pbtf,
-                signature
-            );
-        } else {
-            _prepareAddApproved(
-                params.token0,
-                params.token1,
-                params.swapSourceToken,
-                params.amount0,
-                params.amount1,
-                params.amountIn0 + params.amountIn1
-            );
-        }
+        _prepareAddApproved(
+            params.token0,
+            params.token1,
+            params.swapSourceToken,
+            params.amount0,
+            params.amount1,
+            params.amountIn0 + params.amountIn1
+        );
 
         (tokenId, liquidity, amount0, amount1) = _swapAndMint(params, msg.value != 0);
     }
@@ -547,29 +494,14 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     {
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
 
-        if (params.permitData.length != 0) {
-            (ISignatureTransfer.PermitBatchTransferFrom memory pbtf, bytes memory signature) =
-                abi.decode(params.permitData, (ISignatureTransfer.PermitBatchTransferFrom, bytes));
-            _prepareAddPermit2(
-                IERC20(token0),
-                IERC20(token1),
-                params.swapSourceToken,
-                params.amount0,
-                params.amount1,
-                params.amountIn0 + params.amountIn1,
-                pbtf,
-                signature
-            );
-        } else {
-            _prepareAddApproved(
-                IERC20(token0),
-                IERC20(token1),
-                params.swapSourceToken,
-                params.amount0,
-                params.amount1,
-                params.amountIn0 + params.amountIn1
-            );
-        }
+        _prepareAddApproved(
+            IERC20(token0),
+            IERC20(token1),
+            params.swapSourceToken,
+            params.amount0,
+            params.amount1,
+            params.amountIn0 + params.amountIn1
+        );
 
         (liquidity, amount0, amount1) = _swapAndIncrease(params, IERC20(token0), IERC20(token1), msg.value != 0);
     }
@@ -593,69 +525,6 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         }
         if (neededOther != 0) {
             SafeERC20.safeTransferFrom(otherToken, msg.sender, address(this), neededOther);
-        }
-    }
-
-    struct PrepareAddPermit2State {
-        uint256 needed0;
-        uint256 needed1;
-        uint256 neededOther;
-        uint256 i;
-        uint256 balanceBefore0;
-        uint256 balanceBefore1;
-        uint256 balanceBeforeOther;
-    }
-
-    function _prepareAddPermit2(
-        IERC20 token0,
-        IERC20 token1,
-        IERC20 otherToken,
-        uint256 amount0,
-        uint256 amount1,
-        uint256 amountOther,
-        IPermit2.PermitBatchTransferFrom memory permit,
-        bytes memory signature
-    ) internal {
-        PrepareAddPermit2State memory state;
-
-        (state.needed0, state.needed1, state.neededOther) =
-            _prepareAdd(token0, token1, otherToken, amount0, amount1, amountOther);
-
-        ISignatureTransfer.SignatureTransferDetails[] memory transferDetails =
-            new ISignatureTransfer.SignatureTransferDetails[](permit.permitted.length);
-
-        // permitted tokens must be in this same order
-        if (state.needed0 != 0) {
-            state.balanceBefore0 = token0.balanceOf(address(this));
-            transferDetails[state.i++] = ISignatureTransfer.SignatureTransferDetails(address(this), state.needed0);
-        }
-        if (state.needed1 != 0) {
-            state.balanceBefore1 = token1.balanceOf(address(this));
-            transferDetails[state.i++] = ISignatureTransfer.SignatureTransferDetails(address(this), state.needed1);
-        }
-        if (state.neededOther != 0) {
-            state.balanceBeforeOther = otherToken.balanceOf(address(this));
-            transferDetails[state.i++] = ISignatureTransfer.SignatureTransferDetails(address(this), state.neededOther);
-        }
-
-        // execute batch transfer
-        permit2.permitTransferFrom(permit, transferDetails, msg.sender, signature);
-
-        // check if recieved correct amount of tokens
-        if (state.needed0 != 0) {
-            if (token0.balanceOf(address(this)) - state.balanceBefore0 != state.needed0) {
-                revert TransferError(); // reverts for fee-on-transfer tokens
-            }
-        }
-        if (state.needed1 != 0) {
-            if (token1.balanceOf(address(this)) - state.balanceBefore1 != state.needed1) {
-                revert TransferError(); // reverts for fee-on-transfer tokens
-            }
-        }
-        if (state.neededOther != 0) {
-            if (otherToken.balanceOf(address(this)) - state.balanceBeforeOther != state.neededOther) {
-                revert TransferError(); // reverts for fee-on-transfer tokens
-            }
         }
     }
 
@@ -719,19 +588,23 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     {
         (uint256 total0, uint256 total1) = _swapAndPrepareAmounts(params, unwrap);
 
-        INonfungiblePositionManager.MintParams memory mintParams = INonfungiblePositionManager.MintParams(
-            address(params.token0),
-            address(params.token1),
-            params.fee,
-            params.tickLower,
-            params.tickUpper,
-            total0,
-            total1,
-            params.amountAddMin0,
-            params.amountAddMin1,
-            address(this), // is sent to real recipient aftwards
-            params.deadline
-        );
+        // Convert fee to tickSpacing
+        int24 tickSpacing = int24(uint24(params.fee));
+
+        IVelodromePositionManager.MintParams memory mintParams = IVelodromePositionManager.MintParams({
+            token0: address(params.token0),
+            token1: address(params.token1),
+            tickSpacing: tickSpacing,
+            tickLower: params.tickLower,
+            tickUpper: params.tickUpper,
+            amount0Desired: total0,
+            amount1Desired: total1,
+            amount0Min: params.amountAddMin0,
+            amount1Min: params.amountAddMin1,
+            recipient: address(this),
+            deadline: params.deadline,
+            sqrtPriceX96: 0
+        });
 
         // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
         (tokenId, liquidity, added0, added1) = nonfungiblePositionManager.mint(mintParams);
@@ -774,7 +647,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
             unwrap
         );
 
-        INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = INonfungiblePositionManager
+        IVelodromePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = IVelodromePositionManager
             .IncreaseLiquidityParams(
             params.tokenId, total0, total1, params.amountAddMin0, params.amountAddMin1, params.deadline
         );
@@ -894,20 +767,27 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     ) internal returns (uint256 amount0, uint256 amount1) {
         if (liquidity != 0) {
             (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, token0Min, token1Min, deadline)
+                IVelodromePositionManager.DecreaseLiquidityParams(
+                    tokenId, liquidity, token0Min, token1Min, deadline
+                )
             );
         }
     }
 
     // collects specified amount of fees from uniswap v3 position
-    function _collectFees(uint256 tokenId, IERC20 token0, IERC20 token1, uint128 collectAmount0, uint128 collectAmount1)
-        internal
-        returns (uint256 amount0, uint256 amount1)
-    {
+    function _collectFees(
+        uint256 tokenId,
+        IERC20 token0,
+        IERC20 token1,
+        uint128 collectAmount0,
+        uint128 collectAmount1
+    ) internal returns (uint256 amount0, uint256 amount1) {
         uint256 balanceBefore0 = token0.balanceOf(address(this));
         uint256 balanceBefore1 = token1.balanceOf(address(this));
         (amount0, amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(tokenId, address(this), collectAmount0, collectAmount1)
+            IVelodromePositionManager.CollectParams(
+                tokenId, address(this), collectAmount0, collectAmount1
+            )
         );
         uint256 balanceAfter0 = token0.balanceOf(address(this));
         uint256 balanceAfter1 = token1.balanceOf(address(this));
