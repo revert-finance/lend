@@ -630,7 +630,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
                 params.amount0,
                 params.amount1,
                 params.recipient,
-                params.recipient,
+                address(0),
                 params.deadline,
                 params.swapSourceToken,
                 params.amountIn0,
@@ -642,7 +642,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
                 params.amountAddMin0,
                 params.amountAddMin1,
                 "",
-                params.permitData
+                ""
             ),
             unwrap
         );

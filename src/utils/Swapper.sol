@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/proxy/Clones.sol";
 
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -14,6 +15,10 @@ import "../../lib/IUniversalRouter.sol";
 import "../utils/Constants.sol";
 
 import "v3-periphery/libraries/PoolAddress.sol";
+
+interface ICLFactory {
+    function poolImplementation() external view returns (address);
+}
 
 // base functionality to do swaps with different routing protocols
 abstract contract Swapper is IUniswapV3SwapCallback, Constants {
@@ -156,8 +161,8 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
 
         // check if really called from pool
-        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(data, (address, address, uint24));
-        if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
+        (address tokenIn, address tokenOut, int24 tickSpacing) = abi.decode(data, (address, address, int24));
+        if (address(_getPool(tokenIn, tokenOut, tickSpacing)) != msg.sender) {
             revert Unauthorized();
         }
 
@@ -165,8 +170,21 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta));
     }
 
-    // get pool for token
-    function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+    function _getPool(
+        address tokenA,
+        address tokenB,
+        int24 tickSpacing
+    ) internal view returns (address _pool) {
+        (address token0, address token1) = tokenA < tokenB
+            ? (tokenA, tokenB)
+            : (tokenB, tokenA);
+
+        address implementation = ICLFactory(factory).poolImplementation();
+
+        return Clones.predictDeterministicAddress(
+            implementation,
+            keccak256(abi.encode(token0, token1, tickSpacing)),
+            factory
+        );
     }
 }
