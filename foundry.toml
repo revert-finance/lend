@@ -5,3 +5,9 @@ libs = ['lib']
 optimizer = true
 optimizer_runs = 200
 solc = "0.8.24"
+
+[etherscan]
+130 = { key = "${ETHERSCAN_API_KEY}", url = "https://api.uniscan.xyz/api" }
+
+[rpc_endpoints]
+unichain = "${UNICHAIN_RPC_URL}"
