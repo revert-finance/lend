@@ -21,8 +21,12 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         uint256 deadline;
     }
 
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
-        Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter)
+    constructor(
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        address _universalRouter,
+        address _zeroxAllowanceHolder
+    )
+        Swapper(_nonfungiblePositionManager, _universalRouter, _zeroxAllowanceHolder)
     {}
 
     struct LiquidateParams {

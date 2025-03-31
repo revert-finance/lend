@@ -11,8 +11,12 @@ import "../transformers/Transformer.sol";
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
 contract LeverageTransformer is Transformer, Swapper {
-    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
-        Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter)
+    constructor(
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        address _universalRouter,
+        address _zeroxAllowanceHolder
+    )
+        Swapper(_nonfungiblePositionManager, _universalRouter, _zeroxAllowanceHolder)
     {}
 
     struct LeverageUpParams {

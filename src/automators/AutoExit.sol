@@ -36,9 +36,9 @@ contract AutoExit is Automator {
         address _withdrawer,
         uint32 _TWAPSeconds,
         uint16 _maxTWAPTickDifference,
-        address _zeroxRouter,
-        address _universalRouter
-    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {}
+        address _universalRouter,
+        address _zeroxAllowanceHolder
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {}
 
     // define how stoploss / limit should be handled
     struct PositionConfig {
