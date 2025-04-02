@@ -25,25 +25,26 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
-    /// @notice 0x Exchange Proxy
-    address public immutable zeroxRouter;
-
     /// @notice Uniswap Universal Router
     address public immutable universalRouter;
 
+    /// @notice 0x Protocol AllowanceHolder contract
+    address public immutable zeroxAllowanceHolder;
+
     /// @notice Constructor
     /// @param _nonfungiblePositionManager Uniswap v3 position manager
-    /// @param _zeroxRouter 0x Exchange Proxy
+    /// @param _universalRouter Uniswap Universal Router
+    /// @param _zeroxAllowanceHolder 0x Protocol AllowanceHolder contract
     constructor(
         INonfungiblePositionManager _nonfungiblePositionManager,
-        address _zeroxRouter,
-        address _universalRouter
+        address _universalRouter,
+        address _zeroxAllowanceHolder
     ) {
         weth = IWETH9(_nonfungiblePositionManager.WETH9());
         factory = _nonfungiblePositionManager.factory();
         nonfungiblePositionManager = _nonfungiblePositionManager;
-        zeroxRouter = _zeroxRouter;
         universalRouter = _universalRouter;
+        zeroxAllowanceHolder = _zeroxAllowanceHolder;
     }
 
     // swap data for 0x
@@ -78,38 +79,38 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
             uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
 
-            // get router specific swap data
-            (address router, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
+            // Check if this is Universal Router data by looking at first 32 bytes
+            bool isUniversalRouter;
+            bytes memory swapData = params.swapData;
+            address uniRouter = universalRouter;
+            assembly {
+                let firstWord := mload(add(swapData, 32))
+                isUniversalRouter := eq(firstWord, uniRouter)
+            }
 
-            if (router == zeroxRouter) {
-                ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
-                // approve needed amount
-                SafeERC20.safeIncreaseAllowance(params.tokenIn, data.allowanceTarget, params.amountIn);
-                // execute swap
-                (bool success,) = zeroxRouter.call(data.data);
-                if (!success) {
-                    revert SwapFailed();
-                }
-                // reset approval
-                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, 0);
-            } else if (router == universalRouter) {
+            if (isUniversalRouter) {
+                // Handle Universal Router case
+                (address target, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
                 UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
-                // tokens are transfered to Universalrouter directly (data.commands must include sweep action!)
                 SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
             } else {
-                revert WrongContract();
+                // For 0x v2, use raw data
+                SafeERC20.safeIncreaseAllowance(params.tokenIn, zeroxAllowanceHolder, params.amountIn);
+                (bool success,) = zeroxAllowanceHolder.call(params.swapData);
+                if (!success) {
+                    revert SwapFailed();
+                }
+                SafeERC20.safeApprove(params.tokenIn, zeroxAllowanceHolder, 0);
             }
 
             amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
             amountOutDelta = params.tokenOut.balanceOf(address(this)) - balanceOutBefore;
 
-            // amountMin slippage check
             if (amountOutDelta < params.amountOutMin) {
                 revert SlippageError();
             }
 
-            // event for any swap with exact swapped value
             emit Swap(address(params.tokenIn), address(params.tokenOut), amountInDelta, amountOutDelta);
         }
     }

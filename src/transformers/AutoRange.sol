@@ -45,9 +45,9 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         address _withdrawer,
         uint32 _TWAPSeconds,
         uint16 _maxTWAPTickDifference,
-        address _zeroxRouter,
-        address _universalRouter
-    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {}
+        address _universalRouter,
+        address _zeroxAllowanceHolder
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {}
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
