@@ -47,11 +47,6 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         zeroxAllowanceHolder = _zeroxAllowanceHolder;
     }
 
-    // swap data for 0x
-    struct ZeroxRouterData {
-        address allowanceTarget;
-        bytes data;
-    }
 
     // swap data for uni - must include sweep for input token
     struct UniversalRouterData {
@@ -75,7 +70,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         internal
         returns (uint256 amountInDelta, uint256 amountOutDelta)
     {
-        if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0)) {
+        if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0) && address(params.tokenIn) != address(0)) {
             uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
             uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
 

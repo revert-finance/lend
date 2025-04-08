@@ -41,7 +41,11 @@ contract V3OracleIntegrationTest is Test {
     V3Oracle oracle;
 
     function setUp() external {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 18521658);
+          string memory ANKR_RPC = string.concat(
+            "https://rpc.ankr.com/eth/",
+            vm.envString("ANKR_API_KEY")
+        );
+        mainnetFork = vm.createFork(ANKR_RPC, 18521658);
         vm.selectFork(mainnetFork);
 
         // use tolerant oracles (so timewarp for until 30 days works in tests - also allow divergence from price for mocked price results)

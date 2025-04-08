@@ -64,7 +64,11 @@ abstract contract AutomatorIntegrationTestBase is Test {
     V3Utils v3utils;
 
     function _setupBase() internal {
-        mainnetFork = vm.createFork("https://rpc.ankr.com/eth", 15489169);
+          string memory ANKR_RPC = string.concat(
+            "https://rpc.ankr.com/eth/",
+            vm.envString("ANKR_API_KEY")
+        );
+        mainnetFork = vm.createFork(ANKR_RPC, 15489169);
         vm.selectFork(mainnetFork);
 
         v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
