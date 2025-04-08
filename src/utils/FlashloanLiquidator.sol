@@ -43,8 +43,8 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     /// @notice Liquidates a loan, using a Uniswap Flashloan
     function liquidate(LiquidateParams calldata params) external {
-        (,,, uint256 liquidationCost,) = params.vault.loanInfo(params.tokenId);
-        if (liquidationCost == 0) {
+        (,,, uint256 liquidationCost, uint256 liquidationValue) = params.vault.loanInfo(params.tokenId);
+        if (liquidationValue == 0) {
             revert NotLiquidatable();
         }
 
