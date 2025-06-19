@@ -14,7 +14,7 @@ contract InterestRateModel is Ownable, IInterestRateModel, Constants {
     uint256 public constant YEAR_SECS = 31557600; // taking into account leap years
 
     uint256 public constant MAX_BASE_RATE_X64 = Q64 / 10; // 10%
-    uint256 public constant MAX_MULTIPLIER_X64 = Q64 * 2; // 200%
+    uint256 public constant MAX_MULTIPLIER_X64 = Q64 * 3; // 300%
 
     event SetValues(
         uint256 baseRatePerYearX64, uint256 multiplierPerYearX64, uint256 jumpMultiplierPerYearX64, uint256 kinkX64

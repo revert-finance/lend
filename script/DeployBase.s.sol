@@ -15,49 +15,46 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "permit2/interfaces/IPermit2.sol";
 
-contract DeployMainnet is Script {
+contract DeployBase is Script {
     uint256 constant Q32 = 2 ** 32;
     uint256 constant Q64 = 2 ** 64;
 
-    // Mainnet addresses
-    INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
+    // Base addresses
+    INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1);
     address constant EX0x = 0x0000000000001fF3684f28c67538d4D072C22734;
-    address constant UNIVERSAL_ROUTER = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD;
+    address constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // Tokens
-    address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
-    address constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+    address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+    address constant WETH = 0x4200000000000000000000000000000000000006;
+    address constant CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
 
-    // Chainlink Feeds (Mainnet)
-    AggregatorV3Interface constant USDC_USD_FEED = AggregatorV3Interface(0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6);
-    AggregatorV3Interface constant ETH_USD_FEED = AggregatorV3Interface(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
-    AggregatorV3Interface constant USDT_USD_FEED = AggregatorV3Interface(0x3E7d1eAB13ad0104d2750B8863b489D65364e32D);
-    AggregatorV3Interface constant WBTC_USD_FEED = AggregatorV3Interface(0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c); // BTC/USD feed
+    // Chainlink Feeds (Base mainnet, from official docs)
+    AggregatorV3Interface constant USDC_USD_FEED = AggregatorV3Interface(0x7e860098F58bBFC8648a4311b374B1D669a2bc6B);
+    AggregatorV3Interface constant ETH_USD_FEED = AggregatorV3Interface(0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70);
+    AggregatorV3Interface constant CBBTC_USD_FEED = AggregatorV3Interface(0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D);
 
-    // Uniswap V3 pools (Mainnet) - All against WETH for better liquidity
-    address constant USDC_WETH_005 = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640; // USDC/WETH 0.05%
-    address constant USDT_WETH_030 = 0x4e68Ccd3E89f51C3074ca5072bbAC773960dFa36; // USDT/WETH 0.30%
-    address constant WBTC_WETH_030 = 0xCBCdF9626bC03E24f779434178A73a0B4bad62eD; // WBTC/WETH 0.30%
+    // Uniswap V3 pools (Base) - All against WETH for better liquidity
+    address constant USDC_WETH_005 = 0xd0b53D9277642d899DF5C87A3966A349A798F224;
+    address constant CBBTC_WETH_030 = 0x8c7080564B5A792A33Ef2FD473fbA6364d5495e5;
 
-    // Already deployed transformer addresses (from ConfigureMainnet)
-    address payable constant V3_UTILS = payable(0xAb52F8C11E72d00d4f717A657378Ef9b8bF7c2B6);
-    address constant AUTO_RANGE = 0x88481E2Fbc98d4a251655B0F1A4422555EA72d9E;
-    address constant AUTO_COMPOUND = 0x7C81247aE0A35B03e3f4A704DCD6b101dcA53Abd;
+    // Already deployed transformer addresses (from ConfigureBase)
+    address constant V3_UTILS = 0x98eC492942090364AC0736Ef1A741AE6C92ec790;
+    address constant AUTO_RANGE = 0xA8549424B20a514Eb9e7a829ec013065Bef9Dc1D;
+    address constant AUTO_COMPOUND = 0x0bF485Bd7EbB82e282F72E7d14822C680E3f7bEC;
 
     // Team multisig address for ownership transfers
-    address constant TEAM_MULTISIG = 0xaac25e85e752425Dd1A92674CEeAF603758D3124;
+    address constant TEAM_MULTISIG = 0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9;
 
     function run() external {
         vm.startBroadcast();
 
-        console.log("Deploying to Ethereum Mainnet...");
+        console.log("Deploying to Base...");
         console.log("Deployer:", msg.sender);
         console.log("=== FULL DEPLOYMENT MODE ===");
         console.log("Using WETH as reference token for better liquidity");
-        console.log("Supported tokens: USDC, WETH, USDT, WBTC");
+        console.log("Supported tokens: USDC, WETH, CBBTC");
 
         // Deploy Interest Rate Model (updated kink to 90%)
         console.log("Deploying InterestRateModel...");
@@ -76,6 +73,10 @@ contract DeployMainnet is Script {
 
         // Configure Oracle
         oracle.setMaxPoolPriceDifference(200); // 2% max divergence
+        
+        // Set sequencer uptime feed for Base L2
+        console.log("Configuring sequencer uptime feed for Base L2...");
+        oracle.setSequencerUptimeFeed(0xBCF85224fc0756B9Fa45aA7892530B47e10b6433);
 
         // Configure WETH (reference token)
         console.log("Configuring WETH as reference token...");
@@ -101,25 +102,13 @@ contract DeployMainnet is Script {
             200                        // 2% max divergence
         );
 
-        // Configure USDT
-        console.log("Configuring USDT...");
+        // Configure CBBTC
+        console.log("Configuring CBBTC...");
         oracle.setTokenConfig(
-            USDT,
-            USDT_USD_FEED,
-            3600,
-            IUniswapV3Pool(USDT_WETH_030),
-            60,
-            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            200                        // 2% max divergence
-        );
-
-        // Configure WBTC
-        console.log("Configuring WBTC...");
-        oracle.setTokenConfig(
-            WBTC,
-            WBTC_USD_FEED,
+            CBBTC,
+            CBBTC_USD_FEED,
             86400,
-            IUniswapV3Pool(WBTC_WETH_030),
+            IUniswapV3Pool(CBBTC_WETH_030),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
@@ -128,8 +117,8 @@ contract DeployMainnet is Script {
         // Deploy V3Vault
         console.log("Deploying V3Vault...");
         V3Vault vault = new V3Vault(
-            "Revert Lend USDC",
-            "rlUSDC",
+            "Revert Lend Base USDC",
+            "rlBaseUSDC",
             address(USDC),
             NPM,
             interestRateModel,
@@ -140,12 +129,11 @@ contract DeployMainnet is Script {
 
         // Configure collateral factors for supported tokens
         console.log("Configuring collateral factors...");
-        vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), uint32(2**32-1)); // 85%
-        vault.setTokenConfig(WETH, uint32(Q32 * 775 / 1000), uint32(2**32-1)); // 77.5%
-        vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), uint32(Q32 * 20 / 100)); // 85% + 20% limit
-        vault.setTokenConfig(WBTC, uint32(Q32 * 775 / 1000), uint32(2**32-1)); // 77.5%
+        vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), type(uint32).max); // 85%
+        vault.setTokenConfig(WETH, uint32(Q32 * 775 / 1000), type(uint32).max); // 77.5%
+        vault.setTokenConfig(CBBTC, uint32(Q32 * 775 / 1000), type(uint32).max); // 77.5%
 
-        // Set limits (conservative for mainnet)
+        // Set limits (conservative for Base)
         console.log("Setting vault limits...");
         vault.setLimits(
             1000000,         // Min loan size: $1 USDC
@@ -184,7 +172,7 @@ contract DeployMainnet is Script {
         
         // Configure V3Utils
         vault.setTransformer(address(V3_UTILS), true);
-        V3Utils(V3_UTILS).setVault(address(vault));
+        V3Utils(payable(V3_UTILS)).setVault(address(vault));
         
         // Configure AutoRange
         vault.setTransformer(address(AUTO_RANGE), true);
@@ -214,14 +202,14 @@ contract DeployMainnet is Script {
         console.log("LeverageTransformer ownership transferred to:", TEAM_MULTISIG);
         
         // Transfer V3Utils ownership
-        V3Utils(V3_UTILS).transferOwnership(TEAM_MULTISIG);
+        V3Utils(payable(V3_UTILS)).transferOwnership(TEAM_MULTISIG);
         console.log("V3Utils ownership transferred to:", TEAM_MULTISIG);
 
         vm.stopBroadcast();
 
         // Print deployment summary
         console.log("\n=== DEPLOYMENT SUMMARY ===");
-        console.log("Network: Ethereum Mainnet");
+        console.log("Network: Base");
         console.log("Reference Token: WETH (for better liquidity)");
         console.log("Vault Asset: USDC");
         console.log("InterestRateModel:", address(interestRateModel));
@@ -235,12 +223,10 @@ contract DeployMainnet is Script {
         console.log("\nSupported Tokens:");
         console.log("- USDC: 85% collateral factor");
         console.log("- WETH: 77.5% collateral factor");
-        console.log("- USDT: 85% + 20% limit collateral factor");
-        console.log("- WBTC: 77.5% collateral factor");
+        console.log("- CBBTC: 77.5% collateral factor");
         console.log("\nPool Configuration:");
         console.log("- USDC/WETH 0.05%:", USDC_WETH_005);
-        console.log("- USDT/WETH 0.30%:", USDT_WETH_030);
-        console.log("- WBTC/WETH 0.30%:", WBTC_WETH_030);
+        console.log("- CBBTC/WETH 0.30%:", CBBTC_WETH_030);
         console.log("\nDeployment completed successfully!");
     }
 } 
