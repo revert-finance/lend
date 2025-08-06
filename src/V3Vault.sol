@@ -10,6 +10,10 @@ import "v3-core/libraries/FixedPoint128.sol";
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
+import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
+import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
+
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -23,9 +27,10 @@ import "permit2/interfaces/IPermit2.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IGaugeManager.sol";
 import "./utils/Constants.sol";
 
-/// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
+/// @title Revert Lend Vault for token lending / borrowing using Aerodrome Slipstream LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
 /// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
 contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
@@ -43,10 +48,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     uint256 public constant BORROW_SAFETY_BUFFER_X32 = uint32(Q32 * 95 / 100); //95% of collateral value
 
-    /// @notice Uniswap v3 position manager
+    /// @notice Aerodrome Slipstream position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
-    /// @notice Uniswap v3 factory
+    /// @notice Aerodrome Slipstream factory
     IUniswapV3Factory public immutable factory;
 
     /// @notice interest rate model implementation
@@ -57,6 +62,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @notice permit2 contract
     IPermit2 public immutable permit2;
+
+    /// @notice gauge manager for staking positions
+    address public gaugeManager;
 
     /// @notice underlying asset for lending / borrowing
     address public immutable override asset;
@@ -104,6 +112,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
 
     event SetEmergencyAdmin(address emergencyAdmin);
+    event SetGaugeManager(address gaugeManager);
 
     // configured tokens
     struct TokenConfig {
@@ -822,8 +831,68 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         _removeTokenFromOwner(owner, tokenId);
+        
+        // Unstake from gauge if staked
+        if (gaugeManager != address(0)) {
+            try IGaugeManager(gaugeManager).unstakePosition(tokenId) {} catch {}
+        }
+        
         nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId, data);
         emit Remove(tokenId, owner, recipient);
+    }
+
+    /// @notice Stake a position in its corresponding gauge
+    /// @param tokenId The position token ID to stake
+    function stakePosition(uint256 tokenId) external {
+        address owner = tokenOwner[tokenId];
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+        
+        if (gaugeManager == address(0)) {
+            revert GaugeNotSet();
+        }
+        
+        // Approve gauge manager to transfer NFT
+        nonfungiblePositionManager.approve(gaugeManager, tokenId);
+        
+        // Stake in gauge
+        IGaugeManager(gaugeManager).stakePosition(tokenId);
+    }
+
+    /// @notice Unstake a position from its gauge
+    /// @param tokenId The position token ID to unstake
+    function unstakePosition(uint256 tokenId) external {
+        address owner = tokenOwner[tokenId];
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+        
+        if (gaugeManager == address(0)) {
+            revert GaugeNotSet();
+        }
+        
+        // Unstake from gauge
+        IGaugeManager(gaugeManager).unstakePosition(tokenId);
+    }
+
+    /// @notice Claim AERO rewards for a position
+    /// @param tokenId The position token ID
+    function claimRewards(uint256 tokenId) external {
+        address owner = tokenOwner[tokenId];
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+        
+        if (gaugeManager == address(0)) {
+            revert GaugeNotSet();
+        }
+        
+        // Claim rewards
+        IGaugeManager(gaugeManager).claimRewards(tokenId);
+        
+        // Distribute to owner
+        IGaugeManager(gaugeManager).distributeRewards(tokenId, owner);
     }
 
     ////////////////// ADMIN FUNCTIONS only callable by owner
@@ -943,6 +1012,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     function setEmergencyAdmin(address admin) external onlyOwner {
         emergencyAdmin = admin;
         emit SetEmergencyAdmin(admin);
+    }
+
+    /// @notice Updates gauge manager address (onlyOwner)
+    /// @param _gaugeManager Gauge manager address
+    function setGaugeManager(address _gaugeManager) external onlyOwner {
+        gaugeManager = _gaugeManager;
+        emit SetGaugeManager(_gaugeManager);
     }
 
     ////////////////// INTERNAL FUNCTIONS

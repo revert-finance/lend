@@ -8,6 +8,12 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery/libraries/PoolAddress.sol";
+
+import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
+import "../interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
+import "./AerodromeHelper.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
@@ -22,7 +28,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     address public immutable factory;
 
-    /// @notice Uniswap v3 position manager
+    /// @notice Aerodrome Slipstream position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
     /// @notice Uniswap Universal Router
@@ -161,6 +167,13 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+        // In Aerodrome, the fee parameter actually contains the tickSpacing
+        int24 tickSpacing = int24(uint24(fee));
+        
+        // Get pool from factory (Aerodrome uses getPool instead of computing address)
+        address poolAddress = IAerodromeSlipstreamFactory(factory).getPool(tokenA, tokenB, tickSpacing);
+        require(poolAddress != address(0), "Pool does not exist");
+        
+        return IUniswapV3Pool(poolAddress);
     }
 }
