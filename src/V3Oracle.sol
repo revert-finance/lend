@@ -429,7 +429,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint256 tokenId;
         address token0;
         address token1;
-        uint24 fee;
+        uint24 fee; // For Aerodrome: this is actually tickSpacing (immutable pool parameter)
         int24 tickLower;
         int24 tickUpper;
         uint128 liquidity;
@@ -454,7 +454,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
             ,
             address token0,
             address token1,
-            uint24 feeOrTickSpacing, // In Aerodrome, this is actually tickSpacing stored as uint24
+            uint24 feeOrTickSpacing, // Aerodrome: tickSpacing (immutable), Uniswap: fee tier
             int24 tickLower,
             int24 tickUpper,
             uint128 liquidity,
@@ -466,7 +466,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         state.tokenId = tokenId;
         state.token0 = token0;
         state.token1 = token1;
-        state.fee = feeOrTickSpacing; // For Aerodrome, this represents tickSpacing encoded as fee
+        state.fee = feeOrTickSpacing; // Stores tickSpacing for Aerodrome pools
         state.tickLower = tickLower;
         state.tickUpper = tickUpper;
         state.liquidity = liquidity;
@@ -573,7 +573,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
     // helper method to get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        // In Aerodrome, the fee parameter actually contains the tickSpacing
+        // For Aerodrome: 'fee' parameter contains the immutable tickSpacing value
         int24 tickSpacing = int24(uint24(fee));
         
         // Get pool from factory (Aerodrome uses getPool instead of computing address)

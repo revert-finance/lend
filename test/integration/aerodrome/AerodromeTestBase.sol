@@ -300,12 +300,6 @@ abstract contract AerodromeTestBase is Test, Constants {
     }
     
     // Helper to calculate fee from tick spacing
-    function tickSpacingToFee(int24 tickSpacing) internal pure returns (uint24) {
-        return AerodromeHelper.tickSpacingToFee(tickSpacing);
-    }
-    
-    // Helper to calculate tick spacing from fee
-    function feeToTickSpacing(uint24 fee) internal pure returns (int24) {
-        return AerodromeHelper.feeToTickSpacing(fee);
-    }
+    // No conversion needed - Aerodrome uses tickSpacing directly
+    // The tickSpacing is immutable for a pool and stored directly in positions
 }

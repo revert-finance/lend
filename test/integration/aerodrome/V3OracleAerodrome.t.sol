@@ -62,19 +62,8 @@ contract V3OracleAerodromeTest is AerodromeTestBase {
         assertGt(price1X96, 0);
     }
     
-    function testTickSpacingToFeeConversion() public {
-        // Test the conversion works correctly for common tick spacings
-        assertEq(AerodromeHelper.tickSpacingToFee(1), 100);
-        assertEq(AerodromeHelper.tickSpacingToFee(10), 500); 
-        assertEq(AerodromeHelper.tickSpacingToFee(50), 3000);
-        assertEq(AerodromeHelper.tickSpacingToFee(200), 10000);
-        
-        // Test reverse conversion
-        assertEq(AerodromeHelper.feeToTickSpacing(100), 1);
-        assertEq(AerodromeHelper.feeToTickSpacing(500), 10);
-        assertEq(AerodromeHelper.feeToTickSpacing(3000), 50);
-        assertEq(AerodromeHelper.feeToTickSpacing(10000), 200);
-    }
+    // Removed testTickSpacingToFeeConversion - no conversion needed
+    // Aerodrome uses tickSpacing directly, not fee tiers
     
     function testPriceCalculationWithTWAP() public {
         // Test that price calculation works with Aerodrome pools
