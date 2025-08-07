@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import "./AutomatorIntegrationTestBase.sol";
+import "./AerodromeAutomatorTestBase.sol";
 
 import "../../../src/transformers/AutoRange.sol";
 
@@ -9,7 +9,8 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 import "../../../src/utils/Constants.sol";
 
-contract AutoRangeTest is AutomatorIntegrationTestBase {
+// Updated to use Aerodrome on Base
+contract AutoRangeTest is AerodromeAutomatorTestBase {
     AutoRange autoRange;
 
     function setUp() external {

@@ -9,4 +9,5 @@ interface IGaugeManager {
     function distributeRewards(uint256 tokenId, address recipient) external;
     function pendingRewards(uint256 tokenId) external view returns (uint256);
     function getPositionGauge(uint256 tokenId) external view returns (address);
+    function poolToGauge(address pool) external view returns (address);
 }
