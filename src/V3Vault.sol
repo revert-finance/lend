@@ -895,6 +895,48 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IGaugeManager(gaugeManager).distributeRewards(tokenId, owner);
     }
 
+    /// @notice Compound AERO rewards for a position
+    /// @dev Allows position owners to compound their AERO rewards through AeroCompound
+    /// @param tokenId The position token ID
+    /// @param aeroCompound The AeroCompound contract address
+    /// @param compoundData The encoded compound parameters
+    function compoundAeroRewards(uint256 tokenId, address aeroCompound, bytes calldata compoundData) external {
+        address owner = tokenOwner[tokenId];
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+        
+        if (gaugeManager == address(0)) {
+            revert GaugeNotSet();
+        }
+        
+        // Check that aeroCompound is a valid transformer
+        if (!transformerAllowList[aeroCompound]) {
+            revert TransformNotAllowed();
+        }
+        
+        // Claim rewards and distribute them to AeroCompound
+        // This way AeroCompound has the AERO to compound
+        IGaugeManager(gaugeManager).claimRewards(tokenId);
+        IGaugeManager(gaugeManager).distributeRewards(tokenId, aeroCompound);
+        
+        // Set transformedTokenId so AeroCompound knows this is a vault call
+        if (transformedTokenId != 0) {
+            revert Reentrancy();
+        }
+        transformedTokenId = tokenId;
+        
+        // Call AeroCompound to execute the compounding
+        // AeroCompound now has the AERO rewards and can compound them
+        (bool success,) = aeroCompound.call(compoundData);
+        if (!success) {
+            revert TransformFailed();
+        }
+        
+        // Clear transformedTokenId
+        transformedTokenId = 0;
+    }
+
     ////////////////// ADMIN FUNCTIONS only callable by owner
 
     /// @notice withdraw protocol reserves (onlyOwner)

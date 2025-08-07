@@ -18,10 +18,11 @@ import "../interfaces/aerodrome/IGauge.sol";
 import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 
 /// @title AeroCompound
-/// @notice Allows operator of AeroCompound contract to compound AERO rewards from staked positions
+/// @notice Allows position owners and authorized operators to compound AERO rewards from staked positions
 /// @dev Works with positions staked in gauges, both inside and outside the vault
 /// Claims AERO rewards, swaps them to the position's tokens, and adds liquidity
 /// Supports both Universal Router and 0x Protocol for swaps
+/// Position owners can always compound their own positions
 contract AeroCompound is Automator, Multicall, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -58,9 +59,6 @@ contract AeroCompound is Automator, Multicall, ReentrancyGuard {
     
     // Balances of leftover tokens per position
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
-    
-    // Track which positions we're authorized to manage (for non-vault positions)
-    mapping(uint256 => bool) public authorizedPositions;
 
     constructor(
         INonfungiblePositionManager _npm,
@@ -149,33 +147,43 @@ contract AeroCompound is Automator, Multicall, ReentrancyGuard {
     }
 
     /// @notice Execute compounding for a position
-    /// @dev Can be called by operator directly or by vault via transform
+    /// @dev Can be called by operator, vault via transform, or position owner
     function execute(ExecuteParams calldata params) external nonReentrant {
         // Check authorization
         if (!operators[msg.sender]) {
             if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
             } else {
-                revert Unauthorized();
+                // Allow position owners to compound their own positions
+                address positionOwner = _getPositionOwner(params.tokenId);
+                if (msg.sender != positionOwner) {
+                    revert Unauthorized();
+                }
             }
         }
 
         ExecuteState memory state;
         
-        // Determine if position is in vault
-        state.isVaultPosition = vaults[nonfungiblePositionManager.ownerOf(params.tokenId)];
+        // Determine if position is in vault by checking if it has a gauge in GaugeManager
+        state.isVaultPosition = gaugeManager.getPositionGauge(params.tokenId) != address(0);
 
         // Get position details
         (,, state.token0, state.token1, state.tickSpacing, state.tickLower, state.tickUpper,,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
 
-        // Claim AERO rewards
+        // Claim AERO rewards (unless called by vault which already distributed them)
         if (state.isVaultPosition) {
-            // For vault positions, claim through GaugeManager
-            uint256 balanceBefore = aeroToken.balanceOf(address(this));
-            gaugeManager.claimRewards(params.tokenId);
-            gaugeManager.distributeRewards(params.tokenId, address(this));
-            state.aeroAmount = aeroToken.balanceOf(address(this)) - balanceBefore;
+            if (vaults[msg.sender]) {
+                // Vault has already distributed rewards to this contract
+                // Just check how much AERO we received
+                state.aeroAmount = aeroToken.balanceOf(address(this));
+            } else {
+                // For vault positions called by operators, claim through GaugeManager
+                uint256 balanceBefore = aeroToken.balanceOf(address(this));
+                gaugeManager.claimRewards(params.tokenId);
+                gaugeManager.distributeRewards(params.tokenId, address(this));
+                state.aeroAmount = aeroToken.balanceOf(address(this)) - balanceBefore;
+            }
         } else {
             // For non-vault positions, claim directly from gauge
             state.gauge = _getGaugeForPosition(state.token0, state.token1, state.tickSpacing);
@@ -184,7 +192,10 @@ contract AeroCompound is Automator, Multicall, ReentrancyGuard {
             }
             
             uint256 balanceBefore = aeroToken.balanceOf(address(this));
-            IGauge(state.gauge).getReward(nonfungiblePositionManager.ownerOf(params.tokenId));
+            // Get the actual owner of the position (who has the rewards)
+            address positionOwner = _getPositionOwner(params.tokenId);
+            // Claim rewards for the position owner (sends to msg.sender which is AeroCompound)
+            IGauge(state.gauge).getReward(positionOwner);
             state.aeroAmount = aeroToken.balanceOf(address(this)) - balanceBefore;
         }
 
@@ -375,12 +386,15 @@ contract AeroCompound is Automator, Multicall, ReentrancyGuard {
                 abi.encodeWithSelector(IVault.ownerOf.selector, tokenId)
             );
             if (success && data.length == 32) {
-                owner = abi.decode(data, (address));
+                address vaultOwner = abi.decode(data, (address));
+                // Only return vault owner if it's not zero address
+                if (vaultOwner != address(0)) {
+                    owner = vaultOwner;
+                }
             }
         } else {
             // Check if it's a staked position (owner is a gauge)
             // Try to get the vault that controls this position through the GaugeManager
-            // The GaugeManager has a public vault() getter
             try GaugeManager(address(gaugeManager)).vault() returns (IVault vaultContract) {
                 address vaultAddress = address(vaultContract);
                 if (vaults[vaultAddress]) {
@@ -388,7 +402,11 @@ contract AeroCompound is Automator, Multicall, ReentrancyGuard {
                         abi.encodeWithSelector(IVault.ownerOf.selector, tokenId)
                     );
                     if (success && data.length == 32) {
-                        owner = abi.decode(data, (address));
+                        address vaultOwner = abi.decode(data, (address));
+                        // Only return vault owner if it's not zero address
+                        if (vaultOwner != address(0)) {
+                            owner = vaultOwner;
+                        }
                     }
                 }
             } catch {

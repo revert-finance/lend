@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
+import "./IVault.sol";
+
 /// @title Interface for GaugeManager
 interface IGaugeManager {
+    function vault() external view returns (IVault);
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
     function claimRewards(uint256 tokenId) external;
