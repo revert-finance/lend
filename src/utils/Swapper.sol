@@ -167,7 +167,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        // For Aerodrome: 'fee' parameter contains the immutable tickSpacing value
+        // In Aerodrome, the fee parameter actually contains the tickSpacing
         int24 tickSpacing = int24(uint24(fee));
         
         // Get pool from factory (Aerodrome uses getPool instead of computing address)
