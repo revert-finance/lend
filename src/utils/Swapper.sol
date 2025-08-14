@@ -84,7 +84,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             bool isUniversalRouter;
             bytes memory swapData = params.swapData;
             address uniRouter = universalRouter;
-            assembly {
+            assembly ("memory-safe")  {
                 let firstWord := mload(add(swapData, 32))
                 isUniversalRouter := eq(firstWord, uniRouter)
             }

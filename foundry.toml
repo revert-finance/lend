@@ -5,3 +5,11 @@ libs = ['lib']
 optimizer = true
 optimizer_runs = 200
 solc = "0.8.24"
+via_ir = true
+
+# Trim metadata/footer bytes
+#bytecode_hash = "none"        # drops IPFS/BZZ hash
+#cbor_metadata = false         # (Foundry >= v1.2) remove CBOR trailer
+
+# Optional: target recent EVM for better IR opts
+#evm_version = "paris"
