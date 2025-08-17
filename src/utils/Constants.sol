@@ -70,4 +70,6 @@ abstract contract Constants {
     error AlreadyStaked();
     error NotStaked();
     error RewardClaimFailed();
+    error GaugeManagerNotSet();
+    error NotDepositor();
 }

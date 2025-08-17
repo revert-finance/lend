@@ -27,6 +27,7 @@ import "permit2/interfaces/IPermit2.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IGaugeManager.sol";
 
 import "./utils/Constants.sol";
 
@@ -34,17 +35,17 @@ import "./utils/Constants.sol";
 contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
 
-    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); 
+    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100);
 
-    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100); 
-    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 10 / 100); 
+    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100);
+    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 10 / 100);
 
-    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); 
+    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100);
 
-    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); 
-    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); 
+    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10);
+    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10);
 
-    uint256 public constant BORROW_SAFETY_BUFFER_X32 = uint32(Q32 * 95 / 100); 
+    uint32 public constant BORROW_SAFETY_BUFFER_X32 = uint32(Q32 * 95 / 100);
 
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
@@ -62,7 +63,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     event ApprovedTransform(uint256 indexed tokenId, address owner, address target, bool isActive);
 
-    event Add(uint256 indexed tokenId, address owner, uint256 oldTokenId); 
+    event Add(uint256 indexed tokenId, address owner, uint256 oldTokenId);
     event Remove(uint256 indexed tokenId, address owner, address recipient);
 
     event ExchangeRateUpdate(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96);
@@ -148,7 +149,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     uint32 public dailyLendIncreaseLimitLastReset;
     uint32 public dailyDebtIncreaseLimitLastReset;
 
-    address public emergencyAdmin;address public gaugeExtension;
+    address public emergencyAdmin;
+    
+    // Gauge integration
+    address public gaugeManager;
 
     constructor(
         string memory name,
@@ -217,7 +221,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    function ownerOf(uint256 tokenId) external view override returns (address owner) {
+    function ownerOf(uint256 tokenId) public view override returns (address owner) {
         return tokenOwner[tokenId];
     }
 
@@ -306,22 +310,22 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    function previewDeposit(uint256 assets) public view override returns (uint256) {
+    function previewDeposit(uint256 assets) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
     }
 
-    function previewMint(uint256 shares) public view override returns (uint256) {
+    function previewMint(uint256 shares) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Up);
     }
 
-    function previewWithdraw(uint256 assets) public view override returns (uint256) {
+    function previewWithdraw(uint256 assets) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Up);
     }
 
-    function previewRedeem(uint256 shares) public view override returns (uint256) {
+    function previewRedeem(uint256 shares) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
     }
@@ -445,6 +449,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
         }
+
+        // Unstake position if it's in a gauge (for liquidations/transformations)
+        _unstakeForLiquidation(tokenId);
 
         nonfungiblePositionManager.approve(transformer, tokenId);
 
@@ -687,12 +694,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Remove(tokenId, owner, recipient);
     }
 
-    // Gauge functions (empty implementations to save contract size)
-    function stakePosition(uint256) external {}
-    function unstakePosition(uint256) external {}  
-    function claimRewards(uint256) external {}
-    function compoundAeroRewards(uint256, address, bytes calldata) external {}
-    function temporarilyTransferNFT(uint256, address) external {}
+
 
     function withdrawReserves(uint256 amount, address receiver) external onlyOwner {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
@@ -787,9 +789,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit SetEmergencyAdmin(admin);
     }
 
-    
-    function setGaugeExtension(address e)external{gaugeExtension=e;}
-    function setGaugeManager(address)external{}
+
 
     function _deposit(address receiver, uint256 amount, bool isShare, bytes memory permitData)
         internal
@@ -950,7 +950,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         balance = totalAssets();
         uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
         uint256 lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
-        reserves = balance + debt > lent ? balance + debt - lent : 0;
+        unchecked {
+            reserves = balance + debt > lent ? balance + debt - lent : 0;
+        }
     }
 
     function _sendPositionValue(
@@ -974,13 +976,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
             if (liquidationValue <= feeValue) {
                 liquidity = 0;
-                fees0 = SafeCast.toUint128(liquidationValue * fees0 / feeValue);
-                fees1 = SafeCast.toUint128(liquidationValue * fees1 / feeValue);
+                unchecked {
+                    fees0 = SafeCast.toUint128(liquidationValue * fees0 / feeValue);
+                    fees1 = SafeCast.toUint128(liquidationValue * fees1 / feeValue);
+                }
             } else {
                 
                 fees0 = type(uint128).max;
                 fees1 = type(uint128).max;
-                liquidity = SafeCast.toUint128((liquidationValue - feeValue) * liquidity / (fullValue - feeValue));
+                unchecked {
+                    liquidity = SafeCast.toUint128((liquidationValue - feeValue) * liquidity / (fullValue - feeValue));
+                }
             }
         }
 
@@ -1034,7 +1040,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             }
 
             liquidationValue = fullValue;
-            reserveCost = debt - liquidatorCost; 
+            unchecked {
+                reserveCost = debt - liquidatorCost;
+            } 
         }
     }
 
@@ -1222,4 +1230,64 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         
         delete tokenOwner[tokenId]; 
     }
+
+    // ========== GAUGE INTEGRATION ==========
+
+    /// @notice Set the gauge manager contract
+    /// @param _gaugeManager Address of the gauge manager
+    function setGaugeManager(address _gaugeManager) external onlyOwner {
+        gaugeManager = _gaugeManager;
+        emit GaugeManagerSet(_gaugeManager);
+    }
+
+    /// @notice Stake a vaulted position in its gauge
+    /// @param tokenId Position to stake
+    /// @dev Only the depositor can stake their position
+    function stakePosition(uint256 tokenId) external {
+        if (gaugeManager == address(0)) revert GaugeManagerNotSet();
+        if (ownerOf(tokenId) != msg.sender) revert NotDepositor();
+        
+        // Approve gauge manager to take the NFT
+        nonfungiblePositionManager.approve(gaugeManager, tokenId);
+        
+        // Stake it (gauge manager will pull it)
+        IGaugeManager(gaugeManager).stakePosition(tokenId);
+        
+        emit PositionStaked(tokenId, msg.sender);
+    }
+
+    /// @notice Unstake a position from its gauge
+    /// @param tokenId Position to unstake
+    /// @dev Can be called by depositor or during liquidation
+    function unstakePosition(uint256 tokenId) external {
+        if (gaugeManager == address(0)) revert GaugeManagerNotSet();
+        
+        // Allow unstaking by depositor OR by vault during liquidation
+        if (ownerOf(tokenId) != msg.sender && transformedTokenId != tokenId) revert Unauthorized();
+        
+        // Unstake from gauge (returns NFT to vault)
+        IGaugeManager(gaugeManager).unstakePosition(tokenId);
+        
+        emit PositionUnstaked(tokenId, msg.sender);
+    }
+
+
+
+    /// @notice Emergency unstake function for liquidations
+    /// @dev Internal function called during liquidation process
+    function _unstakeForLiquidation(uint256 tokenId) internal {
+        if (gaugeManager != address(0)) {
+            // Check if position is staked
+            if (IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
+                // Unstake it for liquidation
+                IGaugeManager(gaugeManager).unstakePosition(tokenId);
+            }
+        }
+    }
+
+    // Events for gauge operations
+    event GaugeManagerSet(address indexed gaugeManager);
+    event PositionStaked(uint256 indexed tokenId, address indexed depositor);
+    event PositionUnstaked(uint256 indexed tokenId, address indexed caller);
+
 }

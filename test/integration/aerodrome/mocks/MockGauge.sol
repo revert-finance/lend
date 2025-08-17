@@ -83,6 +83,17 @@ contract MockGauge is IGauge {
         }
     }
 
+    function getReward(uint256 tokenId) external override {
+        address user = tokenOwners[tokenId];
+        require(user != address(0), "Token not staked");
+        uint256 reward = earned(user);
+        if (reward > 0) {
+            rewards[user] = 0;
+            _rewardToken.transfer(user, reward);
+            emit RewardPaid(user, reward);
+        }
+    }
+
     function earned(address user) public view override returns (uint256) {
         // Simple mock: 1 AERO per staked position
         return balanceOf[user] * rewardRate + rewards[user];

@@ -22,12 +22,16 @@ interface IGauge {
     /// @return amount The amount of pending rewards
     function earned(address user) external view returns (uint256 amount);
 
-    /// @notice Claim rewards
+    /// @notice Claim rewards for all positions owned by msg.sender
     function getReward() external;
 
     /// @notice Claim rewards for a specific user
     /// @param user The user to claim rewards for
     function getReward(address user) external;
+    
+    /// @notice Claim rewards for a specific NFT token ID
+    /// @param tokenId The NFT token ID to claim rewards for
+    function getReward(uint256 tokenId) external;
 
     /// @notice Get the total supply staked in the gauge
     /// @return The total staked amount

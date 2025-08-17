@@ -55,14 +55,14 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         
         // 4. Stake position in gauge
         vault.stakePosition(tokenId);
-        assertEq(gaugeManager.getPositionGauge(tokenId), address(usdcDaiGauge));
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
         
         // 5. Accumulate some rewards
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 100e18);
         
         // 6. Claim rewards
         uint256 aeroBalanceBefore = aero.balanceOf(bob);
-        vault.claimRewards(tokenId);
+        gaugeManager.claimRewards(tokenId);
         uint256 aeroBalanceAfter = aero.balanceOf(bob);
         assertGt(aeroBalanceAfter, aeroBalanceBefore);
         
@@ -77,7 +77,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         
         // Verify final state
         assertEq(npm.ownerOf(tokenId), bob);
-        assertEq(gaugeManager.getPositionGauge(tokenId), address(0));
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
     }
     
     function testMultiplePositionsAndRewards() public {
@@ -103,10 +103,10 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         
         // Both users claim rewards
         vm.prank(alice);
-        vault.claimRewards(tokenId1);
+        gaugeManager.claimRewards(tokenId1);
         
         vm.prank(bob);
-        vault.claimRewards(tokenId2);
+        gaugeManager.claimRewards(tokenId2);
         
         // Check both received rewards
         assertGt(aero.balanceOf(alice), 0);
@@ -141,14 +141,14 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         vault.stakePosition(tokenId);
         
         // Verify position is staked in correct gauge
-        assertEq(gaugeManager.getPositionGauge(tokenId), address(wethUsdcGauge));
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(wethUsdcGauge));
         assertEq(npm.ownerOf(tokenId), address(wethUsdcGauge), "NFT should be in gauge");
         
         // Unstake the position
         vault.unstakePosition(tokenId);
         
         // Verify position is back in vault
-        assertEq(gaugeManager.getPositionGauge(tokenId), address(0), "Should not be in any gauge");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0), "Should not be in any gauge");
         assertEq(npm.ownerOf(tokenId), address(vault), "NFT should be back in vault");
         
         vm.stopPrank();
@@ -184,7 +184,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         vm.stopPrank();
         
         // Check initial pending rewards
-        uint256 pending1 = gaugeManager.pendingRewards(tokenId);
+        // uint256 pending1 = gaugeManager.pendingRewards(tokenId); // Function removed in simplified design
         
         // Advance time
         vm.warp(block.timestamp + 1 days);
@@ -193,12 +193,12 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 1000e18);
         
         // Check pending increased
-        uint256 pending2 = gaugeManager.pendingRewards(tokenId);
-        assertGt(pending2, pending1);
+        // uint256 pending2 = gaugeManager.pendingRewards(tokenId); // Function removed in simplified design
+        // assertGt(pending2, pending1); // Commented - pendingRewards removed
         
         // Claim all rewards
         vm.prank(alice);
-        vault.claimRewards(tokenId);
+        gaugeManager.claimRewards(tokenId);
         
         // Verify Alice received rewards
         assertGt(aero.balanceOf(alice), 0);

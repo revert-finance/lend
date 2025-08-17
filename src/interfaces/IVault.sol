@@ -44,11 +44,12 @@ interface IVault is IERC4626 {
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
     
-    // Aerodrome gauge functions
+    // Gauge integration functions
+    function gaugeManager() external view returns (address);
+    function setGaugeManager(address _gaugeManager) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
-    function claimRewards(uint256 tokenId) external;
-    function compoundAeroRewards(uint256 tokenId, address aeroCompound, bytes calldata compoundData) external;
+
 
     // params for decreasing liquidity of collateralized position
     struct DecreaseLiquidityAndCollectParams {
