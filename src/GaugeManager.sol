@@ -41,11 +41,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IERC20 _aeroToken,
         IVault _vault,
         address _universalRouter,
-        address _permit2
+        address _zeroxAllowanceHolder
     ) Swapper(
         INonfungiblePositionManager(address(_npm)),
         _universalRouter,
-        _permit2
+        _zeroxAllowanceHolder
     ) Ownable2Step() {
         aeroToken = _aeroToken;
         vault = _vault;
