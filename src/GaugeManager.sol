@@ -11,6 +11,7 @@ import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./interfaces/IVault.sol";
+import "./interfaces/IV3Utils.sol";
 import "./utils/Constants.sol";
 import "./utils/Swapper.sol";
 
@@ -139,6 +140,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         bytes calldata swapData1,
         uint256 minAmount0,
         uint256 minAmount1,
+        uint256 aeroSplitBps,
         uint256 deadline
     ) external nonReentrant {
         // Check authorization
@@ -174,7 +176,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
                 RouterSwapParams(
                     aeroToken,
                     IERC20(token0),
-                    aeroAmount / 2,
+                    (aeroAmount * aeroSplitBps) / 10000,
                     minAmount0,
                     swapData0
                 )
@@ -256,6 +258,242 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         if (aeroAmount > 0) {
             aeroToken.safeTransfer(owner, aeroAmount);
         }
+    }
+
+    /// @notice Execute V3Utils operation on staked position with optional AERO compounding
+    /// @param tokenId The staked position to operate on
+    /// @param v3utils The V3Utils contract address
+    /// @param instructions V3Utils instructions
+    /// @param shouldCompound Whether to compound AERO rewards before restaking
+    /// @param aeroSwapData0 Swap data for AERO->token0 if compounding
+    /// @param aeroSwapData1 Swap data for AERO->token1 if compounding
+    /// @param minAeroAmount0 Min amount of token0 from AERO swap if compounding
+    /// @param minAeroAmount1 Min amount of token1 from AERO swap if compounding
+    /// @param aeroSplitBps Basis points of AERO to swap to token0 (rest goes to token1)
+    function executeV3UtilsWithOptionalCompound(
+        uint256 tokenId,
+        address v3utils,
+        IV3Utils.Instructions memory instructions,
+        bool shouldCompound,
+        bytes memory aeroSwapData0,
+        bytes memory aeroSwapData1,
+        uint256 minAeroAmount0,
+        uint256 minAeroAmount1,
+        uint256 aeroSplitBps
+    ) public nonReentrant returns (uint256 newTokenId) {
+        // Check authorization
+        address owner = positionOwners[tokenId];
+        bool fromVault = isVaultPosition[tokenId];
+        require(
+            msg.sender == owner || 
+            operators[owner][msg.sender] ||
+            (fromVault && msg.sender == address(vault)),
+            "Not authorized"
+        );
+
+        address gauge = tokenIdToGauge[tokenId];
+        require(gauge != address(0), "Not staked");
+
+        // 1. Claim any pending AERO rewards
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
+        IGauge(gauge).getReward(tokenId);
+        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+
+        // 2. Unstake position from gauge
+        IGauge(gauge).withdraw(tokenId);
+
+        // 3. Execute V3Utils operation
+        nonfungiblePositionManager.approve(v3utils, tokenId);
+        newTokenId = IV3Utils(v3utils).execute(tokenId, instructions);
+
+        // Determine which tokenId to work with going forward
+        uint256 tokenToStake = newTokenId != 0 ? newTokenId : tokenId;
+
+        // 4. If requested and AERO available, compound it
+        if (shouldCompound && aeroAmount > 0) {
+            _compoundIntoPosition(
+                tokenToStake,
+                aeroAmount,
+                aeroSwapData0,
+                aeroSwapData1,
+                minAeroAmount0,
+                minAeroAmount1,
+                aeroSplitBps,
+                instructions.deadline
+            );
+        } else if (aeroAmount > 0) {
+            // Send unclaimed AERO to owner
+            aeroToken.safeTransfer(owner, aeroAmount);
+        }
+
+        // 5. Restake the position (same gauge - pool doesn't change)
+        nonfungiblePositionManager.approve(gauge, tokenToStake);
+        IGauge(gauge).deposit(tokenToStake);
+
+        // 6. Update ownership tracking
+        if (newTokenId != 0) {
+            // Clean up old tokenId
+            delete tokenIdToGauge[tokenId];
+            delete positionOwners[tokenId];
+            delete isVaultPosition[tokenId];
+        }
+        
+        tokenIdToGauge[tokenToStake] = gauge;
+        positionOwners[tokenToStake] = owner;
+        isVaultPosition[tokenToStake] = fromVault;
+
+        emit PositionStaked(tokenToStake, owner);
+
+        return newTokenId;
+    }
+
+    /// @notice Internal function to compound AERO into a position
+    function _compoundIntoPosition(
+        uint256 tokenId,
+        uint256 aeroAmount,
+        bytes memory swapData0,
+        bytes memory swapData1,
+        uint256 minAmount0,
+        uint256 minAmount1,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) internal {
+        // Get position details
+        (,, address token0, address token1,,,,,,,,) = 
+            nonfungiblePositionManager.positions(tokenId);
+
+        // Swap AERO to position tokens
+        uint256 amount0;
+        uint256 amount1;
+        
+        if (swapData0.length > 0) {
+            (, amount0) = _routerSwap(
+                RouterSwapParams(
+                    aeroToken,
+                    IERC20(token0),
+                    (aeroAmount * aeroSplitBps) / 10000,
+                    minAmount0,
+                    swapData0
+                )
+            );
+        }
+        
+        if (swapData1.length > 0) {
+            (, amount1) = _routerSwap(
+                RouterSwapParams(
+                    aeroToken,
+                    IERC20(token1),
+                    aeroToken.balanceOf(address(this)),
+                    minAmount1,
+                    swapData1
+                )
+            );
+        }
+
+        // Add liquidity
+        IERC20(token0).safeApprove(address(nonfungiblePositionManager), 0);
+        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), amount0);
+        IERC20(token1).safeApprove(address(nonfungiblePositionManager), 0);
+        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), amount1);
+        
+        (uint128 liquidity, uint256 amount0Added, uint256 amount1Added) = 
+            nonfungiblePositionManager.increaseLiquidity(
+                INonfungiblePositionManager.IncreaseLiquidityParams(
+                    tokenId,
+                    amount0,
+                    amount1,
+                    0,
+                    0,
+                    deadline
+                )
+            );
+
+        // Return leftover tokens to position owner
+        address owner = positionOwners[tokenId];
+        uint256 leftover0 = amount0 - amount0Added;
+        uint256 leftover1 = amount1 - amount1Added;
+        
+        if (leftover0 > 0) {
+            IERC20(token0).safeTransfer(owner, leftover0);
+        }
+        if (leftover1 > 0) {
+            IERC20(token1).safeTransfer(owner, leftover1);
+        }
+
+        emit RewardsCompounded(tokenId, aeroAmount, amount0Added, amount1Added);
+    }
+
+    /// @notice Simplified function to change range on a staked position
+    /// @param tokenId The staked position to change range for
+    /// @param v3utils The V3Utils contract address
+    /// @param newFee New pool fee tier
+    /// @param newTickLower New lower tick
+    /// @param newTickUpper New upper tick
+    /// @param liquidityToRemove Amount of liquidity to remove (0 = all)
+    /// @param deadline Transaction deadline
+    /// @param targetToken Target token for V3Utils swaps (address(0) = no swap)
+    /// @param v3SwapData0 Swap data for token0 operations in V3Utils
+    /// @param v3SwapData1 Swap data for token1 operations in V3Utils
+    /// @param aeroSplitBps Basis points of AERO to swap to token0 if compounding
+    /// @param shouldCompound Whether to compound AERO rewards
+    function executeChangeRange(
+        uint256 tokenId,
+        address v3utils,
+        uint24 newFee,
+        int24 newTickLower,
+        int24 newTickUpper,
+        uint128 liquidityToRemove,
+        uint256 deadline,
+        address targetToken,
+        bytes memory v3SwapData0,
+        bytes memory v3SwapData1,
+        uint256 aeroSplitBps,
+        bool shouldCompound
+    ) external returns (uint256 newTokenId) {
+        // Get current position details
+        (,, address token0, address token1,,,,,,,,) = 
+            nonfungiblePositionManager.positions(tokenId);
+        
+        // Build V3Utils instructions for CHANGE_RANGE
+        IV3Utils.Instructions memory instructions = IV3Utils.Instructions({
+            whatToDo: IV3Utils.WhatToDo.CHANGE_RANGE,
+            targetToken: targetToken,
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountIn0: 0,
+            amountOut0Min: 0,
+            swapData0: v3SwapData0,
+            amountIn1: 0,
+            amountOut1Min: 0,
+            swapData1: v3SwapData1,
+            feeAmount0: type(uint128).max, // Collect all fees
+            feeAmount1: type(uint128).max, // Collect all fees
+            fee: newFee,
+            tickLower: newTickLower,
+            tickUpper: newTickUpper,
+            liquidity: liquidityToRemove,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: deadline,
+            recipient: positionOwners[tokenId], // Send dust to owner
+            recipientNFT: address(this), // New NFT comes back to GaugeManager
+            unwrap: false,
+            returnData: "",
+            swapAndMintReturnData: ""
+        });
+        
+        // Execute with no compounding data if not requested
+        return executeV3UtilsWithOptionalCompound(
+            tokenId,
+            v3utils,
+            instructions,
+            shouldCompound,
+            "", // aeroSwapData0
+            "", // aeroSwapData1
+            0,  // minAeroAmount0
+            0,  // minAeroAmount1
+            aeroSplitBps
+        );
     }
 
     function onERC721Received(address, address, uint256, bytes calldata) 
