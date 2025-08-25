@@ -4,12 +4,13 @@
 
 | Contract | Address | Basescan |
 |----------|---------|----------|
-| **V3Vault** | `0x0a9732DBF587e7c54C75D88919bF1e60AfA84D4B` | [View](https://basescan.org/address/0x0a9732DBF587e7c54C75D88919bF1e60AfA84D4B) |
-| **V3Oracle** | `0xE865a28c24cDf7d79B5d42d78BC730DA8562C929` | [View](https://basescan.org/address/0xE865a28c24cDf7d79B5d42d78BC730DA8562C929) |
-| **GaugeManager** | `0x6EEEE423297481Ce9e4e007E191e789eD3B4dA21` | [View](https://basescan.org/address/0x6EEEE423297481Ce9e4e007E191e789eD3B4dA21) |
-| **LeverageTransformer** | `0xbB8Bc23D6866F39C0c180E67c9cf3ABa403c4286` | [View](https://basescan.org/address/0xbB8Bc23D6866F39C0c180E67c9cf3ABa403c4286) |
-| **InterestRateModel** | `0x87D676f269cF19673F1bf258Ee2eBa2E64d0039E` | [View](https://basescan.org/address/0x87D676f269cF19673F1bf258Ee2eBa2E64d0039E) |
+| **V3Vault** | `0x64BE8d0948b25C51Ad0a0DeF3E237010FB1E7088` | [View](https://basescan.org/address/0x64BE8d0948b25C51Ad0a0DeF3E237010FB1E7088) |
+| **V3Oracle** | `0xC27D159513c951E6e9713Cc916FD6b783bE85521` | [View](https://basescan.org/address/0xC27D159513c951E6e9713Cc916FD6b783bE85521) |
+| **GaugeManager** | `0x75E77D54A14d5336827D5F2FfF4534F377d54025` | [View](https://basescan.org/address/0x75E77D54A14d5336827D5F2FfF4534F377d54025) |
+| **LeverageTransformer** | `0x15c1f75DfeC62d8Dc1D2201C65Eb5851220dd5d6` | [View](https://basescan.org/address/0x15c1f75DfeC62d8Dc1D2201C65Eb5851220dd5d6) |
+| **InterestRateModel** | `0x09E49a044b6141AD21d9C58630fecEEeCAbCB41f` | [View](https://basescan.org/address/0x09E49a044b6141AD21d9C58630fecEEeCAbCB41f) |
 | **V3Utils** (existing) | `0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1` | [View](https://basescan.org/address/0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1) |
+| **Note**: Latest deployment on 2025-08-22 with GaugeManager's new `swapAndIncreaseStakedPosition` function |
 
 ## Protocol Overview
 
@@ -119,6 +120,13 @@ interface IGaugeManager {
     function positionOwners(uint256 tokenId) external view returns (address);
     function poolToGauge(address pool) external view returns (address);
     
+    // Deposit to Staked Positions
+    function swapAndIncreaseStakedPosition(
+        uint256 tokenId,
+        address v3utils,
+        IV3Utils.SwapAndIncreaseLiquidityParams calldata params
+    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
+    
     // Admin Functions
     function setGauge(address pool, address gauge) external;
     function setOperator(address operator, bool active) external;
@@ -146,6 +154,26 @@ interface IGaugeManager {
 - `minAeroAmount0`: Minimum token0 from AERO swap (only used if shouldCompound=true)
 - `minAeroAmount1`: Minimum token1 from AERO swap (only used if shouldCompound=true)
 - `aeroSplitBps`: Basis points of AERO to swap to token0 (only used if shouldCompound=true)
+
+**swapAndIncreaseStakedPosition** - Add liquidity to staked positions with optional swaps:
+- `tokenId`: The staked position to add liquidity to
+- `v3utils`: Address of the V3Utils contract (0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1)
+- `params`: SwapAndIncreaseLiquidityParams struct containing:
+  - `tokenId`: Position ID (must match the tokenId parameter)
+  - `amount0`: Initial amount of token0 to provide
+  - `amount1`: Initial amount of token1 to provide
+  - `recipient`: Recipient of leftover tokens (usually msg.sender)
+  - `deadline`: Transaction deadline timestamp
+  - `swapSourceToken`: Token to swap FROM (must be one of the pool tokens)
+  - `amountIn0`: Amount to swap FROM swapSourceToken TO token0 (used when swapSourceToken is token1)
+  - `amountOut0Min`: Minimum token0 expected from swap
+  - `swapData0`: Swap calldata for obtaining token0 (from 0x API with taker=V3_UTILS)
+  - `amountIn1`: Amount to swap FROM swapSourceToken TO token1 (used when swapSourceToken is token0)
+  - `amountOut1Min`: Minimum token1 expected from swap
+  - `swapData1`: Swap calldata for obtaining token1 (from 0x API with taker=V3_UTILS)
+  - `amountAddMin0`: Minimum token0 to add to position (slippage protection)
+  - `amountAddMin1`: Minimum token1 to add to position (slippage protection)
+  - `permitData`: Optional permit data for token approvals
 
 ### 3. V3Oracle
 
@@ -239,7 +267,75 @@ IV3Vault(V3_VAULT).stakePosition(vaultTokenId);
 IV3Vault(V3_VAULT).unstakePosition(vaultTokenId);
 ```
 
-### 6. Advanced Position Management with V3Utils
+### 6. Adding Liquidity to Staked Positions
+
+For positions already staked in gauges, you can add liquidity using the new `swapAndIncreaseStakedPosition` function:
+
+```solidity
+// Example: Add WETH to a staked WETH/USDC position
+// First approve tokens to GaugeManager
+IERC20(WETH).approve(GAUGE_MANAGER, wethAmount);
+
+// Build parameters for V3Utils
+IV3Utils.SwapAndIncreaseLiquidityParams memory params = IV3Utils.SwapAndIncreaseLiquidityParams({
+    tokenId: stakedTokenId,
+    amount0: wethAmount,  // Total WETH amount to deposit
+    amount1: 0,           // No USDC provided initially
+    recipient: msg.sender,
+    deadline: block.timestamp + 300,
+    swapSourceToken: WETH,  // The token we're swapping FROM
+    
+    // IMPORTANT: When swapSourceToken == token0 (WETH):
+    // - Use amountIn1 to swap FROM WETH TO token1 (USDC)
+    // - Use amountIn0 to swap FROM WETH TO token0 (not needed here)
+    amountIn0: 0,              // Not swapping TO WETH (we already have it)
+    amountOut0Min: 0,          // Not used
+    swapData0: "",             // No swap data for token0
+    amountIn1: wethAmount / 2, // Amount of WETH to swap TO USDC
+    amountOut1Min: minUsdcOut, // Minimum USDC expected (slippage protection)
+    swapData1: swapDataFrom0x, // 0x API quote for WETH->USDC swap
+    
+    amountAddMin0: minWethToAdd,  // Minimum WETH to add to position
+    amountAddMin1: minUsdcToAdd,  // Minimum USDC to add to position
+    permitData: ""
+});
+
+// Add liquidity to staked position
+(uint128 liquidity, uint256 amount0, uint256 amount1) = 
+    IGaugeManager(GAUGE_MANAGER).swapAndIncreaseStakedPosition(
+        stakedTokenId,
+        V3_UTILS,
+        params
+    );
+```
+
+**Important Notes on Parameter Mapping:**
+- When `swapSourceToken` is `token0` (e.g., WETH):
+  - `amountIn1` = amount to swap FROM token0 TO token1
+  - `swapData1` = swap calldata for the token0→token1 swap
+- When `swapSourceToken` is `token1` (e.g., USDC):
+  - `amountIn0` = amount to swap FROM token1 TO token0
+  - `swapData0` = swap calldata for the token1→token0 swap
+- The `0x API` taker should be set to `V3_UTILS` address
+
+**Python Example:**
+```python
+# See scripts/deposit_weth_to_position.py for complete implementation
+# The script handles:
+# - WETH balance checking
+# - Optimal swap ratio calculation based on position range
+# - 0x API integration for WETH->USDC swaps
+# - Proper parameter mapping for swapAndIncreaseStakedPosition
+# - Tenderly simulation support
+
+# Example usage:
+# python scripts/deposit_weth_to_position.py 0.1 23335320
+```
+
+**Common Issues:**
+- **"require(amount > 0)" error**: This occurs when the calculated liquidity rounds to 0. This can happen with very small deposit amounts or when only one token is provided for an in-range position. Ensure you're providing sufficient amounts and the correct token ratio for in-range positions.
+
+### 7. Advanced Position Management with V3Utils
 
 GaugeManager integrates with V3Utils to enable advanced position management while keeping positions staked. This allows for operations like range changes, liquidity adjustments, and position rebalancing without unstaking.
 
@@ -316,7 +412,7 @@ forge script script/SimpleStakeCompound.s.sol:SimpleStakeCompound \
 ## Contact & Support
 
 - **Deployer**: `0x3895e33b91f19B279D30B1436640c87E300D2DAc`
-- **Block Deployed**: Latest deployment on 2025-08-19
+- **Block Deployed**: Latest deployment on 2025-08-22
 - **Chain**: Base Mainnet (Chain ID: 8453)
 - **Note**: Compounding functionality is now integrated directly into GaugeManager
 
@@ -324,7 +420,14 @@ forge script script/SimpleStakeCompound.s.sol:SimpleStakeCompound \
 
 The protocol includes example scripts demonstrating advanced integrations:
 
-- **`scripts/shift_position_one_tick.py`** - Complete example showing:
+- **`scripts/deposit_weth_to_position.py`** - Complete deposit flow example:
+  - Deposit WETH to existing staked positions
+  - Automatic WETH/USDC optimal ratio calculation based on position range
+  - 0x API integration for efficient WETH → USDC swaps
+  - Proper parameter mapping for V3Utils swaps
+  - Tenderly simulation support
+
+- **`scripts/shift_position_one_tick.py`** - Position management example:
   - Position shifting with automatic rebalancing calculations
   - V3 math implementation for exact swap amounts
   - 0x API integration for optimal swaps
@@ -332,7 +435,7 @@ The protocol includes example scripts demonstrating advanced integrations:
   
 - **`script/SimpleStakeCompound.s.sol`** - Forge script examples including:
   - Basic staking and compounding operations
-  - Advanced position management with `shiftPositionWithSwap`
+  - `shiftPositionWithSwap` for advanced position management
   - Range changes with optional AERO compounding
 
 ## Next Steps

@@ -98,6 +98,7 @@ contract DeployAerodromeProtocol is Script {
             ZEROX_ALLOWANCE_HOLDER
         );
         console.log("   GaugeManager deployed:", address(gaugeManager));
+        console.log("   - Includes swapAndIncreaseStakedPosition for deposits to staked positions");
         
         // 5. Deploy LeverageTransformer
         console.log("\n5. Deploying LeverageTransformer...");

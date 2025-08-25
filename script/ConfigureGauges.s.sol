@@ -6,9 +6,9 @@ import "../src/GaugeManager.sol";
 import "../src/V3Vault.sol";
 
 contract ConfigureGauges is Script {
-    // Deployed contract addresses (Latest deployment: 2025-08-19)
-    address constant GAUGE_MANAGER = 0x6EEEE423297481Ce9e4e007E191e789eD3B4dA21;
-    address constant VAULT = 0x0a9732DBF587e7c54C75D88919bF1e60AfA84D4B;
+    // Deployed contract addresses (Latest deployment: 2025-08-22)
+    address constant GAUGE_MANAGER = 0x75E77D54A14d5336827D5F2FfF4534F377d54025;
+    address constant VAULT = 0x64BE8d0948b25C51Ad0a0DeF3E237010FB1E7088;
     
     // Pool addresses
     address constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;

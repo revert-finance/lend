@@ -24,6 +24,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event PositionStaked(uint256 indexed tokenId, address indexed owner);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
+    event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -494,6 +495,81 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             0,  // minAeroAmount1
             aeroSplitBps
         );
+    }
+
+    /// @notice Add liquidity to a staked position with optional token swaps
+    /// @param tokenId The staked position to add liquidity to
+    /// @param v3utils The V3Utils contract address
+    /// @param params Parameters for V3Utils.swapAndIncreaseLiquidity
+    function swapAndIncreaseStakedPosition(
+        uint256 tokenId,
+        address v3utils,
+        IV3Utils.SwapAndIncreaseLiquidityParams calldata params
+    ) external payable nonReentrant returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
+        // Check authorization
+        address owner = positionOwners[tokenId];
+        bool fromVault = isVaultPosition[tokenId];
+        require(
+            msg.sender == owner || 
+            operators[owner][msg.sender] ||
+            (fromVault && msg.sender == address(vault)),
+            "Not authorized"
+        );
+        
+        address gauge = tokenIdToGauge[tokenId];
+        require(gauge != address(0), "Not staked");
+        
+        // Get position tokens
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        
+        // Handle ETH if sent (wrap to WETH)
+        if (msg.value > 0) {
+            require(token0 == address(weth) || token1 == address(weth), "No WETH in pair");
+            weth.deposit{value: msg.value}();
+        }
+        
+        // Transfer tokens from sender to this contract
+        if (params.amount0 > 0) {
+            IERC20(token0).safeTransferFrom(msg.sender, address(this), params.amount0);
+        }
+        if (params.amount1 > 0) {
+            IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1);
+        }
+        
+        // Approve V3Utils
+        if (params.amount0 > 0) {
+            IERC20(token0).safeApprove(v3utils, 0);
+            IERC20(token0).safeIncreaseAllowance(v3utils, params.amount0);
+        }
+        if (params.amount1 > 0) {
+            IERC20(token1).safeApprove(v3utils, 0);
+            IERC20(token1).safeIncreaseAllowance(v3utils, params.amount1);
+        }
+        
+        // Unstake position
+        IGauge(gauge).withdraw(tokenId);
+        
+        // Call V3Utils.swapAndIncreaseLiquidity
+        (liquidity, amount0, amount1) = IV3Utils(v3utils).swapAndIncreaseLiquidity(params);
+        
+        // Restake position
+        nonfungiblePositionManager.approve(gauge, tokenId);
+        IGauge(gauge).deposit(tokenId);
+        
+        // Return any leftover tokens to sender
+        uint256 leftover0 = IERC20(token0).balanceOf(address(this));
+        uint256 leftover1 = IERC20(token1).balanceOf(address(this));
+        
+        if (leftover0 > 0) {
+            IERC20(token0).safeTransfer(msg.sender, leftover0);
+        }
+        if (leftover1 > 0) {
+            IERC20(token1).safeTransfer(msg.sender, leftover1);
+        }
+        
+        emit SwapAndIncreaseLiquidity(tokenId, liquidity, amount0, amount1);
+        
+        return (liquidity, amount0, amount1);
     }
 
     function onERC721Received(address, address, uint256, bytes calldata) 
