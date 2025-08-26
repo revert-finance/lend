@@ -3,16 +3,8 @@ pragma solidity ^0.8.0;
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
-import "v3-core/libraries/FullMath.sol";
-import "v3-core/libraries/TickMath.sol";
-import "v3-core/libraries/FixedPoint128.sol";
 
-import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-
-import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
-import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
-import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -1231,61 +1223,43 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         delete tokenOwner[tokenId]; 
     }
 
-    // ========== GAUGE INTEGRATION ==========
-
-    /// @notice Set the gauge manager contract
-    /// @param _gaugeManager Address of the gauge manager
+    // Gauge Integration
+    
+    /// @notice Set gauge manager
     function setGaugeManager(address _gaugeManager) external onlyOwner {
         gaugeManager = _gaugeManager;
         emit GaugeManagerSet(_gaugeManager);
     }
 
-    /// @notice Stake a vaulted position in its gauge
-    /// @param tokenId Position to stake
-    /// @dev Only the depositor can stake their position
+    /// @notice Stake position in gauge
     function stakePosition(uint256 tokenId) external {
         if (gaugeManager == address(0)) revert GaugeManagerNotSet();
         if (ownerOf(tokenId) != msg.sender) revert NotDepositor();
         
-        // Approve gauge manager to take the NFT
         nonfungiblePositionManager.approve(gaugeManager, tokenId);
-        
-        // Stake it (gauge manager will pull it)
         IGaugeManager(gaugeManager).stakePosition(tokenId);
         
         emit PositionStaked(tokenId, msg.sender);
     }
 
-    /// @notice Unstake a position from its gauge
-    /// @param tokenId Position to unstake
-    /// @dev Can be called by depositor or during liquidation
+    /// @notice Unstake position  
     function unstakePosition(uint256 tokenId) external {
         if (gaugeManager == address(0)) revert GaugeManagerNotSet();
-        
-        // Allow unstaking by depositor OR by vault during liquidation
         if (ownerOf(tokenId) != msg.sender && transformedTokenId != tokenId) revert Unauthorized();
         
-        // Unstake from gauge (returns NFT to vault)
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
-        
         emit PositionUnstaked(tokenId, msg.sender);
     }
 
 
 
-    /// @notice Emergency unstake function for liquidations
-    /// @dev Internal function called during liquidation process
+    /// @notice Emergency unstake for liquidations
     function _unstakeForLiquidation(uint256 tokenId) internal {
-        if (gaugeManager != address(0)) {
-            // Check if position is staked
-            if (IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
-                // Unstake it for liquidation
-                IGaugeManager(gaugeManager).unstakePosition(tokenId);
-            }
+        if (gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
+            IGaugeManager(gaugeManager).unstakePosition(tokenId);
         }
     }
 
-    // Events for gauge operations
     event GaugeManagerSet(address indexed gaugeManager);
     event PositionStaked(uint256 indexed tokenId, address indexed depositor);
     event PositionUnstaked(uint256 indexed tokenId, address indexed caller);

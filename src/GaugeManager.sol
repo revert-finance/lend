@@ -25,9 +25,14 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
     event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+    event V3UtilsSet(address indexed v3Utils);
+    event PositionMigratedToVault(uint256 indexed tokenId, address indexed owner);
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
+    
+    // V3Utils for position management operations
+    address public v3Utils;
 
     // Core mappings
     mapping(address => address) public poolToGauge;
@@ -61,6 +66,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @notice Set operator approval
     function setOperator(address operator, bool approved) external {
         operators[msg.sender][operator] = approved;
+    }
+
+    /// @notice Set V3Utils contract address
+    function setV3Utils(address _v3Utils) external onlyOwner {
+        v3Utils = _v3Utils;
+        emit V3UtilsSet(_v3Utils);
     }
 
     /// @notice Stake a position (works for both vault and direct)
@@ -263,7 +274,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
     /// @notice Execute V3Utils operation on staked position with optional AERO compounding
     /// @param tokenId The staked position to operate on
-    /// @param v3utils The V3Utils contract address
     /// @param instructions V3Utils instructions
     /// @param shouldCompound Whether to compound AERO rewards before restaking
     /// @param aeroSwapData0 Swap data for AERO->token0 if compounding
@@ -273,7 +283,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @param aeroSplitBps Basis points of AERO to swap to token0 (rest goes to token1)
     function executeV3UtilsWithOptionalCompound(
         uint256 tokenId,
-        address v3utils,
         IV3Utils.Instructions memory instructions,
         bool shouldCompound,
         bytes memory aeroSwapData0,
@@ -282,6 +291,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 minAeroAmount1,
         uint256 aeroSplitBps
     ) public nonReentrant returns (uint256 newTokenId) {
+        require(v3Utils != address(0), "V3Utils not configured");
+        
         // Check authorization
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];
@@ -304,8 +315,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IGauge(gauge).withdraw(tokenId);
 
         // 3. Execute V3Utils operation
-        nonfungiblePositionManager.approve(v3utils, tokenId);
-        newTokenId = IV3Utils(v3utils).execute(tokenId, instructions);
+        nonfungiblePositionManager.approve(v3Utils, tokenId);
+        newTokenId = IV3Utils(v3Utils).execute(tokenId, instructions);
 
         // Determine which tokenId to work with going forward
         uint256 tokenToStake = newTokenId != 0 ? newTokenId : tokenId;
@@ -426,7 +437,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
     /// @notice Simplified function to change range on a staked position
     /// @param tokenId The staked position to change range for
-    /// @param v3utils The V3Utils contract address
     /// @param newFee New pool fee tier
     /// @param newTickLower New lower tick
     /// @param newTickUpper New upper tick
@@ -439,7 +449,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @param shouldCompound Whether to compound AERO rewards
     function executeChangeRange(
         uint256 tokenId,
-        address v3utils,
         uint24 newFee,
         int24 newTickLower,
         int24 newTickUpper,
@@ -486,7 +495,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Execute with no compounding data if not requested
         return executeV3UtilsWithOptionalCompound(
             tokenId,
-            v3utils,
             instructions,
             shouldCompound,
             "", // aeroSwapData0
@@ -499,13 +507,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
     /// @notice Add liquidity to a staked position with optional token swaps
     /// @param tokenId The staked position to add liquidity to
-    /// @param v3utils The V3Utils contract address
     /// @param params Parameters for V3Utils.swapAndIncreaseLiquidity
     function swapAndIncreaseStakedPosition(
         uint256 tokenId,
-        address v3utils,
         IV3Utils.SwapAndIncreaseLiquidityParams calldata params
     ) external payable nonReentrant returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
+        require(v3Utils != address(0), "V3Utils not configured");
+        
         // Check authorization
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];
@@ -538,19 +546,19 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         
         // Approve V3Utils
         if (params.amount0 > 0) {
-            IERC20(token0).safeApprove(v3utils, 0);
-            IERC20(token0).safeIncreaseAllowance(v3utils, params.amount0);
+            IERC20(token0).safeApprove(v3Utils, 0);
+            IERC20(token0).safeIncreaseAllowance(v3Utils, params.amount0);
         }
         if (params.amount1 > 0) {
-            IERC20(token1).safeApprove(v3utils, 0);
-            IERC20(token1).safeIncreaseAllowance(v3utils, params.amount1);
+            IERC20(token1).safeApprove(v3Utils, 0);
+            IERC20(token1).safeIncreaseAllowance(v3Utils, params.amount1);
         }
         
         // Unstake position
         IGauge(gauge).withdraw(tokenId);
         
         // Call V3Utils.swapAndIncreaseLiquidity
-        (liquidity, amount0, amount1) = IV3Utils(v3utils).swapAndIncreaseLiquidity(params);
+        (liquidity, amount0, amount1) = IV3Utils(v3Utils).swapAndIncreaseLiquidity(params);
         
         // Restake position
         nonfungiblePositionManager.approve(gauge, tokenId);
@@ -570,6 +578,50 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         emit SwapAndIncreaseLiquidity(tokenId, liquidity, amount0, amount1);
         
         return (liquidity, amount0, amount1);
+    }
+
+    /// @notice Migrate a staked position to the vault for collateralized borrowing
+    /// @param tokenId The staked position to migrate
+    /// @param recipient The recipient address in the vault (usually msg.sender)
+    /// @dev This unstakes the position and deposits it into the vault in one transaction
+    function migrateToVault(uint256 tokenId, address recipient) external nonReentrant {
+        address owner = positionOwners[tokenId];
+        require(owner == msg.sender, "Not position owner");
+        require(!isVaultPosition[tokenId], "Already a vault position");
+        
+        address gauge = tokenIdToGauge[tokenId];
+        require(gauge != address(0), "Not staked");
+        
+        // Claim final rewards and send to owner
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
+        IGauge(gauge).getReward(tokenId);
+        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        
+        if (aeroAmount > 0) {
+            aeroToken.safeTransfer(owner, aeroAmount);
+        }
+        
+        // Unstake from gauge
+        IGauge(gauge).withdraw(tokenId);
+        
+        // Approve vault to take the NFT
+        nonfungiblePositionManager.approve(address(vault), tokenId);
+        
+        // Transfer to vault using safeTransferFrom with recipient encoded
+        nonfungiblePositionManager.safeTransferFrom(
+            address(this), 
+            address(vault), 
+            tokenId, 
+            abi.encode(recipient)
+        );
+        
+        // Clean up mappings
+        delete tokenIdToGauge[tokenId];
+        delete positionOwners[tokenId];
+        delete isVaultPosition[tokenId];
+        
+        emit PositionUnstaked(tokenId, owner);
+        emit PositionMigratedToVault(tokenId, owner);
     }
 
     function onERC721Received(address, address, uint256, bytes calldata) 

@@ -6,9 +6,9 @@ import "../src/GaugeManager.sol";
 import "../src/V3Vault.sol";
 
 contract ConfigureGauges is Script {
-    // Deployed contract addresses (Latest deployment: 2025-08-22)
-    address constant GAUGE_MANAGER = 0x75E77D54A14d5336827D5F2FfF4534F377d54025;
-    address constant VAULT = 0x64BE8d0948b25C51Ad0a0DeF3E237010FB1E7088;
+    // Deployed contract addresses (Latest deployment: 2025-08-26)
+    address constant GAUGE_MANAGER = 0x7a5D83f557f75aeed350872d052Ccd7e43E7f471;
+    address constant VAULT = 0xDff54FD62bFD681E707CCE95579447721E994054;
     
     // Pool addresses
     address constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;
@@ -75,7 +75,11 @@ contract ConfigureGauges is Script {
         }
         
         console.log("\nConfiguration complete!");
-        console.log("Users can now stake positions in configured gauges.");
+        console.log("Users can now:");
+        console.log("- Stake positions in configured gauges");
+        console.log("- Migrate staked positions to vault for borrowing");
+        console.log("- Add liquidity to staked positions");
+        console.log("- Compound AERO rewards automatically");
     }
     
     // Helper function to find gauge addresses (call this off-chain)

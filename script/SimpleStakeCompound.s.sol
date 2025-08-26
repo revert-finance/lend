@@ -145,8 +145,8 @@ interface IERC20 {
 }
 
 contract SimpleStakeCompound is Script {
-    // Deployed contracts on Base (Latest deployment: 2025-08-19)
-    address constant GAUGE_MANAGER = 0x75E77D54A14d5336827D5F2FfF4534F377d54025;
+    // Deployed contracts on Base (Latest deployment: 2025-08-26)
+    address constant GAUGE_MANAGER = 0x7a5D83f557f75aeed350872d052Ccd7e43E7f471;
     address constant NPM = 0x827922686190790b37229fd06084350E74485b72;
     address constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     address constant AERODROME_FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;

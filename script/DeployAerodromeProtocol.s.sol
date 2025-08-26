@@ -99,6 +99,11 @@ contract DeployAerodromeProtocol is Script {
         );
         console.log("   GaugeManager deployed:", address(gaugeManager));
         console.log("   - Includes swapAndIncreaseStakedPosition for deposits to staked positions");
+        console.log("   - Includes migrateToVault for seamless migration from staking to borrowing");
+        
+        // Configure V3Utils in GaugeManager
+        gaugeManager.setV3Utils(V3_UTILS);
+        console.log("   - V3Utils configured in GaugeManager");
         
         // 5. Deploy LeverageTransformer
         console.log("\n5. Deploying LeverageTransformer...");
@@ -196,6 +201,8 @@ contract DeployAerodromeProtocol is Script {
         console.log("3. Configure collateral factors for each token");
         console.log("4. Transfer ownership to multi-sig");
         console.log("5. Set emergency admin");
+        console.log("\nNote: V3Utils is already configured in GaugeManager");
+        console.log("If you need to update it later, use SetV3Utils.s.sol");
         console.log("\nTo find gauge addresses:");
         console.log("- Check Aerodrome UI for each pool");
         console.log("- Or call: GaugeFactory.gauges(poolAddress)");
