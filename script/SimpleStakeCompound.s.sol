@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
-import "../src/interfaces/IV3Utils.sol";
+import "../src/transformers/V3Utils.sol";
 
 interface IGaugeManager {
     function stakePosition(uint256 tokenId) external;
@@ -38,7 +38,7 @@ interface IGaugeManager {
     function executeV3UtilsWithOptionalCompound(
         uint256 tokenId,
         address v3utils,
-        IV3Utils.Instructions memory instructions,
+        V3Utils.Instructions memory instructions,
         bool shouldCompound,
         bytes memory aeroSwapData0,
         bytes memory aeroSwapData1,
@@ -50,7 +50,7 @@ interface IGaugeManager {
     function swapAndIncreaseStakedPosition(
         uint256 tokenId,
         address v3utils,
-        IV3Utils.SwapAndIncreaseLiquidityParams calldata params
+        V3Utils.SwapAndIncreaseLiquidityParams calldata params
     ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
 }
 
@@ -138,19 +138,13 @@ interface IWETH {
     function deposit() external payable;
 }
 
-interface IERC20 {
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-}
-
 contract SimpleStakeCompound is Script {
-    // Deployed contracts on Base (Latest deployment: 2025-08-26)
-    address constant GAUGE_MANAGER = 0x7a5D83f557f75aeed350872d052Ccd7e43E7f471;
+    // Deployed contracts on Base (Latest deployment: 2025-08-28)
+    address constant GAUGE_MANAGER = 0x16fec3e95F9ed515c5971C01fF9008366aB84338;
     address constant NPM = 0x827922686190790b37229fd06084350E74485b72;
     address constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     address constant AERODROME_FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;
-    address constant V3_UTILS = 0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1;
+    address payable constant V3_UTILS = payable(0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1);
     
     // Token addresses
     address constant WETH = 0x4200000000000000000000000000000000000006;
@@ -450,8 +444,8 @@ contract SimpleStakeCompound is Script {
         }
         
         // Build V3Utils instructions for CHANGE_RANGE
-        IV3Utils.Instructions memory instructions = IV3Utils.Instructions({
-            whatToDo: IV3Utils.WhatToDo.CHANGE_RANGE,
+        V3Utils.Instructions memory instructions = V3Utils.Instructions({
+            whatToDo: V3Utils.WhatToDo.CHANGE_RANGE,
             targetToken: address(0), // No rebalancing
             amountRemoveMin0: 0,
             amountRemoveMin1: 0,
@@ -559,8 +553,8 @@ contract SimpleStakeCompound is Script {
         }
         
         // Build V3Utils instructions for CHANGE_RANGE
-        IV3Utils.Instructions memory instructions = IV3Utils.Instructions({
-            whatToDo: IV3Utils.WhatToDo.CHANGE_RANGE,
+        V3Utils.Instructions memory instructions = V3Utils.Instructions({
+            whatToDo: V3Utils.WhatToDo.CHANGE_RANGE,
             targetToken: targetToken,
             amountRemoveMin0: 0,
             amountRemoveMin1: 0,

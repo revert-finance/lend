@@ -11,7 +11,7 @@ import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./interfaces/IVault.sol";
-import "./interfaces/IV3Utils.sol";
+import "./transformers/V3Utils.sol";
 import "./utils/Constants.sol";
 import "./utils/Swapper.sol";
 
@@ -32,7 +32,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     IVault public immutable vault;
     
     // V3Utils for position management operations
-    address public v3Utils;
+    address payable public v3Utils;
 
     // Core mappings
     mapping(address => address) public poolToGauge;
@@ -69,7 +69,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     }
 
     /// @notice Set V3Utils contract address
-    function setV3Utils(address _v3Utils) external onlyOwner {
+    function setV3Utils(address payable _v3Utils) external onlyOwner {
         v3Utils = _v3Utils;
         emit V3UtilsSet(_v3Utils);
     }
@@ -283,7 +283,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @param aeroSplitBps Basis points of AERO to swap to token0 (rest goes to token1)
     function executeV3UtilsWithOptionalCompound(
         uint256 tokenId,
-        IV3Utils.Instructions memory instructions,
+        V3Utils.Instructions memory instructions,
         bool shouldCompound,
         bytes memory aeroSwapData0,
         bytes memory aeroSwapData1,
@@ -316,7 +316,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
         // 3. Execute V3Utils operation
         nonfungiblePositionManager.approve(v3Utils, tokenId);
-        newTokenId = IV3Utils(v3Utils).execute(tokenId, instructions);
+        newTokenId = V3Utils(v3Utils).execute(tokenId, instructions);
 
         // Determine which tokenId to work with going forward
         uint256 tokenToStake = newTokenId != 0 ? newTokenId : tokenId;
@@ -325,6 +325,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         if (shouldCompound && aeroAmount > 0) {
             _compoundIntoPosition(
                 tokenToStake,
+                owner,
                 aeroAmount,
                 aeroSwapData0,
                 aeroSwapData1,
@@ -362,6 +363,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @notice Internal function to compound AERO into a position
     function _compoundIntoPosition(
         uint256 tokenId,
+        address owner,
         uint256 aeroAmount,
         bytes memory swapData0,
         bytes memory swapData1,
@@ -421,7 +423,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             );
 
         // Return leftover tokens to position owner
-        address owner = positionOwners[tokenId];
         uint256 leftover0 = amount0 - amount0Added;
         uint256 leftover1 = amount1 - amount1Added;
         
@@ -465,8 +466,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             nonfungiblePositionManager.positions(tokenId);
         
         // Build V3Utils instructions for CHANGE_RANGE
-        IV3Utils.Instructions memory instructions = IV3Utils.Instructions({
-            whatToDo: IV3Utils.WhatToDo.CHANGE_RANGE,
+        V3Utils.Instructions memory instructions = V3Utils.Instructions({
+            whatToDo: V3Utils.WhatToDo.CHANGE_RANGE,
             targetToken: targetToken,
             amountRemoveMin0: 0,
             amountRemoveMin1: 0,
@@ -510,7 +511,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @param params Parameters for V3Utils.swapAndIncreaseLiquidity
     function swapAndIncreaseStakedPosition(
         uint256 tokenId,
-        IV3Utils.SwapAndIncreaseLiquidityParams calldata params
+        V3Utils.SwapAndIncreaseLiquidityParams calldata params
     ) external payable nonReentrant returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         require(v3Utils != address(0), "V3Utils not configured");
         
@@ -558,7 +559,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IGauge(gauge).withdraw(tokenId);
         
         // Call V3Utils.swapAndIncreaseLiquidity
-        (liquidity, amount0, amount1) = IV3Utils(v3Utils).swapAndIncreaseLiquidity(params);
+        (liquidity, amount0, amount1) = V3Utils(v3Utils).swapAndIncreaseLiquidity(params);
         
         // Restake position
         nonfungiblePositionManager.approve(gauge, tokenId);

@@ -4,13 +4,13 @@
 
 | Contract | Address | Basescan |
 |----------|---------|----------|
-| **V3Vault** | `0x64BE8d0948b25C51Ad0a0DeF3E237010FB1E7088` | [View](https://basescan.org/address/0x64BE8d0948b25C51Ad0a0DeF3E237010FB1E7088) |
-| **V3Oracle** | `0xC27D159513c951E6e9713Cc916FD6b783bE85521` | [View](https://basescan.org/address/0xC27D159513c951E6e9713Cc916FD6b783bE85521) |
-| **GaugeManager** | `0x75E77D54A14d5336827D5F2FfF4534F377d54025` | [View](https://basescan.org/address/0x75E77D54A14d5336827D5F2FfF4534F377d54025) |
-| **LeverageTransformer** | `0x15c1f75DfeC62d8Dc1D2201C65Eb5851220dd5d6` | [View](https://basescan.org/address/0x15c1f75DfeC62d8Dc1D2201C65Eb5851220dd5d6) |
-| **InterestRateModel** | `0x09E49a044b6141AD21d9C58630fecEEeCAbCB41f` | [View](https://basescan.org/address/0x09E49a044b6141AD21d9C58630fecEEeCAbCB41f) |
+| **V3Vault** | `0x1625d8EC0eFf80cbCCA49cd465AE11a2b318971f` | [View](https://basescan.org/address/0x1625d8EC0eFf80cbCCA49cd465AE11a2b318971f) |
+| **V3Oracle** | `0x52fE739898c7ad9f4dF4EFA00a42B334eB810e5C` | [View](https://basescan.org/address/0x52fE739898c7ad9f4dF4EFA00a42B334eB810e5C) |
+| **GaugeManager** | `0x16fec3e95F9ed515c5971C01fF9008366aB84338` | [View](https://basescan.org/address/0x16fec3e95F9ed515c5971C01fF9008366aB84338) |
+| **LeverageTransformer** | `0x082DE29892C23abEeBc76496Eb1A41201F8b95a4` | [View](https://basescan.org/address/0x082DE29892C23abEeBc76496Eb1A41201F8b95a4) |
+| **InterestRateModel** | `0x7FcEF7EA3D81661517344cD3F8ea5867484B052c` | [View](https://basescan.org/address/0x7FcEF7EA3D81661517344cD3F8ea5867484B052c) |
 | **V3Utils** (existing) | `0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1` | [View](https://basescan.org/address/0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1) |
-| **Note**: Latest deployment on 2025-08-22 with GaugeManager's new `swapAndIncreaseStakedPosition` function |
+| **Note**: Latest deployment on 2025-08-28 with updated contract addresses |
 
 ## Protocol Overview
 
@@ -412,7 +412,7 @@ forge script script/SimpleStakeCompound.s.sol:SimpleStakeCompound \
 ## Contact & Support
 
 - **Deployer**: `0x3895e33b91f19B279D30B1436640c87E300D2DAc`
-- **Block Deployed**: Latest deployment on 2025-08-22
+- **Block Deployed**: Latest deployment on 2025-08-28
 - **Chain**: Base Mainnet (Chain ID: 8453)
 - **Note**: Compounding functionality is now integrated directly into GaugeManager
 

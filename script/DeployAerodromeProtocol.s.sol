@@ -23,7 +23,7 @@ contract DeployAerodromeProtocol is Script {
     address constant CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
     address constant AERO = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
     
-    address constant V3_UTILS = 0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1;
+    address payable constant V3_UTILS = payable(0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1);
     address constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     address constant ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
     address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
