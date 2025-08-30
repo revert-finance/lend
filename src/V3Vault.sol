@@ -442,6 +442,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
 
+        // Track if position was staked before transformation
+        bool wasStaked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
+        
         // Unstake position if it's in a gauge (for liquidations/transformations)
         _unstakeForLiquidation(tokenId);
 
@@ -469,6 +472,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         _requireLoanIsHealthy(newTokenId, debt, false);
 
         transformedTokenId = 0;
+        
+        // Re-stake the position if it was previously staked
+        if (wasStaked && gaugeManager != address(0)) {
+            nonfungiblePositionManager.approve(gaugeManager, newTokenId);
+            IGaugeManager(gaugeManager).stakePosition(newTokenId);
+            emit PositionStaked(newTokenId, loanOwner);
+        }
     }
 
     function borrow(uint256 tokenId, uint256 assets) external override {

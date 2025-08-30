@@ -8,10 +8,13 @@ import "../../../src/utils/Constants.sol";
 
 contract AutoCompoundTest is AutomatorIntegrationTestBase {
     AutoCompound autoCompound;
+    
+    // Mock AERO token address (using a random address for testing)
+    address constant AERO_TOKEN = address(0x940181a94A35A4569E4529A3CDfB74e38FD98631);
 
     function setUp() external {
         _setupBase();
-        autoCompound = new AutoCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100);
+        autoCompound = new AutoCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, AERO_TOKEN);
     }
 
     function testNoAccess() external {

@@ -27,6 +27,9 @@ interface IGaugeManager {
     // Operator management
     function setOperator(address operator, bool approved) external;
     
+    // Transform function for AutoRange integration
+    function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256 newTokenId);
+    
     // View functions
     function positionOwners(uint256 tokenId) external view returns (address);
     function isVaultPosition(uint256 tokenId) external view returns (bool);
@@ -36,4 +39,5 @@ interface IGaugeManager {
     
     // Admin functions
     function setGauge(address pool, address gauge) external;
+    function setTransformer(address transformer, bool active) external;
 }

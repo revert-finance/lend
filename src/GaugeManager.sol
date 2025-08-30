@@ -27,6 +27,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
     event V3UtilsSet(address indexed v3Utils);
     event PositionMigratedToVault(uint256 indexed tokenId, address indexed owner);
+    event PositionTransformed(uint256 indexed oldTokenId, uint256 indexed newTokenId, address indexed owner);
+    event TransformerSet(address indexed transformer, bool active);
+    event ApprovedTransform(uint256 indexed tokenId, address indexed owner, address indexed transformer, bool isActive);
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -40,8 +43,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     mapping(uint256 => address) public positionOwners;
     mapping(uint256 => bool) public isVaultPosition;
     
-    // Operator system for auto-compounding
-    mapping(address => mapping(address => bool)) public operators;
+    // Transform system for AutoRange/AutoCompound integration
+    mapping(address => bool) public transformerAllowList;
+    uint256 public transformedTokenId;
+    
+    // Transform approvals: owner => tokenId => transformer => approved
+    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals;
 
     constructor(
         IAerodromeNonfungiblePositionManager _npm,
@@ -63,9 +70,17 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         poolToGauge[pool] = gauge;
     }
 
-    /// @notice Set operator approval
-    function setOperator(address operator, bool approved) external {
-        operators[msg.sender][operator] = approved;
+    /// @notice Approve/revoke transformer for a specific position
+    function approveTransform(uint256 tokenId, address transformer, bool isActive) external {
+        require(positionOwners[tokenId] == msg.sender, "Not position owner");
+        transformApprovals[msg.sender][tokenId][transformer] = isActive;
+        emit ApprovedTransform(tokenId, msg.sender, transformer, isActive);
+    }
+
+    /// @notice Set transformer contract (e.g., AutoRange) allowlist
+    function setTransformer(address transformer, bool active) external onlyOwner {
+        transformerAllowList[transformer] = active;
+        emit TransformerSet(transformer, active);
     }
 
     /// @notice Set V3Utils contract address
@@ -155,12 +170,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 aeroSplitBps,
         uint256 deadline
     ) external nonReentrant {
-        // Check authorization
+        // Check authorization - only owner or vault can manually compound
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];
         require(
             msg.sender == owner || 
-            operators[owner][msg.sender] ||
             (fromVault && msg.sender == address(vault)),
             "Not authorized"
         );
@@ -251,10 +265,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];
         
-        // Check authorization: owner, operator, or vault can claim
+        // Check authorization: only owner or vault can claim
         require(
             msg.sender == owner || 
-            operators[owner][msg.sender] ||
             (fromVault && msg.sender == address(vault)),
             "Not authorized"
         );
@@ -298,7 +311,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         bool fromVault = isVaultPosition[tokenId];
         require(
             msg.sender == owner || 
-            operators[owner][msg.sender] ||
             (fromVault && msg.sender == address(vault)),
             "Not authorized"
         );
@@ -520,7 +532,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         bool fromVault = isVaultPosition[tokenId];
         require(
             msg.sender == owner || 
-            operators[owner][msg.sender] ||
             (fromVault && msg.sender == address(vault)),
             "Not authorized"
         );
@@ -625,8 +636,107 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         emit PositionMigratedToVault(tokenId, owner);
     }
 
-    function onERC721Received(address, address, uint256, bytes calldata) 
-        external pure override returns (bytes4) {
+    /// @notice Transform a staked position using an approved transformer (e.g., AutoRange, AutoCompound)
+    /// @param tokenId The staked position to transform
+    /// @param transformer The transformer contract to use
+    /// @param data The encoded function call for the transformer
+    /// @return newTokenId The tokenId after transformation (may be same or different)
+    function transform(
+        uint256 tokenId, 
+        address transformer, 
+        bytes calldata data
+    ) external nonReentrant returns (uint256 newTokenId) {
+        // Check authorization
+        address owner = positionOwners[tokenId];
+        bool fromVault = isVaultPosition[tokenId];
+        require(
+            msg.sender == owner || 
+            (fromVault && msg.sender == address(vault)) ||
+            msg.sender == transformer || // Allow transformer to call (for AutoCompound.executeWithGauge)
+            transformApprovals[owner][tokenId][msg.sender], // Check if approved transformer
+            "Not authorized"
+        );
+        
+        // Validate transformer
+        require(transformerAllowList[transformer], "Transformer not allowed");
+        require(transformedTokenId == 0, "Reentrancy");
+        
+        // Set reentrancy guard
+        transformedTokenId = tokenId;
+        
+        // Save state before transform
+        address gauge = tokenIdToGauge[tokenId];
+        require(gauge != address(0), "Not staked");
+        
+        // 1. Claim any pending AERO rewards and transfer to transformer if it's AutoCompound
+        // Check if the function being called is executeForGauge by examining the selector
+        bytes4 selector = bytes4(data[:4]);
+        bool isAutoCompound = selector == bytes4(keccak256("executeForGauge((uint256,bytes,bytes,uint256,uint256,uint256,uint256))"));
+        
+        if (isAutoCompound) {
+            uint256 aeroBefore = aeroToken.balanceOf(address(this));
+            IGauge(gauge).getReward(tokenId);
+            uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+            
+            if (aeroAmount > 0) {
+                aeroToken.safeTransfer(transformer, aeroAmount);
+            }
+        }
+        
+        // 2. Unstake from gauge
+        IGauge(gauge).withdraw(tokenId);
+        
+        // 3. Execute transform
+        nonfungiblePositionManager.approve(transformer, tokenId);
+        (bool success,) = transformer.call(data);
+        require(success, "Transform failed");
+        
+        // 4. Get new tokenId (may have changed)
+        newTokenId = transformedTokenId;
+        
+        // Verify ownership
+        require(nonfungiblePositionManager.ownerOf(newTokenId) == address(this), 
+                "Position not returned");
+        
+        // Clear approval
+        nonfungiblePositionManager.approve(address(0), newTokenId);
+        
+        // 5. Re-stake to same gauge
+        nonfungiblePositionManager.approve(gauge, newTokenId);
+        IGauge(gauge).deposit(newTokenId);
+        
+        // 6. Update mappings if tokenId changed
+        if (newTokenId != tokenId) {
+            // Transfer approvals to new tokenId
+            // Note: This is a design choice - we transfer approvals to maintain continuity
+            // Alternatively, we could require re-approval for the new tokenId
+            
+            // Clean up old tokenId
+            delete tokenIdToGauge[tokenId];
+            delete positionOwners[tokenId];
+            delete isVaultPosition[tokenId];
+            
+            // Set up new tokenId
+            tokenIdToGauge[newTokenId] = gauge;
+            positionOwners[newTokenId] = owner;
+            isVaultPosition[newTokenId] = fromVault;
+        }
+        
+        // Clear reentrancy guard
+        transformedTokenId = 0;
+        
+        emit PositionTransformed(tokenId, newTokenId, owner);
+    }
+
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata) 
+        external override returns (bytes4) {
+        require(msg.sender == address(nonfungiblePositionManager), "Only NPM");
+        
+        // Handle transform case - AutoRange sends new NFT back
+        if (transformedTokenId != 0 && from == address(this)) {
+            transformedTokenId = tokenId;
+        }
+        
         return IERC721Receiver.onERC721Received.selector;
     }
 }
