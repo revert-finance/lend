@@ -477,7 +477,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (wasStaked && gaugeManager != address(0)) {
             nonfungiblePositionManager.approve(gaugeManager, newTokenId);
             IGaugeManager(gaugeManager).stakePosition(newTokenId);
-            emit PositionStaked(newTokenId, loanOwner);
         }
     }
 
@@ -1248,8 +1247,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         
         nonfungiblePositionManager.approve(gaugeManager, tokenId);
         IGaugeManager(gaugeManager).stakePosition(tokenId);
-        
-        emit PositionStaked(tokenId, msg.sender);
     }
 
     /// @notice Unstake position  
@@ -1258,7 +1255,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (ownerOf(tokenId) != msg.sender && transformedTokenId != tokenId) revert Unauthorized();
         
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
-        emit PositionUnstaked(tokenId, msg.sender);
     }
 
 
@@ -1271,7 +1267,5 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     event GaugeManagerSet(address indexed gaugeManager);
-    event PositionStaked(uint256 indexed tokenId, address indexed depositor);
-    event PositionUnstaked(uint256 indexed tokenId, address indexed caller);
 
 }
