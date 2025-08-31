@@ -63,4 +63,13 @@ abstract contract Constants {
     error NotEnoughReward();
     error SameRange();
     error NotSupportedFeeTier();
+
+    // Aerodrome-specific errors
+    error InvalidTickSpacing();
+    error GaugeNotSet();
+    error AlreadyStaked();
+    error NotStaked();
+    error RewardClaimFailed();
+    error GaugeManagerNotSet();
+    error NotDepositor();
 }
