@@ -63,15 +63,18 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         address _withdrawer,
         uint32 _TWAPSeconds,
         uint16 _maxTWAPTickDifference,
-        address _aeroToken
+        address _aeroToken,
+        address _feeWithdrawer
     ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, address(0), address(0)) {
         aeroToken = IERC20(_aeroToken);
+        feeWithdrawer = _feeWithdrawer;
     }
 
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
 
-    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
-    uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
+    uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
+    uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
+    address public feeWithdrawer; // Can withdraw accumulated fees
     
     /// @notice params for executeForGauge()
     struct ExecuteGaugeParams {
@@ -215,16 +218,16 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                     )
                 );
 
-                // fees are always calculated based on added amount (to incentivize optimal swap)
-                state.amount0Fees = state.compounded0 * rewardX64 / Q64;
-                state.amount1Fees = state.compounded1 * rewardX64 / Q64;
+                // Protocol fees are the amount reserved (not added as liquidity)
+                state.amount0Fees = state.amount0 - state.maxAddAmount0;
+                state.amount1Fees = state.amount1 - state.maxAddAmount1;
             }
 
-            // calculate remaining tokens for owner
-            _setBalance(params.tokenId, state.token0, state.amount0 - state.compounded0 - state.amount0Fees);
-            _setBalance(params.tokenId, state.token1, state.amount1 - state.compounded1 - state.amount1Fees);
+            // Leftover for owner is only the slippage (difference between max and actual)
+            _setBalance(params.tokenId, state.token0, state.maxAddAmount0 - state.compounded0);
+            _setBalance(params.tokenId, state.token1, state.maxAddAmount1 - state.compounded1);
 
-            // add reward to protocol balance (token 0)
+            // add fees to protocol balance
             _increaseBalance(0, state.token0, state.amount0Fees);
             _increaseBalance(0, state.token1, state.amount1Fees);
         }
@@ -335,16 +338,16 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                 )
             );
             
-            // fees are always calculated based on added amount
-            state.amount0Fees = state.compounded0 * rewardX64 / Q64;
-            state.amount1Fees = state.compounded1 * rewardX64 / Q64;
+            // Protocol fees are the amount reserved (not added as liquidity)
+            state.amount0Fees = state.amount0 - state.maxAddAmount0;
+            state.amount1Fees = state.amount1 - state.maxAddAmount1;
         }
         
-        // calculate remaining tokens for owner
-        _setBalance(params.tokenId, state.token0, state.amount0 - state.compounded0 - state.amount0Fees);
-        _setBalance(params.tokenId, state.token1, state.amount1 - state.compounded1 - state.amount1Fees);
+        // Leftover for owner is only the slippage (difference between max and actual)
+        _setBalance(params.tokenId, state.token0, state.maxAddAmount0 - state.compounded0);
+        _setBalance(params.tokenId, state.token1, state.maxAddAmount1 - state.compounded1);
         
-        // add reward to protocol balance
+        // add fees to protocol balance
         _increaseBalance(0, state.token0, state.amount0Fees);
         _increaseBalance(0, state.token1, state.amount1Fees);
         
@@ -413,13 +416,11 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     }
 
     /**
-     * @notice Management method to lower reward(onlyOwner)
-     * @param _totalRewardX64 new total reward (can't be higher than current total reward)
+     * @notice Management method to set reward fee (onlyOwner)
+     * @param _totalRewardX64 new total reward (max 5%)
      */
     function setReward(uint64 _totalRewardX64) external onlyOwner {
-        if (_totalRewardX64 > totalRewardX64) {
-            revert InvalidConfig();
-        }
+        require(_totalRewardX64 <= MAX_REWARD_X64, "Fee too high");
         totalRewardX64 = _totalRewardX64;
         emit RewardUpdated(msg.sender, _totalRewardX64);
     }
@@ -433,6 +434,35 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         gaugeManagers[gaugeManager] = active;
         emit GaugeManagerSet(gaugeManager, active);
     }
+    
+    /**
+     * @notice Set fee withdrawer address (onlyOwner)
+     * @param _feeWithdrawer Address that can withdraw fees
+     */
+    function setFeeWithdrawer(address _feeWithdrawer) external onlyOwner {
+        feeWithdrawer = _feeWithdrawer;
+        emit FeeWithdrawerUpdated(_feeWithdrawer);
+    }
+    
+    /**
+     * @notice Withdraw accumulated fees from compounding
+     * @param tokens Array of token addresses to withdraw
+     * @param to Recipient address
+     */
+    function withdrawFees(address[] calldata tokens, address to) external nonReentrant {
+        require(msg.sender == feeWithdrawer, "Not fee withdrawer");
+        for (uint i = 0; i < tokens.length; i++) {
+            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            if (balance > 0) {
+                SafeERC20.safeTransfer(IERC20(tokens[i]), to, balance);
+                emit FeesWithdrawn(tokens[i], to, balance);
+            }
+        }
+    }
+    
+    // Events for fee management
+    event FeeWithdrawerUpdated(address withdrawer);
+    event FeesWithdrawn(address token, address to, uint256 amount);
 
     function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
         positionBalances[tokenId][token] += amount;

@@ -36,6 +36,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     
     // V3Utils for position management operations
     address payable public v3Utils;
+    
+    // Compound fee configuration
+    uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
+    uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
+    address public feeWithdrawer; // Can withdraw accumulated fees
 
     // Core mappings
     mapping(address => address) public poolToGauge;
@@ -55,7 +60,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IERC20 _aeroToken,
         IVault _vault,
         address _universalRouter,
-        address _zeroxAllowanceHolder
+        address _zeroxAllowanceHolder,
+        address _feeWithdrawer
     ) Swapper(
         INonfungiblePositionManager(address(_npm)),
         _universalRouter,
@@ -63,6 +69,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     ) Ownable2Step() {
         aeroToken = _aeroToken;
         vault = _vault;
+        feeWithdrawer = _feeWithdrawer;
     }
 
     /// @notice Set gauge for a pool
@@ -221,21 +228,26 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             );
         }
 
-        // 4. Temporarily unstake to add liquidity
+        // 4. Apply compound fees (same logic as AutoCompound)
+        uint256 rewardX64 = totalRewardX64;
+        uint256 maxAddAmount0 = amount0 * Q64 / (rewardX64 + Q64);
+        uint256 maxAddAmount1 = amount1 * Q64 / (rewardX64 + Q64);
+
+        // 5. Temporarily unstake to add liquidity
         IGauge(gauge).withdraw(tokenId);
 
-        // 5. Add liquidity
+        // 6. Add liquidity (fees implicitly stay in contract)
         IERC20(token0).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), amount0);
+        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount0);
         IERC20(token1).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), amount1);
+        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount1);
         
         (uint128 liquidity, uint256 amount0Added, uint256 amount1Added) = 
             nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
-                    amount0,
-                    amount1,
+                    maxAddAmount0,
+                    maxAddAmount1,
                     0,
                     0,
                     deadline
@@ -246,9 +258,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
 
-        // 7. Return leftover tokens to position owner
-        uint256 leftover0 = amount0 - amount0Added;
-        uint256 leftover1 = amount1 - amount1Added;
+        // 7. Return only slippage to position owner (fees stay in contract)
+        uint256 leftover0 = maxAddAmount0 - amount0Added;
+        uint256 leftover1 = maxAddAmount1 - amount1Added;
         
         if (leftover0 > 0) {
             IERC20(token0).safeTransfer(owner, leftover0);
@@ -416,27 +428,32 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             );
         }
 
-        // Add liquidity
+        // Apply fees
+        uint256 rewardX64 = totalRewardX64;
+        uint256 maxAddAmount0 = amount0 * Q64 / (rewardX64 + Q64);
+        uint256 maxAddAmount1 = amount1 * Q64 / (rewardX64 + Q64);
+
+        // Add liquidity with fee-adjusted amounts
         IERC20(token0).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), amount0);
+        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount0);
         IERC20(token1).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), amount1);
+        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount1);
         
         (uint128 liquidity, uint256 amount0Added, uint256 amount1Added) = 
             nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
-                    amount0,
-                    amount1,
+                    maxAddAmount0,
+                    maxAddAmount1,
                     0,
                     0,
                     deadline
                 )
             );
 
-        // Return leftover tokens to position owner
-        uint256 leftover0 = amount0 - amount0Added;
-        uint256 leftover1 = amount1 - amount1Added;
+        // Return only slippage to position owner (fees stay in contract)
+        uint256 leftover0 = maxAddAmount0 - amount0Added;
+        uint256 leftover1 = maxAddAmount1 - amount1Added;
         
         if (leftover0 > 0) {
             IERC20(token0).safeTransfer(owner, leftover0);
@@ -739,4 +756,44 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         
         return IERC721Receiver.onERC721Received.selector;
     }
+    
+    /**
+     * @notice Set compound reward fee (onlyOwner)
+     * @param _totalRewardX64 Fee percentage in X64 format (max 5%)
+     */
+    function setReward(uint64 _totalRewardX64) external onlyOwner {
+        require(_totalRewardX64 <= MAX_REWARD_X64, "Fee too high");
+        totalRewardX64 = _totalRewardX64;
+        emit RewardUpdated(msg.sender, _totalRewardX64);
+    }
+    
+    /**
+     * @notice Set fee withdrawer address (onlyOwner)
+     * @param _feeWithdrawer Address that can withdraw fees
+     */
+    function setFeeWithdrawer(address _feeWithdrawer) external onlyOwner {
+        feeWithdrawer = _feeWithdrawer;
+        emit FeeWithdrawerUpdated(_feeWithdrawer);
+    }
+    
+    /**
+     * @notice Withdraw accumulated compound fees
+     * @param tokens Array of token addresses to withdraw
+     * @param to Recipient address
+     */
+    function withdrawFees(address[] calldata tokens, address to) external nonReentrant {
+        require(msg.sender == feeWithdrawer, "Not fee withdrawer");
+        for (uint i = 0; i < tokens.length; i++) {
+            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            if (balance > 0) {
+                IERC20(tokens[i]).safeTransfer(to, balance);
+                emit FeesWithdrawn(tokens[i], to, balance);
+            }
+        }
+    }
+    
+    // Events for compound fee management
+    event RewardUpdated(address account, uint64 totalRewardX64);
+    event FeeWithdrawerUpdated(address withdrawer);
+    event FeesWithdrawn(address token, address to, uint256 amount);
 }
