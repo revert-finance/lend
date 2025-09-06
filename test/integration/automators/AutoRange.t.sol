@@ -6,6 +6,7 @@ import "./AerodromeAutomatorTestBase.sol";
 import "../../../src/transformers/AutoRange.sol";
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
 
 import "../../../src/utils/Constants.sol";
 

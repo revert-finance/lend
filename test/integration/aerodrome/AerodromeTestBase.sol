@@ -173,7 +173,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             address(usdc),
             AggregatorV3Interface(address(usdcFeed)),
             3600,
-            IUniswapV3Pool(usdcDaiPool),
+            IAerodromeSlipstreamPool(usdcDaiPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             type(uint16).max  // Set to max to bypass price checks in tests
@@ -182,7 +182,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             address(dai),
             AggregatorV3Interface(address(daiFeed)),
             3600,
-            IUniswapV3Pool(usdcDaiPool),
+            IAerodromeSlipstreamPool(usdcDaiPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             type(uint16).max  // Set to max to bypass price checks in tests
@@ -191,7 +191,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             address(weth),
             AggregatorV3Interface(address(ethFeed)),
             3600,
-            IUniswapV3Pool(wethUsdcPool),
+            IAerodromeSlipstreamPool(wethUsdcPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             type(uint16).max  // Set to max to bypass price checks in tests

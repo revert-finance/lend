@@ -7,6 +7,7 @@ import "../src/V3Vault.sol";
 import "../src/InterestRateModel.sol";
 import "../src/GaugeManager.sol";
 import "../src/transformers/LeverageTransformer.sol";
+import "../src/transformers/AutoCompound.sol";
 
 contract DeployAerodromeProtocol is Script {
     // Constants
@@ -43,6 +44,7 @@ contract DeployAerodromeProtocol is Script {
     V3Vault public vault;
     GaugeManager public gaugeManager;
     LeverageTransformer public leverageTransformer;
+    AutoCompound public autoCompound;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
@@ -110,32 +112,55 @@ contract DeployAerodromeProtocol is Script {
         console.log("\n5. Deploying LeverageTransformer...");
         leverageTransformer = new LeverageTransformer(
             INonfungiblePositionManager(AERODROME_NPM),
-            ZEROX_ALLOWANCE_HOLDER,
-            UNIVERSAL_ROUTER
+            UNIVERSAL_ROUTER,
+            ZEROX_ALLOWANCE_HOLDER
         );
         console.log("   LeverageTransformer deployed:", address(leverageTransformer));
         
-        // 6. Configure Oracle
-        console.log("\n6. Configuring Oracle...");
+        // 6. Deploy AutoCompound
+        console.log("\n6. Deploying AutoCompound...");
+        autoCompound = new AutoCompound(
+            INonfungiblePositionManager(AERODROME_NPM),
+            deployer,  // operator - set to deployer initially
+            deployer,  // withdrawer - set to deployer initially  
+            60,        // TWAPSeconds
+            200,       // maxTWAPTickDifference
+            AERO,      // aeroToken
+            deployer   // feeWithdrawer - set to deployer initially
+        );
+        console.log("   AutoCompound deployed:", address(autoCompound));
+        console.log("   - Automated compounding with configurable fees (0-5%)");
+        console.log("   - Supports AERO reward compounding");
+        
+        // Configure GaugeManager in AutoCompound
+        autoCompound.setGaugeManager(address(gaugeManager), true);
+        console.log("   - GaugeManager configured in AutoCompound");
+        
+        // 7. Configure Oracle
+        console.log("\n7. Configuring Oracle...");
+        
+        // Set max pool price difference (2% tolerance)
+        oracle.setMaxPoolPriceDifference(200);
+        console.log("   Max pool price difference set to 2%");
         
         // USDC config
         oracle.setTokenConfig(
             USDC,
             AggregatorV3Interface(CHAINLINK_USDC_USD),
-            3600,
-            IUniswapV3Pool(address(0)),
+            86400,  // 24 hours for stablecoin feeds on L2
+            IAerodromeSlipstreamPool(address(0)),
             60,
             V3Oracle.Mode.CHAINLINK,
             type(uint16).max
         );
-        console.log("   USDC oracle configured");
+        console.log("   USDC oracle configured (24h staleness)");
         
         // WETH config
         oracle.setTokenConfig(
             WETH,
             AggregatorV3Interface(CHAINLINK_ETH_USD),
             3600,
-            IUniswapV3Pool(WETH_USDC_POOL),
+            IAerodromeSlipstreamPool(WETH_USDC_POOL),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
@@ -148,7 +173,7 @@ contract DeployAerodromeProtocol is Script {
                 CBBTC,
                 AggregatorV3Interface(CHAINLINK_BTC_USD),
                 3600,
-                IUniswapV3Pool(CBBTC_USDC_POOL),
+                IAerodromeSlipstreamPool(CBBTC_USDC_POOL),
                 60,
                 V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
                 200
@@ -156,8 +181,8 @@ contract DeployAerodromeProtocol is Script {
             console.log("   cbBTC oracle configured");
         }
         
-        // 7. Configure Vault
-        console.log("\n7. Configuring Vault...");
+        // 8. Configure Vault
+        console.log("\n8. Configuring Vault...");
         
         // Set gauge manager
         vault.setGaugeManager(address(gaugeManager));
@@ -166,7 +191,12 @@ contract DeployAerodromeProtocol is Script {
         // Enable transformers
         vault.setTransformer(V3_UTILS, true);
         vault.setTransformer(address(leverageTransformer), true);
-        console.log("   Transformers enabled");
+        vault.setTransformer(address(autoCompound), true);
+        console.log("   Transformers enabled (V3Utils, LeverageTransformer, AutoCompound)");
+        
+        // Configure vault in LeverageTransformer
+        leverageTransformer.setVault(address(vault));
+        console.log("   Vault configured in LeverageTransformer");
         
         // Set initial limits
         vault.setLimits(
@@ -182,6 +212,17 @@ contract DeployAerodromeProtocol is Script {
         vault.setReserveFactor(uint32(10 * Q32 / 100)); // 10%
         console.log("   Reserve factor set to 10%");
         
+        // Set collateral factors for tokens
+        console.log("\n9. Setting collateral factors...");
+        vault.setTokenConfig(USDC, uint32(90 * Q32 / 100), type(uint32).max); // 90% CF
+        console.log("   USDC collateral factor set to 90%");
+        vault.setTokenConfig(WETH, uint32(85 * Q32 / 100), type(uint32).max); // 85% CF
+        console.log("   WETH collateral factor set to 85%");
+        vault.setTokenConfig(CBBTC, uint32(85 * Q32 / 100), type(uint32).max); // 85% CF
+        console.log("   cbBTC collateral factor set to 85%");
+        vault.setTokenConfig(AERO, uint32(75 * Q32 / 100), type(uint32).max); // 75% CF
+        console.log("   AERO collateral factor set to 75%");
+        
         vm.stopBroadcast();
         
         // Summary
@@ -193,15 +234,16 @@ contract DeployAerodromeProtocol is Script {
         console.log("Vault:", address(vault));
         console.log("GaugeManager:", address(gaugeManager));
         console.log("LeverageTransformer:", address(leverageTransformer));
+        console.log("AutoCompound:", address(autoCompound));
         console.log("V3Utils (existing):", V3_UTILS);
         console.log("\n==========================================");
         console.log("NEXT STEPS:");
         console.log("==========================================");
         console.log("1. Get gauge addresses for pools from Aerodrome");
         console.log("2. Run ConfigureGauges.s.sol to set pool->gauge mappings");
-        console.log("3. Configure collateral factors for each token");
-        console.log("4. Transfer ownership to multi-sig");
-        console.log("5. Set emergency admin");
+        console.log("3. Transfer ownership to multi-sig");
+        console.log("4. Set emergency admin");
+        console.log("5. Set compound fee percentage using setReward() on GaugeManager");
         console.log("\nNote: V3Utils is already configured in GaugeManager");
         console.log("If you need to update it later, use SetV3Utils.s.sol");
         console.log("\nTo find gauge addresses:");

@@ -139,8 +139,8 @@ interface IWETH {
 }
 
 contract SimpleStakeCompound is Script {
-    // Deployed contracts on Base (Latest deployment: 2025-08-28)
-    address constant GAUGE_MANAGER = 0x16fec3e95F9ed515c5971C01fF9008366aB84338;
+    // Deployed contracts on Base (Latest deployment: 2025-09-06)
+    address constant GAUGE_MANAGER = 0x3a9cB8c9b358eD3bC44A539B9Bb356Fe64b08559;
     address constant NPM = 0x827922686190790b37229fd06084350E74485b72;
     address constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     address constant AERODROME_FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;
