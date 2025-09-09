@@ -54,6 +54,7 @@ echo "  - InterestRateModel"
 echo "  - V3Vault"
 echo "  - GaugeManager"
 echo "  - LeverageTransformer"
+echo "  - AutoCompound"
 echo ""
 read -p "Continue with deployment? (y/n) " -n 1 -r
 echo
@@ -114,4 +115,5 @@ else
     echo "Please check the error messages above"
     exit 1
 fi
+
 

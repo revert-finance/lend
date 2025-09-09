@@ -446,7 +446,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         bool wasStaked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
         
         // Unstake position if it's in a gauge (for liquidations/transformations)
-        _unstakeForLiquidation(tokenId);
+        if (wasStaked) {
+            _unstakeForLiquidation(tokenId);
+        }
 
         nonfungiblePositionManager.approve(transformer, tokenId);
 
@@ -459,6 +461,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         if (tokenId != newTokenId && transformApprovals[loanOwner][tokenId][msg.sender]) {
             transformApprovals[loanOwner][newTokenId][msg.sender] = true;
+            delete transformApprovals[loanOwner][tokenId][msg.sender];
         }
 
         address owner = nonfungiblePositionManager.ownerOf(newTokenId);
@@ -474,7 +477,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         transformedTokenId = 0;
         
         // Re-stake the position if it was previously staked
-        if (wasStaked && gaugeManager != address(0)) {
+        if (wasStaked) {
             nonfungiblePositionManager.approve(gaugeManager, newTokenId);
             IGaugeManager(gaugeManager).stakePosition(newTokenId);
         }
@@ -607,6 +610,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert TransformNotAllowed();
         }
 
+        _unstakeForLiquidation(params.tokenId);
+
         LiquidateState memory state;
 
         (state.newDebtExchangeRateX96, state.newLendExchangeRateX96) = _updateGlobalInterest();
@@ -688,6 +693,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (loans[tokenId].debtShares != 0) {
             revert NeedsRepay();
         }
+
+        _unstakeForLiquidation(tokenId);
 
         _removeTokenFromOwner(owner, tokenId);
 
@@ -870,9 +877,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         _burn(owner, shares);
-        SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
-
+        
         dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft + assets;
+        
+        SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }

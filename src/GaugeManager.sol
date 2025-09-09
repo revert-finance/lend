@@ -373,11 +373,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             delete tokenIdToGauge[tokenId];
             delete positionOwners[tokenId];
             delete isVaultPosition[tokenId];
+            
+            // Set mappings for new tokenId
+            tokenIdToGauge[tokenToStake] = gauge;
+            positionOwners[tokenToStake] = owner;
+            isVaultPosition[tokenToStake] = fromVault;
         }
-        
-        tokenIdToGauge[tokenToStake] = gauge;
-        positionOwners[tokenToStake] = owner;
-        isVaultPosition[tokenToStake] = fromVault;
 
         emit PositionStaked(tokenToStake, owner);
 
@@ -477,63 +478,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @param v3SwapData1 Swap data for token1 operations in V3Utils
     /// @param aeroSplitBps Basis points of AERO to swap to token0 if compounding
     /// @param shouldCompound Whether to compound AERO rewards
-    function executeChangeRange(
-        uint256 tokenId,
-        uint24 newFee,
-        int24 newTickLower,
-        int24 newTickUpper,
-        uint128 liquidityToRemove,
-        uint256 deadline,
-        address targetToken,
-        bytes memory v3SwapData0,
-        bytes memory v3SwapData1,
-        uint256 aeroSplitBps,
-        bool shouldCompound
-    ) external returns (uint256 newTokenId) {
-        // Get current position details
-        (,, address token0, address token1,,,,,,,,) = 
-            nonfungiblePositionManager.positions(tokenId);
-        
-        // Build V3Utils instructions for CHANGE_RANGE
-        V3Utils.Instructions memory instructions = V3Utils.Instructions({
-            whatToDo: V3Utils.WhatToDo.CHANGE_RANGE,
-            targetToken: targetToken,
-            amountRemoveMin0: 0,
-            amountRemoveMin1: 0,
-            amountIn0: 0,
-            amountOut0Min: 0,
-            swapData0: v3SwapData0,
-            amountIn1: 0,
-            amountOut1Min: 0,
-            swapData1: v3SwapData1,
-            feeAmount0: type(uint128).max, // Collect all fees
-            feeAmount1: type(uint128).max, // Collect all fees
-            fee: newFee,
-            tickLower: newTickLower,
-            tickUpper: newTickUpper,
-            liquidity: liquidityToRemove,
-            amountAddMin0: 0,
-            amountAddMin1: 0,
-            deadline: deadline,
-            recipient: positionOwners[tokenId], // Send dust to owner
-            recipientNFT: address(this), // New NFT comes back to GaugeManager
-            unwrap: false,
-            returnData: "",
-            swapAndMintReturnData: ""
-        });
-        
-        // Execute with no compounding data if not requested
-        return executeV3UtilsWithOptionalCompound(
-            tokenId,
-            instructions,
-            shouldCompound,
-            "", // aeroSwapData0
-            "", // aeroSwapData1
-            0,  // minAeroAmount0
-            0,  // minAeroAmount1
-            aeroSplitBps
-        );
-    }
 
     /// @notice Add liquidity to a staked position with optional token swaps
     /// @param tokenId The staked position to add liquidity to
@@ -559,11 +503,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Get position tokens
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         
-        // Handle ETH if sent (wrap to WETH)
-        if (msg.value > 0) {
-            require(token0 == address(weth) || token1 == address(weth), "No WETH in pair");
-            weth.deposit{value: msg.value}();
-        }
         
         // Transfer tokens from sender to this contract
         if (params.amount0 > 0) {
@@ -586,8 +525,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Unstake position
         IGauge(gauge).withdraw(tokenId);
         
-        // Call V3Utils.swapAndIncreaseLiquidity
-        (liquidity, amount0, amount1) = V3Utils(v3Utils).swapAndIncreaseLiquidity(params);
+        // Call V3Utils.swapAndIncreaseLiquidity (forward ETH if sent)
+        (liquidity, amount0, amount1) = V3Utils(v3Utils).swapAndIncreaseLiquidity{value: msg.value}(params);
         
         // Restake position
         nonfungiblePositionManager.approve(gauge, tokenId);

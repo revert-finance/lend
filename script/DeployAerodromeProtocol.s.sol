@@ -125,8 +125,7 @@ contract DeployAerodromeProtocol is Script {
             deployer,  // withdrawer - set to deployer initially  
             60,        // TWAPSeconds
             200,       // maxTWAPTickDifference
-            AERO,      // aeroToken
-            deployer   // feeWithdrawer - set to deployer initially
+            AERO       // aeroToken
         );
         console.log("   AutoCompound deployed:", address(autoCompound));
         console.log("   - Automated compounding with configurable fees (0-5%)");

@@ -10,7 +10,7 @@ contract V3OracleAerodromeTest is AerodromeTestBase {
     
     function testGetPoolWithAerodrome() public {
         // Test that oracle can retrieve Aerodrome pools correctly via token config
-        (,,,,,IUniswapV3Pool pool,,,) = oracle.feedConfigs(address(dai));
+        (,,,,,IAerodromeSlipstreamPool pool,,,) = oracle.feedConfigs(address(dai));
         assertEq(address(pool), usdcDaiPool);
         
         (,,,,,pool,,,) = oracle.feedConfigs(address(weth));
@@ -33,14 +33,14 @@ contract V3OracleAerodromeTest is AerodromeTestBase {
             address(newToken),
             AggregatorV3Interface(address(newFeed)),
             3600,
-            IUniswapV3Pool(newPool),
+            IAerodromeSlipstreamPool(newPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
         );
         
         // Verify config was set
-        (AggregatorV3Interface feed, uint32 maxFeedAge,,,,IUniswapV3Pool twapPool,,,) = oracle.feedConfigs(address(newToken));
+        (AggregatorV3Interface feed, uint32 maxFeedAge,,,,IAerodromeSlipstreamPool twapPool,,,) = oracle.feedConfigs(address(newToken));
         assertEq(address(feed), address(newFeed));
         assertEq(maxFeedAge, 3600);
         assertEq(address(twapPool), newPool);

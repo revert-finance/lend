@@ -4,13 +4,14 @@
 
 | Contract | Address | Basescan |
 |----------|---------|----------|
-| **V3Vault** | `0x1625d8EC0eFf80cbCCA49cd465AE11a2b318971f` | [View](https://basescan.org/address/0x1625d8EC0eFf80cbCCA49cd465AE11a2b318971f) |
-| **V3Oracle** | `0x52fE739898c7ad9f4dF4EFA00a42B334eB810e5C` | [View](https://basescan.org/address/0x52fE739898c7ad9f4dF4EFA00a42B334eB810e5C) |
-| **GaugeManager** | `0x16fec3e95F9ed515c5971C01fF9008366aB84338` | [View](https://basescan.org/address/0x16fec3e95F9ed515c5971C01fF9008366aB84338) |
-| **LeverageTransformer** | `0x082DE29892C23abEeBc76496Eb1A41201F8b95a4` | [View](https://basescan.org/address/0x082DE29892C23abEeBc76496Eb1A41201F8b95a4) |
-| **InterestRateModel** | `0x7FcEF7EA3D81661517344cD3F8ea5867484B052c` | [View](https://basescan.org/address/0x7FcEF7EA3D81661517344cD3F8ea5867484B052c) |
+| **V3Vault** | `0xb4694159ef30Fa21bCC9D963C7FA3716b0821E38` | [View](https://basescan.org/address/0xb4694159ef30Fa21bCC9D963C7FA3716b0821E38) |
+| **V3Oracle** | `0x896a2FEB2cD936b4083e8d13390Da2DC78935279` | [View](https://basescan.org/address/0x896a2FEB2cD936b4083e8d13390Da2DC78935279) |
+| **GaugeManager** | `0x3a9cB8c9b358eD3bC44A539B9Bb356Fe64b08559` | [View](https://basescan.org/address/0x3a9cB8c9b358eD3bC44A539B9Bb356Fe64b08559) |
+| **LeverageTransformer** | `0xc138D1f6391C96FBcd3E88a4f9D404007666722e` | [View](https://basescan.org/address/0xc138D1f6391C96FBcd3E88a4f9D404007666722e) |
+| **AutoCompound** | `0x06f64F46415aA307c46692f73FD85649086Bd7B9` | [View](https://basescan.org/address/0x06f64F46415aA307c46692f73FD85649086Bd7B9) |
+| **InterestRateModel** | `0xd09053a11E07609445806A9581f2678cbf73Af52` | [View](https://basescan.org/address/0xd09053a11E07609445806A9581f2678cbf73Af52) |
 | **V3Utils** (existing) | `0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1` | [View](https://basescan.org/address/0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1) |
-| **Note**: Latest deployment on 2025-08-28 with updated contract addresses |
+| **Note**: Final deployment on 2025-09-06 with fixed LeverageTransformer constructor and original msg.sender implementation |
 
 ## Protocol Overview
 
@@ -102,350 +103,168 @@ interface IGaugeManager {
         uint256 deadline
     ) external;
     
-    // Advanced V3Utils Integration
-    function executeV3UtilsWithOptionalCompound(
+    // Migration Functions
+    function migrateToVault(uint256 tokenId, address recipient) external;
+    function swapAndIncreaseStakedPosition(
         uint256 tokenId,
         address v3utils,
-        IV3Utils.Instructions memory instructions,
-        bool shouldCompound,
-        bytes memory aeroSwapData0,
-        bytes memory aeroSwapData1,
-        uint256 minAeroAmount0,
-        uint256 minAeroAmount1,
-        uint256 aeroSplitBps
-    ) external returns (uint256 newTokenId);
+        V3Utils.SwapAndIncreaseLiquidityParams calldata params
+    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
     
     // View Functions
     function tokenIdToGauge(uint256 tokenId) external view returns (address);
     function positionOwners(uint256 tokenId) external view returns (address);
     function poolToGauge(address pool) external view returns (address);
-    
-    // Deposit to Staked Positions
-    function swapAndIncreaseStakedPosition(
-        uint256 tokenId,
-        address v3utils,
-        IV3Utils.SwapAndIncreaseLiquidityParams calldata params
-    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
-    
-    // Admin Functions
-    function setGauge(address pool, address gauge) external;
-    function setOperator(address operator, bool active) external;
 }
 ```
 
-#### Function Parameters
+### 3. LeverageTransformer
 
-**compoundRewards** - Compounds AERO rewards back into the position:
-- `tokenId`: The staked position to compound rewards for
-- `swapData0`: Swap calldata for AERO → token0 (from 0x API or router)
-- `swapData1`: Swap calldata for AERO → token1 (from 0x API or router)
-- `minAmount0`: Minimum amount of token0 expected from AERO swap (slippage protection)
-- `minAmount1`: Minimum amount of token1 expected from AERO swap (slippage protection)
-- `aeroSplitBps`: Basis points of AERO to swap to token0 (e.g., 5000 = 50%, rest goes to token1)
-- `deadline`: Transaction deadline timestamp
-
-**executeV3UtilsWithOptionalCompound** - Execute V3Utils operations on staked positions:
-- `tokenId`: The staked position to operate on
-- `v3utils`: Address of the V3Utils contract (0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1)
-- `instructions`: V3Utils instruction struct containing the operation details (see V3Utils docs)
-- `shouldCompound`: Whether to compound AERO rewards before re-staking
-- `aeroSwapData0`: Swap calldata for AERO → token0 (only used if shouldCompound=true)
-- `aeroSwapData1`: Swap calldata for AERO → token1 (only used if shouldCompound=true)
-- `minAeroAmount0`: Minimum token0 from AERO swap (only used if shouldCompound=true)
-- `minAeroAmount1`: Minimum token1 from AERO swap (only used if shouldCompound=true)
-- `aeroSplitBps`: Basis points of AERO to swap to token0 (only used if shouldCompound=true)
-
-**swapAndIncreaseStakedPosition** - Add liquidity to staked positions with optional swaps:
-- `tokenId`: The staked position to add liquidity to
-- `v3utils`: Address of the V3Utils contract (0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1)
-- `params`: SwapAndIncreaseLiquidityParams struct containing:
-  - `tokenId`: Position ID (must match the tokenId parameter)
-  - `amount0`: Initial amount of token0 to provide
-  - `amount1`: Initial amount of token1 to provide
-  - `recipient`: Recipient of leftover tokens (usually msg.sender)
-  - `deadline`: Transaction deadline timestamp
-  - `swapSourceToken`: Token to swap FROM (must be one of the pool tokens)
-  - `amountIn0`: Amount to swap FROM swapSourceToken TO token0 (used when swapSourceToken is token1)
-  - `amountOut0Min`: Minimum token0 expected from swap
-  - `swapData0`: Swap calldata for obtaining token0 (from 0x API with taker=V3_UTILS)
-  - `amountIn1`: Amount to swap FROM swapSourceToken TO token1 (used when swapSourceToken is token0)
-  - `amountOut1Min`: Minimum token1 expected from swap
-  - `swapData1`: Swap calldata for obtaining token1 (from 0x API with taker=V3_UTILS)
-  - `amountAddMin0`: Minimum token0 to add to position (slippage protection)
-  - `amountAddMin1`: Minimum token1 to add to position (slippage protection)
-  - `permitData`: Optional permit data for token approvals
-
-### 3. V3Oracle
-
-Provides price feeds for collateral valuation.
+Enables leveraging and deleveraging positions using borrowed funds.
 
 ```solidity
-interface IV3Oracle {
-    enum Mode {
-        NOT_SET,
-        CHAINLINK_TWAP_VERIFY,
-        TWAP_CHAINLINK_VERIFY,
-        CHAINLINK,
-        TWAP
+interface ILeverageTransformer {
+    struct LeverageUpParams {
+        uint256 tokenId;
+        uint256 borrowAmount;
+        uint256 amountIn0;
+        uint256 amountOut0Min;
+        bytes swapData0;
+        uint256 amountIn1;
+        uint256 amountOut1Min;
+        bytes swapData1;
+        uint256 amountAddMin0;
+        uint256 amountAddMin1;
+        address recipient;
+        uint256 deadline;
     }
     
-    // Get position value
-    function getValue(uint256 tokenId, address pool) external view returns (uint256 value0, uint256 value1);
+    struct LeverageDownParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        uint256 amountRemoveMin0;
+        uint256 amountRemoveMin1;
+        uint128 feeAmount0;
+        uint128 feeAmount1;
+        uint256 amountIn0;
+        uint256 amountOut0Min;
+        bytes swapData0;
+        uint256 amountIn1;
+        uint256 amountOut1Min;
+        bytes swapData1;
+        address recipient;
+        uint256 deadline;
+    }
     
-    // Get token prices
-    function getTokenPrice(address token) external view returns (uint256 priceX96);
-    
-    // Admin functions
-    function setTokenConfig(address token, address feed, uint32 maxFeedAge, address pool, uint32 twapSeconds, Mode mode, uint16 maxDifference) external;
-    function setMaxPoolPriceDifference(uint16 maxDifference) external;
+    // Note: These functions are called through V3Vault.transform()
+    function leverageUp(LeverageUpParams calldata params) external;
+    function leverageDown(LeverageDownParams calldata params) external;
 }
 ```
 
 ## Integration Examples
 
-### 1. Lending USDC
+### 1. Lending USDC (Earn Interest)
 
-```solidity
-// Approve USDC spending
-IERC20(USDC).approve(V3_VAULT, amount);
+```javascript
+// Using ethers.js
+const vault = new ethers.Contract(VAULT_ADDRESS, V3VaultABI, signer);
 
-// Deposit USDC, receive rlUSDC
-uint256 shares = IV3Vault(V3_VAULT).deposit(amount, msg.sender);
+// Approve USDC
+const usdc = new ethers.Contract(USDC_ADDRESS, ERC20ABI, signer);
+await usdc.approve(VAULT_ADDRESS, amount);
+
+// Deposit USDC and receive rlUSDC
+const shares = await vault.deposit(amount, userAddress);
 ```
 
-### 2. Creating a Collateralized Position
+### 2. Create Position and Borrow
 
-```solidity
-// First approve NFT transfer to vault
-IAerodromeNPM(AERODROME_NPM).approve(V3_VAULT, tokenId);
+```javascript
+// First, approve NFT to vault
+const npm = new ethers.Contract(NPM_ADDRESS, NPMABI, signer);
+await npm.approve(VAULT_ADDRESS, tokenId);
 
 // Create position in vault
-uint256 vaultTokenId = IV3Vault(V3_VAULT).create(tokenId, msg.sender);
+await vault.create(tokenId, userAddress);
 
-// Now you can borrow against it
-IV3Vault(V3_VAULT).borrow(vaultTokenId, borrowAmount);
+// Borrow USDC against position
+const borrowAmount = ethers.utils.parseUnits("1000", 6); // 1000 USDC
+await vault.borrow(tokenId, borrowAmount);
 ```
 
-### 3. Staking Position in Gauge (Direct)
+### 3. Stake Position in Gauge
 
-```solidity
-// Approve GaugeManager to take NFT
-IAerodromeNPM(AERODROME_NPM).approve(GAUGE_MANAGER, tokenId);
+```javascript
+// Using GaugeManager to stake and earn AERO rewards
+const gaugeManager = new ethers.Contract(GAUGE_MANAGER_ADDRESS, GaugeManagerABI, signer);
+
+// Approve NFT to GaugeManager
+await npm.approve(GAUGE_MANAGER_ADDRESS, tokenId);
 
 // Stake position
-IGaugeManager(GAUGE_MANAGER).stakePosition(tokenId);
+await gaugeManager.stakePosition(tokenId);
 
-// Claim rewards later
-IGaugeManager(GAUGE_MANAGER).claimRewards(tokenId);
-
-// Or unstake (returns NFT + claims rewards)
-IGaugeManager(GAUGE_MANAGER).unstakePosition(tokenId);
-```
-
-### 4. Compounding AERO Rewards
-
-```solidity
-// Compound rewards directly through GaugeManager
-IGaugeManager(GAUGE_MANAGER).compoundRewards(
+// Later, compound AERO rewards
+await gaugeManager.compoundRewards(
     tokenId,
-    swapData0,     // Swap AERO -> token0
-    swapData1,     // Swap AERO -> token1
-    minAmount0,    // Minimum token0 expected
-    minAmount1,    // Minimum token1 expected
-    5000,          // aeroSplitBps: 5000 = 50% to token0, 50% to token1
-    deadline       // Transaction deadline
+    swapData0,  // 0x swap data for AERO → token0
+    swapData1,  // 0x swap data for AERO → token1
+    minAmount0,
+    minAmount1,
+    5000,       // 50% to token0, 50% to token1
+    deadline
 );
 ```
 
-### 5. Staking Through Vault
+### 4. Leverage Position
 
-```solidity
-// For positions already in vault as collateral
-IV3Vault(V3_VAULT).stakePosition(vaultTokenId);
+```javascript
+// Using multicall to create position and leverage in one transaction
+const leverageParams = {
+    tokenId: tokenId,
+    borrowAmount: ethers.utils.parseUnits("5000", 6),
+    // ... other leverage parameters
+};
 
-// Unstake later
-IV3Vault(V3_VAULT).unstakePosition(vaultTokenId);
+// Encode function calls
+const createData = vault.interface.encodeFunctionData("create", [tokenId, userAddress]);
+const transformData = vault.interface.encodeFunctionData("transform", [
+    tokenId,
+    LEVERAGE_TRANSFORMER_ADDRESS,
+    leverageTransformer.interface.encodeFunctionData("leverageUp", [leverageParams])
+]);
+
+// Execute multicall
+await vault.multicall([createData, transformData]);
 ```
 
-### 6. Adding Liquidity to Staked Positions
+## Important Notes
 
-For positions already staked in gauges, you can add liquidity using the new `swapAndIncreaseStakedPosition` function:
+1. **Collateral Factors**: Different tokens have different collateral factors:
+   - USDC: 90%
+   - WETH: 85%
+   - cbBTC: 85%
+   - AERO: 75%
 
-```solidity
-// Example: Add WETH to a staked WETH/USDC position
-// First approve tokens to GaugeManager
-IERC20(WETH).approve(GAUGE_MANAGER, wethAmount);
+2. **Interest Rates**: Dynamic based on utilization, managed by InterestRateModel
 
-// Build parameters for V3Utils
-IV3Utils.SwapAndIncreaseLiquidityParams memory params = IV3Utils.SwapAndIncreaseLiquidityParams({
-    tokenId: stakedTokenId,
-    amount0: wethAmount,  // Total WETH amount to deposit
-    amount1: 0,           // No USDC provided initially
-    recipient: msg.sender,
-    deadline: block.timestamp + 300,
-    swapSourceToken: WETH,  // The token we're swapping FROM
-    
-    // IMPORTANT: When swapSourceToken == token0 (WETH):
-    // - Use amountIn1 to swap FROM WETH TO token1 (USDC)
-    // - Use amountIn0 to swap FROM WETH TO token0 (not needed here)
-    amountIn0: 0,              // Not swapping TO WETH (we already have it)
-    amountOut0Min: 0,          // Not used
-    swapData0: "",             // No swap data for token0
-    amountIn1: wethAmount / 2, // Amount of WETH to swap TO USDC
-    amountOut1Min: minUsdcOut, // Minimum USDC expected (slippage protection)
-    swapData1: swapDataFrom0x, // 0x API quote for WETH->USDC swap
-    
-    amountAddMin0: minWethToAdd,  // Minimum WETH to add to position
-    amountAddMin1: minUsdcToAdd,  // Minimum USDC to add to position
-    permitData: ""
-});
+3. **Liquidation**: Positions can be liquidated when debt exceeds collateral value
 
-// Add liquidity to staked position
-(uint128 liquidity, uint256 amount0, uint256 amount1) = 
-    IGaugeManager(GAUGE_MANAGER).swapAndIncreaseStakedPosition(
-        stakedTokenId,
-        V3_UTILS,
-        params
-    );
-```
+4. **AERO Rewards**: Staked positions earn AERO rewards that can be compounded back into the position
 
-**Important Notes on Parameter Mapping:**
-- When `swapSourceToken` is `token0` (e.g., WETH):
-  - `amountIn1` = amount to swap FROM token0 TO token1
-  - `swapData1` = swap calldata for the token0→token1 swap
-- When `swapSourceToken` is `token1` (e.g., USDC):
-  - `amountIn0` = amount to swap FROM token1 TO token0
-  - `swapData0` = swap calldata for the token1→token0 swap
-- The `0x API` taker should be set to `V3_UTILS` address
-
-**Python Example:**
-```python
-# See scripts/deposit_weth_to_position.py for complete implementation
-# The script handles:
-# - WETH balance checking
-# - Optimal swap ratio calculation based on position range
-# - 0x API integration for WETH->USDC swaps
-# - Proper parameter mapping for swapAndIncreaseStakedPosition
-# - Tenderly simulation support
-
-# Example usage:
-# python scripts/deposit_weth_to_position.py 0.1 23335320
-```
-
-**Common Issues:**
-- **"require(amount > 0)" error**: This occurs when the calculated liquidity rounds to 0. This can happen with very small deposit amounts or when only one token is provided for an in-range position. Ensure you're providing sufficient amounts and the correct token ratio for in-range positions.
-
-### 7. Advanced Position Management with V3Utils
-
-GaugeManager integrates with V3Utils to enable advanced position management while keeping positions staked. This allows for operations like range changes, liquidity adjustments, and position rebalancing without unstaking.
-
-```solidity
-// Example: Shift position by tick spacing with automatic rebalancing
-// The executeV3UtilsWithOptionalCompound function handles:
-// 1. Unstaking temporarily
-// 2. Executing V3Utils operation (range change, swap, etc.)
-// 3. Optionally compounding AERO rewards
-// 4. Re-staking the position
-
-// See included example script for complete implementation:
-// scripts/shift_position_one_tick.py
-```
-
-**Key capabilities:**
-- **Change position ranges** while maintaining gauge staking
-- **Automatic rebalancing** when shifting positions (uses V3 math to calculate exact swap amounts)
-- **Integration with 0x** for optimal token swaps during rebalancing
-- **Optional AERO compounding** during any V3Utils operation
-
-**Example usage:**
-```bash
-# Shift position up by tick spacing with automatic rebalancing
-python scripts/shift_position_one_tick.py 12345 --up
-
-# Simulate the operation first
-python scripts/shift_position_one_tick.py 12345 --up --simulate
-
-# Or use the forge script directly
-forge script script/SimpleStakeCompound.s.sol:SimpleStakeCompound \
-  --sig "shiftPositionWithSwap(uint256,bool,address,bytes,uint256,uint256)" \
-  12345 true 0xTARGET_TOKEN 0xSWAP_DATA SWAP_AMOUNT 5000 \
-  --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY --broadcast
-```
-
-## Important Configuration
-
-### Supported Collateral Tokens
-- **USDC**: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
-- **WETH**: `0x4200000000000000000000000000000000000006` 
-- **cbBTC**: `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`
-
-### Key Parameters
-- **Collateral Factor**: 80% for all supported tokens
-- **Liquidation Penalty**: 10%
-- **Reserve Factor**: 10%
-- **Daily Lend Limit**: 10M USDC
-- **Daily Debt Limit**: 10M USDC
-- **Max Collateral Value**: 10M USDC per position
-
-### Interest Rate Model
-- **Base Rate**: 0% APR
-- **Rate at Kink (80%)**: 5% APR
-- **Max Rate (100%)**: 100% APR
+5. **Migration**: Positions can be migrated between staking (GaugeManager) and borrowing (V3Vault)
 
 ## Security Considerations
 
-1. **Position Ownership**: Only the owner of a vault position can borrow against it
-2. **Liquidation Risk**: Positions can be liquidated if health factor falls below 1.0
-3. **Oracle Dependencies**: Price feeds rely on Chainlink oracles
-4. **Gauge Rewards**: Staked positions accumulate AERO rewards that must be claimed
-5. **Approval Management**: Carefully manage token and NFT approvals
+1. Always verify contract addresses before interacting
+2. Check position health before borrowing
+3. Monitor collateral value to avoid liquidation
+4. Use appropriate slippage protection in swaps
+5. Set reasonable deadlines for time-sensitive operations
 
-## External Dependencies
+## Additional Resources
 
-- **Aerodrome NPM**: `0x827922686190790b37229fd06084350E74485b72`
-- **Aerodrome Factory**: `0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A`
-- **AERO Token**: `0x940181a94A35A4569E4529A3CDfB74e38FD98631`
-- **Universal Router**: `0x6Ff5693b99212DA76ad316178A184aB56d299B43`
-- **0x AllowanceHolder**: `0x0000000000001fF3684f28c67538d4D072C22734` (for swaps)
-- **Permit2**: `0x000000000022D473030F116dDEE9F6B43aC78BA3`
-
-## Contact & Support
-
-- **Deployer**: `0x3895e33b91f19B279D30B1436640c87E300D2DAc`
-- **Block Deployed**: Latest deployment on 2025-08-28
-- **Chain**: Base Mainnet (Chain ID: 8453)
-- **Note**: Compounding functionality is now integrated directly into GaugeManager
-
-## Example Scripts
-
-The protocol includes example scripts demonstrating advanced integrations:
-
-- **`scripts/deposit_weth_to_position.py`** - Complete deposit flow example:
-  - Deposit WETH to existing staked positions
-  - Automatic WETH/USDC optimal ratio calculation based on position range
-  - 0x API integration for efficient WETH → USDC swaps
-  - Proper parameter mapping for V3Utils swaps
-  - Tenderly simulation support
-
-- **`scripts/shift_position_one_tick.py`** - Position management example:
-  - Position shifting with automatic rebalancing calculations
-  - V3 math implementation for exact swap amounts
-  - 0x API integration for optimal swaps
-  - Tenderly simulation support
-  
-- **`script/SimpleStakeCompound.s.sol`** - Forge script examples including:
-  - Basic staking and compounding operations
-  - `shiftPositionWithSwap` for advanced position management
-  - Range changes with optional AERO compounding
-
-## Next Steps
-
-1. **For Lenders**: Deposit USDC to earn yield
-2. **For Borrowers**: Create positions with Aerodrome LP NFTs as collateral
-3. **For Liquidators**: Monitor positions for liquidation opportunities
-4. **For Integrators**: Use the interfaces above to build on top of the protocol
-5. **For Advanced Users**: Explore V3Utils integration for position management while staked
-
-## Verification Status
-
-All contracts except V3Vault have been verified on Basescan. V3Vault verification is pending but the contract is fully functional and operational. Source code is available for review.
+- [Aerodrome Documentation](https://docs.aerodrome.finance/)
+- [Base Documentation](https://docs.base.org/)
+- [Contract Source Code](https://github.com/yourusername/aerodrome-lending)

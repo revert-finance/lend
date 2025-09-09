@@ -20,20 +20,6 @@ interface IGaugeManager {
     function tokenIdToGauge(uint256 tokenId) external view returns (address);
     function positionOwners(uint256 tokenId) external view returns (address);
     
-    function executeChangeRange(
-        uint256 tokenId,
-        address v3utils,
-        uint24 newFee,
-        int24 newTickLower,
-        int24 newTickUpper,
-        uint128 liquidityToRemove,
-        uint256 deadline,
-        address targetToken,
-        bytes memory v3SwapData0,
-        bytes memory v3SwapData1,
-        uint256 aeroSplitBps,
-        bool shouldCompound
-    ) external returns (uint256 newTokenId);
     
     function executeV3UtilsWithOptionalCompound(
         uint256 tokenId,
@@ -382,25 +368,44 @@ contract SimpleStakeCompound is Script {
         
         // Execute range change with optional AERO compounding
         // Note: v3SwapData0/1 are for position token swaps, not AERO swaps
-        // For now, disable compounding until we implement executeV3UtilsWithOptionalCompound
-        // IMPORTANT: For CHANGE_RANGE in V3Utils, we need to specify the liquidity to remove
-        // When we want to "keep all liquidity", we actually need to remove all liquidity from
-        // the old position so it can be added to the new position
-        uint128 liquidityToRemove = liquidity;
+        // Build V3Utils instructions for CHANGE_RANGE
+        V3Utils.Instructions memory instructions = V3Utils.Instructions({
+            whatToDo: V3Utils.WhatToDo.CHANGE_RANGE,
+            targetToken: address(0), // No rebalancing
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountIn0: 0,
+            amountOut0Min: 0,
+            swapData0: "", // No swaps
+            amountIn1: 0,
+            amountOut1Min: 0,
+            swapData1: "", // No swaps
+            feeAmount0: type(uint128).max, // Collect all fees
+            feeAmount1: type(uint128).max, // Collect all fees
+            fee: tickSpacing,
+            tickLower: newTickLower,
+            tickUpper: newTickUpper,
+            liquidity: liquidity, // Remove all current liquidity
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: block.timestamp + 1200,
+            recipient: IGaugeManager(GAUGE_MANAGER).positionOwners(tokenId),
+            recipientNFT: address(GAUGE_MANAGER),
+            unwrap: false,
+            returnData: "",
+            swapAndMintReturnData: ""
+        });
         
-        uint256 newTokenId = IGaugeManager(GAUGE_MANAGER).executeChangeRange(
+        uint256 newTokenId = IGaugeManager(GAUGE_MANAGER).executeV3UtilsWithOptionalCompound(
             tokenId,
             V3_UTILS,
-            tickSpacing, // Keep same fee tier
-            newTickLower,
-            newTickUpper,
-            liquidityToRemove, // Remove all current liquidity to move to new position
-            block.timestamp + 1200, // 20 minutes deadline
-            address(0), // targetToken: 0 = no rebalancing
-            "", // v3SwapData0: empty (no position token swaps)
-            "", // v3SwapData1: empty (no position token swaps)
-            aeroSplitBps, // Will be used if/when we enable compounding
-            false // Disable compounding for now
+            instructions,
+            false, // Disable compounding for now
+            "", // aeroSwapData0
+            "", // aeroSwapData1
+            0, // minAeroAmount0
+            0, // minAeroAmount1
+            aeroSplitBps // Will be used if/when we enable compounding
         );
         
         vm.stopBroadcast();

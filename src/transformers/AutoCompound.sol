@@ -63,18 +63,15 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         address _withdrawer,
         uint32 _TWAPSeconds,
         uint16 _maxTWAPTickDifference,
-        address _aeroToken,
-        address _feeWithdrawer
+        address _aeroToken
     ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, address(0), address(0)) {
         aeroToken = IERC20(_aeroToken);
-        feeWithdrawer = _feeWithdrawer;
     }
 
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
 
     uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
     uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
-    address public feeWithdrawer; // Can withdraw accumulated fees
     
     /// @notice params for executeForGauge()
     struct ExecuteGaugeParams {
@@ -435,34 +432,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         emit GaugeManagerSet(gaugeManager, active);
     }
     
-    /**
-     * @notice Set fee withdrawer address (onlyOwner)
-     * @param _feeWithdrawer Address that can withdraw fees
-     */
-    function setFeeWithdrawer(address _feeWithdrawer) external onlyOwner {
-        feeWithdrawer = _feeWithdrawer;
-        emit FeeWithdrawerUpdated(_feeWithdrawer);
-    }
-    
-    /**
-     * @notice Withdraw accumulated fees from compounding
-     * @param tokens Array of token addresses to withdraw
-     * @param to Recipient address
-     */
-    function withdrawFees(address[] calldata tokens, address to) external nonReentrant {
-        require(msg.sender == feeWithdrawer, "Not fee withdrawer");
-        for (uint i = 0; i < tokens.length; i++) {
-            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
-            if (balance > 0) {
-                SafeERC20.safeTransfer(IERC20(tokens[i]), to, balance);
-                emit FeesWithdrawn(tokens[i], to, balance);
-            }
-        }
-    }
-    
-    // Events for fee management
-    event FeeWithdrawerUpdated(address withdrawer);
-    event FeesWithdrawn(address token, address to, uint256 amount);
 
     function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
         positionBalances[tokenId][token] += amount;
