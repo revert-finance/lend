@@ -77,6 +77,8 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     struct ExecuteGaugeParams {
         // tokenid to autocompound
         uint256 tokenId;
+        // amount of AERO transferred for this compound operation
+        uint256 aeroAmount;
         // swap data for AERO to token0
         bytes swapData0;
         // swap data for AERO to token1
@@ -249,7 +251,8 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         if (!operators[msg.sender] || !gaugeManagers[gaugeManager]) {
             revert Unauthorized();
         }
-        // GaugeManager will claim AERO and transfer to this contract before calling executeForGauge
+        // GaugeManager will override params.aeroAmount with the actual claimed amount
+        // Callers should pass 0 for aeroAmount as it will be replaced
         IGaugeManager(gaugeManager).transform(params.tokenId, address(this), abi.encodeCall(AutoCompound.executeForGauge, (params)));
     }
     
@@ -264,20 +267,24 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         
         ExecuteState memory state;
         
-        // Get AERO balance that was transferred from GaugeManager
-        uint256 aeroAmount = aeroToken.balanceOf(address(this));
+        // Use the AERO amount that was specifically transferred for this operation
+        uint256 aeroAmount = params.aeroAmount;
         
         if (aeroAmount == 0) {
             return; // Nothing to compound
         }
+        
+        // Verify we have at least this amount of AERO
+        require(aeroToken.balanceOf(address(this)) >= aeroAmount, "Insufficient AERO balance");
         
         // Get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
         
         // Swap AERO to position tokens
+        uint256 aeroForToken0 = 0;
         if (params.swapData0.length > 0 && params.aeroSplitBps > 0) {
-            uint256 aeroForToken0 = (aeroAmount * params.aeroSplitBps) / 10000;
+            aeroForToken0 = (aeroAmount * params.aeroSplitBps) / 10000;
             if (aeroForToken0 > 0) {
                 // Approve router if needed
                 if (aeroToken.allowance(address(this), universalRouter) < aeroForToken0) {
@@ -297,7 +304,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         }
         
         if (params.swapData1.length > 0) {
-            uint256 remainingAero = aeroToken.balanceOf(address(this));
+            uint256 remainingAero = aeroAmount - aeroForToken0;
             if (remainingAero > 0) {
                 // Approve router if needed
                 if (aeroToken.allowance(address(this), universalRouter) < remainingAero) {

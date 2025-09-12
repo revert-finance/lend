@@ -466,18 +466,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         emit RewardsCompounded(tokenId, aeroAmount, amount0Added, amount1Added);
     }
 
-    /// @notice Simplified function to change range on a staked position
-    /// @param tokenId The staked position to change range for
-    /// @param newFee New pool fee tier
-    /// @param newTickLower New lower tick
-    /// @param newTickUpper New upper tick
-    /// @param liquidityToRemove Amount of liquidity to remove (0 = all)
-    /// @param deadline Transaction deadline
-    /// @param targetToken Target token for V3Utils swaps (address(0) = no swap)
-    /// @param v3SwapData0 Swap data for token0 operations in V3Utils
-    /// @param v3SwapData1 Swap data for token1 operations in V3Utils
-    /// @param aeroSplitBps Basis points of AERO to swap to token0 if compounding
-    /// @param shouldCompound Whether to compound AERO rewards
 
     /// @notice Add liquidity to a staked position with optional token swaps
     /// @param tokenId The staked position to add liquidity to
@@ -503,6 +491,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Get position tokens
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         
+        // Claim and send AERO rewards to owner before unstaking
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
+        IGauge(gauge).getReward(tokenId);
+        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        if (aeroAmount > 0) {
+            aeroToken.safeTransfer(owner, aeroAmount);
+        }
         
         // Transfer tokens from sender to this contract
         if (params.amount0 > 0) {
@@ -532,16 +527,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
         
-        // Return any leftover tokens to sender
-        uint256 leftover0 = IERC20(token0).balanceOf(address(this));
-        uint256 leftover1 = IERC20(token1).balanceOf(address(this));
-        
-        if (leftover0 > 0) {
-            IERC20(token0).safeTransfer(msg.sender, leftover0);
-        }
-        if (leftover1 > 0) {
-            IERC20(token1).safeTransfer(msg.sender, leftover1);
-        }
+        // Note: V3Utils already handles returning leftover tokens to params.recipient
+        // No need to handle leftovers here as they've already been sent
         
         emit SwapAndIncreaseLiquidity(tokenId, liquidity, amount0, amount1);
         
@@ -624,19 +611,44 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
         
-        // 1. Claim any pending AERO rewards and transfer to transformer if it's AutoCompound
-        // Check if the function being called is executeForGauge by examining the selector
+        // 1. Always claim pending AERO rewards
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
+        IGauge(gauge).getReward(tokenId);
+        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        
+        // Check if this is AutoCompound
         bytes4 selector = bytes4(data[:4]);
-        bool isAutoCompound = selector == bytes4(keccak256("executeForGauge((uint256,bytes,bytes,uint256,uint256,uint256,uint256))"));
+        bool isAutoCompound = selector == bytes4(keccak256("executeForGauge((uint256,uint256,bytes,bytes,uint256,uint256,uint256,uint256))"));
+        
+        bytes memory callData = data;
         
         if (isAutoCompound) {
-            uint256 aeroBefore = aeroToken.balanceOf(address(this));
-            IGauge(gauge).getReward(tokenId);
-            uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
-            
+            // For AutoCompound: transfer AERO and re-encode with actual amount
             if (aeroAmount > 0) {
                 aeroToken.safeTransfer(transformer, aeroAmount);
             }
+            
+            // Re-encode the call data with the actual aeroAmount
+            // Decode the original params (skip the selector and tokenId, insert aeroAmount)
+            (uint256 originalTokenId, , bytes memory swapData0, bytes memory swapData1, 
+             uint256 minAmount0, uint256 minAmount1, uint256 aeroSplitBps, uint256 deadline) = 
+                abi.decode(data[4:], (uint256, uint256, bytes, bytes, uint256, uint256, uint256, uint256));
+            
+            // Re-encode with the actual aeroAmount
+            callData = abi.encodeWithSelector(
+                selector,
+                originalTokenId,
+                aeroAmount,
+                swapData0,
+                swapData1,
+                minAmount0,
+                minAmount1,
+                aeroSplitBps,
+                deadline
+            );
+        } else if (aeroAmount > 0) {
+            // For other transformers: send AERO to position owner
+            aeroToken.safeTransfer(owner, aeroAmount);
         }
         
         // 2. Unstake from gauge
@@ -644,7 +656,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         
         // 3. Execute transform
         nonfungiblePositionManager.approve(transformer, tokenId);
-        (bool success,) = transformer.call(data);
+        (bool success,) = transformer.call(callData);
         require(success, "Transform failed");
         
         // 4. Get new tokenId (may have changed)
