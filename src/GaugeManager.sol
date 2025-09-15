@@ -196,80 +196,25 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         
         if (aeroAmount == 0) return;
 
-        // 2. Get position details
-        (,, address token0, address token1,,,,,,,,) = 
-            nonfungiblePositionManager.positions(tokenId);
-
-        // 3. Swap AERO to position tokens
-        uint256 amount0;
-        uint256 amount1;
-        
-        if (swapData0.length > 0) {
-            (, amount0) = _routerSwap(
-                RouterSwapParams(
-                    aeroToken,
-                    IERC20(token0),
-                    (aeroAmount * aeroSplitBps) / 10000,
-                    minAmount0,
-                    swapData0
-                )
-            );
-        }
-        
-        if (swapData1.length > 0) {
-            (, amount1) = _routerSwap(
-                RouterSwapParams(
-                    aeroToken,
-                    IERC20(token1),
-                    aeroToken.balanceOf(address(this)),
-                    minAmount1,
-                    swapData1
-                )
-            );
-        }
-
-        // 4. Apply compound fees (same logic as AutoCompound)
-        uint256 rewardX64 = totalRewardX64;
-        uint256 maxAddAmount0 = amount0 * Q64 / (rewardX64 + Q64);
-        uint256 maxAddAmount1 = amount1 * Q64 / (rewardX64 + Q64);
-
-        // 5. Temporarily unstake to add liquidity
+        // 2. Temporarily unstake to add liquidity
         IGauge(gauge).withdraw(tokenId);
 
-        // 6. Add liquidity (fees implicitly stay in contract)
-        IERC20(token0).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount0);
-        IERC20(token1).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount1);
-        
-        (uint128 liquidity, uint256 amount0Added, uint256 amount1Added) = 
-            nonfungiblePositionManager.increaseLiquidity(
-                INonfungiblePositionManager.IncreaseLiquidityParams(
-                    tokenId,
-                    maxAddAmount0,
-                    maxAddAmount1,
-                    0,
-                    0,
-                    deadline
-                )
-            );
+        // 3. Compound into position (handles swaps, fee calc, leftovers, and emits event)
+        _compoundIntoPosition(
+            tokenId,
+            owner,
+            aeroAmount,
+            swapData0,
+            swapData1,
+            minAmount0,
+            minAmount1,
+            aeroSplitBps,
+            deadline
+        );
 
-        // 6. Re-stake
+        // 4. Re-stake
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
-
-        // 7. Return only slippage to position owner (fees stay in contract)
-        uint256 leftover0 = maxAddAmount0 - amount0Added;
-        uint256 leftover1 = maxAddAmount1 - amount1Added;
-        
-        if (leftover0 > 0) {
-            IERC20(token0).safeTransfer(owner, leftover0);
-        }
-        if (leftover1 > 0) {
-            IERC20(token1).safeTransfer(owner, leftover1);
-        }
-
-        emit RewardsCompounded(tokenId, aeroAmount, amount0Added, amount1Added);
     }
 
     /// @notice Simple reward claiming without compounding
@@ -404,13 +349,15 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Swap AERO to position tokens
         uint256 amount0;
         uint256 amount1;
+        uint256 aeroForToken0 = 0;
         
         if (swapData0.length > 0) {
+            aeroForToken0 = (aeroAmount * aeroSplitBps) / 10000;
             (, amount0) = _routerSwap(
                 RouterSwapParams(
                     aeroToken,
                     IERC20(token0),
-                    (aeroAmount * aeroSplitBps) / 10000,
+                    aeroForToken0,
                     minAmount0,
                     swapData0
                 )
@@ -418,11 +365,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         }
         
         if (swapData1.length > 0) {
+            uint256 remainingAero = aeroAmount - aeroForToken0;
             (, amount1) = _routerSwap(
                 RouterSwapParams(
                     aeroToken,
                     IERC20(token1),
-                    aeroToken.balanceOf(address(this)),
+                    remainingAero,
                     minAmount1,
                     swapData1
                 )
@@ -440,7 +388,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IERC20(token1).safeApprove(address(nonfungiblePositionManager), 0);
         IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount1);
         
-        (uint128 liquidity, uint256 amount0Added, uint256 amount1Added) = 
+        (, uint256 amount0Added, uint256 amount1Added) = 
             nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
@@ -617,7 +565,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
         
         // Check if this is AutoCompound
-        bytes4 selector = bytes4(data[:4]);
+        bytes4 selector = bytes4(data[0:4]);
         bool isAutoCompound = selector == bytes4(keccak256("executeForGauge((uint256,uint256,bytes,bytes,uint256,uint256,uint256,uint256))"));
         
         bytes memory callData = data;
