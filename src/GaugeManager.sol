@@ -423,7 +423,10 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         V3Utils.SwapAndIncreaseLiquidityParams calldata params
     ) external payable nonReentrant returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         require(v3Utils != address(0), "V3Utils not configured");
-        
+
+        // Permit2 is not supported through GaugeManager
+        require(params.permitData.length == 0, "Permit2 not supported via GaugeManager");
+
         // Check authorization
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];
@@ -438,7 +441,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         
         // Get position tokens
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-        
+
         // Claim and send AERO rewards to owner before unstaking
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
@@ -446,23 +449,58 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         if (aeroAmount > 0) {
             aeroToken.safeTransfer(owner, aeroAmount);
         }
-        
-        // Transfer tokens from sender to this contract
-        if (params.amount0 > 0) {
-            IERC20(token0).safeTransferFrom(msg.sender, address(this), params.amount0);
+
+        // Validate swap amounts when swapSourceToken equals pool tokens (matching V3Utils)
+        if (address(params.swapSourceToken) == token0) {
+            if (params.amount0 < params.amountIn1) {
+                revert AmountError();
+            }
+        } else if (address(params.swapSourceToken) == token1) {
+            if (params.amount1 < params.amountIn0) {
+                revert AmountError();
+            }
         }
-        if (params.amount1 > 0) {
-            IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1);
-        }
-        
-        // Approve V3Utils
-        if (params.amount0 > 0) {
-            IERC20(token0).safeApprove(v3Utils, 0);
-            IERC20(token0).safeIncreaseAllowance(v3Utils, params.amount0);
-        }
-        if (params.amount1 > 0) {
-            IERC20(token1).safeApprove(v3Utils, 0);
-            IERC20(token1).safeIncreaseAllowance(v3Utils, params.amount1);
+
+        // Simplified ETH-only OR tokens-only logic
+        if (msg.value > 0) {
+            // ETH-only mode: Validate that ETH is being used for WETH position
+            address wethAddress = address(nonfungiblePositionManager.WETH9());
+            bool wethInvolved = (token0 == wethAddress) ||
+                                (token1 == wethAddress) ||
+                                (address(params.swapSourceToken) == wethAddress);
+
+            if (!wethInvolved) {
+                revert NoEtherToken();
+            }
+
+            // No token transfers needed - V3Utils will handle ETH wrapping
+            // and validate amounts match params
+
+        } else {
+            // Tokens-only mode: Transfer and approve all needed tokens
+            if (params.amount0 > 0) {
+                IERC20(token0).safeTransferFrom(msg.sender, address(this), params.amount0);
+                IERC20(token0).safeApprove(v3Utils, 0);
+                IERC20(token0).safeIncreaseAllowance(v3Utils, params.amount0);
+            }
+
+            if (params.amount1 > 0) {
+                IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1);
+                IERC20(token1).safeApprove(v3Utils, 0);
+                IERC20(token1).safeIncreaseAllowance(v3Utils, params.amount1);
+            }
+
+            // Handle swapSourceToken if it's different from token0 and token1
+            if (address(params.swapSourceToken) != address(0) &&
+                address(params.swapSourceToken) != token0 &&
+                address(params.swapSourceToken) != token1) {
+                uint256 swapAmount = params.amountIn0 + params.amountIn1;
+                if (swapAmount > 0) {
+                    params.swapSourceToken.safeTransferFrom(msg.sender, address(this), swapAmount);
+                    params.swapSourceToken.safeApprove(v3Utils, 0);
+                    params.swapSourceToken.safeIncreaseAllowance(v3Utils, swapAmount);
+                }
+            }
         }
         
         // Unstake position
