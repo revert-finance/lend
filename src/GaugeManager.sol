@@ -461,10 +461,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             }
         }
 
-        // Simplified ETH-only OR tokens-only logic
+        // Simplified ETH-only OR tokens-only logic (mutually exclusive)
         if (msg.value > 0) {
-            // ETH-only mode: Validate that ETH is being used for WETH position
-            address wethAddress = address(nonfungiblePositionManager.WETH9());
+            // ETH-only mode: Only ETH is accepted, no token transfers allowed
+            address wethAddress = address(weth);
+
+            // Validate that WETH is involved in the position
             bool wethInvolved = (token0 == wethAddress) ||
                                 (token1 == wethAddress) ||
                                 (address(params.swapSourceToken) == wethAddress);
@@ -473,8 +475,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
                 revert NoEtherToken();
             }
 
-            // No token transfers needed - V3Utils will handle ETH wrapping
-            // and validate amounts match params
+            // Pre-wrap ETH to WETH in GaugeManager
+            weth.deposit{value: msg.value}();
+
+            // Approve V3Utils to use the wrapped WETH
+            IERC20(wethAddress).safeApprove(v3Utils, 0);
+            IERC20(wethAddress).safeIncreaseAllowance(v3Utils, msg.value);
 
         } else {
             // Tokens-only mode: Transfer and approve all needed tokens
@@ -503,19 +509,52 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             }
         }
         
+        // Track balances before operation
+        uint256 balance0Before = IERC20(token0).balanceOf(address(this));
+        uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+        uint256 balanceSwapBefore = 0;
+        if (address(params.swapSourceToken) != address(0) &&
+            address(params.swapSourceToken) != token0 &&
+            address(params.swapSourceToken) != token1) {
+            balanceSwapBefore = params.swapSourceToken.balanceOf(address(this));
+        }
+
         // Unstake position
         IGauge(gauge).withdraw(tokenId);
-        
-        // Call V3Utils.swapAndIncreaseLiquidity (forward ETH if sent)
-        (liquidity, amount0, amount1) = V3Utils(v3Utils).swapAndIncreaseLiquidity{value: msg.value}(params);
-        
+
+        // Call V3Utils.swapAndIncreaseLiquidity (no ETH forwarded since we pre-wrapped)
+        (liquidity, amount0, amount1) = V3Utils(v3Utils).swapAndIncreaseLiquidity{value: 0}(params);
+
         // Restake position
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
-        
-        // Note: V3Utils already handles returning leftover tokens to params.recipient
-        // No need to handle leftovers here as they've already been sent
-        
+
+        // Return any leftover tokens to the user
+        // V3Utils returns leftovers to params.recipient (which we enforce to be address(this))
+        // Calculate actual leftovers by comparing balances before and after
+
+        // Check and return leftover token0
+        uint256 leftover0 = IERC20(token0).balanceOf(address(this)) - balance0Before;
+        if (leftover0 > 0) {
+            IERC20(token0).safeTransfer(msg.sender, leftover0);
+        }
+
+        // Check and return leftover token1
+        uint256 leftover1 = IERC20(token1).balanceOf(address(this)) - balance1Before;
+        if (leftover1 > 0) {
+            IERC20(token1).safeTransfer(msg.sender, leftover1);
+        }
+
+        // Check and return leftover swapSourceToken if different
+        if (address(params.swapSourceToken) != address(0) &&
+            address(params.swapSourceToken) != token0 &&
+            address(params.swapSourceToken) != token1) {
+            uint256 leftoverSwap = params.swapSourceToken.balanceOf(address(this)) - balanceSwapBefore;
+            if (leftoverSwap > 0) {
+                params.swapSourceToken.safeTransfer(msg.sender, leftoverSwap);
+            }
+        }
+
         emit SwapAndIncreaseLiquidity(tokenId, liquidity, amount0, amount1);
         
         return (liquidity, amount0, amount1);
