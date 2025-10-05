@@ -18,6 +18,7 @@ contract MockPool is IAerodromeSlipstreamPool {
     
     uint256 public override feeGrowthGlobal0X128;
     uint256 public override feeGrowthGlobal1X128;
+    address public override gauge;
     
     constructor(
         address _token0,
@@ -58,6 +59,10 @@ contract MockPool is IAerodromeSlipstreamPool {
     function setTick(int24 _tick) external {
         tick = _tick;
     }
+
+    function setGauge(address _gauge) external {
+        gauge = _gauge;
+    }
     
     // Implement required functions with minimal functionality
     function positions(bytes32) external pure override returns (
@@ -79,11 +84,21 @@ contract MockPool is IAerodromeSlipstreamPool {
         return (0, 0, 0, false);
     }
     
-    function observe(uint32[] calldata) external pure override returns (
+    function observe(uint32[] calldata secondsAgos) external pure override returns (
         int56[] memory tickCumulatives,
         uint160[] memory secondsPerLiquidityPostWriteX128s
     ) {
-        return (new int56[](0), new uint160[](0));
+        // Return arrays with the same length as input
+        tickCumulatives = new int56[](secondsAgos.length);
+        secondsPerLiquidityPostWriteX128s = new uint160[](secondsAgos.length);
+
+        // Mock stable price: all tick cumulatives are 0 (price hasn't changed)
+        for (uint i = 0; i < secondsAgos.length; i++) {
+            tickCumulatives[i] = 0;
+            secondsPerLiquidityPostWriteX128s[i] = 0;
+        }
+
+        return (tickCumulatives, secondsPerLiquidityPostWriteX128s);
     }
     
     function ticks(int24) external pure override returns (

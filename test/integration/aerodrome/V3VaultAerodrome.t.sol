@@ -85,6 +85,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // NFT back in vault
         assertEq(npm.ownerOf(tokenId), address(vault));
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+        assertEq(vault.ownerOf(tokenId), alice, "Wrong owner");
     }
     
     function testClaimRewardsFlow() public {
@@ -186,7 +187,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         
-        vm.expectRevert(GaugeNotSet.selector);
+        vm.expectRevert(GaugeManagerNotSet.selector);
         vault.stakePosition(tokenId);
         vm.stopPrank();
     }
@@ -211,5 +212,102 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // Both positions staked in different gauges
         assertEq(gaugeManager.tokenIdToGauge(aliceTokenId), address(usdcDaiGauge));
         assertEq(gaugeManager.tokenIdToGauge(bobTokenId), address(wethUsdcGauge));
+    }
+
+    function testUnstakeOfStakedPositionWithDebt() public {
+        // Create position with smaller collateral to fit within limits
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50e6,   // 50 USDC
+            50e18   // 50 DAI
+        );
+
+        // Set a very high maxPoolPriceDifference to bypass the price check
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        vm.startPrank(alice);
+
+        // Deposit to vault
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+
+        // Borrow against position (small amount to ensure it's safe initially)
+        vault.borrow(tokenId, 10e6); // Borrow 10 USDC
+
+        // Verify debt exists
+        (uint256 debtBefore, , , , ) = vault.loanInfo(tokenId);
+        assertGt(debtBefore, 0, "Should have debt before staking");
+
+        // Stake the position
+        vault.stakePosition(tokenId);
+
+        // Now unstake to trigger the bug
+        vault.unstakePosition(tokenId);
+
+        // Check debt after unstaking - this is where the bug occurs
+        (uint256 debtAfter, , , , ) = vault.loanInfo(tokenId);
+
+        // This assertion should fail with current code (debt gets wiped)
+        // but pass after the fix
+        assertEq(debtAfter, debtBefore, "Debt should remain after unstaking");
+
+        vm.stopPrank();
+    }
+
+    function testSetGaugeValidation() public {
+        // Try to set wrong gauge for a pool
+        address wrongGauge = address(0x1234);
+
+        vm.expectRevert("Gauge mismatch");
+        gaugeManager.setGauge(usdcDaiPool, wrongGauge);
+
+        // Try to set zero gauge
+        vm.expectRevert("Invalid gauge");
+        gaugeManager.setGauge(usdcDaiPool, address(0));
+
+        // Setting correct gauge should work (already done in setup)
+        // Verify it was set correctly
+        assertEq(gaugeManager.poolToGauge(usdcDaiPool), address(usdcDaiGauge));
+    }
+
+    function testCompoundRewardsInvalidSplit() public {
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
+
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+        vault.stakePosition(tokenId);
+
+        // Test 1: Try to compound with invalid split (> 10000 bps)
+        vm.expectRevert("Invalid split");
+        gaugeManager.compoundRewards(
+            tokenId,
+            new bytes(0), // swapData0
+            new bytes(0), // swapData1
+            0, // minAmount0
+            0, // minAmount1
+            10001, // aeroSplitBps > 10000 (invalid)
+            block.timestamp + 1000 // deadline
+        );
+
+        // Test 2: Try with much larger invalid split
+        vm.expectRevert("Invalid split");
+        gaugeManager.compoundRewards(
+            tokenId,
+            new bytes(0),
+            new bytes(0),
+            0,
+            0,
+            20000, // 200% (invalid)
+            block.timestamp + 1000
+        );
+
+        vm.stopPrank();
     }
 }

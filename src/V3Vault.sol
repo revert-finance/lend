@@ -379,14 +379,22 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 oldTokenId = transformedTokenId;
 
         if (oldTokenId == 0) {
-            address owner = from;
-            if (data.length != 0) {
-                owner = abi.decode(data, (address));
-            }
-            loans[tokenId] = Loan(0);
+            // Check if this is a new token or returning from staking
+            if (tokenOwner[tokenId] == address(0)) {
+                // NEW token being deposited for the first time
+                address owner = from;
+                if (data.length != 0) {
+                    owner = abi.decode(data, (address));
+                }
 
-            _addTokenToOwner(owner, tokenId);
-            emit Add(tokenId, owner, 0);
+                loans[tokenId] = Loan(0);
+                _addTokenToOwner(owner, tokenId);
+                emit Add(tokenId, owner, 0);
+            } else {
+                // EXISTING token returning from staking/gauge
+                // Do nothing - loan and ownership data are already correct
+                // The NFT is just being returned to vault custody
+            }
         } else {
             
             if (tokenId != oldTokenId) {

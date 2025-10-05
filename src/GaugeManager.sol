@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./interfaces/IVault.sol";
 import "./transformers/V3Utils.sol";
@@ -72,8 +73,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         feeWithdrawer = _feeWithdrawer;
     }
 
-    /// @notice Set gauge for a pool
+    /// @notice Set gauge for a pool (must match pool's actual gauge)
     function setGauge(address pool, address gauge) external onlyOwner {
+        // Verify that the gauge matches what the pool reports
+        require(gauge != address(0), "Invalid gauge");
+        require(IAerodromeSlipstreamPool(pool).gauge() == gauge, "Gauge mismatch");
         poolToGauge[pool] = gauge;
     }
 
@@ -155,8 +159,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IGauge(gauge).withdraw(tokenId);
         
         // Return NFT
-        address returnTo = fromVault ? address(vault) : owner;
-        nonfungiblePositionManager.safeTransferFrom(address(this), returnTo, tokenId);
+        if (fromVault) {
+            // When returning to vault, encode the original owner so vault assigns ownership correctly
+            nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
+        } else {
+            // Direct positions don't need encoded data
+            nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId);
+        }
 
         // Clean up
         delete tokenIdToGauge[tokenId];
@@ -177,6 +186,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 aeroSplitBps,
         uint256 deadline
     ) external nonReentrant {
+        require(aeroSplitBps <= 10000, "Invalid split");
+
         // Check authorization - only owner or vault can manually compound
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];
@@ -262,6 +273,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 aeroSplitBps
     ) public nonReentrant returns (uint256 newTokenId) {
         require(v3Utils != address(0), "V3Utils not configured");
+        require(aeroSplitBps <= 10000, "Invalid split");
         
         // Check authorization
         address owner = positionOwners[tokenId];
@@ -427,6 +439,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Permit2 is not supported through GaugeManager
         require(params.permitData.length == 0, "Permit2 not supported via GaugeManager");
 
+        
         // Check authorization
         address owner = positionOwners[tokenId];
         bool fromVault = isVaultPosition[tokenId];

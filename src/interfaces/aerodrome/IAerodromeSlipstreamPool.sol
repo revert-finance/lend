@@ -90,4 +90,8 @@ interface IAerodromeSlipstreamPool {
             uint32 secondsOutside,
             bool initialized
         );
+
+    /// @notice Address of the pool gauge
+    /// @return The gauge address
+    function gauge() external view returns (address);
 }
