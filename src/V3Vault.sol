@@ -388,8 +388,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 }
 
                 loans[tokenId] = Loan(0);
-                _addTokenToOwner(owner, tokenId);
-                emit Add(tokenId, owner, 0);
+                _addTokenToOwner(owner, tokenId, 0);
             } else {
                 // EXISTING token returning from staking/gauge
                 // Do nothing - loan and ownership data are already correct
@@ -406,8 +405,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 loans[tokenId] = Loan(debtShares);
 
-                _addTokenToOwner(owner, tokenId);
-                emit Add(tokenId, owner, oldTokenId);
+                _addTokenToOwner(owner, tokenId, oldTokenId);
 
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96);
 
@@ -1229,10 +1227,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         return shares.mulDiv(exchangeRateX96, Q96, rounding);
     }
 
-    function _addTokenToOwner(address to, uint256 tokenId) internal {
+    function _addTokenToOwner(address to, uint256 tokenId, uint256 oldTokenId) internal {
         ownedTokensIndex[tokenId] = ownedTokens[to].length;
         ownedTokens[to].push(tokenId);
         tokenOwner[tokenId] = to;
+        emit Add(tokenId, to, oldTokenId);
     }
 
     function _removeTokenFromOwner(address from, uint256 tokenId) internal {
