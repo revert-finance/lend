@@ -395,10 +395,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 maxAddAmount1 = amount1 * Q64 / (rewardX64 + Q64);
 
         // Add liquidity with fee-adjusted amounts
-        IERC20(token0).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token0).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount0);
-        IERC20(token1).safeApprove(address(nonfungiblePositionManager), 0);
-        IERC20(token1).safeIncreaseAllowance(address(nonfungiblePositionManager), maxAddAmount1);
+        IERC20(token0).forceApprove(address(nonfungiblePositionManager), maxAddAmount0);
+        IERC20(token1).forceApprove(address(nonfungiblePositionManager), maxAddAmount1);
         
         (, uint256 amount0Added, uint256 amount1Added) = 
             nonfungiblePositionManager.increaseLiquidity(
@@ -492,21 +490,18 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             weth.deposit{value: msg.value}();
 
             // Approve V3Utils to use the wrapped WETH
-            IERC20(wethAddress).safeApprove(v3Utils, 0);
-            IERC20(wethAddress).safeIncreaseAllowance(v3Utils, msg.value);
+            IERC20(wethAddress).forceApprove(v3Utils, msg.value);
 
         } else {
             // Tokens-only mode: Transfer and approve all needed tokens
             if (params.amount0 > 0) {
                 IERC20(token0).safeTransferFrom(msg.sender, address(this), params.amount0);
-                IERC20(token0).safeApprove(v3Utils, 0);
-                IERC20(token0).safeIncreaseAllowance(v3Utils, params.amount0);
+                IERC20(token0).forceApprove(v3Utils, params.amount0);
             }
 
             if (params.amount1 > 0) {
                 IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1);
-                IERC20(token1).safeApprove(v3Utils, 0);
-                IERC20(token1).safeIncreaseAllowance(v3Utils, params.amount1);
+                IERC20(token1).forceApprove(v3Utils, params.amount1);
             }
 
             // Handle swapSourceToken if it's different from token0 and token1
@@ -516,8 +511,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
                 uint256 swapAmount = params.amountIn0 + params.amountIn1;
                 if (swapAmount > 0) {
                     params.swapSourceToken.safeTransferFrom(msg.sender, address(this), swapAmount);
-                    params.swapSourceToken.safeApprove(v3Utils, 0);
-                    params.swapSourceToken.safeIncreaseAllowance(v3Utils, swapAmount);
+                    params.swapSourceToken.forceApprove(v3Utils, swapAmount);
                 }
             }
         }
