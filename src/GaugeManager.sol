@@ -590,10 +590,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         
         // Unstake from gauge
         IGauge(gauge).withdraw(tokenId);
-        
-        // Approve vault to take the NFT
-        nonfungiblePositionManager.approve(address(vault), tokenId);
-        
+
         // Transfer to vault using safeTransferFrom with recipient encoded
         nonfungiblePositionManager.safeTransferFrom(
             address(this), 
