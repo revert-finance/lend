@@ -68,7 +68,8 @@ contract VerifyDeployment is Script {
         verifyIntegration();
         verifyTransformerConfiguration();
         verifyBasicFunctionality();
-        
+        verifyVaultLimits();
+
         console.log("");
         console.log("=== VERIFICATION COMPLETE ===");
         console.log("Review all outputs above for any issues");
@@ -303,6 +304,88 @@ contract VerifyDeployment is Script {
         // Convert: (valueX64 / 2^64) * 100
         return (uint256(valueX64) * 100) >> 64;
     }
+
+    // Format token amount with proper decimals and commas
+    function formatTokenAmount(uint256 amount, uint8 decimals) internal pure returns (string memory) {
+        if (amount == 0) return "0";
+
+        uint256 divisor = 10 ** uint256(decimals);
+        uint256 wholePart = amount / divisor;
+        uint256 fractionalPart = amount % divisor;
+
+        // Format whole part with commas
+        string memory wholePartFormatted = formatWithCommas(wholePart);
+
+        // Simple formatting - just show whole part and up to 2 decimal places
+        if (fractionalPart == 0) {
+            return wholePartFormatted;
+        }
+
+        // Scale down fractional part to 2 decimal places
+        uint256 scaledFraction = (fractionalPart * 100) / divisor;
+
+        return string(abi.encodePacked(
+            wholePartFormatted,
+            ".",
+            scaledFraction < 10 ? "0" : "",
+            uintToString(scaledFraction)
+        ));
+    }
+
+    // Format number with commas for thousands separators
+    function formatWithCommas(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+
+        // First convert to string without commas
+        string memory numStr = uintToString(value);
+        bytes memory numBytes = bytes(numStr);
+        uint256 len = numBytes.length;
+
+        // Calculate how many commas we need
+        uint256 commas = len > 3 ? (len - 1) / 3 : 0;
+
+        // Create new array with space for commas
+        bytes memory result = new bytes(len + commas);
+
+        uint256 j = result.length;
+        uint256 digitCount = 0;
+
+        // Build string from right to left, adding commas every 3 digits
+        for (uint256 i = len; i > 0; i--) {
+            if (digitCount == 3) {
+                j--;
+                result[j] = ',';
+                digitCount = 0;
+            }
+            j--;
+            result[j] = numBytes[i - 1];
+            digitCount++;
+        }
+
+        return string(result);
+    }
+
+    // Helper to convert uint to string
+    function uintToString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
+    }
     
     function verifyIntegration() internal view {
         console.log("4. INTEGRATION VERIFICATION");
@@ -507,7 +590,7 @@ contract VerifyDeployment is Script {
         (bool success, bytes memory data) = transformerAddr.staticcall(
             abi.encodeWithSignature("vaults(address)", config.v3Vault)
         );
-        
+
         if (success) {
             bool isConfigured = abi.decode(data, (bool));
             console.log("Vault configuration for:", transformerName);
@@ -521,5 +604,132 @@ contract VerifyDeployment is Script {
         } else {
             console.log(red("FAIL - Vault configuration check FAILED for:"), transformerName);
         }
+    }
+
+    function verifyVaultLimits() internal {
+        console.log("7. VAULT LIMITS VERIFICATION");
+        console.log("============================");
+
+        // Get asset decimals first
+        uint8 decimals = 6; // Default to 6 for USDC
+        (bool success, bytes memory data) = config.v3Vault.staticcall(
+            abi.encodeWithSignature("decimals()")
+        );
+        if (success) {
+            decimals = abi.decode(data, (uint8));
+        }
+
+        // Get the asset symbol for display
+        string memory assetSymbol = "USDC"; // Default
+        (success, data) = config.usdc.staticcall(
+            abi.encodeWithSignature("symbol()")
+        );
+        if (success) {
+            assetSymbol = abi.decode(data, (string));
+        }
+
+        // MIN LOAN SIZE
+        console.log("MIN LOAN SIZE:");
+        (success, data) = config.v3Vault.staticcall(
+            abi.encodeWithSignature("minLoanSize()")
+        );
+        if (success) {
+            uint256 minLoanSize = abi.decode(data, (uint256));
+            console.log("  Raw Value:   ", formatWithCommas(minLoanSize));
+            console.log("  Formatted:   ", formatTokenAmount(minLoanSize, decimals), assetSymbol);
+        } else {
+            console.log(red("  FAILED TO READ"));
+        }
+        console.log("");
+
+        // GLOBAL LEND LIMIT
+        console.log("GLOBAL LEND LIMIT:");
+        (success, data) = config.v3Vault.staticcall(
+            abi.encodeWithSignature("globalLendLimit()")
+        );
+        if (success) {
+            uint256 globalLendLimit = abi.decode(data, (uint256));
+            console.log("  Raw Value:   ", formatWithCommas(globalLendLimit));
+            if (globalLendLimit == type(uint256).max) {
+                console.log("  Formatted:    UNLIMITED");
+            } else {
+                console.log("  Formatted:   ", formatTokenAmount(globalLendLimit, decimals), assetSymbol);
+            }
+        } else {
+            console.log(red("  FAILED TO READ"));
+        }
+        console.log("");
+
+        // GLOBAL DEBT LIMIT
+        console.log("GLOBAL DEBT LIMIT:");
+        (success, data) = config.v3Vault.staticcall(
+            abi.encodeWithSignature("globalDebtLimit()")
+        );
+        if (success) {
+            uint256 globalDebtLimit = abi.decode(data, (uint256));
+            console.log("  Raw Value:   ", formatWithCommas(globalDebtLimit));
+            if (globalDebtLimit == type(uint256).max) {
+                console.log("  Formatted:    UNLIMITED");
+            } else {
+                console.log("  Formatted:   ", formatTokenAmount(globalDebtLimit, decimals), assetSymbol);
+            }
+        } else {
+            console.log(red("  FAILED TO READ"));
+        }
+        console.log("");
+
+        // DAILY LEND INCREASE LIMIT (MIN)
+        console.log("DAILY LEND INCREASE LIMIT (MIN):");
+        (success, data) = config.v3Vault.staticcall(
+            abi.encodeWithSignature("dailyLendIncreaseLimitMin()")
+        );
+        if (success) {
+            uint256 dailyLendIncreaseLimitMin = abi.decode(data, (uint256));
+            console.log("  Raw Value:   ", formatWithCommas(dailyLendIncreaseLimitMin));
+            if (dailyLendIncreaseLimitMin == type(uint256).max) {
+                console.log("  Formatted:    UNLIMITED");
+            } else {
+                console.log("  Formatted:   ", formatTokenAmount(dailyLendIncreaseLimitMin, decimals), assetSymbol);
+            }
+
+            // Also show current left amount
+            (bool successLeft, bytes memory dataLeft) = config.v3Vault.staticcall(
+                abi.encodeWithSignature("dailyLendIncreaseLimitLeft()")
+            );
+            if (successLeft) {
+                uint256 dailyLendIncreaseLimitLeft = abi.decode(dataLeft, (uint256));
+                console.log("  Current Left:", formatTokenAmount(dailyLendIncreaseLimitLeft, decimals), assetSymbol);
+            }
+        } else {
+            console.log(red("  FAILED TO READ"));
+        }
+        console.log("");
+
+        // DAILY DEBT INCREASE LIMIT (MIN)
+        console.log("DAILY DEBT INCREASE LIMIT (MIN):");
+        (success, data) = config.v3Vault.staticcall(
+            abi.encodeWithSignature("dailyDebtIncreaseLimitMin()")
+        );
+        if (success) {
+            uint256 dailyDebtIncreaseLimitMin = abi.decode(data, (uint256));
+            console.log("  Raw Value:   ", formatWithCommas(dailyDebtIncreaseLimitMin));
+            if (dailyDebtIncreaseLimitMin == type(uint256).max) {
+                console.log("  Formatted:    UNLIMITED");
+            } else {
+                console.log("  Formatted:   ", formatTokenAmount(dailyDebtIncreaseLimitMin, decimals), assetSymbol);
+            }
+
+            // Also show current left amount
+            (bool successLeft, bytes memory dataLeft) = config.v3Vault.staticcall(
+                abi.encodeWithSignature("dailyDebtIncreaseLimitLeft()")
+            );
+            if (successLeft) {
+                uint256 dailyDebtIncreaseLimitLeft = abi.decode(dataLeft, (uint256));
+                console.log("  Current Left:", formatTokenAmount(dailyDebtIncreaseLimitLeft, decimals), assetSymbol);
+            }
+        } else {
+            console.log(red("  FAILED TO READ"));
+        }
+        console.log("");
     }
 } 
