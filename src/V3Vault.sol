@@ -611,12 +611,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function liquidate(LiquidateParams calldata params) external override returns (uint256 amount0, uint256 amount1) {
-        
+
         if (transformedTokenId != 0) {
             revert TransformNotAllowed();
         }
-
-        _unstakeForLiquidation(params.tokenId);
 
         LiquidateState memory state;
 
@@ -633,6 +631,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (state.isHealthy) {
             revert NotLiquidatable();
         }
+
+        _unstakeForLiquidation(params.tokenId);
+
 
         (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
             _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
