@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
-import "v3-core/interfaces/IUniswapV3Pool.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
@@ -155,6 +154,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IV3Oracle _oracle,
         IPermit2 _permit2
     ) ERC20(name, symbol) {
+        require(_asset != address(0), "incorrect address");
+        require(address(_nonfungiblePositionManager) != address(0), "incorrect address");
+        require(address(_interestRateModel) != address(0), "incorrect address");
+        require(address(_oracle) != address(0), "incorrect address");
+        require(address(_permit2) != address(0), "incorrect address");
+
         asset = _asset;
         assetDecimals = IERC20Metadata(_asset).decimals();
         nonfungiblePositionManager = _nonfungiblePositionManager;
@@ -353,6 +358,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function create(uint256 tokenId, address recipient) external override {
+        require(recipient != address(0), "incorrect address");
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
@@ -360,6 +366,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         external
         override
     {
+        require(recipient != address(0), "incorrect address");
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
@@ -659,7 +666,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                     signature
                 );
             } else {
-                
+
                 SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
             }
         }

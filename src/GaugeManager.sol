@@ -13,7 +13,6 @@ import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./interfaces/IVault.sol";
 import "./transformers/V3Utils.sol";
-import "./utils/Constants.sol";
 import "./utils/Swapper.sol";
 
 /// @title GaugeManager with Built-in Compounding

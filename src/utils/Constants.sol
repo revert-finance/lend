@@ -38,13 +38,11 @@ abstract contract Constants {
     error DailyLendIncreaseLimit();
     error InsufficientLiquidity();
     error NotLiquidatable();
-    error InterestNotUpdated();
     error TransformNotAllowed();
     error TransformFailed();
     error CollateralFactorExceedsMax();
     error CollateralValueLimit();
     error NoLiquidity();
-    error DebtChanged();
     error NeedsRepay();
     error NoSharesRepayed();
 
@@ -65,11 +63,6 @@ abstract contract Constants {
     error NotSupportedFeeTier();
 
     // Aerodrome-specific errors
-    error InvalidTickSpacing();
-    error GaugeNotSet();
-    error AlreadyStaked();
-    error NotStaked();
-    error RewardClaimFailed();
     error GaugeManagerNotSet();
     error NotDepositor();
 }
