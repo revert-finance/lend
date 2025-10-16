@@ -111,6 +111,10 @@ contract MockGauge is IGauge {
         rewards[user] = amount;
     }
 
+    function setRewardRate(uint256 newRewardRate) external {
+        rewardRate = newRewardRate;
+    }
+
     function _removeTokenFromUser(address user, uint256 tokenId) internal {
         uint256[] storage tokens = userTokens[user];
         for (uint256 i = 0; i < tokens.length; i++) {

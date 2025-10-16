@@ -67,13 +67,16 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
 
     function setPosition(
         uint256 tokenId,
-        address token0,
-        address token1,
+        address tokenA,
+        address tokenB,
         int24 tickSpacing,
         int24 tickLower,
         int24 tickUpper,
         uint128 liquidity
     ) external {
+        // Sort tokens by address (token0 must be < token1)
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+
         _positions[tokenId] = Position({
             nonce: 0,
             operator: address(0),
@@ -112,8 +115,17 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         revert("Not implemented");
     }
 
-    function collect(CollectParams calldata) external payable override returns (uint256, uint256) {
-        revert("Not implemented");
+    function collect(CollectParams calldata params) external payable override returns (uint256, uint256) {
+        Position storage position = _positions[params.tokenId];
+
+        uint256 amount0 = position.tokensOwed0;
+        uint256 amount1 = position.tokensOwed1;
+
+        // Clear tokens owed
+        position.tokensOwed0 = 0;
+        position.tokensOwed1 = 0;
+
+        return (amount0, amount1);
     }
 
     function burn(uint256) external payable override {

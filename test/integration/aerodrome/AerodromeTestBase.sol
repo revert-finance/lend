@@ -69,12 +69,12 @@ contract MockInterestRateModel is IInterestRateModel {
 contract MockChainlinkAggregator {
     int256 public price;
     uint8 public decimals;
-    
+
     constructor(int256 _price, uint8 _decimals) {
         price = _price;
         decimals = _decimals;
     }
-    
+
     function latestRoundData() external view returns (
         uint80 roundId,
         int256 answer,
@@ -84,6 +84,12 @@ contract MockChainlinkAggregator {
     ) {
         return (1, price, block.timestamp, block.timestamp, 1);
     }
+}
+
+// Mock Permit2 for testing
+contract MockPermit2 {
+    // Minimal mock - just needs to exist as a contract
+    // Tests don't actually use permit2 functionality
 }
 
 abstract contract AerodromeTestBase is Test, Constants {
@@ -118,6 +124,7 @@ abstract contract AerodromeTestBase is Test, Constants {
     MockChainlinkAggregator public usdcFeed;
     MockChainlinkAggregator public daiFeed;
     MockChainlinkAggregator public ethFeed;
+    MockPermit2 public permit2;
     
     function setUp() public virtual {
         // Deploy mocks
@@ -164,7 +171,10 @@ abstract contract AerodromeTestBase is Test, Constants {
         
         // Deploy interest rate model
         irm = new MockInterestRateModel();
-        
+
+        // Deploy mock permit2
+        permit2 = new MockPermit2();
+
         // Deploy oracle
         oracle = new V3Oracle(npm, address(usdc), address(usdc));
         
@@ -205,7 +215,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             npm,
             irm,
             oracle,
-            IPermit2(address(0))
+            IPermit2(address(permit2))
         );
         
         // Deploy gauge manager
@@ -233,10 +243,13 @@ abstract contract AerodromeTestBase is Test, Constants {
         // Set gauge manager in vault
         vault.setGaugeManager(address(gaugeManager));
         
-        // Configure vault collateral factors
-        vault.setTokenConfig(address(usdc), 9000, 100000); // 90% CF, higher collateral value limit
-        vault.setTokenConfig(address(dai), 9000, 100000); // 90% CF, higher collateral value limit
-        vault.setTokenConfig(address(weth), 8500, 100000); // 85% CF, higher collateral value limit
+        // Configure vault collateral factors using X32 scaling
+        // CF must be scaled by Q32 = 2^32 = 4,294,967,296
+        uint32 cf90Percent = uint32(Q32 * 90 / 100);  // 3,865,470,566
+        uint32 cf85Percent = uint32(Q32 * 85 / 100);  // 3,650,722,201
+        vault.setTokenConfig(address(usdc), cf90Percent, type(uint32).max); // 90% CF, max limit
+        vault.setTokenConfig(address(dai), cf90Percent, type(uint32).max); // 90% CF, max limit
+        vault.setTokenConfig(address(weth), cf85Percent, type(uint32).max); // 85% CF, max limit
         
         // Fund test users
         usdc.mint(alice, 100000e6);  // 100,000 USDC with 6 decimals
