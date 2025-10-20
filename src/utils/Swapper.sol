@@ -97,12 +97,12 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
             } else {
                 // For 0x v2, use raw data
-                SafeERC20.safeIncreaseAllowance(params.tokenIn, zeroxAllowanceHolder, params.amountIn);
+                SafeERC20.forceApprove(params.tokenIn, zeroxAllowanceHolder, params.amountIn);
                 (bool success,) = zeroxAllowanceHolder.call(params.swapData);
                 if (!success) {
                     revert SwapFailed();
                 }
-                SafeERC20.safeApprove(params.tokenIn, zeroxAllowanceHolder, 0);
+                SafeERC20.forceApprove(params.tokenIn, zeroxAllowanceHolder, 0);
             }
 
             amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
