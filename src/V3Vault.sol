@@ -13,8 +13,6 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
-import "permit2/interfaces/IPermit2.sol";
-
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
@@ -45,8 +43,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     IInterestRateModel public immutable interestRateModel;
 
     IV3Oracle public immutable oracle;
-
-    IPermit2 public immutable permit2;
 
     address public immutable override asset;
 
@@ -151,14 +147,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         address _asset,
         INonfungiblePositionManager _nonfungiblePositionManager,
         IInterestRateModel _interestRateModel,
-        IV3Oracle _oracle,
-        IPermit2 _permit2
+        IV3Oracle _oracle
     ) ERC20(name, symbol) {
         require(_asset != address(0), "incorrect address");
         require(address(_nonfungiblePositionManager) != address(0), "incorrect address");
         require(address(_interestRateModel) != address(0), "incorrect address");
         require(address(_oracle) != address(0), "incorrect address");
-        require(address(_permit2) != address(0), "incorrect address");
 
         asset = _asset;
         assetDecimals = IERC20Metadata(_asset).decimals();
@@ -166,7 +160,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         interestRateModel = _interestRateModel;
         oracle = _oracle;
-        permit2 = _permit2;
     }
 
     function vaultInfo()
@@ -651,24 +644,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         if (state.liquidatorCost != 0) {
-            if (params.permitData.length != 0) {
-                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                    abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-
-                if (permit.permitted.token != asset) {
-                    revert InvalidToken();
-                }
-
-                permit2.permitTransferFrom(
-                    permit,
-                    ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
-                    msg.sender,
-                    signature
-                );
-            } else {
-
-                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
-            }
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
         }
 
         debtSharesTotal = debtSharesTotal - debtShares;
@@ -839,21 +815,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
 
-        if (permitData.length != 0) {
-            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-
-            if (permit.permitted.token != asset) {
-                revert InvalidToken();
-            }
-
-            permit2.permitTransferFrom(
-                permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
-            );
-        } else {
-            
-            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-        }
+        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
 
         _mint(receiver, shares);
 
@@ -928,21 +890,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         if (assets != 0) {
-            if (permitData.length != 0) {
-                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                    abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-
-                if (permit.permitted.token != asset) {
-                    revert InvalidToken();
-                }
-
-                permit2.permitTransferFrom(
-                    permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
-                );
-            } else {
-                
-                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-            }
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
         }
 
         uint256 loanDebtShares = currentShares - shares;
