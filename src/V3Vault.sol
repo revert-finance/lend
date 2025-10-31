@@ -340,16 +340,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         return assets;
     }
 
-    function deposit(uint256 assets, address receiver, bytes calldata permitData) external override returns (uint256) {
-        (, uint256 shares) = _deposit(receiver, assets, false, permitData);
-        return shares;
-    }
-
-    function mint(uint256 shares, address receiver, bytes calldata permitData) external override returns (uint256) {
-        (uint256 assets,) = _deposit(receiver, shares, true, permitData);
-        return assets;
-    }
-
     function create(uint256 tokenId, address recipient) external override {
         require(recipient != address(0), "incorrect address");
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
@@ -586,14 +576,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         returns (uint256 assets, uint256 shares)
     {
         (assets, shares) = _repay(tokenId, amount, isShare, "");
-    }
-
-    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
-        external
-        override
-        returns (uint256 assets, uint256 shares)
-    {
-        (assets, shares) = _repay(tokenId, amount, isShare, permitData);
     }
 
     struct LiquidateState {

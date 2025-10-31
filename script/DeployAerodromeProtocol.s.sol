@@ -85,8 +85,7 @@ contract DeployAerodromeProtocol is Script {
             USDC,
             IAerodromeNonfungiblePositionManager(AERODROME_NPM),
             irm,
-            oracle,
-            IPermit2(PERMIT2)
+            oracle
         );
         console.log("   V3Vault deployed:", address(vault));
         
