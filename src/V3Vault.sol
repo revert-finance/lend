@@ -440,10 +440,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // Track if position was staked before transformation
         bool wasStaked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
-        
-        // Unstake position if it's in a gauge (for liquidations/transformations)
+
+        // Unstake position if needed
         if (wasStaked) {
-            _unstakeForLiquidation(tokenId);
+            _unstakeIfNeeded(tokenId);
         }
 
         nonfungiblePositionManager.approve(transformer, tokenId);
@@ -614,7 +614,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NotLiquidatable();
         }
 
-        _unstakeForLiquidation(params.tokenId);
+        _unstakeIfNeeded(params.tokenId);
 
 
         (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
@@ -666,7 +666,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NeedsRepay();
         }
 
-        _unstakeForLiquidation(tokenId);
+        _unstakeIfNeeded(tokenId);
 
         _removeTokenFromOwner(owner, tokenId);
 
@@ -1212,8 +1212,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
 
 
-    /// @notice Emergency unstake for liquidations
-    function _unstakeForLiquidation(uint256 tokenId) internal {
+    /// @notice Unstake position if it's currently staked in a gauge
+    function _unstakeIfNeeded(uint256 tokenId) internal {
         if (gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
             IGaugeManager(gaugeManager).unstakePosition(tokenId);
         }
