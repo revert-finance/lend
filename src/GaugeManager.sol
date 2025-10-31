@@ -24,6 +24,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event PositionStaked(uint256 indexed tokenId, address indexed owner);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
+    event RewardsAccumulated(address indexed owner, uint256 amount);
     event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
     event V3UtilsSet(address indexed v3Utils);
     event PositionMigratedToVault(uint256 indexed tokenId, address indexed owner);
@@ -47,6 +48,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     mapping(uint256 => address) public tokenIdToGauge;
     mapping(uint256 => address) public positionOwners;
     mapping(uint256 => bool) public isVaultPosition;
+
+    mapping(address => uint256) public unclaimedRewards;
     
     // Transform system for AutoRange/AutoCompound integration
     mapping(address => bool) public transformerAllowList;
@@ -145,13 +148,14 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
 
-        // Claim final rewards and send to owner
+        // Claim final rewards and accumulate for owner
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
         uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
-        
+
         if (aeroAmount > 0) {
-            aeroToken.safeTransfer(owner, aeroAmount);
+            unclaimedRewards[owner] += aeroAmount;
+            emit RewardsAccumulated(owner, aeroAmount);
         }
         
         // Unstake
@@ -250,6 +254,19 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         if (aeroAmount > 0) {
             aeroToken.safeTransfer(owner, aeroAmount);
         }
+    }
+
+    /// @notice Claim accumulated rewards from unstaked positions (PULL pattern)
+    /// @param recipient The address to send the rewards to
+    /// @return amount The amount of AERO tokens claimed
+    function claimAccumulatedRewards(address recipient) external nonReentrant returns (uint256) {
+        uint256 amount = unclaimedRewards[msg.sender];
+        require(amount > 0, "No rewards");
+
+        unclaimedRewards[msg.sender] = 0;
+        aeroToken.safeTransfer(recipient, amount);
+
+        return amount;
     }
 
     /// @notice Execute V3Utils operation on staked position with optional AERO compounding
