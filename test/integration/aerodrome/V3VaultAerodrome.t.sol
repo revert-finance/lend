@@ -388,9 +388,10 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // Vault should still track the original owner (alice) after liquidation
         assertEq(vault.ownerOf(tokenId), alice, "Vault should track alice as owner after liquidation");
 
-        // Rewards test skipped due to mock limitations
+        // Verify rewards were accumulated (not pushed) - PULL pattern prevents DOS
         uint256 aliceAeroAfter = aero.balanceOf(alice);
-        assertGt(aliceAeroAfter, aliceAeroBefore, "Owner should receive rewards");
+        assertEq(aliceAeroAfter, aliceAeroBefore, "AERO balance should not change (rewards accumulated, not pushed)");
+        assertGt(gaugeManager.unclaimedRewards(alice), 0, "Alice should have unclaimed rewards");
 
         // Verify loan is cleared
         (uint256 debt, , , , ) = vault.loanInfo(tokenId);

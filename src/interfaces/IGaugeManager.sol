@@ -6,6 +6,7 @@ interface IGaugeManager {
     event PositionStaked(uint256 indexed tokenId, address indexed owner);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
+    event RewardsAccumulated(address indexed owner, uint256 amount);
     event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
     event V3UtilsSet(address indexed v3Utils);
     event PositionMigratedToVault(uint256 indexed tokenId, address indexed owner);
@@ -32,6 +33,9 @@ interface IGaugeManager {
     
     // Simple claim without compounding
     function claimRewards(uint256 tokenId) external;
+
+    // Claim accumulated rewards (PULL pattern)
+    function claimAccumulatedRewards(address recipient) external returns (uint256);
     
     // Position management with V3Utils
     function executeV3UtilsWithOptionalCompound(
@@ -76,6 +80,7 @@ interface IGaugeManager {
     function feeWithdrawer() external view returns (address);
     function transformerAllowList(address transformer) external view returns (bool);
     function transformApprovals(address owner, uint256 tokenId, address transformer) external view returns (bool);
+    function unclaimedRewards(address owner) external view returns (uint256);
     
     // Admin functions
     function setGauge(address pool, address gauge) external;
