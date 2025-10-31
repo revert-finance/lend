@@ -214,8 +214,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             address(usdc),
             npm,
             irm,
-            oracle,
-            IPermit2(address(permit2))
+            oracle
         );
         
         // Deploy gauge manager
