@@ -149,10 +149,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IInterestRateModel _interestRateModel,
         IV3Oracle _oracle
     ) ERC20(name, symbol) {
-        require(_asset != address(0), "incorrect address");
-        require(address(_nonfungiblePositionManager) != address(0), "incorrect address");
-        require(address(_interestRateModel) != address(0), "incorrect address");
-        require(address(_oracle) != address(0), "incorrect address");
+        if (_asset == address(0)) revert ZeroAddress();
+        if (address(_nonfungiblePositionManager) == address(0)) revert ZeroAddress();
+        if (address(_interestRateModel) == address(0)) revert ZeroAddress();
+        if (address(_oracle) == address(0)) revert ZeroAddress();
 
         asset = _asset;
         assetDecimals = IERC20Metadata(_asset).decimals();
@@ -341,7 +341,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function create(uint256 tokenId, address recipient) external override {
-        require(recipient != address(0), "incorrect address");
+        if (recipient == address(0)) revert ZeroAddress();
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
@@ -349,7 +349,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         external
         override
     {
-        require(recipient != address(0), "incorrect address");
+        if (recipient == address(0)) revert ZeroAddress();
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }

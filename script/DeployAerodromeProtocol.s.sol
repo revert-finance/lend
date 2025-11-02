@@ -218,9 +218,7 @@ contract DeployAerodromeProtocol is Script {
         console.log("   WETH collateral factor set to 85%");
         vault.setTokenConfig(CBBTC, uint32(85 * Q32 / 100), type(uint32).max); // 85% CF
         console.log("   cbBTC collateral factor set to 85%");
-        vault.setTokenConfig(AERO, uint32(75 * Q32 / 100), type(uint32).max); // 75% CF
-        console.log("   AERO collateral factor set to 75%");
-        
+
         vm.stopBroadcast();
         
         // Summary

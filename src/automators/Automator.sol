@@ -33,8 +33,6 @@ abstract contract Automator is Ownable2Step, Swapper {
     uint32 public TWAPSeconds;
     uint16 public maxTWAPTickDifference;
 
-    error ZeroAddress();
-
     constructor(
         INonfungiblePositionManager npm,
         address _operator,

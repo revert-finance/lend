@@ -62,6 +62,8 @@ abstract contract Constants {
     error SameRange();
     error NotSupportedFeeTier();
 
+    error ZeroAddress();
+
     // Aerodrome-specific errors
     error GaugeManagerNotSet();
     error NotDepositor();
