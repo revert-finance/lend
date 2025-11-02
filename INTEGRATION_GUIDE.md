@@ -4,14 +4,14 @@
 
 | Contract | Address | Basescan |
 |----------|---------|----------|
-| **V3Vault** | `0xb4694159ef30Fa21bCC9D963C7FA3716b0821E38` | [View](https://basescan.org/address/0xb4694159ef30Fa21bCC9D963C7FA3716b0821E38) |
-| **V3Oracle** | `0x896a2FEB2cD936b4083e8d13390Da2DC78935279` | [View](https://basescan.org/address/0x896a2FEB2cD936b4083e8d13390Da2DC78935279) |
-| **GaugeManager** | `0x3a9cB8c9b358eD3bC44A539B9Bb356Fe64b08559` | [View](https://basescan.org/address/0x3a9cB8c9b358eD3bC44A539B9Bb356Fe64b08559) |
-| **LeverageTransformer** | `0xc138D1f6391C96FBcd3E88a4f9D404007666722e` | [View](https://basescan.org/address/0xc138D1f6391C96FBcd3E88a4f9D404007666722e) |
-| **AutoCompound** | `0x06f64F46415aA307c46692f73FD85649086Bd7B9` | [View](https://basescan.org/address/0x06f64F46415aA307c46692f73FD85649086Bd7B9) |
-| **InterestRateModel** | `0xd09053a11E07609445806A9581f2678cbf73Af52` | [View](https://basescan.org/address/0xd09053a11E07609445806A9581f2678cbf73Af52) |
+| **V3Vault** | `0x50A854E1C996220cfE7bDd0667cd5d2641ac154F` | [View](https://basescan.org/address/0x50A854E1C996220cfE7bDd0667cd5d2641ac154F) |
+| **V3Oracle** | `0xCD2e4fD7f632Be22852A5Dc436b336f0Ce168ec1` | [View](https://basescan.org/address/0xCD2e4fD7f632Be22852A5Dc436b336f0Ce168ec1) |
+| **GaugeManager** | `0xb922131d2614902a6D995d6e0c978Ed37150B165` | [View](https://basescan.org/address/0xb922131d2614902a6D995d6e0c978Ed37150B165) |
+| **LeverageTransformer** | `0x1D4f04fc6AEB73907F3984D087A36A38635FB7Be` | [View](https://basescan.org/address/0x1D4f04fc6AEB73907F3984D087A36A38635FB7Be) |
+| **AutoCompound** | `0xb90ac9d10caE000Af5ab261734000f834922E12b` | [View](https://basescan.org/address/0xb90ac9d10caE000Af5ab261734000f834922E12b) |
+| **InterestRateModel** | `0xD24c18c25204128955a8773d8016B404fAC7577F` | [View](https://basescan.org/address/0xD24c18c25204128955a8773d8016B404fAC7577F) |
 | **V3Utils** (existing) | `0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1` | [View](https://basescan.org/address/0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1) |
-| **Note**: Final deployment on 2025-09-06 with fixed LeverageTransformer constructor and original msg.sender implementation |
+| **Note**: Deployment on 2025-11-02 with optimized bytecode and verified contracts |
 
 ## Protocol Overview
 
@@ -245,7 +245,6 @@ await vault.multicall([createData, transformData]);
    - USDC: 90%
    - WETH: 85%
    - cbBTC: 85%
-   - AERO: 75%
 
 2. **Interest Rates**: Dynamic based on utilization, managed by InterestRateModel
 
