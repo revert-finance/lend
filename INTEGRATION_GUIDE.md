@@ -4,14 +4,14 @@
 
 | Contract | Address | Basescan |
 |----------|---------|----------|
-| **V3Vault** | `0x50A854E1C996220cfE7bDd0667cd5d2641ac154F` | [View](https://basescan.org/address/0x50A854E1C996220cfE7bDd0667cd5d2641ac154F) |
-| **V3Oracle** | `0xCD2e4fD7f632Be22852A5Dc436b336f0Ce168ec1` | [View](https://basescan.org/address/0xCD2e4fD7f632Be22852A5Dc436b336f0Ce168ec1) |
-| **GaugeManager** | `0xb922131d2614902a6D995d6e0c978Ed37150B165` | [View](https://basescan.org/address/0xb922131d2614902a6D995d6e0c978Ed37150B165) |
-| **LeverageTransformer** | `0x1D4f04fc6AEB73907F3984D087A36A38635FB7Be` | [View](https://basescan.org/address/0x1D4f04fc6AEB73907F3984D087A36A38635FB7Be) |
-| **AutoCompound** | `0xb90ac9d10caE000Af5ab261734000f834922E12b` | [View](https://basescan.org/address/0xb90ac9d10caE000Af5ab261734000f834922E12b) |
-| **InterestRateModel** | `0xD24c18c25204128955a8773d8016B404fAC7577F` | [View](https://basescan.org/address/0xD24c18c25204128955a8773d8016B404fAC7577F) |
+| **V3Vault** | `0xA2FFBEb14e0156712EE74c9e60Ec03f68A8F66b5` | [View](https://basescan.org/address/0xA2FFBEb14e0156712EE74c9e60Ec03f68A8F66b5) |
+| **V3Oracle** | `0xB2Fe049F32F1394A1F9088Cf93320bF3Adc148Ae` | [View](https://basescan.org/address/0xB2Fe049F32F1394A1F9088Cf93320bF3Adc148Ae) |
+| **GaugeManager** | `0xE8E4F06047E6941a93840EAf45e79fCa2BC6715f` | [View](https://basescan.org/address/0xE8E4F06047E6941a93840EAf45e79fCa2BC6715f) |
+| **LeverageTransformer** | `0xf47d5Da4b35f80F90eb24BF6865076e62C3f5B68` | [View](https://basescan.org/address/0xf47d5Da4b35f80F90eb24BF6865076e62C3f5B68) |
+| **AutoCompound** | `0x4D2F64e1f28C418e386CcF0a49B18bB89Deea3E8` | [View](https://basescan.org/address/0x4D2F64e1f28C418e386CcF0a49B18bB89Deea3E8) |
+| **InterestRateModel** | `0x93463eB03a73D4a1e93b23963C30d4AC792BF4E3` | [View](https://basescan.org/address/0x93463eB03a73D4a1e93b23963C30d4AC792BF4E3) |
 | **V3Utils** (existing) | `0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1` | [View](https://basescan.org/address/0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1) |
-| **Note**: Deployment on 2025-11-02 with optimized bytecode and verified contracts |
+| **Note**: Deployment on 2025-11-05 with optimized bytecode and verified contracts |
 
 ## Protocol Overview
 
@@ -105,12 +105,7 @@ interface IGaugeManager {
     
     // Migration Functions
     function migrateToVault(uint256 tokenId, address recipient) external;
-    function swapAndIncreaseStakedPosition(
-        uint256 tokenId,
-        address v3utils,
-        V3Utils.SwapAndIncreaseLiquidityParams calldata params
-    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
-    
+
     // View Functions
     function tokenIdToGauge(uint256 tokenId) external view returns (address);
     function positionOwners(uint256 tokenId) external view returns (address);
