@@ -7,7 +7,6 @@ interface IGaugeManager {
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
     event RewardsAccumulated(address indexed owner, uint256 amount);
-    event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
     event V3UtilsSet(address indexed v3Utils);
     event PositionMigratedToVault(uint256 indexed tokenId, address indexed owner);
     event PositionTransformed(uint256 indexed oldTokenId, uint256 indexed newTokenId, address indexed owner);
@@ -48,13 +47,7 @@ interface IGaugeManager {
         uint256 minAeroAmount1,
         uint256 aeroSplitBps
     ) external returns (uint256 newTokenId);
-    
-    // Add liquidity to staked position
-    function swapAndIncreaseStakedPosition(
-        uint256 tokenId,
-        bytes calldata params // V3Utils.SwapAndIncreaseLiquidityParams
-    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
-    
+
     // Migrate to vault
     function migrateToVault(uint256 tokenId, address recipient) external;
     
