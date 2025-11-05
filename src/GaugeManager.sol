@@ -32,6 +32,19 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event TransformerSet(address indexed transformer, bool active);
     event ApprovedTransform(uint256 indexed tokenId, address indexed owner, address indexed transformer, bool isActive);
 
+    /// @notice Parameters for AutoCompound.executeForGauge
+    /// @dev Defined here to enable proper struct decoding in transform()
+    struct ExecuteGaugeParams {
+        uint256 tokenId;
+        uint256 aeroAmount;
+        bytes swapData0;
+        bytes swapData1;
+        uint256 minAmount0;
+        uint256 minAmount1;
+        uint256 aeroSplitBps;
+        uint256 deadline;
+    }
+
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
     
@@ -673,23 +686,19 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
                 aeroToken.safeTransfer(transformer, aeroAmount);
             }
             
-            // Re-encode the call data with the actual aeroAmount
-            // Decode the original params (skip the selector and tokenId, insert aeroAmount)
-            (uint256 originalTokenId, , bytes memory swapData0, bytes memory swapData1, 
-             uint256 minAmount0, uint256 minAmount1, uint256 aeroSplitBps, uint256 deadline) = 
-                abi.decode(data[4:], (uint256, uint256, bytes, bytes, uint256, uint256, uint256, uint256));
-            
-            // Re-encode with the actual aeroAmount
+            ExecuteGaugeParams memory params = abi.decode(data[4:], (ExecuteGaugeParams));
+
+            // Re-encode with the actual claimed aeroAmount
             callData = abi.encodeWithSelector(
                 selector,
-                originalTokenId,
-                aeroAmount,
-                swapData0,
-                swapData1,
-                minAmount0,
-                minAmount1,
-                aeroSplitBps,
-                deadline
+                params.tokenId,
+                aeroAmount,  // Replace placeholder with actual claimed amount
+                params.swapData0,
+                params.swapData1,
+                params.minAmount0,
+                params.minAmount1,
+                params.aeroSplitBps,
+                params.deadline
             );
         } else if (aeroAmount > 0) {
             // For other transformers: send AERO to position owner
