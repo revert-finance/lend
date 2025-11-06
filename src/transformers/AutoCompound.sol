@@ -62,8 +62,10 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         address _withdrawer,
         uint32 _TWAPSeconds,
         uint16 _maxTWAPTickDifference,
+        address _universalRouter,
+        address _zeroxAllowanceHolder,
         address _aeroToken
-    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, address(0), address(0)) {
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {
         aeroToken = IERC20(_aeroToken);
     }
 

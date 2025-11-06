@@ -14,7 +14,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
 
     function setUp() external {
         _setupBase();
-        autoCompound = new AutoCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, AERO_TOKEN);
+        autoCompound = new AutoCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, EX0x, AERO_TOKEN);
     }
 
     function testNoAccess() external {

@@ -120,11 +120,13 @@ contract DeployAerodromeProtocol is Script {
         console.log("\n6. Deploying AutoCompound...");
         autoCompound = new AutoCompound(
             INonfungiblePositionManager(AERODROME_NPM),
-            deployer,  // operator - set to deployer initially
-            deployer,  // withdrawer - set to deployer initially  
-            60,        // TWAPSeconds
-            200,       // maxTWAPTickDifference
-            AERO       // aeroToken
+            deployer,              // operator - set to deployer initially
+            deployer,              // withdrawer - set to deployer initially
+            60,                    // TWAPSeconds
+            200,                   // maxTWAPTickDifference
+            UNIVERSAL_ROUTER,      // universalRouter
+            ZEROX_ALLOWANCE_HOLDER,// zeroxAllowanceHolder
+            AERO                   // aeroToken
         );
         console.log("   AutoCompound deployed:", address(autoCompound));
         console.log("   - Automated compounding with configurable fees (0-5%)");
