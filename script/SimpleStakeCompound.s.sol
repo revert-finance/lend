@@ -32,12 +32,6 @@ interface IGaugeManager {
         uint256 minAeroAmount1,
         uint256 aeroSplitBps
     ) external returns (uint256 newTokenId);
-    
-    function swapAndIncreaseStakedPosition(
-        uint256 tokenId,
-        address v3utils,
-        V3Utils.SwapAndIncreaseLiquidityParams calldata params
-    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
 }
 
 interface IGauge {
@@ -125,8 +119,8 @@ interface IWETH {
 }
 
 contract SimpleStakeCompound is Script {
-    // Deployed contracts on Base (Latest deployment: 2025-09-06)
-    address constant GAUGE_MANAGER = 0x3a9cB8c9b358eD3bC44A539B9Bb356Fe64b08559;
+    // Deployed contracts on Base (Latest deployment: 2025-11-05)
+    address constant GAUGE_MANAGER = 0xE8E4F06047E6941a93840EAf45e79fCa2BC6715f;
     address constant NPM = 0x827922686190790b37229fd06084350E74485b72;
     address constant UNIVERSAL_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
     address constant AERODROME_FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;

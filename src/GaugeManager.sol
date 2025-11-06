@@ -544,18 +544,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             
             ExecuteGaugeParams memory params = abi.decode(data[4:], (ExecuteGaugeParams));
 
+            // Update the aeroAmount in the struct
+            params.aeroAmount = aeroAmount;
+
             // Re-encode with the actual claimed aeroAmount
-            callData = abi.encodeWithSelector(
-                selector,
-                params.tokenId,
-                aeroAmount,  // Replace placeholder with actual claimed amount
-                params.swapData0,
-                params.swapData1,
-                params.minAmount0,
-                params.minAmount1,
-                params.aeroSplitBps,
-                params.deadline
-            );
+            callData = abi.encode(params);
+            // Prepend the selector
+            callData = abi.encodePacked(selector, callData);
         } else if (aeroAmount > 0) {
             // For other transformers: send AERO to position owner
             aeroToken.safeTransfer(owner, aeroAmount);
