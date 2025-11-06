@@ -8,6 +8,8 @@ import "../src/InterestRateModel.sol";
 import "../src/GaugeManager.sol";
 import "../src/transformers/LeverageTransformer.sol";
 import "../src/transformers/AutoCompound.sol";
+import "../src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
+import "../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 contract DeployAerodromeProtocol is Script {
     // Constants

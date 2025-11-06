@@ -4,11 +4,13 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 import "../src/GaugeManager.sol";
 import "../src/V3Vault.sol";
+import "../src/transformers/AutoCompound.sol";
 
 contract ConfigureGauges is Script {
-    // Deployed contract addresses (Latest deployment: 2025-11-05)
-    address constant GAUGE_MANAGER = 0xE8E4F06047E6941a93840EAf45e79fCa2BC6715f;
-    address constant VAULT = 0xA2FFBEb14e0156712EE74c9e60Ec03f68A8F66b5;
+    // Deployed contract addresses (Latest deployment: 2025-11-06)
+    address constant GAUGE_MANAGER = 0x1462a8bb4aa4bC32666E4B697893bF20C4ac600a;
+    address constant VAULT = 0x348633Df128B52D55952ADB865d1b67c3eAa988D;
+    address constant AUTOCOMPOUND = 0x91a7fDfB6cB09Cf72323769Ed61a0a22D73C3cAe;
     
     // Pool addresses
     address constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;
@@ -40,16 +42,22 @@ contract ConfigureGauges is Script {
         vm.startBroadcast();
         
         GaugeManager gaugeManager = GaugeManager(GAUGE_MANAGER);
-        
+
+        // Configure AutoCompound as transformer in GaugeManager
+        console.log("Configuring AutoCompound transformer...");
+        gaugeManager.setTransformer(AUTOCOMPOUND, true);
+        console.log("  AutoCompound registered as transformer in GaugeManager");
+        console.log("");
+
         // Configure pool -> gauge mappings
         console.log("Setting gauge mappings...");
-        
+
         // WETH/USDC
         if (WETH_USDC_GAUGE != address(0)) {
             gaugeManager.setGauge(WETH_USDC_POOL, WETH_USDC_GAUGE);
             console.log("  WETH/USDC pool -> gauge configured");
         }
-        
+
         // cbBTC/USDC
         if (CBBTC_USDC_GAUGE != address(0)) {
             gaugeManager.setGauge(CBBTC_USDC_POOL, CBBTC_USDC_GAUGE);
@@ -68,7 +76,8 @@ contract ConfigureGauges is Script {
         console.log("\n==========================================");
         console.log("VERIFICATION");
         console.log("==========================================");
-        
+
+        console.log("AutoCompound transformer enabled:", gaugeManager.transformerAllowList(AUTOCOMPOUND));
         console.log("WETH/USDC gauge:", gaugeManager.poolToGauge(WETH_USDC_POOL));
         if (CBBTC_USDC_GAUGE != address(0)) {
             console.log("cbBTC/USDC gauge:", gaugeManager.poolToGauge(CBBTC_USDC_POOL));
