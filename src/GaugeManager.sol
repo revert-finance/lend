@@ -15,6 +15,23 @@ import "./interfaces/IVault.sol";
 import "./transformers/V3Utils.sol";
 import "./utils/Swapper.sol";
 
+/// @notice Parameters for AutoCompound.executeForGauge
+struct ExecuteGaugeParams {
+    uint256 tokenId;
+    uint256 aeroAmount;
+    bytes swapData0;
+    bytes swapData1;
+    uint256 minAmount0;
+    uint256 minAmount1;
+    uint256 aeroSplitBps;
+    uint256 deadline;
+}
+
+/// @notice Interface for AutoCompound contract
+interface IAutoCompound {
+    function executeForGauge(ExecuteGaugeParams calldata params) external;
+}
+
 /// @title GaugeManager with Built-in Compounding
 /// @notice Single contract that handles both staking AND compounding
 /// @dev Simplest solution - one contract does everything
@@ -30,19 +47,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event PositionTransformed(uint256 indexed oldTokenId, uint256 indexed newTokenId, address indexed owner);
     event TransformerSet(address indexed transformer, bool active);
     event ApprovedTransform(uint256 indexed tokenId, address indexed owner, address indexed transformer, bool isActive);
-
-    /// @notice Parameters for AutoCompound.executeForGauge
-    /// @dev Defined here to enable proper struct decoding in transform()
-    struct ExecuteGaugeParams {
-        uint256 tokenId;
-        uint256 aeroAmount;
-        bytes swapData0;
-        bytes swapData1;
-        uint256 minAmount0;
-        uint256 minAmount1;
-        uint256 aeroSplitBps;
-        uint256 deadline;
-    }
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -548,9 +552,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             params.aeroAmount = aeroAmount;
 
             // Re-encode with the actual claimed aeroAmount
-            callData = abi.encode(params);
-            // Prepend the selector
-            callData = abi.encodePacked(selector, callData);
+            callData = abi.encodeCall(IAutoCompound.executeForGauge, (params));
         } else if (aeroAmount > 0) {
             // For other transformers: send AERO to position owner
             aeroToken.safeTransfer(owner, aeroAmount);
