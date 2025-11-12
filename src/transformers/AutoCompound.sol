@@ -66,6 +66,11 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         address _zeroxAllowanceHolder,
         address _aeroToken
     ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {
+        require(address(_npm) != address(0), "Invalid NPM");
+        require(_universalRouter != address(0), "Invalid router");
+        require(_zeroxAllowanceHolder != address(0), "Invalid allowance holder");
+        require(_aeroToken != address(0), "Invalid AERO token");
+
         aeroToken = IERC20(_aeroToken);
     }
 

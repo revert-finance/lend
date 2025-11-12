@@ -31,14 +31,15 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         super.setUp();
 
         // Deploy AutoCompound with proper router addresses
+        // Note: Using dummy addresses for routers since we don't test swap functionality
         autoCompound = new AutoCompound(
             INonfungiblePositionManager(address(npm)),
             admin,      // operator
             admin,      // withdrawer
             60,         // TWAPSeconds
             200,        // maxTWAPTickDifference
-            address(0), // universalRouter (not needed for this test)
-            address(0), // zeroxAllowanceHolder (not needed for this test)
+            address(0x1), // universalRouter (dummy address, not used in this test)
+            address(0x2), // zeroxAllowanceHolder (dummy address, not used in this test)
             address(aero) // aeroToken
         );
 
