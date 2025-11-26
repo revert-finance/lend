@@ -59,6 +59,10 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
     address public feeWithdrawer; // Can withdraw accumulated fees
 
+    // Function selector for AutoCompound's executeForGauge
+    // cast sig "executeForGauge((uint256,uint256,bytes,bytes,uint256,uint256,uint256,uint256))"
+    bytes4 private constant EXECUTE_FOR_GAUGE_SELECTOR = 0xc16e3ccb;
+
     // Core mappings
     mapping(address => address) public poolToGauge;
     mapping(uint256 => address) public tokenIdToGauge;
@@ -513,7 +517,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         require(
             msg.sender == owner || 
             (fromVault && msg.sender == address(vault)) ||
-            msg.sender == transformer || // Allow transformer to call (for AutoCompound.executeWithGauge)
+            msg.sender == transformer || // Allow transformer-initiated calls (used by AutoCompound.executeWithGauge)
             transformApprovals[owner][tokenId][msg.sender], // Check if approved transformer
             "Not authorized"
         );
@@ -534,9 +538,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IGauge(gauge).getReward(tokenId);
         uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
         
-        // Check if this is AutoCompound
+        // Check if this is AutoCompound.executeForGauge
         bytes4 selector = bytes4(data[0:4]);
-        bool isAutoCompound = selector == bytes4(keccak256("executeForGauge((uint256,uint256,bytes,bytes,uint256,uint256,uint256,uint256))"));
+        bool isAutoCompound = selector == EXECUTE_FOR_GAUGE_SELECTOR;
         
         bytes memory callData = data;
         
