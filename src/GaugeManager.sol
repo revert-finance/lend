@@ -211,14 +211,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     ) external nonReentrant {
         require(aeroSplitBps <= 10000, "Invalid split");
 
-        // Check authorization - only owner or vault can manually compound
+        // Check authorization - only owner can manually compound
         address owner = positionOwners[tokenId];
-        bool fromVault = isVaultPosition[tokenId];
-        require(
-            msg.sender == owner || 
-            (fromVault && msg.sender == address(vault)),
-            "Not authorized"
-        );
+        require(msg.sender == owner, "Not authorized");
 
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
@@ -254,14 +249,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     /// @notice Simple reward claiming without compounding
     function claimRewards(uint256 tokenId) external nonReentrant {
         address owner = positionOwners[tokenId];
-        bool fromVault = isVaultPosition[tokenId];
-        
-        // Check authorization: only owner or vault can claim
-        require(
-            msg.sender == owner || 
-            (fromVault && msg.sender == address(vault)),
-            "Not authorized"
-        );
+
+        // Check authorization: only owner can claim
+        require(msg.sender == owner, "Not authorized");
         
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
@@ -310,15 +300,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     ) public nonReentrant returns (uint256 newTokenId) {
         require(v3Utils != address(0), "V3Utils not configured");
         require(aeroSplitBps <= 10000, "Invalid split");
-        
+
         // Check authorization
         address owner = positionOwners[tokenId];
+        require(msg.sender == owner, "Not authorized");
+
+        // Preserve vault position flag for when tokenId changes
         bool fromVault = isVaultPosition[tokenId];
-        require(
-            msg.sender == owner || 
-            (fromVault && msg.sender == address(vault)),
-            "Not authorized"
-        );
 
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
