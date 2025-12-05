@@ -60,8 +60,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     address public feeWithdrawer; // Can withdraw accumulated fees
 
     // Function selector for AutoCompound's executeForGauge
-    // cast sig "executeForGauge((uint256,uint256,bytes,bytes,uint256,uint256,uint256,uint256))"
-    bytes4 private constant EXECUTE_FOR_GAUGE_SELECTOR = 0xc16e3ccb;
+    bytes4 private constant EXECUTE_FOR_GAUGE_SELECTOR = bytes4(keccak256("executeForGauge((uint256,uint256,bytes,bytes,uint256,uint256,uint256,uint256))"));
+
 
     // Core mappings
     mapping(address => address) public poolToGauge;
