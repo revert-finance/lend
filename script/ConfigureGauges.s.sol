@@ -7,10 +7,10 @@ import "../src/V3Vault.sol";
 import "../src/transformers/AutoCompound.sol";
 
 contract ConfigureGauges is Script {
-    // Deployed contract addresses (Latest deployment: 2025-11-06)
-    address constant GAUGE_MANAGER = 0x1462a8bb4aa4bC32666E4B697893bF20C4ac600a;
-    address constant VAULT = 0x348633Df128B52D55952ADB865d1b67c3eAa988D;
-    address constant AUTOCOMPOUND = 0x91a7fDfB6cB09Cf72323769Ed61a0a22D73C3cAe;
+    // Deployed contract addresses (Latest deployment: 2025-12-05)
+    address constant GAUGE_MANAGER = 0x66a2481b784Cf26103441cA6067F997f90d3E129;
+    address constant VAULT = 0x22CE292d882C7799183949509B011512352454cB;
+    address constant AUTOCOMPOUND = 0xa3dA4c5954d43b316e60092927Fa212f2B8C238e;
     
     // Pool addresses
     address constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;

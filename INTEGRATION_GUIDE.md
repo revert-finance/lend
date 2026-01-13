@@ -4,14 +4,14 @@
 
 | Contract | Address | Basescan |
 |----------|---------|----------|
-| **V3Vault** | `0x348633Df128B52D55952ADB865d1b67c3eAa988D` | [View](https://basescan.org/address/0x348633Df128B52D55952ADB865d1b67c3eAa988D) |
-| **V3Oracle** | `0x92105474ab102741a73481a40e361d9898248d7f` | [View](https://basescan.org/address/0x92105474ab102741a73481a40e361d9898248d7f) |
-| **GaugeManager** | `0x1462a8bb4aa4bC32666E4B697893bF20C4ac600a` | [View](https://basescan.org/address/0x1462a8bb4aa4bC32666E4B697893bF20C4ac600a) |
-| **LeverageTransformer** | `0xf84EF1849671020684Ed1c428166944506404c7A` | [View](https://basescan.org/address/0xf84EF1849671020684Ed1c428166944506404c7A) |
-| **AutoCompound** | `0x91a7fDfB6cB09Cf72323769Ed61a0a22D73C3cAe` | [View](https://basescan.org/address/0x91a7fDfB6cB09Cf72323769Ed61a0a22D73C3cAe) |
-| **InterestRateModel** | `0x084531c07863b829dD65299BD5453fB8028d2923` | [View](https://basescan.org/address/0x084531c07863b829dD65299BD5453fB8028d2923) |
+| **V3Vault** | `0x22ce292d882c7799183949509b011512352454cb` | [View](https://basescan.org/address/0x22ce292d882c7799183949509b011512352454cb) |
+| **V3Oracle** | `0x950fa01731b20893439064ced69bda984ffc1d47` | [View](https://basescan.org/address/0x950fa01731b20893439064ced69bda984ffc1d47) |
+| **GaugeManager** | `0x66a2481b784cf26103441ca6067f997f90d3e129` | [View](https://basescan.org/address/0x66a2481b784cf26103441ca6067f997f90d3e129) |
+| **LeverageTransformer** | `0x21cbd9d62a822f863bca8466153bd84cb479bc51` | [View](https://basescan.org/address/0x21cbd9d62a822f863bca8466153bd84cb479bc51) |
+| **AutoCompound** | `0xa3da4c5954d43b316e60092927fa212f2b8c238e` | [View](https://basescan.org/address/0xa3da4c5954d43b316e60092927fa212f2b8c238e) |
+| **InterestRateModel** | `0x04fd015175a6a90528e9694c304a848bf7c4fa85` | [View](https://basescan.org/address/0x04fd015175a6a90528e9694c304a848bf7c4fa85) |
 | **V3Utils** (existing) | `0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1` | [View](https://basescan.org/address/0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1) |
-| **Note**: Deployment on 2025-11-06 with optimized bytecode and verified contracts |
+| **Note**: Updated from `broadcast/DeployAerodromeProtocol.s.sol/8453/run-latest.json` |
 
 ## Protocol Overview
 

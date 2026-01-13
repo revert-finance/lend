@@ -149,8 +149,13 @@ def main():
                     if Web3.to_checksum_address(existing_gauge) == Web3.to_checksum_address(gauge):
                         print("    Status: Already configured. Skipping.")
                     else:
-                        print("    Status: Needs configuration.")
-                        pools_to_configure.append({'lp': lp, 'gauge': gauge, 'symbol': symbol})
+                        is_new = existing_gauge == "0x0000000000000000000000000000000000000000"
+                        if is_new:
+                            print("    Status: NEW POOL - needs configuration.")
+                        else:
+                            print("    Status: GAUGE CHANGED - needs configuration.")
+                            print(f"    Current gauge: {existing_gauge}")
+                        pools_to_configure.append({'lp': lp, 'gauge': gauge, 'symbol': symbol, 'existing_gauge': existing_gauge, 'is_new': is_new})
                 except Exception as e:
                     print(f"    Could not check gauge status for {symbol}: {e}")
 
@@ -189,11 +194,24 @@ def main():
         print("\n==========================================")
         print("DRY-RUN SUMMARY")
         print("==========================================")
-        print(f"\nWould configure {len(pools_to_configure)} pools:")
-        for pool in pools_to_configure:
-            print(f"  - {pool['symbol']}")
-            print(f"    Pool: {pool['lp']}")
-            print(f"    Gauge: {pool['gauge']}")
+        new_pools = [p for p in pools_to_configure if p['is_new']]
+        changed_pools = [p for p in pools_to_configure if not p['is_new']]
+
+        if new_pools:
+            print(f"\nNEW POOLS ({len(new_pools)}):")
+            for pool in new_pools:
+                print(f"  - {pool['symbol']}")
+                print(f"    Pool: {pool['lp']}")
+                print(f"    Gauge: {pool['gauge']}")
+
+        if changed_pools:
+            print(f"\nGAUGE CHANGED ({len(changed_pools)}):")
+            for pool in changed_pools:
+                print(f"  - {pool['symbol']}")
+                print(f"    Pool: {pool['lp']}")
+                print(f"    Current gauge: {pool['existing_gauge']}")
+                print(f"    New gauge:     {pool['gauge']}")
+
         print("\n** No transactions executed in dry-run mode **")
         return
 
