@@ -145,8 +145,6 @@ contract AutoExitTransformerTest is Test {
         int24 token0TriggerTick,
         int24 token1TriggerTick,
         uint32 maxDebtRatioX32,
-        uint64 token0SlippageX64,
-        uint64 token1SlippageX64,
         bool onlyFees
     ) internal {
         AutoExitTransformer.PositionConfig memory config = AutoExitTransformer.PositionConfig(
@@ -154,8 +152,6 @@ contract AutoExitTransformerTest is Test {
             token0TriggerTick,
             token1TriggerTick,
             maxDebtRatioX32,
-            token0SlippageX64,
-            token1SlippageX64,
             onlyFees,
             onlyFees ? MAX_FEE_REWARD : MAX_REWARD
         );
@@ -175,7 +171,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             fakeVault,
-            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, 0, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, false, MAX_REWARD)
         );
     }
 
@@ -188,7 +184,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             address(vault),
-            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, 0, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, false, MAX_REWARD)
         );
     }
 
@@ -201,7 +197,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             address(vault),
-            AutoExitTransformer.PositionConfig(true, -276319, -276331, 0, 0, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276319, -276331, 0, false, MAX_REWARD)
         );
     }
 
@@ -212,7 +208,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             address(vault),
-            AutoExitTransformer.PositionConfig(true, -276331, -276319, uint32(Q32 * 9 / 10), 0, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276331, -276319, uint32(Q32 * 9 / 10), false, MAX_REWARD)
         );
 
         (
@@ -220,8 +216,6 @@ contract AutoExitTransformerTest is Test {
             int24 token0TriggerTick,
             int24 token1TriggerTick,
             uint32 maxDebtRatioX32,
-            uint64 token0SlippageX64,
-            uint64 token1SlippageX64,
             bool onlyFees,
             uint64 maxRewardX64
         ) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
@@ -230,8 +224,6 @@ contract AutoExitTransformerTest is Test {
         assertEq(token0TriggerTick, -276331);
         assertEq(token1TriggerTick, -276319);
         assertEq(maxDebtRatioX32, uint32(Q32 * 9 / 10));
-        assertEq(token0SlippageX64, 0);
-        assertEq(token1SlippageX64, 0);
         assertEq(onlyFees, false);
         assertEq(maxRewardX64, MAX_REWARD);
     }
@@ -239,7 +231,7 @@ contract AutoExitTransformerTest is Test {
     function testExecuteUnauthorizedOperator() external {
         _setupBasicLoan(true);
 
-        _setConfig(TEST_NFT, address(vault), true, -276331, -276319, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276331, -276319, 0, false);
 
         // Approve transformer
         vm.prank(TEST_NFT_ACCOUNT);
@@ -249,7 +241,7 @@ contract AutoExitTransformerTest is Test {
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD, block.timestamp)
         );
     }
 
@@ -264,7 +256,7 @@ contract AutoExitTransformerTest is Test {
         vm.expectRevert(Constants.TransformFailed.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD, block.timestamp)
         );
     }
 
@@ -272,7 +264,7 @@ contract AutoExitTransformerTest is Test {
         _setupBasicLoan(true);
 
         // Configure with tick triggers that won't be triggered (position is in range at around -276321)
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276300, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276300, 0, false);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
@@ -282,7 +274,7 @@ contract AutoExitTransformerTest is Test {
         vm.expectRevert(Constants.TransformFailed.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD, block.timestamp)
         );
     }
 
@@ -290,7 +282,7 @@ contract AutoExitTransformerTest is Test {
         _setupBasicLoan(true);
 
         // Configure to trigger when tick >= -276325 (current tick is -276321, so should trigger)
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
@@ -301,7 +293,7 @@ contract AutoExitTransformerTest is Test {
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
             AutoExitTransformer.ExecuteParams(
-                TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD + 1, block.timestamp
+                TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD + 1, block.timestamp
             )
         );
     }
@@ -310,7 +302,7 @@ contract AutoExitTransformerTest is Test {
         _setupBasicLoan(true);
 
         // Configure to trigger when tick >= -276325 (current tick is -276321, so should trigger)
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
@@ -324,7 +316,7 @@ contract AutoExitTransformerTest is Test {
         // Execute auto-exit
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD, block.timestamp)
         );
 
         // Verify debt is repaid (partially or fully based on position value)
@@ -341,7 +333,7 @@ contract AutoExitTransformerTest is Test {
         assertGe(ownerUSDCAfter, ownerUSDCBefore);
 
         // Verify config is cleared
-        (bool isActive,,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        (bool isActive,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
 
@@ -361,8 +353,6 @@ contract AutoExitTransformerTest is Test {
                 -276350, // won't trigger (position tick is around -276325)
                 -276300, // won't trigger
                 debtRatioTrigger,
-                0,
-                0,
                 false,
                 MAX_REWARD
             )
@@ -374,11 +364,11 @@ contract AutoExitTransformerTest is Test {
         // Execute - should trigger on debt ratio
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD, block.timestamp)
         );
 
         // Verify config is cleared
-        (bool isActive,,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        (bool isActive,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
 
@@ -396,7 +386,7 @@ contract AutoExitTransformerTest is Test {
         assertEq(debt, 0);
 
         // Configure auto-exit to trigger when tick >= -276325 (current tick is -276321)
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
@@ -407,7 +397,7 @@ contract AutoExitTransformerTest is Test {
         // Execute auto-exit (no debt to repay)
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_REWARD, block.timestamp)
         );
 
         // Verify all funds returned to owner (minus reward)
@@ -430,7 +420,7 @@ contract AutoExitTransformerTest is Test {
         _setupBasicLoan(true);
 
         // Configure with tick triggers that won't be triggered
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276300, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276300, 0, false);
 
         (bool triggered, string memory reason) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
         assertEq(triggered, false);
@@ -441,7 +431,7 @@ contract AutoExitTransformerTest is Test {
         _setupBasicLoan(true);
 
         // Configure to trigger when tick >= -276325 (current tick is -276321, so should trigger)
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, 0, 0, false);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
 
         (bool triggered, string memory reason) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
         assertEq(triggered, true);
@@ -463,8 +453,6 @@ contract AutoExitTransformerTest is Test {
                 -276350,
                 -276300,
                 debtRatioTrigger,
-                0,
-                0,
                 false,
                 MAX_REWARD
             )
@@ -479,7 +467,7 @@ contract AutoExitTransformerTest is Test {
         _setupBasicLoan(true);
 
         // Configure with onlyFees = true, trigger when tick >= -276325 (current tick is -276321)
-        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, 0, 0, true);
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, true);
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
@@ -487,11 +475,11 @@ contract AutoExitTransformerTest is Test {
         // Execute
         vm.prank(OPERATOR_ACCOUNT);
         autoExitTransformer.executeWithVault(
-            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", "", 0, 0, MAX_FEE_REWARD, block.timestamp)
+            AutoExitTransformer.ExecuteParams(TEST_NFT, address(vault), "", 0, 0, 0, MAX_FEE_REWARD, block.timestamp)
         );
 
         // Verify config cleared
-        (bool isActive,,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        (bool isActive,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
 }
