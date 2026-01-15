@@ -290,8 +290,8 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
             _addLiquidity(params.tokenId, state);
         }
 
-        // Send leftover tokens to position owner
-        _sendLeftoversToOwner(params.tokenId, state);
+        // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
+        _sendLeftoversToOwner(params.tokenId, state, reward0, reward1);
     }
 
     /// @notice Decrease leverage by removing liquidity and repaying debt
@@ -326,8 +326,8 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         // Repay debt
         _repayDebt(params.tokenId, state, repayAmount);
 
-        // Send leftover tokens to position owner
-        _sendLeftoversToOwner(params.tokenId, state);
+        // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
+        _sendLeftoversToOwner(params.tokenId, state, reward0, reward1);
     }
 
     /// @notice Calculate repay amount for decrease leverage
@@ -461,18 +461,22 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         }
     }
 
-    /// @notice Send leftover tokens to position owner
-    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state) internal {
+    /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
+    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state, uint256 reward0, uint256 reward1) internal {
         address owner = IVault(state.vault).ownerOf(tokenId);
 
         uint256 balance0 = IERC20(state.token0).balanceOf(address(this));
         uint256 balance1 = IERC20(state.token1).balanceOf(address(this));
 
-        if (balance0 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token0), owner, balance0);
+        // Send only leftovers, keep rewards in contract for withdrawer
+        uint256 leftover0 = balance0 > reward0 ? balance0 - reward0 : 0;
+        uint256 leftover1 = balance1 > reward1 ? balance1 - reward1 : 0;
+
+        if (leftover0 > 0) {
+            SafeERC20.safeTransfer(IERC20(state.token0), owner, leftover0);
         }
-        if (balance1 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token1), owner, balance1);
+        if (leftover1 > 0) {
+            SafeERC20.safeTransfer(IERC20(state.token1), owner, leftover1);
         }
     }
 }
