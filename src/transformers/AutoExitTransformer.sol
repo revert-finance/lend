@@ -31,6 +31,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token0TriggerTick,
         int24 token1TriggerTick,
         uint32 maxDebtRatioX32,
+        bool swapToken0,
         bool onlyFees,
         uint64 maxRewardX64
     );
@@ -43,6 +44,8 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token1TriggerTick; // Exit when tick >= this value
         // Debt ratio trigger (0 = disabled)
         uint32 maxDebtRatioX32; // Exit when debt/collateral > this (Q32 format, e.g., 0.9 = 0.9 * Q32)
+        // Swap config
+        bool swapToken0; // If true, swap token0 for debt repayment; if false, swap token1
         // Reward config
         bool onlyFees; // If true, reward only from fees (not principal)
         uint64 maxRewardX64; // Max reward percentage for operator
@@ -126,6 +129,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             config.token0TriggerTick,
             config.token1TriggerTick,
             config.maxDebtRatioX32,
+            config.swapToken0,
             config.onlyFees,
             config.maxRewardX64
         );
@@ -210,26 +214,32 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             state.amount1 -= state.amount1 * params.rewardX64 / Q64;
         }
 
-        // Collect asset amount first (use for debt repayment before swapping)
+        // Determine which token to swap based on config
         state.assetAmount = 0;
-        address otherToken;
-        uint256 otherAmount;
+        address swapToken;
+        uint256 swapAmount;
 
         if (state.token0 == state.asset) {
+            // token0 is the asset - use it directly, swap token1 if needed
             state.assetAmount = state.amount0;
             state.amount0 = 0;
-            otherToken = state.token1;
-            otherAmount = state.amount1;
+            swapToken = state.token1;
+            swapAmount = state.amount1;
         } else if (state.token1 == state.asset) {
+            // token1 is the asset - use it directly, swap token0 if needed
             state.assetAmount = state.amount1;
             state.amount1 = 0;
-            otherToken = state.token0;
-            otherAmount = state.amount0;
+            swapToken = state.token0;
+            swapAmount = state.amount0;
         } else {
-            // Neither token is the asset - this case requires swapping both tokens
-            // For simplicity, we'll swap the token with swap data provided
-            otherToken = state.token0;
-            otherAmount = state.amount0;
+            // Neither token is the asset - swap based on config.swapToken0
+            if (config.swapToken0) {
+                swapToken = state.token0;
+                swapAmount = state.amount0;
+            } else {
+                swapToken = state.token1;
+                swapAmount = state.amount1;
+            }
         }
 
         // Swap only what's needed for debt repayment
@@ -243,14 +253,14 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
                 SafeERC20.safeApprove(IERC20(state.asset), vault, 0);
                 state.assetAmount -= repaidAmount;
             } else {
-                // Need to swap other token to cover remaining debt
-                // Swap other token if we have swap data and other token amount
-                if (params.swapData.length > 0 && otherAmount > 0) {
+                // Need to swap token to cover remaining debt
+                // Swap token if we have swap data and swap amount
+                if (params.swapData.length > 0 && swapAmount > 0) {
                     (uint256 amountIn, uint256 amountOut) = _routerSwap(
                         Swapper.RouterSwapParams(
-                            IERC20(otherToken),
+                            IERC20(swapToken),
                             IERC20(state.asset),
-                            otherAmount,
+                            swapAmount,
                             params.amountOutMin,
                             params.swapData
                         )
@@ -259,7 +269,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
                     state.assetAmount += amountOut;
 
                     // Update remaining amounts
-                    if (otherToken == state.token0) {
+                    if (swapToken == state.token0) {
                         state.amount0 -= amountIn;
                     } else {
                         state.amount1 -= amountIn;
@@ -293,7 +303,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         // Clear configuration
         delete positionConfigs[params.tokenId][vault];
 
-        emit PositionConfigured(params.tokenId, vault, false, 0, 0, 0, false, 0);
+        emit PositionConfigured(params.tokenId, vault, false, 0, 0, 0, false, false, 0);
 
         emit AutoExitExecuted(
             params.tokenId,
