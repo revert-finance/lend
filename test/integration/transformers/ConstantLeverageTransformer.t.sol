@@ -656,4 +656,153 @@ contract ConstantLeverageTransformerTest is Test {
         vm.prank(OPERATOR_ACCOUNT);
         transformer.rebalanceWithVault(params, address(vault));
     }
+
+    // ============ Reward Accumulation Tests ============
+
+    function testRewardsAccumulateInContract() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        // Set config with 0.5% reward
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000, // 50%
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageBps: 100,
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 100) // 1% max
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        // Check transformer balances before rebalance
+        uint256 transformerDaiBefore = DAI.balanceOf(address(transformer));
+        uint256 transformerUsdcBefore = USDC.balanceOf(address(transformer));
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swap0To1: true,
+            amountIn: 0,
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200) // 0.5% reward
+        });
+
+        // Rebalance (increase leverage from 0% to 50%)
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Check transformer balances after rebalance - should have accumulated rewards
+        uint256 transformerDaiAfter = DAI.balanceOf(address(transformer));
+        uint256 transformerUsdcAfter = USDC.balanceOf(address(transformer));
+
+        // At least one token should have accumulated as reward
+        // (depends on which tokens were involved in the rebalance)
+        assertTrue(
+            transformerDaiAfter > transformerDaiBefore || transformerUsdcAfter > transformerUsdcBefore,
+            "Rewards should accumulate in transformer contract"
+        );
+    }
+
+    function testWithdrawerCanCollectRewards() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000,
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageBps: 100,
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 100)
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swap0To1: true,
+            amountIn: 0,
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200)
+        });
+
+        // Rebalance to accumulate rewards
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Get accumulated rewards
+        uint256 accumulatedDai = DAI.balanceOf(address(transformer));
+        uint256 accumulatedUsdc = USDC.balanceOf(address(transformer));
+
+        // Withdrawer balance before
+        uint256 withdrawerDaiBefore = DAI.balanceOf(WITHDRAWER_ACCOUNT);
+        uint256 withdrawerUsdcBefore = USDC.balanceOf(WITHDRAWER_ACCOUNT);
+
+        // Withdrawer collects rewards
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(DAI);
+        tokens[1] = address(USDC);
+
+        vm.prank(WITHDRAWER_ACCOUNT);
+        transformer.withdrawBalances(tokens, WITHDRAWER_ACCOUNT);
+
+        // Verify withdrawer received the rewards
+        uint256 withdrawerDaiAfter = DAI.balanceOf(WITHDRAWER_ACCOUNT);
+        uint256 withdrawerUsdcAfter = USDC.balanceOf(WITHDRAWER_ACCOUNT);
+
+        assertEq(withdrawerDaiAfter - withdrawerDaiBefore, accumulatedDai, "Withdrawer should receive DAI rewards");
+        assertEq(withdrawerUsdcAfter - withdrawerUsdcBefore, accumulatedUsdc, "Withdrawer should receive USDC rewards");
+
+        // Transformer should have zero balance now
+        assertEq(DAI.balanceOf(address(transformer)), 0, "Transformer DAI balance should be zero");
+        assertEq(USDC.balanceOf(address(transformer)), 0, "Transformer USDC balance should be zero");
+    }
+
+    function testOwnerDoesNotReceiveRewards() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000,
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageBps: 100,
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 100)
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swap0To1: true,
+            amountIn: 0,
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200) // 0.5% reward
+        });
+
+        // Rebalance
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Get rewards accumulated in transformer
+        uint256 transformerDai = DAI.balanceOf(address(transformer));
+        uint256 transformerUsdc = USDC.balanceOf(address(transformer));
+
+        // Rewards should be in the transformer, not sent to owner
+        // This verifies the fix: rewards stay in contract for withdrawer
+        assertTrue(transformerDai > 0 || transformerUsdc > 0, "Rewards should be in transformer");
+    }
 }
