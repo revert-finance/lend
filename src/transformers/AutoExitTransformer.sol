@@ -263,12 +263,14 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             }
         }
 
-        // Repay debt with available asset
+        // Repay full debt - must have enough asset
         uint256 repaidAmount = 0;
-        if (state.debt > 0 && state.assetAmount > 0) {
-            uint256 repayAmount = state.debt < state.assetAmount ? state.debt : state.assetAmount;
-            SafeERC20.safeIncreaseAllowance(IERC20(state.asset), vault, repayAmount);
-            (repaidAmount,) = IVault(vault).repay(params.tokenId, repayAmount, false);
+        if (state.debt > 0) {
+            if (state.assetAmount < state.debt) {
+                revert InsufficientAssetForRepay();
+            }
+            SafeERC20.safeIncreaseAllowance(IERC20(state.asset), vault, state.debt);
+            (repaidAmount,) = IVault(vault).repay(params.tokenId, state.debt, false);
             SafeERC20.safeApprove(IERC20(state.asset), vault, 0);
             state.assetAmount -= repaidAmount;
         }
