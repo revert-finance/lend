@@ -31,7 +31,6 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token0TriggerTick,
         int24 token1TriggerTick,
         uint32 maxDebtRatioX32,
-        bool useToken0First,
         bool onlyFees,
         uint64 maxRewardX64
     );
@@ -44,8 +43,6 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token1TriggerTick; // Exit when tick >= this value
         // Debt ratio trigger (0 = disabled)
         uint32 maxDebtRatioX32; // Exit when debt/collateral > this (Q32 format, e.g., 0.9 = 0.9 * Q32)
-        // Token priority config
-        bool useToken0First; // If true, use token0 first for debt repayment; if false, use token1 first
         // Reward config
         bool onlyFees; // If true, reward only from fees (not principal)
         uint64 maxRewardX64; // Max reward percentage for operator
@@ -55,10 +52,16 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
     struct ExecuteParams {
         uint256 tokenId;
         address vault;
-        bytes swapData; // Swap data for non-asset token -> asset (only used if needed for debt repayment)
         uint256 amountRemoveMin0;
         uint256 amountRemoveMin1;
-        uint256 amountOutMin; // Minimum output for swap (slippage protection)
+        // Swap parameters for token0 -> asset (operator specifies how much to swap)
+        uint256 swapAmount0; // Amount of token0 to swap (0 = no swap)
+        uint256 amountOutMin0; // Minimum output for token0 swap
+        bytes swapData0; // Swap data for token0 -> asset
+        // Swap parameters for token1 -> asset
+        uint256 swapAmount1; // Amount of token1 to swap (0 = no swap)
+        uint256 amountOutMin1; // Minimum output for token1 swap
+        bytes swapData1; // Swap data for token1 -> asset
         uint64 rewardX64;
         uint256 deadline;
     }
@@ -129,7 +132,6 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             config.token0TriggerTick,
             config.token1TriggerTick,
             config.maxDebtRatioX32,
-            config.useToken0First,
             config.onlyFees,
             config.maxRewardX64
         );
@@ -214,77 +216,61 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             state.amount1 -= state.amount1 * params.rewardX64 / Q64;
         }
 
-        // Determine which token to swap based on config
+        // Collect asset amount if one of the tokens is the asset
         state.assetAmount = 0;
-        address swapToken;
-        uint256 swapAmount;
-
         if (state.token0 == state.asset) {
-            // token0 is the asset - use it directly, swap token1 if needed
             state.assetAmount = state.amount0;
             state.amount0 = 0;
-            swapToken = state.token1;
-            swapAmount = state.amount1;
         } else if (state.token1 == state.asset) {
-            // token1 is the asset - use it directly, swap token0 if needed
             state.assetAmount = state.amount1;
             state.amount1 = 0;
-            swapToken = state.token0;
-            swapAmount = state.amount0;
-        } else {
-            // Neither token is the asset - use token based on config.useToken0First
-            if (config.useToken0First) {
-                swapToken = state.token0;
-                swapAmount = state.amount0;
-            } else {
-                swapToken = state.token1;
-                swapAmount = state.amount1;
+        }
+
+        // Perform swaps as specified by operator (for debt repayment)
+        // Swap token0 -> asset if requested
+        if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
+            uint256 swapAmount0 = params.swapAmount0 > state.amount0 ? state.amount0 : params.swapAmount0;
+            if (swapAmount0 > 0) {
+                (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        IERC20(state.token0),
+                        IERC20(state.asset),
+                        swapAmount0,
+                        params.amountOutMin0,
+                        params.swapData0
+                    )
+                );
+                state.assetAmount += amountOut;
+                state.amount0 -= amountIn;
             }
         }
 
-        // Swap only what's needed for debt repayment
-        uint256 repaidAmount = 0;
-        if (state.debt > 0) {
-            // First use available asset amount
-            if (state.assetAmount >= state.debt) {
-                // Have enough asset, no swap needed
-                SafeERC20.safeIncreaseAllowance(IERC20(state.asset), vault, state.debt);
-                (repaidAmount,) = IVault(vault).repay(params.tokenId, state.debt, false);
-                SafeERC20.safeApprove(IERC20(state.asset), vault, 0);
-                state.assetAmount -= repaidAmount;
-            } else {
-                // Need to swap token to cover remaining debt
-                // Swap token if we have swap data and swap amount
-                if (params.swapData.length > 0 && swapAmount > 0) {
-                    (uint256 amountIn, uint256 amountOut) = _routerSwap(
-                        Swapper.RouterSwapParams(
-                            IERC20(swapToken),
-                            IERC20(state.asset),
-                            swapAmount,
-                            params.amountOutMin,
-                            params.swapData
-                        )
-                    );
-
-                    state.assetAmount += amountOut;
-
-                    // Update remaining amounts
-                    if (swapToken == state.token0) {
-                        state.amount0 -= amountIn;
-                    } else {
-                        state.amount1 -= amountIn;
-                    }
-                }
-
-                // Repay as much debt as possible with available asset
-                uint256 repayAmount = state.debt < state.assetAmount ? state.debt : state.assetAmount;
-                if (repayAmount > 0) {
-                    SafeERC20.safeIncreaseAllowance(IERC20(state.asset), vault, repayAmount);
-                    (repaidAmount,) = IVault(vault).repay(params.tokenId, repayAmount, false);
-                    SafeERC20.safeApprove(IERC20(state.asset), vault, 0);
-                    state.assetAmount -= repaidAmount;
-                }
+        // Swap token1 -> asset if requested
+        if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
+            uint256 swapAmount1 = params.swapAmount1 > state.amount1 ? state.amount1 : params.swapAmount1;
+            if (swapAmount1 > 0) {
+                (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        IERC20(state.token1),
+                        IERC20(state.asset),
+                        swapAmount1,
+                        params.amountOutMin1,
+                        params.swapData1
+                    )
+                );
+                state.assetAmount += amountOut;
+                state.amount1 -= amountIn;
             }
+        }
+
+        // Repay debt with available asset
+        uint256 repaidAmount = 0;
+        if (state.debt > 0 && state.assetAmount > 0) {
+            uint256 repayAmount = state.debt < state.assetAmount ? state.debt : state.assetAmount;
+            SafeERC20.safeIncreaseAllowance(IERC20(state.asset), vault, repayAmount);
+            (repaidAmount,) = IVault(vault).repay(params.tokenId, repayAmount, false);
+            SafeERC20.safeApprove(IERC20(state.asset), vault, 0);
+            state.assetAmount -= repaidAmount;
         }
 
         // Get position owner and return remaining funds
@@ -303,7 +289,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         // Clear configuration
         delete positionConfigs[params.tokenId][vault];
 
-        emit PositionConfigured(params.tokenId, vault, false, 0, 0, 0, false, false, 0);
+        emit PositionConfigured(params.tokenId, vault, false, 0, 0, 0, false, 0);
 
         emit AutoExitExecuted(
             params.tokenId,
