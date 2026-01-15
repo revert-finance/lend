@@ -31,7 +31,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token0TriggerTick,
         int24 token1TriggerTick,
         uint32 maxDebtRatioX32,
-        bool swapToken0,
+        bool useToken0First,
         bool onlyFees,
         uint64 maxRewardX64
     );
@@ -44,8 +44,8 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token1TriggerTick; // Exit when tick >= this value
         // Debt ratio trigger (0 = disabled)
         uint32 maxDebtRatioX32; // Exit when debt/collateral > this (Q32 format, e.g., 0.9 = 0.9 * Q32)
-        // Swap config
-        bool swapToken0; // If true, swap token0 for debt repayment; if false, swap token1
+        // Token priority config
+        bool useToken0First; // If true, use token0 first for debt repayment; if false, use token1 first
         // Reward config
         bool onlyFees; // If true, reward only from fees (not principal)
         uint64 maxRewardX64; // Max reward percentage for operator
@@ -129,7 +129,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             config.token0TriggerTick,
             config.token1TriggerTick,
             config.maxDebtRatioX32,
-            config.swapToken0,
+            config.useToken0First,
             config.onlyFees,
             config.maxRewardX64
         );
@@ -232,8 +232,8 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             swapToken = state.token0;
             swapAmount = state.amount0;
         } else {
-            // Neither token is the asset - swap based on config.swapToken0
-            if (config.swapToken0) {
+            // Neither token is the asset - use token based on config.useToken0First
+            if (config.useToken0First) {
                 swapToken = state.token0;
                 swapAmount = state.amount0;
             } else {

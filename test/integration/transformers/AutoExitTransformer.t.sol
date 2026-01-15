@@ -145,7 +145,7 @@ contract AutoExitTransformerTest is Test {
         int24 token0TriggerTick,
         int24 token1TriggerTick,
         uint32 maxDebtRatioX32,
-        bool swapToken0,
+        bool useToken0First,
         bool onlyFees
     ) internal {
         AutoExitTransformer.PositionConfig memory config = AutoExitTransformer.PositionConfig(
@@ -153,7 +153,7 @@ contract AutoExitTransformerTest is Test {
             token0TriggerTick,
             token1TriggerTick,
             maxDebtRatioX32,
-            swapToken0,
+            useToken0First,
             onlyFees,
             onlyFees ? MAX_FEE_REWARD : MAX_REWARD
         );
@@ -218,7 +218,7 @@ contract AutoExitTransformerTest is Test {
             int24 token0TriggerTick,
             int24 token1TriggerTick,
             uint32 maxDebtRatioX32,
-            bool swapToken0,
+            bool useToken0First,
             bool onlyFees,
             uint64 maxRewardX64
         ) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
@@ -227,7 +227,7 @@ contract AutoExitTransformerTest is Test {
         assertEq(token0TriggerTick, -276331);
         assertEq(token1TriggerTick, -276319);
         assertEq(maxDebtRatioX32, uint32(Q32 * 9 / 10));
-        assertEq(swapToken0, true);
+        assertEq(useToken0First, true);
         assertEq(onlyFees, false);
         assertEq(maxRewardX64, MAX_REWARD);
     }
@@ -357,7 +357,7 @@ contract AutoExitTransformerTest is Test {
                 -276350, // won't trigger (position tick is around -276325)
                 -276300, // won't trigger
                 debtRatioTrigger,
-                true, // swapToken0
+                true, // useToken0First
                 false,
                 MAX_REWARD
             )
@@ -458,7 +458,7 @@ contract AutoExitTransformerTest is Test {
                 -276350,
                 -276300,
                 debtRatioTrigger,
-                true, // swapToken0
+                true, // useToken0First
                 false,
                 MAX_REWARD
             )
