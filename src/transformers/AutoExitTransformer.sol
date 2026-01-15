@@ -71,9 +71,6 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         address token0;
         address token1;
         uint24 fee;
-        int24 tickLower;
-        int24 tickUpper;
-        int24 currentTick;
         uint128 liquidity;
         uint256 amount0;
         uint256 amount1;
@@ -83,7 +80,6 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         uint256 debt;
         uint256 assetAmount;
         address owner;
-        IUniswapV3Pool pool;
     }
 
     // tokenId => vault => config
@@ -171,7 +167,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         state.asset = IVault(vault).asset();
 
         // Get position info
-        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
+        (,, state.token0, state.token1, state.fee,,, state.liquidity,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
 
         if (state.liquidity == 0) {
@@ -179,26 +175,13 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         }
 
         // Check trigger conditions
-        state.pool = _getPool(state.token0, state.token1, state.fee);
-        (, state.currentTick,,,,,) = state.pool.slot0();
-
-        bool tickTriggered = state.currentTick < config.token0TriggerTick || state.currentTick >= config.token1TriggerTick;
-        bool debtRatioTriggered = false;
-
-        if (config.maxDebtRatioX32 != 0) {
-            uint256 collateralValue;
-            (state.debt,, collateralValue,,) = IVault(vault).loanInfo(params.tokenId);
-            if (collateralValue > 0) {
-                uint256 debtRatioX32 = state.debt * Q32 / collateralValue;
-                debtRatioTriggered = debtRatioX32 > config.maxDebtRatioX32;
-            }
-        } else {
-            (state.debt,,,,) = IVault(vault).loanInfo(params.tokenId);
-        }
-
-        if (!tickTriggered && !debtRatioTriggered) {
+        (bool triggered,) = _checkTriggerConditions(params.tokenId, vault, config, state.token0, state.token1, state.fee);
+        if (!triggered) {
             revert NotReady();
         }
+
+        // Get debt info
+        (state.debt,,,,) = IVault(vault).loanInfo(params.tokenId);
 
         // Decrease full liquidity and collect fees
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
@@ -325,6 +308,18 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             return (false, "no_liquidity");
         }
 
+        return _checkTriggerConditions(tokenId, vault, config, token0, token1, fee);
+    }
+
+    /// @dev Check trigger conditions for a position
+    function _checkTriggerConditions(
+        uint256 tokenId,
+        address vault,
+        PositionConfig memory config,
+        address token0,
+        address token1,
+        uint24 fee
+    ) internal view returns (bool triggered, string memory reason) {
         // Check tick trigger
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
         (, int24 currentTick,,,,,) = pool.slot0();
