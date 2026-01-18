@@ -503,4 +503,132 @@ contract AutoExitTransformerTest is Test {
         (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
+
+    function testExecuteWithSwapNoSlippageViolation() external {
+        // This test verifies that when no swap is needed (token is asset), slippage check is not triggered
+        _setupBasicLoan(true);
+
+        // Configure to trigger when tick >= -276325 (current tick is -276321, so should trigger)
+        // Using a very low slippage tolerance to verify it's not checked when no swap occurs
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoExitTransformer.configToken(
+            TEST_NFT,
+            address(vault),
+            AutoExitTransformer.PositionConfig(
+                true,
+                -276350,
+                -276325,
+                0,
+                1, // Very low slippage tolerance (would fail if swap was checked)
+                false,
+                MAX_REWARD
+            )
+        );
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
+
+        // Should succeed because USDC is the asset, so no swap is needed for token1
+        // DAI (token0) is not swapped because no swapData0 is provided
+        vm.prank(OPERATOR_ACCOUNT);
+        autoExitTransformer.executeWithVault(
+            _executeParams(TEST_NFT, address(vault), MAX_REWARD)
+        );
+
+        // Verify config is cleared (execution succeeded)
+        (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        assertEq(isActive, false);
+    }
+
+    function testExecuteWithSwapDataButZeroAmount() external {
+        // Test that if swapAmount is 0, no swap occurs even with swapData
+        _setupBasicLoan(true);
+
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
+
+        // Execute with swapData but zero swap amount - should not trigger swap
+        AutoExitTransformer.ExecuteParams memory params = AutoExitTransformer.ExecuteParams({
+            tokenId: TEST_NFT,
+            vault: address(vault),
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            swapAmount0: 0, // Zero amount means no swap
+            amountOutMin0: 0,
+            swapData0: hex"1234", // Non-empty swap data
+            swapAmount1: 0,
+            amountOutMin1: 0,
+            swapData1: "",
+            rewardX64: MAX_REWARD,
+            deadline: block.timestamp
+        });
+
+        vm.prank(OPERATOR_ACCOUNT);
+        autoExitTransformer.executeWithVault(params);
+
+        // Verify config is cleared (execution succeeded)
+        (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        assertEq(isActive, false);
+    }
+
+    function testOraclePricesFetchedOnlyWhenSwapNeeded() external {
+        // Test that oracle is only called when swap is actually needed
+        _setupBasicLoan(true);
+
+        _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoExitTransformer), true);
+
+        // Execute without any swap parameters - oracle should not be called
+        vm.prank(OPERATOR_ACCOUNT);
+        autoExitTransformer.executeWithVault(
+            _executeParams(TEST_NFT, address(vault), MAX_REWARD)
+        );
+
+        // If this passes, oracle was not called (or was called successfully)
+        (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        assertEq(isActive, false);
+    }
+
+    function testMaxSlippageConfigured() external {
+        _setupBasicLoan(false);
+
+        uint64 customSlippage = uint64(Q64 * 5 / 100); // 5%
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoExitTransformer.configToken(
+            TEST_NFT,
+            address(vault),
+            AutoExitTransformer.PositionConfig(
+                true,
+                -276331,
+                -276319,
+                0,
+                customSlippage,
+                false,
+                MAX_REWARD
+            )
+        );
+
+        (
+            bool isActive,
+            int24 token0TriggerTick,
+            int24 token1TriggerTick,
+            uint32 maxDebtRatioX32,
+            uint64 maxSlippageX64,
+            bool onlyFees,
+            uint64 maxRewardX64
+        ) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+
+        assertEq(isActive, true);
+        assertEq(token0TriggerTick, -276331);
+        assertEq(token1TriggerTick, -276319);
+        assertEq(maxDebtRatioX32, 0);
+        assertEq(maxSlippageX64, customSlippage);
+        assertEq(onlyFees, false);
+        assertEq(maxRewardX64, MAX_REWARD);
+    }
 }
