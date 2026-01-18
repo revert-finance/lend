@@ -21,6 +21,7 @@ contract AutoExitTransformerTest is Test {
 
     uint64 constant MAX_REWARD = uint64(Q64 / 400); // 0.25%
     uint64 constant MAX_FEE_REWARD = uint64(Q64 / 20); // 5%
+    uint64 constant MAX_SLIPPAGE = uint64(Q64 / 100); // 1%
 
     IERC20 constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20 constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
@@ -152,6 +153,7 @@ contract AutoExitTransformerTest is Test {
             token0TriggerTick,
             token1TriggerTick,
             maxDebtRatioX32,
+            MAX_SLIPPAGE,
             onlyFees,
             onlyFees ? MAX_FEE_REWARD : MAX_REWARD
         );
@@ -188,7 +190,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             fakeVault,
-            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, MAX_SLIPPAGE, false, MAX_REWARD)
         );
     }
 
@@ -201,7 +203,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             address(vault),
-            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276331, -276319, 0, MAX_SLIPPAGE, false, MAX_REWARD)
         );
     }
 
@@ -214,7 +216,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             address(vault),
-            AutoExitTransformer.PositionConfig(true, -276319, -276331, 0, false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276319, -276331, 0, MAX_SLIPPAGE, false, MAX_REWARD)
         );
     }
 
@@ -225,7 +227,7 @@ contract AutoExitTransformerTest is Test {
         autoExitTransformer.configToken(
             TEST_NFT,
             address(vault),
-            AutoExitTransformer.PositionConfig(true, -276331, -276319, uint32(Q32 * 9 / 10), false, MAX_REWARD)
+            AutoExitTransformer.PositionConfig(true, -276331, -276319, uint32(Q32 * 9 / 10), MAX_SLIPPAGE, false, MAX_REWARD)
         );
 
         (
@@ -233,6 +235,7 @@ contract AutoExitTransformerTest is Test {
             int24 token0TriggerTick,
             int24 token1TriggerTick,
             uint32 maxDebtRatioX32,
+            uint64 maxSlippageX64,
             bool onlyFees,
             uint64 maxRewardX64
         ) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
@@ -241,6 +244,7 @@ contract AutoExitTransformerTest is Test {
         assertEq(token0TriggerTick, -276331);
         assertEq(token1TriggerTick, -276319);
         assertEq(maxDebtRatioX32, uint32(Q32 * 9 / 10));
+        assertEq(maxSlippageX64, MAX_SLIPPAGE);
         assertEq(onlyFees, false);
         assertEq(maxRewardX64, MAX_REWARD);
     }
@@ -348,7 +352,7 @@ contract AutoExitTransformerTest is Test {
         assertGe(ownerUSDCAfter, ownerUSDCBefore);
 
         // Verify config is cleared
-        (bool isActive,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
 
@@ -368,6 +372,7 @@ contract AutoExitTransformerTest is Test {
                 -276350, // won't trigger (position tick is around -276325)
                 -276300, // won't trigger
                 debtRatioTrigger,
+                MAX_SLIPPAGE,
                 false,
                 MAX_REWARD
             )
@@ -383,7 +388,7 @@ contract AutoExitTransformerTest is Test {
         );
 
         // Verify config is cleared
-        (bool isActive,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
 
@@ -468,6 +473,7 @@ contract AutoExitTransformerTest is Test {
                 -276350,
                 -276300,
                 debtRatioTrigger,
+                MAX_SLIPPAGE,
                 false,
                 MAX_REWARD
             )
@@ -494,7 +500,7 @@ contract AutoExitTransformerTest is Test {
         );
 
         // Verify config cleared
-        (bool isActive,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
+        (bool isActive,,,,,,) = autoExitTransformer.positionConfigs(TEST_NFT, address(vault));
         assertEq(isActive, false);
     }
 }

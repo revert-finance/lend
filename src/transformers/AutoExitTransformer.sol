@@ -40,6 +40,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token0TriggerTick,
         int24 token1TriggerTick,
         uint32 maxDebtRatioX32,
+        uint64 maxSlippageX64,
         bool onlyFees,
         uint64 maxRewardX64
     );
@@ -52,6 +53,8 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         int24 token1TriggerTick; // Exit when tick >= this value
         // Debt ratio trigger (0 = disabled)
         uint32 maxDebtRatioX32; // Exit when debt/collateral > this (Q32 format, e.g., 0.9 = 0.9 * Q32)
+        // Swap slippage protection (max allowed slippage from oracle price)
+        uint64 maxSlippageX64; // e.g., 1% = Q64 / 100
         // Reward config
         bool onlyFees; // If true, reward only from fees (not principal)
         uint64 maxRewardX64; // Max reward percentage for operator
@@ -137,6 +140,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             config.token0TriggerTick,
             config.token1TriggerTick,
             config.maxDebtRatioX32,
+            config.maxSlippageX64,
             config.onlyFees,
             config.maxRewardX64
         );
@@ -219,6 +223,13 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         }
 
         // Perform swaps as specified by operator (for debt repayment)
+        // Get oracle prices for slippage protection (price0X96 and price1X96 are in asset terms)
+        uint256 price0X96;
+        uint256 price1X96;
+        if ((params.swapAmount0 > 0 && params.swapData0.length > 0) || (params.swapAmount1 > 0 && params.swapData1.length > 0)) {
+            (,, price0X96, price1X96) = IVault(vault).oracle().getValue(params.tokenId, state.asset);
+        }
+
         // Swap token0 -> asset if requested
         if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
             uint256 swapAmount0 = params.swapAmount0 > state.amount0 ? state.amount0 : params.swapAmount0;
@@ -232,6 +243,14 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
                         params.swapData0
                     )
                 );
+                // Verify slippage against oracle price
+                // Expected output = amountIn * price0X96 / Q96
+                // Minimum acceptable = expected * (Q64 - maxSlippageX64) / Q64
+                uint256 expectedOutput = amountIn * price0X96 / Q96;
+                uint256 minAcceptable = expectedOutput * (Q64 - config.maxSlippageX64) / Q64;
+                if (amountOut < minAcceptable) {
+                    revert SlippageError();
+                }
                 state.assetAmount += amountOut;
                 state.amount0 -= amountIn;
             }
@@ -250,6 +269,12 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
                         params.swapData1
                     )
                 );
+                // Verify slippage against oracle price
+                uint256 expectedOutput = amountIn * price1X96 / Q96;
+                uint256 minAcceptable = expectedOutput * (Q64 - config.maxSlippageX64) / Q64;
+                if (amountOut < minAcceptable) {
+                    revert SlippageError();
+                }
                 state.assetAmount += amountOut;
                 state.amount1 -= amountIn;
             }
@@ -283,7 +308,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         // Clear configuration
         delete positionConfigs[params.tokenId][vault];
 
-        emit PositionConfigured(params.tokenId, vault, false, 0, 0, 0, false, 0);
+        emit PositionConfigured(params.tokenId, vault, false, 0, 0, 0, 0, false, 0);
 
         emit AutoExitExecuted(
             params.tokenId,
