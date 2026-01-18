@@ -426,9 +426,9 @@ contract AutoExitTransformerTest is Test {
     function testCanExecuteNotConfigured() external {
         _setupBasicLoan(true);
 
-        (bool triggered, string memory reason) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
+        (bool triggered, AutoExitTransformer.ExecuteStatus status) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
         assertEq(triggered, false);
-        assertEq(reason, "not_configured");
+        assertEq(uint8(status), uint8(AutoExitTransformer.ExecuteStatus.NOT_CONFIGURED));
     }
 
     function testCanExecuteNotReady() external {
@@ -437,9 +437,9 @@ contract AutoExitTransformerTest is Test {
         // Configure with tick triggers that won't be triggered
         _setConfig(TEST_NFT, address(vault), true, -276350, -276300, 0, false);
 
-        (bool triggered, string memory reason) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
+        (bool triggered, AutoExitTransformer.ExecuteStatus status) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
         assertEq(triggered, false);
-        assertEq(reason, "not_ready");
+        assertEq(uint8(status), uint8(AutoExitTransformer.ExecuteStatus.NOT_READY));
     }
 
     function testCanExecuteTickTrigger() external {
@@ -448,9 +448,9 @@ contract AutoExitTransformerTest is Test {
         // Configure to trigger when tick >= -276325 (current tick is -276321, so should trigger)
         _setConfig(TEST_NFT, address(vault), true, -276350, -276325, 0, false);
 
-        (bool triggered, string memory reason) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
+        (bool triggered, AutoExitTransformer.ExecuteStatus status) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
         assertEq(triggered, true);
-        assertEq(reason, "token1_tick_trigger");
+        assertEq(uint8(status), uint8(AutoExitTransformer.ExecuteStatus.TOKEN1_TICK_TRIGGER));
     }
 
     function testCanExecuteDebtRatioTrigger() external {
@@ -473,9 +473,9 @@ contract AutoExitTransformerTest is Test {
             )
         );
 
-        (bool triggered, string memory reason) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
+        (bool triggered, AutoExitTransformer.ExecuteStatus status) = autoExitTransformer.canExecute(TEST_NFT, address(vault));
         assertEq(triggered, true);
-        assertEq(reason, "debt_ratio_trigger");
+        assertEq(uint8(status), uint8(AutoExitTransformer.ExecuteStatus.DEBT_RATIO_TRIGGER));
     }
 
     function testRewardOnlyFees() external {

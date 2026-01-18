@@ -13,6 +13,15 @@ import "../interfaces/IVault.sol";
 /// Repays outstanding debt before returning remaining assets to the position owner.
 /// Supports both tick-based triggers (stop-loss/take-profit) and debt ratio triggers.
 contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
+    /// @notice Status returned by canExecute indicating why a position can or cannot be executed
+    enum ExecuteStatus {
+        NOT_CONFIGURED,
+        NO_LIQUIDITY,
+        TOKEN0_TICK_TRIGGER,
+        TOKEN1_TICK_TRIGGER,
+        DEBT_RATIO_TRIGGER,
+        NOT_READY
+    }
     event AutoExitExecuted(
         uint256 indexed tokenId,
         address indexed vault,
@@ -292,12 +301,12 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
     /// @param tokenId The NFT token ID
     /// @param vault The vault address
     /// @return triggered Whether the position is triggered for exit
-    /// @return reason The trigger reason
-    function canExecute(uint256 tokenId, address vault) external view returns (bool triggered, string memory reason) {
+    /// @return status The execute status indicating trigger reason or why not ready
+    function canExecute(uint256 tokenId, address vault) external view returns (bool triggered, ExecuteStatus status) {
         PositionConfig memory config = positionConfigs[tokenId][vault];
 
         if (!config.isActive) {
-            return (false, "not_configured");
+            return (false, ExecuteStatus.NOT_CONFIGURED);
         }
 
         // Get position info
@@ -305,7 +314,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             nonfungiblePositionManager.positions(tokenId);
 
         if (liquidity == 0) {
-            return (false, "no_liquidity");
+            return (false, ExecuteStatus.NO_LIQUIDITY);
         }
 
         return _checkTriggerConditions(tokenId, vault, config, token0, token1, fee);
@@ -319,16 +328,16 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         address token0,
         address token1,
         uint24 fee
-    ) internal view returns (bool triggered, string memory reason) {
+    ) internal view returns (bool triggered, ExecuteStatus status) {
         // Check tick trigger
         IUniswapV3Pool pool = _getPool(token0, token1, fee);
         (, int24 currentTick,,,,,) = pool.slot0();
 
         if (currentTick < config.token0TriggerTick) {
-            return (true, "token0_tick_trigger");
+            return (true, ExecuteStatus.TOKEN0_TICK_TRIGGER);
         }
         if (currentTick >= config.token1TriggerTick) {
-            return (true, "token1_tick_trigger");
+            return (true, ExecuteStatus.TOKEN1_TICK_TRIGGER);
         }
 
         // Check debt ratio trigger
@@ -337,11 +346,11 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             if (collateralValue > 0) {
                 uint256 debtRatioX32 = debt * Q32 / collateralValue;
                 if (debtRatioX32 > config.maxDebtRatioX32) {
-                    return (true, "debt_ratio_trigger");
+                    return (true, ExecuteStatus.DEBT_RATIO_TRIGGER);
                 }
             }
         }
 
-        return (false, "not_ready");
+        return (false, ExecuteStatus.NOT_READY);
     }
 }
