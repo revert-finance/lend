@@ -82,7 +82,7 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
             config.targetLeverageBps,
             config.lowerThresholdBps,
             config.upperThresholdBps,
-            config.maxSlippageBps,
+            config.maxSlippageX64,
             config.onlyFees,
             config.maxRewardX64
         );
@@ -225,25 +225,12 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         uint256 collateralValue
     ) internal returns (uint256 reward0, uint256 reward1) {
         // Calculate how much to borrow to reach target
-        // targetDebt = targetRatio * collateralValue / 10000
-        // But after borrowing, collateral value increases, so we use the formula:
-        // borrowAmount = (targetRatio * collateralValue - currentDebt * 10000) / (10000 - targetRatio)
-        uint256 denominator = 10000 - uint256(config.targetLeverageBps);
-        if (denominator == 0) {
-            revert InvalidConfig();
-        }
-
-        uint256 targetDebtNumerator = uint256(config.targetLeverageBps) * collateralValue;
-        if (targetDebtNumerator <= currentDebt * 10000) {
-            return (0, 0); // Already at or above target
-        }
-
-        uint256 borrowAmount = (targetDebtNumerator - currentDebt * 10000) / denominator;
+        uint256 borrowAmount = _calculateBorrowAmount(config.targetLeverageBps, currentDebt, collateralValue);
         if (borrowAmount == 0) {
             return (0, 0);
         }
 
-        address lendToken = IVault(state.vault).asset();
+        address asset = IVault(state.vault).asset();
 
         // Borrow from vault
         IVault(state.vault).borrow(params.tokenId, borrowAmount);
@@ -253,29 +240,24 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
             INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
-        // Start with borrowed amount
-        state.amount0 = lendToken == state.token0 ? borrowAmount : 0;
-        state.amount1 = lendToken == state.token1 ? borrowAmount : 0;
+        // Start with collected fees
+        state.amount0 = state.feeAmount0;
+        state.amount1 = state.feeAmount1;
 
-        // Add collected fees
-        state.amount0 += state.feeAmount0;
-        state.amount1 += state.feeAmount1;
+        // If asset is one of the position tokens, add borrowed amount directly
+        if (asset == state.token0) {
+            state.amount0 += borrowAmount;
+        } else if (asset == state.token1) {
+            state.amount1 += borrowAmount;
+        }
 
         // Calculate and deduct reward
-        if (config.onlyFees) {
-            reward0 = state.feeAmount0 * params.rewardX64 / Q64;
-            reward1 = state.feeAmount1 * params.rewardX64 / Q64;
-        } else {
-            reward0 = state.amount0 * params.rewardX64 / Q64;
-            reward1 = state.amount1 * params.rewardX64 / Q64;
-        }
+        (reward0, reward1) = _calculateRewardForIncrease(params.rewardX64, config.onlyFees, state);
         state.amount0 -= reward0;
         state.amount1 -= reward1;
 
-        // Swap if needed to balance tokens for liquidity
-        if (params.amountIn > 0) {
-            _executeSwap(params, state, config.maxSlippageBps);
-        }
+        // Execute swaps (asset -> position tokens)
+        _executeIncreaseSwaps(params, config, state, asset);
 
         // Add liquidity
         if (state.amount0 > 0 || state.amount1 > 0) {
@@ -284,6 +266,116 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
         // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
         _sendLeftoversToOwner(params.tokenId, state, reward0, reward1);
+    }
+
+    /// @notice Calculate borrow amount for increase leverage
+    function _calculateBorrowAmount(uint16 targetLeverageBps, uint256 currentDebt, uint256 collateralValue)
+        internal
+        pure
+        returns (uint256 borrowAmount)
+    {
+        // borrowAmount = (targetRatio * collateralValue - currentDebt * 10000) / (10000 - targetRatio)
+        uint256 denominator = 10000 - uint256(targetLeverageBps);
+        if (denominator == 0) {
+            revert InvalidConfig();
+        }
+
+        uint256 targetDebtNumerator = uint256(targetLeverageBps) * collateralValue;
+        if (targetDebtNumerator <= currentDebt * 10000) {
+            return 0; // Already at or above target
+        }
+
+        borrowAmount = (targetDebtNumerator - currentDebt * 10000) / denominator;
+    }
+
+    /// @notice Calculate reward for increase leverage (before swaps)
+    function _calculateRewardForIncrease(uint64 rewardX64, bool onlyFees, RebalanceState memory state)
+        internal
+        pure
+        returns (uint256 reward0, uint256 reward1)
+    {
+        if (onlyFees) {
+            reward0 = state.feeAmount0 * rewardX64 / Q64;
+            reward1 = state.feeAmount1 * rewardX64 / Q64;
+        } else {
+            reward0 = state.amount0 * rewardX64 / Q64;
+            reward1 = state.amount1 * rewardX64 / Q64;
+        }
+    }
+
+    /// @notice Execute swaps for increase leverage (asset -> position tokens)
+    function _executeIncreaseSwaps(
+        RebalanceParams calldata params,
+        LeverageConfig memory config,
+        RebalanceState memory state,
+        address asset
+    ) internal {
+        // Get oracle prices for slippage validation (if any swaps needed)
+        uint256 price0X96;
+        uint256 price1X96;
+        if ((params.swapAmount0 > 0 && params.swapData0.length > 0) ||
+            (params.swapAmount1 > 0 && params.swapData1.length > 0)) {
+            (,, price0X96, price1X96) = IVault(state.vault).oracle().getValue(params.tokenId, asset);
+        }
+
+        // Swap asset -> token0 if requested
+        if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
+            _executeIncreaseSwap0(params, config.maxSlippageX64, state, asset, price0X96);
+        }
+
+        // Swap asset -> token1 if requested
+        if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
+            _executeIncreaseSwap1(params, config.maxSlippageX64, state, asset, price1X96);
+        }
+    }
+
+    /// @notice Execute swap for token0 (asset -> token0)
+    function _executeIncreaseSwap0(
+        RebalanceParams calldata params,
+        uint64 maxSlippageX64,
+        RebalanceState memory state,
+        address asset,
+        uint256 price0X96
+    ) internal {
+        // For increase: we're swapping asset IN to get token0 OUT
+        // price0X96 = token0 price in asset terms, so amountOut = amountIn * Q96 / price0X96
+        uint256 amountOutMin = params.swapAmount0 * Q96 / price0X96 * (Q64 - maxSlippageX64) / Q64;
+        (uint256 amountIn, uint256 amountOut) = _routerSwap(
+            Swapper.RouterSwapParams(
+                IERC20(asset),
+                IERC20(state.token0),
+                params.swapAmount0,
+                amountOutMin,
+                params.swapData0
+            )
+        );
+        state.amount0 += amountOut;
+        // Deduct from state.amount0/1 if asset is a position token
+        if (asset == state.token0) state.amount0 -= amountIn;
+        else if (asset == state.token1) state.amount1 -= amountIn;
+    }
+
+    /// @notice Execute swap for token1 (asset -> token1)
+    function _executeIncreaseSwap1(
+        RebalanceParams calldata params,
+        uint64 maxSlippageX64,
+        RebalanceState memory state,
+        address asset,
+        uint256 price1X96
+    ) internal {
+        uint256 amountOutMin = params.swapAmount1 * Q96 / price1X96 * (Q64 - maxSlippageX64) / Q64;
+        (uint256 amountIn, uint256 amountOut) = _routerSwap(
+            Swapper.RouterSwapParams(
+                IERC20(asset),
+                IERC20(state.token1),
+                params.swapAmount1,
+                amountOutMin,
+                params.swapData1
+            )
+        );
+        state.amount1 += amountOut;
+        if (asset == state.token0) state.amount0 -= amountIn;
+        else if (asset == state.token1) state.amount1 -= amountIn;
     }
 
     /// @notice Decrease leverage by removing liquidity and repaying debt
@@ -300,6 +392,8 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
             return (0, 0);
         }
 
+        address asset = IVault(state.vault).asset();
+
         // Calculate and remove liquidity
         uint128 liquidityToRemove = _calculateLiquidityToRemove(state.liquidity, repayAmount, currentDebt);
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) =
@@ -310,16 +404,125 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         state.amount0 -= reward0;
         state.amount1 -= reward1;
 
-        // Swap non-lend token to lend token if needed
-        if (params.amountIn > 0) {
-            _executeSwap(params, state, config.maxSlippageBps);
+        // Collect asset amount if one of the tokens is the asset
+        uint256 assetAmount = 0;
+        if (asset == state.token0) {
+            assetAmount = state.amount0;
+            state.amount0 = 0;
+        } else if (asset == state.token1) {
+            assetAmount = state.amount1;
+            state.amount1 = 0;
         }
 
-        // Repay debt
-        _repayDebt(params.tokenId, state, repayAmount);
+        // Execute swaps (position tokens -> asset) and accumulate assetAmount
+        assetAmount = _executeDecreaseSwaps(params, config, state, asset, assetAmount);
+
+        // Repay debt and send leftovers
+        uint256 assetLeftover = _repayAndCalculateLeftover(params.tokenId, state.vault, asset, assetAmount, repayAmount);
 
         // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
-        _sendLeftoversToOwner(params.tokenId, state, reward0, reward1);
+        _sendLeftoversToOwner(params.tokenId, state, reward0, reward1, asset, assetLeftover);
+    }
+
+    /// @notice Execute swaps for decrease leverage (position tokens -> asset)
+    function _executeDecreaseSwaps(
+        RebalanceParams calldata params,
+        LeverageConfig memory config,
+        RebalanceState memory state,
+        address asset,
+        uint256 assetAmount
+    ) internal returns (uint256) {
+        // Get oracle prices for slippage validation (if any swaps needed)
+        uint256 price0X96;
+        uint256 price1X96;
+        if ((params.swapAmount0 > 0 && params.swapData0.length > 0) ||
+            (params.swapAmount1 > 0 && params.swapData1.length > 0)) {
+            (,, price0X96, price1X96) = IVault(state.vault).oracle().getValue(params.tokenId, asset);
+        }
+
+        // Swap token0 -> asset if requested
+        if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
+            assetAmount = _executeDecreaseSwap0(params, config.maxSlippageX64, state, asset, price0X96, assetAmount);
+        }
+
+        // Swap token1 -> asset if requested
+        if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
+            assetAmount = _executeDecreaseSwap1(params, config.maxSlippageX64, state, asset, price1X96, assetAmount);
+        }
+
+        return assetAmount;
+    }
+
+    /// @notice Execute swap for token0 (token0 -> asset)
+    function _executeDecreaseSwap0(
+        RebalanceParams calldata params,
+        uint64 maxSlippageX64,
+        RebalanceState memory state,
+        address asset,
+        uint256 price0X96,
+        uint256 assetAmount
+    ) internal returns (uint256) {
+        uint256 swapAmount0 = params.swapAmount0 > state.amount0 ? state.amount0 : params.swapAmount0;
+        if (swapAmount0 > 0) {
+            // amountOutMin = swapAmount * price0X96 / Q96 * (Q64 - maxSlippageX64) / Q64
+            uint256 amountOutMin = swapAmount0 * price0X96 / Q96 * (Q64 - maxSlippageX64) / Q64;
+            (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    IERC20(state.token0),
+                    IERC20(asset),
+                    swapAmount0,
+                    amountOutMin,
+                    params.swapData0
+                )
+            );
+            assetAmount += amountOut;
+            state.amount0 -= amountIn;
+        }
+        return assetAmount;
+    }
+
+    /// @notice Execute swap for token1 (token1 -> asset)
+    function _executeDecreaseSwap1(
+        RebalanceParams calldata params,
+        uint64 maxSlippageX64,
+        RebalanceState memory state,
+        address asset,
+        uint256 price1X96,
+        uint256 assetAmount
+    ) internal returns (uint256) {
+        uint256 swapAmount1 = params.swapAmount1 > state.amount1 ? state.amount1 : params.swapAmount1;
+        if (swapAmount1 > 0) {
+            uint256 amountOutMin = swapAmount1 * price1X96 / Q96 * (Q64 - maxSlippageX64) / Q64;
+            (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    IERC20(state.token1),
+                    IERC20(asset),
+                    swapAmount1,
+                    amountOutMin,
+                    params.swapData1
+                )
+            );
+            assetAmount += amountOut;
+            state.amount1 -= amountIn;
+        }
+        return assetAmount;
+    }
+
+    /// @notice Repay debt and return leftover asset amount
+    function _repayAndCalculateLeftover(
+        uint256 tokenId,
+        address vault,
+        address asset,
+        uint256 assetAmount,
+        uint256 repayAmount
+    ) internal returns (uint256 assetLeftover) {
+        if (assetAmount > 0) {
+            uint256 actualRepay = assetAmount > repayAmount ? repayAmount : assetAmount;
+            SafeERC20.safeIncreaseAllowance(IERC20(asset), vault, actualRepay);
+            IVault(vault).repay(tokenId, actualRepay, false);
+            SafeERC20.safeApprove(IERC20(asset), vault, 0);
+            assetLeftover = assetAmount - actualRepay;
+        }
     }
 
     /// @notice Calculate repay amount for decrease leverage
@@ -372,53 +575,6 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         }
     }
 
-    /// @notice Repay debt to vault
-    function _repayDebt(uint256 tokenId, RebalanceState memory state, uint256 repayAmount) internal {
-        address lendToken = IVault(state.vault).asset();
-        uint256 lendTokenAmount = lendToken == state.token0 ? state.amount0 : state.amount1;
-
-        if (lendTokenAmount > 0) {
-            uint256 actualRepay = lendTokenAmount > repayAmount ? repayAmount : lendTokenAmount;
-            SafeERC20.safeIncreaseAllowance(IERC20(lendToken), state.vault, actualRepay);
-            IVault(state.vault).repay(tokenId, actualRepay, false);
-            SafeERC20.safeApprove(IERC20(lendToken), state.vault, 0);
-
-            if (lendToken == state.token0) {
-                state.amount0 -= actualRepay;
-            } else {
-                state.amount1 -= actualRepay;
-            }
-        }
-    }
-
-    /// @notice Execute swap with slippage protection
-    function _executeSwap(RebalanceParams calldata params, RebalanceState memory state, uint16 maxSlippageBps)
-        internal
-    {
-        IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-        uint256 amountOutMin = _calculateAmountOutMin(params.swap0To1, params.amountIn, state.sqrtPriceX96, maxSlippageBps);
-
-        (uint256 amountInDelta, uint256 amountOutDelta) = _poolSwap(
-            Swapper.PoolSwapParams(
-                pool,
-                IERC20(state.token0),
-                IERC20(state.token1),
-                state.fee,
-                params.swap0To1,
-                params.amountIn,
-                amountOutMin
-            )
-        );
-
-        if (params.swap0To1) {
-            state.amount0 -= amountInDelta;
-            state.amount1 += amountOutDelta;
-        } else {
-            state.amount1 -= amountInDelta;
-            state.amount0 += amountOutDelta;
-        }
-    }
-
     /// @notice Add liquidity to position
     function _addLiquidity(uint256 tokenId, RebalanceState memory state) internal {
         SafeERC20.safeIncreaseAllowance(IERC20(state.token0), address(nonfungiblePositionManager), state.amount0);
@@ -437,24 +593,22 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         state.amount1 -= added1;
     }
 
-    /// @notice Calculate minimum output amount based on slippage
-    function _calculateAmountOutMin(bool swap0For1, uint256 amountIn, uint160 sqrtPriceX96, uint16 maxSlippageBps)
-        internal
-        pure
-        returns (uint256 amountOutMin)
-    {
-        uint256 priceX96 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / Q96;
-        uint256 slippageMultiplier = 10000 - maxSlippageBps;
-
-        if (swap0For1) {
-            amountOutMin = amountIn * priceX96 * slippageMultiplier / Q96 / 10000;
-        } else {
-            amountOutMin = amountIn * Q96 * slippageMultiplier / priceX96 / 10000;
-        }
+    /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
+    /// @dev Used by _increaseLeverage where asset is a position token
+    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state, uint256 reward0, uint256 reward1) internal {
+        _sendLeftoversToOwner(tokenId, state, reward0, reward1, address(0), 0);
     }
 
     /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
-    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state, uint256 reward0, uint256 reward1) internal {
+    /// @dev Used by _decreaseLeverage where asset may be different from position tokens
+    function _sendLeftoversToOwner(
+        uint256 tokenId,
+        RebalanceState memory state,
+        uint256 reward0,
+        uint256 reward1,
+        address asset,
+        uint256 assetLeftover
+    ) internal {
         address owner = IVault(state.vault).ownerOf(tokenId);
 
         uint256 balance0 = IERC20(state.token0).balanceOf(address(this));
@@ -469,6 +623,11 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         }
         if (leftover1 > 0) {
             SafeERC20.safeTransfer(IERC20(state.token1), owner, leftover1);
+        }
+
+        // Send asset leftovers (if different from token0/token1)
+        if (asset != address(0) && asset != state.token0 && asset != state.token1 && assetLeftover > 0) {
+            SafeERC20.safeTransfer(IERC20(asset), owner, assetLeftover);
         }
     }
 }

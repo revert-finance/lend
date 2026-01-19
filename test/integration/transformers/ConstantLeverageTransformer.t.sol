@@ -158,7 +158,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50% = 2x leverage
             lowerThresholdBps: 500,  // 5%
             upperThresholdBps: 500,  // 5%
-            maxSlippageBps: 100,     // 1%
+            maxSlippageX64: uint64(Q64 / 100),     // 1%
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100) // 1%
         });
@@ -171,7 +171,7 @@ contract ConstantLeverageTransformerTest is Test {
             uint16 targetLeverageBps,
             uint16 lowerThresholdBps,
             uint16 upperThresholdBps,
-            uint16 maxSlippageBps,
+            uint64 maxSlippageX64,
             bool onlyFees,
             uint64 maxRewardX64
         ) = transformer.positionConfigs(TEST_NFT);
@@ -179,7 +179,7 @@ contract ConstantLeverageTransformerTest is Test {
         assertEq(targetLeverageBps, 5000);
         assertEq(lowerThresholdBps, 500);
         assertEq(upperThresholdBps, 500);
-        assertEq(maxSlippageBps, 100);
+        assertEq(maxSlippageX64, uint64(Q64 / 100));
         assertEq(onlyFees, false);
         assertEq(maxRewardX64, uint64(Q64 / 100));
     }
@@ -192,7 +192,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -215,7 +215,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 9500, // Above max
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -237,7 +237,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 10) // 10% - way above max
         });
@@ -272,7 +272,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50%
             lowerThresholdBps: 500,  // 5%
             upperThresholdBps: 500,  // 5%
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -307,7 +307,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50%
             lowerThresholdBps: 500,  // 5%
             upperThresholdBps: 500,  // 5%
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -342,7 +342,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50%
             lowerThresholdBps: 500,  // 5%
             upperThresholdBps: 500,  // 5%
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -370,7 +370,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -380,8 +380,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200)
         });
@@ -403,7 +405,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -413,8 +415,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200) // 0.5%
         });
@@ -436,8 +440,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200)
         });
@@ -467,7 +473,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -477,8 +483,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200)
         });
@@ -500,7 +508,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 200) // 0.5% max
         });
@@ -510,8 +518,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 100) // 1% - exceeds max
         });
@@ -534,7 +544,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50%
             lowerThresholdBps: 500,  // 5%
             upperThresholdBps: 500,  // 5%
-            maxSlippageBps: 100,     // 1%
+            maxSlippageX64: uint64(Q64 / 100),     // 1%
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100) // 1%
         });
@@ -553,8 +563,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,     // Swap token0 (DAI) to token1 (USDC) to add liquidity
-            amountIn: 0,        // No swap for this test
+            swapAmount0: 0,     // No swap for this test
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200) // 0.5%
         });
@@ -588,7 +600,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50%
             lowerThresholdBps: 500,  // 5%
             upperThresholdBps: 500,  // 5%
-            maxSlippageBps: 100,     // 1%
+            maxSlippageX64: uint64(Q64 / 100),     // 1%
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100) // 1%
         });
@@ -607,8 +619,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: false,    // Swap token1 to token0 to get more USDC for repay
-            amountIn: 0,        // No swap for this test
+            swapAmount0: 0,     // No swap for this test
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200) // 0.5%
         });
@@ -635,7 +649,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: true,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -646,7 +660,7 @@ contract ConstantLeverageTransformerTest is Test {
             5000,
             500,
             500,
-            100,
+            uint64(Q64 / 100),
             true,
             uint64(Q64 / 100)
         );
@@ -666,7 +680,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -676,8 +690,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200)
         });
@@ -704,7 +720,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000, // 50%
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100) // 1% max
         });
@@ -718,8 +734,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200) // 0.5% reward
         });
@@ -751,7 +769,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -761,8 +779,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200)
         });
@@ -810,7 +830,7 @@ contract ConstantLeverageTransformerTest is Test {
             targetLeverageBps: 5000,
             lowerThresholdBps: 500,
             upperThresholdBps: 500,
-            maxSlippageBps: 100,
+            maxSlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             maxRewardX64: uint64(Q64 / 100)
         });
@@ -820,8 +840,10 @@ contract ConstantLeverageTransformerTest is Test {
 
         IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
             tokenId: TEST_NFT,
-            swap0To1: true,
-            amountIn: 0,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
             deadline: block.timestamp + 1000,
             rewardX64: uint64(Q64 / 200) // 0.5% reward
         });
