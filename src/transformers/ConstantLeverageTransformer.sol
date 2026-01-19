@@ -391,7 +391,7 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         address asset = IVault(state.vault).asset();
 
         // Calculate and remove liquidity
-        uint128 liquidityToRemove = _calculateLiquidityToRemove(state.liquidity, repayAmount, currentDebt);
+        uint128 liquidityToRemove = _calculateLiquidityToRemove(state.liquidity, repayAmount, collateralValue);
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) =
             _decreaseFullLiquidityAndCollect(params.tokenId, liquidityToRemove, 0, 0, state.deadline);
 
@@ -541,16 +541,16 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
     }
 
     /// @notice Calculate liquidity to remove for repay
-    function _calculateLiquidityToRemove(uint128 totalLiquidity, uint256 repayAmount, uint256 currentDebt)
+    function _calculateLiquidityToRemove(uint128 totalLiquidity, uint256 repayAmount, uint256 collateralValue)
         internal
         pure
         returns (uint128 liquidityToRemove)
     {
-        if (repayAmount >= currentDebt) {
+        if (repayAmount >= collateralValue) {
             return totalLiquidity; // Remove all
         }
         // Remove proportional liquidity (with 10% buffer for swap slippage)
-        liquidityToRemove = SafeCast.toUint128(uint256(totalLiquidity) * repayAmount * 11000 / currentDebt / 10000);
+        liquidityToRemove = SafeCast.toUint128(uint256(totalLiquidity) * repayAmount * 11000 / collateralValue / 10000);
         if (liquidityToRemove > totalLiquidity) {
             liquidityToRemove = totalLiquidity;
         }
