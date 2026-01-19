@@ -59,7 +59,8 @@ interface IConstantLeverageTransformer {
         view
         returns (bool needed, bool isIncrease, uint256 currentRatioBps);
 
-    /// @notice Execute rebalance directly (position must be owned by this contract)
+    /// @notice Execute rebalance (only callable by vault via transform)
+    /// @dev Operators must use rebalanceWithVault() - direct calls will revert
     /// @param params Rebalance parameters
     function rebalance(RebalanceParams calldata params) external;
 

@@ -136,14 +136,11 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
     /// @inheritdoc IConstantLeverageTransformer
     function rebalance(RebalanceParams calldata params) external override nonReentrant {
-        // Validate caller
-        if (!operators[msg.sender]) {
-            if (vaults[msg.sender]) {
-                _validateCaller(nonfungiblePositionManager, params.tokenId);
-            } else {
-                revert Unauthorized();
-            }
+        // Only callable by vault via transform - operators must use rebalanceWithVault()
+        if (!vaults[msg.sender]) {
+            revert Unauthorized();
         }
+        _validateCaller(nonfungiblePositionManager, params.tokenId);
 
         LeverageConfig memory config = positionConfigs[params.tokenId];
         if (config.targetLeverageBps == 0) {
@@ -153,11 +150,6 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         // Validate reward
         if (params.rewardX64 > config.maxRewardX64) {
             revert ExceedsMaxReward();
-        }
-
-        // Get vault (caller when called via transform)
-        if (!vaults[msg.sender]) {
-            revert Unauthorized();
         }
 
         RebalanceState memory state;
