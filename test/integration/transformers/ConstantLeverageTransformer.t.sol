@@ -860,4 +860,99 @@ contract ConstantLeverageTransformerTest is Test {
         // This verifies the fix: rewards stay in contract for withdrawer
         assertTrue(transformerDai > 0 || transformerUsdc > 0, "Rewards should be in transformer");
     }
+
+    // ============ onlyFees Mode Tests ============
+
+    function testRebalanceOnlyFeesMode() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        // Set config with onlyFees=true - reward should only be taken from fees, not principal
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000, // 50%
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageX64: uint64(Q64 / 100),
+            onlyFees: true,  // Only take reward from fees
+            maxRewardX64: uint64(Q64 / 100) // 1% max
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        // Verify config was stored correctly
+        (,,,, bool storedOnlyFees,) = transformer.positionConfigs(TEST_NFT);
+        assertTrue(storedOnlyFees, "onlyFees should be true");
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200) // 0.5% reward
+        });
+
+        // Get debt before
+        (uint256 debtBefore, , , , ) = vault.loanInfo(TEST_NFT);
+        assertEq(debtBefore, 0);
+
+        // Rebalance - should work with onlyFees mode
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Verify debt increased (rebalance succeeded)
+        (uint256 debtAfter, , , , ) = vault.loanInfo(TEST_NFT);
+        assertTrue(debtAfter > debtBefore, "Debt should have increased");
+
+        // With onlyFees=true and no accumulated fees, rewards should be minimal or zero
+        // (position was just created, so no fees have been collected yet)
+    }
+
+    // ============ Invalid Vault Tests ============
+
+    function testRebalanceWithInvalidVault() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000,
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageX64: uint64(Q64 / 100),
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 100)
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swapAmount0: 0,
+            swapData0: "",
+            swapAmount1: 0,
+            swapData1: "",
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200)
+        });
+
+        // Try to rebalance with an address that is not a registered vault
+        address fakeVault = address(0x1234);
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        transformer.rebalanceWithVault(params, fakeVault);
+    }
+
+    // Note: TWAP check functionality is inherited from Automator and is tested in Automator tests.
+    // Testing TWAP failures here would require manipulating pool state to create price discrepancies,
+    // which is complex with forked mainnet data. The TWAP check at ConstantLeverageTransformer.sol:213
+    // uses the well-tested _hasMaxTWAPTickDifference from Automator.
 }
