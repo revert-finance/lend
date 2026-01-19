@@ -169,10 +169,8 @@ contract AutoExitTransformerTest is Test {
             amountRemoveMin0: 0,
             amountRemoveMin1: 0,
             swapAmount0: 0,
-            amountOutMin0: 0,
             swapData0: "",
             swapAmount1: 0,
-            amountOutMin1: 0,
             swapData1: "",
             rewardX64: rewardX64,
             deadline: block.timestamp
@@ -556,10 +554,8 @@ contract AutoExitTransformerTest is Test {
             amountRemoveMin0: 0,
             amountRemoveMin1: 0,
             swapAmount0: 0, // Zero amount means no swap
-            amountOutMin0: 0,
             swapData0: hex"1234", // Non-empty swap data
             swapAmount1: 0,
-            amountOutMin1: 0,
             swapData1: "",
             rewardX64: MAX_REWARD,
             deadline: block.timestamp

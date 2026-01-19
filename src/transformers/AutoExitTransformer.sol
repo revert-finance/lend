@@ -68,11 +68,9 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         uint256 amountRemoveMin1;
         // Swap parameters for token0 -> asset (operator specifies how much to swap)
         uint256 swapAmount0; // Amount of token0 to swap (0 = no swap)
-        uint256 amountOutMin0; // Minimum output for token0 swap
         bytes swapData0; // Swap data for token0 -> asset
         // Swap parameters for token1 -> asset
         uint256 swapAmount1; // Amount of token1 to swap (0 = no swap)
-        uint256 amountOutMin1; // Minimum output for token1 swap
         bytes swapData1; // Swap data for token1 -> asset
         uint64 rewardX64;
         uint256 deadline;
@@ -234,23 +232,18 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
             uint256 swapAmount0 = params.swapAmount0 > state.amount0 ? state.amount0 : params.swapAmount0;
             if (swapAmount0 > 0) {
+                // Calculate minimum output based on oracle price and configured slippage
+                // amountOutMin = swapAmount * price0X96 / Q96 * (Q64 - maxSlippageX64) / Q64
+                uint256 amountOutMin = swapAmount0 * price0X96 / Q96 * (Q64 - config.maxSlippageX64) / Q64;
                 (uint256 amountIn, uint256 amountOut) = _routerSwap(
                     Swapper.RouterSwapParams(
                         IERC20(state.token0),
                         IERC20(state.asset),
                         swapAmount0,
-                        params.amountOutMin0,
+                        amountOutMin,
                         params.swapData0
                     )
                 );
-                // Verify slippage against oracle price
-                // Expected output = amountIn * price0X96 / Q96
-                // Minimum acceptable = expected * (Q64 - maxSlippageX64) / Q64
-                uint256 expectedOutput = amountIn * price0X96 / Q96;
-                uint256 minAcceptable = expectedOutput * (Q64 - config.maxSlippageX64) / Q64;
-                if (amountOut < minAcceptable) {
-                    revert SlippageError();
-                }
                 state.assetAmount += amountOut;
                 state.amount0 -= amountIn;
             }
@@ -260,21 +253,17 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
             uint256 swapAmount1 = params.swapAmount1 > state.amount1 ? state.amount1 : params.swapAmount1;
             if (swapAmount1 > 0) {
+                // Calculate minimum output based on oracle price and configured slippage
+                uint256 amountOutMin = swapAmount1 * price1X96 / Q96 * (Q64 - config.maxSlippageX64) / Q64;
                 (uint256 amountIn, uint256 amountOut) = _routerSwap(
                     Swapper.RouterSwapParams(
                         IERC20(state.token1),
                         IERC20(state.asset),
                         swapAmount1,
-                        params.amountOutMin1,
+                        amountOutMin,
                         params.swapData1
                     )
                 );
-                // Verify slippage against oracle price
-                uint256 expectedOutput = amountIn * price1X96 / Q96;
-                uint256 minAcceptable = expectedOutput * (Q64 - config.maxSlippageX64) / Q64;
-                if (amountOut < minAcceptable) {
-                    revert SlippageError();
-                }
                 state.assetAmount += amountOut;
                 state.amount1 -= amountIn;
             }
