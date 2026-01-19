@@ -316,60 +316,40 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
         // Swap asset -> token0 if requested
         if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
-            _executeIncreaseSwap0(params, config.maxSlippageX64, state, asset, price0X96);
+            _executeIncreaseSwap(state, asset, state.token0, params.swapAmount0, params.swapData0, price0X96, config.maxSlippageX64);
         }
 
         // Swap asset -> token1 if requested
         if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
-            _executeIncreaseSwap1(params, config.maxSlippageX64, state, asset, price1X96);
+            _executeIncreaseSwap(state, asset, state.token1, params.swapAmount1, params.swapData1, price1X96, config.maxSlippageX64);
         }
     }
 
-    /// @notice Execute swap for token0 (asset -> token0)
-    function _executeIncreaseSwap0(
-        RebalanceParams calldata params,
-        uint64 maxSlippageX64,
+    /// @notice Execute single swap for increase leverage (asset -> token)
+    function _executeIncreaseSwap(
         RebalanceState memory state,
         address asset,
-        uint256 price0X96
+        address tokenOut,
+        uint256 swapAmount,
+        bytes calldata swapData,
+        uint256 priceX96,
+        uint64 maxSlippageX64
     ) internal {
-        // For increase: we're swapping asset IN to get token0 OUT
-        // price0X96 = token0 price in asset terms, so amountOut = amountIn * Q96 / price0X96
-        uint256 amountOutMin = params.swapAmount0 * Q96 / price0X96 * (Q64 - maxSlippageX64) / Q64;
+        // For increase: we're swapping asset IN to get token OUT
+        // priceX96 = token price in asset terms, so amountOut = amountIn * Q96 / priceX96
+        uint256 amountOutMin = swapAmount * Q96 / priceX96 * (Q64 - maxSlippageX64) / Q64;
         (uint256 amountIn, uint256 amountOut) = _routerSwap(
-            Swapper.RouterSwapParams(
-                IERC20(asset),
-                IERC20(state.token0),
-                params.swapAmount0,
-                amountOutMin,
-                params.swapData0
-            )
+            Swapper.RouterSwapParams(IERC20(asset), IERC20(tokenOut), swapAmount, amountOutMin, swapData)
         );
-        state.amount0 += amountOut;
-        // Deduct from state.amount0/1 if asset is a position token
-        if (asset == state.token0) state.amount0 -= amountIn;
-        else if (asset == state.token1) state.amount1 -= amountIn;
-    }
 
-    /// @notice Execute swap for token1 (asset -> token1)
-    function _executeIncreaseSwap1(
-        RebalanceParams calldata params,
-        uint64 maxSlippageX64,
-        RebalanceState memory state,
-        address asset,
-        uint256 price1X96
-    ) internal {
-        uint256 amountOutMin = params.swapAmount1 * Q96 / price1X96 * (Q64 - maxSlippageX64) / Q64;
-        (uint256 amountIn, uint256 amountOut) = _routerSwap(
-            Swapper.RouterSwapParams(
-                IERC20(asset),
-                IERC20(state.token1),
-                params.swapAmount1,
-                amountOutMin,
-                params.swapData1
-            )
-        );
-        state.amount1 += amountOut;
+        // Add output to appropriate token amount
+        if (tokenOut == state.token0) {
+            state.amount0 += amountOut;
+        } else {
+            state.amount1 += amountOut;
+        }
+
+        // Deduct input from state if asset is a position token
         if (asset == state.token0) state.amount0 -= amountIn;
         else if (asset == state.token1) state.amount1 -= amountIn;
     }
@@ -438,69 +418,30 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
         // Swap token0 -> asset if requested
         if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
-            assetAmount = _executeDecreaseSwap0(params, config.maxSlippageX64, state, asset, price0X96, assetAmount);
+            uint256 swapAmount = params.swapAmount0 > state.amount0 ? state.amount0 : params.swapAmount0;
+            if (swapAmount > 0) {
+                uint256 amountOutMin = swapAmount * price0X96 / Q96 * (Q64 - config.maxSlippageX64) / Q64;
+                (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                    Swapper.RouterSwapParams(IERC20(state.token0), IERC20(asset), swapAmount, amountOutMin, params.swapData0)
+                );
+                assetAmount += amountOut;
+                state.amount0 -= amountIn;
+            }
         }
 
         // Swap token1 -> asset if requested
         if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
-            assetAmount = _executeDecreaseSwap1(params, config.maxSlippageX64, state, asset, price1X96, assetAmount);
+            uint256 swapAmount = params.swapAmount1 > state.amount1 ? state.amount1 : params.swapAmount1;
+            if (swapAmount > 0) {
+                uint256 amountOutMin = swapAmount * price1X96 / Q96 * (Q64 - config.maxSlippageX64) / Q64;
+                (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                    Swapper.RouterSwapParams(IERC20(state.token1), IERC20(asset), swapAmount, amountOutMin, params.swapData1)
+                );
+                assetAmount += amountOut;
+                state.amount1 -= amountIn;
+            }
         }
 
-        return assetAmount;
-    }
-
-    /// @notice Execute swap for token0 (token0 -> asset)
-    function _executeDecreaseSwap0(
-        RebalanceParams calldata params,
-        uint64 maxSlippageX64,
-        RebalanceState memory state,
-        address asset,
-        uint256 price0X96,
-        uint256 assetAmount
-    ) internal returns (uint256) {
-        uint256 swapAmount0 = params.swapAmount0 > state.amount0 ? state.amount0 : params.swapAmount0;
-        if (swapAmount0 > 0) {
-            // amountOutMin = swapAmount * price0X96 / Q96 * (Q64 - maxSlippageX64) / Q64
-            uint256 amountOutMin = swapAmount0 * price0X96 / Q96 * (Q64 - maxSlippageX64) / Q64;
-            (uint256 amountIn, uint256 amountOut) = _routerSwap(
-                Swapper.RouterSwapParams(
-                    IERC20(state.token0),
-                    IERC20(asset),
-                    swapAmount0,
-                    amountOutMin,
-                    params.swapData0
-                )
-            );
-            assetAmount += amountOut;
-            state.amount0 -= amountIn;
-        }
-        return assetAmount;
-    }
-
-    /// @notice Execute swap for token1 (token1 -> asset)
-    function _executeDecreaseSwap1(
-        RebalanceParams calldata params,
-        uint64 maxSlippageX64,
-        RebalanceState memory state,
-        address asset,
-        uint256 price1X96,
-        uint256 assetAmount
-    ) internal returns (uint256) {
-        uint256 swapAmount1 = params.swapAmount1 > state.amount1 ? state.amount1 : params.swapAmount1;
-        if (swapAmount1 > 0) {
-            uint256 amountOutMin = swapAmount1 * price1X96 / Q96 * (Q64 - maxSlippageX64) / Q64;
-            (uint256 amountIn, uint256 amountOut) = _routerSwap(
-                Swapper.RouterSwapParams(
-                    IERC20(state.token1),
-                    IERC20(asset),
-                    swapAmount1,
-                    amountOutMin,
-                    params.swapData1
-                )
-            );
-            assetAmount += amountOut;
-            state.amount1 -= amountIn;
-        }
         return assetAmount;
     }
 
