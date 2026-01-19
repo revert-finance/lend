@@ -19,7 +19,6 @@ import "../interfaces/IConstantLeverageTransformer.sol";
 /// Allows operators to rebalance positions when leverage drifts outside configured thresholds
 contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transformer, Automator, ReentrancyGuard {
     uint16 public constant MAX_LEVERAGE_BPS = 9000; // 90% max (10x leverage)
-    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2% max
 
     // Position configurations
     mapping(uint256 => LeverageConfig) public positionConfigs;
@@ -69,9 +68,6 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
         // Validate config
         if (config.targetLeverageBps > MAX_LEVERAGE_BPS) {
-            revert InvalidConfig();
-        }
-        if (config.maxRewardX64 > MAX_REWARD_X64) {
             revert InvalidConfig();
         }
 

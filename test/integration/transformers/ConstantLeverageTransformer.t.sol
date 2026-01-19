@@ -225,28 +225,6 @@ contract ConstantLeverageTransformerTest is Test {
         transformer.setPositionConfig(TEST_NFT, address(vault), config);
     }
 
-    function testSetPositionConfigInvalidReward() external {
-        _deposit(100000000, WHALE_ACCOUNT);
-        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
-
-        vm.prank(TEST_NFT_ACCOUNT);
-        vault.approveTransform(TEST_NFT, address(transformer), true);
-
-        // Try to set reward above max (2%)
-        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
-            targetLeverageBps: 5000,
-            lowerThresholdBps: 500,
-            upperThresholdBps: 500,
-            maxSlippageX64: uint64(Q64 / 100),
-            onlyFees: false,
-            maxRewardX64: uint64(Q64 / 10) // 10% - way above max
-        });
-
-        vm.prank(TEST_NFT_ACCOUNT);
-        vm.expectRevert(Constants.InvalidConfig.selector);
-        transformer.setPositionConfig(TEST_NFT, address(vault), config);
-    }
-
     // ============ Check Rebalance Tests ============
 
     function testCheckRebalanceNeededNoConfig() external {
