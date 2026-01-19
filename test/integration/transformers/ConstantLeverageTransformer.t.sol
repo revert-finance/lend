@@ -10,6 +10,7 @@ import "../../../src/InterestRateModel.sol";
 
 import "../../../src/transformers/ConstantLeverageTransformer.sol";
 import "../../../src/utils/Constants.sol";
+import "../../../src/utils/Swapper.sol";
 
 contract ConstantLeverageTransformerTest is Test {
     uint256 constant Q32 = 2 ** 32;
@@ -933,4 +934,238 @@ contract ConstantLeverageTransformerTest is Test {
     // Testing TWAP failures here would require manipulating pool state to create price discrepancies,
     // which is complex with forked mainnet data. The TWAP check at ConstantLeverageTransformer.sol:213
     // uses the well-tested _hasMaxTWAPTickDifference from Automator.
+
+    // ============ Swap Tests ============
+
+    /// @notice Helper to build Universal Router swap data
+    function _buildSwapData(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address recipient
+    ) internal view returns (bytes memory) {
+        // Universal Router commands: 0x00 = V3_SWAP_EXACT_IN, 0x04 = SWEEP
+        bytes[] memory inputs = new bytes[](2);
+        // V3_SWAP_EXACT_IN input: (recipient, amountIn, amountOutMin, path, payerIsUser)
+        inputs[0] = abi.encode(
+            recipient,
+            amountIn,
+            amountOutMin,
+            abi.encodePacked(tokenIn, fee, tokenOut),
+            false // payerIsUser = false (tokens already transferred to router)
+        );
+        // SWEEP input: (token, recipient, amountMin) - sweep any leftover input tokens back
+        inputs[1] = abi.encode(tokenIn, recipient, 0);
+
+        return abi.encode(
+            UNIVERSAL_ROUTER,
+            abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp + 1000))
+        );
+    }
+
+    function testRebalanceIncreaseLeverageWithSwap() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        // Set config for 50% target leverage
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000,
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageX64: uint64(Q64 / 50), // 2% slippage tolerance
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 100)
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        // Get position info - TEST_NFT is DAI/USDC, vault asset is USDC
+        // For increase leverage: borrow USDC, swap some USDC -> DAI to add liquidity
+        // DAI is token0, USDC is token1 in the position
+
+        // Calculate approximate swap amount (for a balanced add, swap ~half the borrowed amount to DAI)
+        // The actual amount depends on the position's tick range vs current tick
+        uint256 swapAmount = 5000000; // 5 USDC (position is small, so modest swap)
+
+        // Build swap data: USDC -> DAI via 0.01% pool (500 fee tier = 0.05%)
+        bytes memory swapData0 = _buildSwapData(
+            address(USDC),
+            address(DAI),
+            100, // 0.01% fee tier (100 = 0.01%)
+            swapAmount,
+            1, // amountOutMin - contract will validate with oracle
+            address(transformer)
+        );
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swapAmount0: swapAmount, // Swap USDC -> DAI (to get token0)
+            swapData0: swapData0,
+            swapAmount1: 0, // No swap needed for token1 (USDC is the asset)
+            swapData1: "",
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200)
+        });
+
+        // Get debt before
+        (uint256 debtBefore, , , , ) = vault.loanInfo(TEST_NFT);
+        assertEq(debtBefore, 0);
+
+        // Rebalance with swap
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Verify debt increased
+        (uint256 debtAfter, , , , ) = vault.loanInfo(TEST_NFT);
+        assertTrue(debtAfter > debtBefore, "Debt should have increased");
+    }
+
+    function testRebalanceDecreaseLeverageWithSwap() external {
+        _deposit(100000000, WHALE_ACCOUNT);
+        _createLoan(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        // Borrow 70% to be above 50% target + 5% threshold
+        (, , uint256 collateralValue, , ) = vault.loanInfo(TEST_NFT);
+        uint256 borrowAmount = collateralValue * 70 / 100;
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, borrowAmount);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(transformer), true);
+
+        // Set config for 50% target leverage
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 5000,
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageX64: uint64(Q64 / 50), // 2% slippage tolerance
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 100)
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT, address(vault), config);
+
+        // Verify needs decrease
+        (bool needed, bool isIncrease, ) = transformer.checkRebalanceNeeded(TEST_NFT, address(vault));
+        assertTrue(needed);
+        assertFalse(isIncrease);
+
+        // For decrease leverage: remove liquidity (get DAI + USDC), swap DAI -> USDC to repay
+        // The position's DAI balance after liquidity removal is small (~0.29 DAI based on trace)
+        // Use a smaller swap amount that will be available after removing liquidity
+        uint256 swapAmount = 100000000000000000; // 0.1 DAI - small enough to be available
+
+        // Build swap data: DAI -> USDC via 0.05% pool (the pool our position is in)
+        bytes memory swapData0 = _buildSwapData(
+            address(DAI),
+            address(USDC),
+            500, // 0.05% fee tier
+            swapAmount,
+            1, // amountOutMin - contract validates with oracle
+            address(transformer)
+        );
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT,
+            swapAmount0: swapAmount, // Swap DAI (token0) -> USDC (asset)
+            swapData0: swapData0,
+            swapAmount1: 0,
+            swapData1: "",
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200)
+        });
+
+        // Get debt before
+        (uint256 debtBefore, , , , ) = vault.loanInfo(TEST_NFT);
+        assertTrue(debtBefore > 0);
+
+        // Rebalance with swap
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Verify debt decreased
+        (uint256 debtAfter, , , , ) = vault.loanInfo(TEST_NFT);
+        assertTrue(debtAfter < debtBefore, "Debt should have decreased");
+    }
+
+    function testRebalanceWithDualSwaps() external {
+        // Test with DAI/WETH position - neither token is USDC (vault asset)
+        // This tests the dual-swap scenario where both tokens need to be swapped
+
+        _deposit(100000000000, WHALE_ACCOUNT); // Need more liquidity for WETH position
+
+        // Create loan with DAI/WETH position
+        _createLoan(TEST_NFT_DAI_WETH, TEST_NFT_DAI_WETH_ACCOUNT);
+
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.approveTransform(TEST_NFT_DAI_WETH, address(transformer), true);
+
+        // Set config for 40% target leverage (more conservative for WETH)
+        IConstantLeverageTransformer.LeverageConfig memory config = IConstantLeverageTransformer.LeverageConfig({
+            targetLeverageBps: 4000, // 40%
+            lowerThresholdBps: 500,
+            upperThresholdBps: 500,
+            maxSlippageX64: uint64(Q64 / 20), // 5% slippage (cross-asset swaps may have more slippage)
+            onlyFees: false,
+            maxRewardX64: uint64(Q64 / 50) // 2%
+        });
+
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        transformer.setPositionConfig(TEST_NFT_DAI_WETH, address(vault), config);
+
+        // For DAI/WETH position with USDC vault:
+        // Increase leverage: borrow USDC, swap USDC -> DAI (token0), swap USDC -> WETH (token1)
+        // We'll do a simpler test - just swap to one token
+
+        // Swap USDC -> DAI
+        uint256 swapAmount0 = 1000000; // 1 USDC -> DAI
+        bytes memory swapData0 = _buildSwapData(
+            address(USDC),
+            address(DAI),
+            100, // 0.01% pool
+            swapAmount0,
+            1,
+            address(transformer)
+        );
+
+        // Swap USDC -> WETH via the USDC/WETH pool
+        uint256 swapAmount1 = 1000000; // 1 USDC -> WETH
+        bytes memory swapData1 = _buildSwapData(
+            address(USDC),
+            address(WETH),
+            500, // 0.05% pool (500 = 0.05%)
+            swapAmount1,
+            1,
+            address(transformer)
+        );
+
+        IConstantLeverageTransformer.RebalanceParams memory params = IConstantLeverageTransformer.RebalanceParams({
+            tokenId: TEST_NFT_DAI_WETH,
+            swapAmount0: swapAmount0, // USDC -> DAI
+            swapData0: swapData0,
+            swapAmount1: swapAmount1, // USDC -> WETH
+            swapData1: swapData1,
+            deadline: block.timestamp + 1000,
+            rewardX64: uint64(Q64 / 200)
+        });
+
+        // Get debt before
+        (uint256 debtBefore, , , , ) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        assertEq(debtBefore, 0);
+
+        // Rebalance with dual swaps
+        vm.prank(OPERATOR_ACCOUNT);
+        transformer.rebalanceWithVault(params, address(vault));
+
+        // Verify debt increased
+        (uint256 debtAfter, , , , ) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        assertTrue(debtAfter > debtBefore, "Debt should have increased");
+    }
 }
