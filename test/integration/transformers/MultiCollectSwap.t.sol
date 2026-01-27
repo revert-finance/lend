@@ -105,22 +105,21 @@ contract MultiCollectSwapTest is Test {
         vault.setTransformer(address(multiCollectSwap), true);
     }
 
-    function testDirectCollectWithoutSwaps() external {
-        // User collects from their directly owned position
+    function testMissingSwapReverts() external {
+        // User tries to collect from position without providing swap for non-output token
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
 
-        uint256 daiBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
-        uint256 usdcBefore = USDC.balanceOf(TEST_NFT_ACCOUNT);
-
         // Approve the MultiCollectSwap contract
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.setApprovalForAll(address(multiCollectSwap), true);
 
-        // Execute collect - using DAI as output token since position has DAI/USDC
+        // Execute collect - using DAI as output token but no swap for USDC
+        // This should revert because USDC is not covered
         vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -129,18 +128,10 @@ contract MultiCollectSwapTest is Test {
                 recipient: TEST_NFT_ACCOUNT
             })
         );
-
-        uint256 daiAfter = DAI.balanceOf(TEST_NFT_ACCOUNT);
-        uint256 usdcAfter = USDC.balanceOf(TEST_NFT_ACCOUNT);
-
-        // Should have collected some fees (DAI is output token)
-        assertGe(daiAfter, daiBefore);
-        // USDC collected stays in contract since no swaps defined and it's not the output token
-        assertEq(usdcAfter, usdcBefore);
     }
 
-    function testMultipleDirectCollects() external {
-        // Collect from two positions owned by different accounts
+    function testMultipleDirectCollectsRequiresSwaps() external {
+        // Collect from two positions requires swaps for non-output tokens
         // First transfer TEST_NFT to TEST_NFT_3_ACCOUNT so they own both
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.transferFrom(TEST_NFT_ACCOUNT, TEST_NFT_3_ACCOUNT, TEST_NFT);
@@ -151,12 +142,12 @@ contract MultiCollectSwapTest is Test {
 
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
 
-        uint256 daiBefore = DAI.balanceOf(TEST_NFT_3_ACCOUNT);
-
         vm.prank(TEST_NFT_3_ACCOUNT);
         NPM.setApprovalForAll(address(multiCollectSwap), true);
 
+        // Should revert because USDC is not covered by output token or swap
         vm.prank(TEST_NFT_3_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -165,12 +156,9 @@ contract MultiCollectSwapTest is Test {
                 recipient: TEST_NFT_3_ACCOUNT
             })
         );
-
-        uint256 daiAfter = DAI.balanceOf(TEST_NFT_3_ACCOUNT);
-        assertGt(daiAfter, daiBefore);
     }
 
-    function testVaultCollectWithoutSwaps() external {
+    function testVaultCollectRequiresSwaps() external {
         // Setup: deposit liquidity and create a loan with the position in vault
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), 10000000);
@@ -192,10 +180,9 @@ contract MultiCollectSwapTest is Test {
 
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
 
-        uint256 daiBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
-
-        // Execute collect via vault transform
+        // Execute collect via vault transform - should fail without swap for USDC
         vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -204,12 +191,9 @@ contract MultiCollectSwapTest is Test {
                 recipient: TEST_NFT_ACCOUNT
             })
         );
-
-        uint256 daiAfter = DAI.balanceOf(TEST_NFT_ACCOUNT);
-        assertGt(daiAfter, daiBefore);
     }
 
-    function testMixedVaultAndDirectCollect() external {
+    function testMixedVaultAndDirectCollectRequiresSwaps() external {
         // Setup vault with one position
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), 10000000);
@@ -240,9 +224,9 @@ contract MultiCollectSwapTest is Test {
 
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
 
-        uint256 daiBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
-
+        // Should fail without swap for USDC
         vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -251,18 +235,23 @@ contract MultiCollectSwapTest is Test {
                 recipient: TEST_NFT_ACCOUNT
             })
         );
-
-        uint256 daiAfter = DAI.balanceOf(TEST_NFT_ACCOUNT);
-        assertGt(daiAfter, daiBefore);
     }
 
     function testUnauthorizedDirectCollect() external {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
-        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
+        // Create a dummy swap for USDC to pass validation
+        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
+        swaps[0] = Swapper.RouterSwapParams({
+            tokenIn: USDC,
+            tokenOut: DAI,
+            amountIn: 0,
+            amountOutMin: 0,
+            swapData: ""
+        });
 
-        // Try to collect from position we don't own
+        // Try to collect from position we don't own - fails on ownership check (after validation passes)
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.Unauthorized.selector);
         multiCollectSwap.execute(
@@ -292,7 +281,15 @@ contract MultiCollectSwapTest is Test {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
-        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
+        // Create a dummy swap for USDC to pass validation
+        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
+        swaps[0] = Swapper.RouterSwapParams({
+            tokenIn: USDC,
+            tokenOut: DAI,
+            amountIn: 0,
+            amountOutMin: 0,
+            swapData: ""
+        });
 
         // Try to collect without transform approval - should fail
         vm.prank(TEST_NFT_ACCOUNT);
@@ -326,7 +323,15 @@ contract MultiCollectSwapTest is Test {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
-        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
+        // Create a dummy swap for USDC to pass validation
+        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
+        swaps[0] = Swapper.RouterSwapParams({
+            tokenIn: USDC,
+            tokenOut: DAI,
+            amountIn: 0,
+            amountOutMin: 0,
+            swapData: ""
+        });
 
         // Third party (WHALE_ACCOUNT) tries to collect - should fail even though transform is approved
         // This tests the security fix: caller must be the vault position owner
@@ -367,7 +372,7 @@ contract MultiCollectSwapTest is Test {
         );
     }
 
-    function testDifferentRecipient() external {
+    function testDifferentRecipientRequiresSwaps() external {
         address recipient = address(0x1234);
 
         uint256[] memory tokenIds = new uint256[](1);
@@ -378,9 +383,9 @@ contract MultiCollectSwapTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.setApprovalForAll(address(multiCollectSwap), true);
 
-        uint256 daiBefore = DAI.balanceOf(recipient);
-
+        // Should fail without swap for USDC
         vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -389,26 +394,22 @@ contract MultiCollectSwapTest is Test {
                 recipient: recipient
             })
         );
-
-        uint256 daiAfter = DAI.balanceOf(recipient);
-        // Fees are sent to the specified recipient
-        assertGe(daiAfter, daiBefore);
     }
 
-    function testDirectCollectWithSingleApproval() external {
+    function testDirectCollectWithSingleApprovalRequiresSwaps() external {
         // Test using NPM.approve() for single token instead of setApprovalForAll()
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](0);
 
-        uint256 daiBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
-
         // Approve only the specific token (not all tokens)
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(multiCollectSwap), TEST_NFT);
 
+        // Should fail without swap for USDC
         vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -417,8 +418,6 @@ contract MultiCollectSwapTest is Test {
                 recipient: TEST_NFT_ACCOUNT
             })
         );
-
-        uint256 daiAfter = DAI.balanceOf(TEST_NFT_ACCOUNT);
-        assertGe(daiAfter, daiBefore);
     }
+
 }

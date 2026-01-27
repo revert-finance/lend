@@ -39,18 +39,27 @@ contract MultiCollectSwap is Transformer, Swapper {
     ) Swapper(_nonfungiblePositionManager, _universalRouter, _zeroxAllowanceHolder) {}
 
     /// @notice Main entry point - collects fees from positions, executes swaps, and sends output to recipient
-    /// @dev Each collected token must either be the outputToken or be included as tokenIn in one of the swaps.
-    ///      Otherwise, tokens will remain in the contract and not be sent to the recipient.
+    /// @dev Each position's tokens must either be the outputToken or have a corresponding swap.
     /// @param params Execute parameters including tokenIds, swaps, outputToken, and recipient
     function execute(ExecuteParams calldata params) external {
         uint256 length = params.tokenIds.length;
         address recipient = params.recipient;
+        address outputToken = params.outputToken;
 
-        // Collect fees from all positions
+        // Collect fees from all positions (with validation)
         for (uint256 i; i < length;) {
             uint256 tokenId = params.tokenIds[i];
-            address owner = nonfungiblePositionManager.ownerOf(tokenId);
+            (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
+            // Validate that position tokens are covered by outputToken or swaps
+            if (token0 != outputToken && !_swapExists(params.swaps, token0)) {
+                revert InvalidConfig();
+            }
+            if (token1 != outputToken && !_swapExists(params.swaps, token1)) {
+                revert InvalidConfig();
+            }
+
+            address owner = nonfungiblePositionManager.ownerOf(tokenId);
             if (vaults[owner]) {
                 // Vault-held - validate caller is the vault position owner before calling transform
                 if (IVault(owner).ownerOf(tokenId) != msg.sender) {
@@ -73,29 +82,36 @@ contract MultiCollectSwap is Transformer, Swapper {
             }
         }
 
-        // Execute swaps and send any leftover input tokens
+        // Execute swaps
         length = params.swaps.length;
         for (uint256 i; i < length;) {
-            RouterSwapParams calldata swap = params.swaps[i];
-            _routerSwap(swap);
-
-            // Send leftover input tokens to recipient
-            uint256 leftover = swap.tokenIn.balanceOf(address(this));
-            if (leftover > 0) {
-                SafeERC20.safeTransfer(swap.tokenIn, recipient, leftover);
-            }
+            _routerSwap(params.swaps[i]);
             unchecked {
                 ++i;
             }
         }
 
-        // Transfer output token
-        uint256 balance = IERC20(params.outputToken).balanceOf(address(this));
+        // Transfer output token balance to recipient
+        uint256 balance = IERC20(outputToken).balanceOf(address(this));
         if (balance > 0) {
-            SafeERC20.safeTransfer(IERC20(params.outputToken), recipient, balance);
+            SafeERC20.safeTransfer(IERC20(outputToken), recipient, balance);
         }
 
         emit MultiCollectAndSwap(msg.sender, recipient, params.tokenIds);
+    }
+
+    /// @dev Returns true if a swap exists for the given token
+    function _swapExists(RouterSwapParams[] calldata swaps, address token) internal pure returns (bool) {
+        uint256 length = swaps.length;
+        for (uint256 i; i < length;) {
+            if (address(swaps[i].tokenIn) == token) {
+                return true;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return false;
     }
 
     /// @notice Called by vault via transform() for vault-held positions
