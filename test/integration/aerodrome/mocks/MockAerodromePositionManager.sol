@@ -98,6 +98,11 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         _positions[tokenId].tokensOwed1 = tokensOwed1;
     }
 
+    /// @notice Set liquidity for a position (used to simulate draining in tests)
+    function setLiquidity(uint256 tokenId, uint128 liquidity) external {
+        _positions[tokenId].liquidity = liquidity;
+    }
+
     // Implement required but unused interface functions
     function createAndInitializePoolIfNecessary(address, address, uint24, uint160) external payable override returns (address) {
         revert("Not implemented");
