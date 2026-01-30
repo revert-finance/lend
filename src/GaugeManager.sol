@@ -326,6 +326,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         // Determine which tokenId to work with going forward
         uint256 tokenToStake = newTokenId != 0 ? newTokenId : tokenId;
 
+        // Verify loan health for vault positions with debt
+        if (fromVault) {
+            if (!IVault(vault).checkLoanHealth(tokenToStake)) {
+                revert CollateralFail();
+            }
+        }
+
         // 4. If requested and AERO available, compound it
         if (shouldCompound && aeroAmount > 0) {
             _compoundIntoPosition(
@@ -562,9 +569,16 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         newTokenId = transformedTokenId;
         
         // Verify ownership
-        require(nonfungiblePositionManager.ownerOf(newTokenId) == address(this), 
+        require(nonfungiblePositionManager.ownerOf(newTokenId) == address(this),
                 "Position not returned");
-        
+
+        // Verify loan health for vault positions with debt
+        if (fromVault) {
+            if (!IVault(vault).checkLoanHealth(newTokenId)) {
+                revert CollateralFail();
+            }
+        }
+
         // Clear approval
         nonfungiblePositionManager.approve(address(0), newTokenId);
         

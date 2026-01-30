@@ -49,6 +49,7 @@ interface IVault is IERC4626 {
     function setGaugeManager(address _gaugeManager) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
+    function checkLoanHealth(uint256 tokenId) external view returns (bool isHealthy);
 
 
     // params for decreasing liquidity of collateralized position

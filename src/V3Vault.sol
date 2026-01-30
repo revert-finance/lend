@@ -1186,7 +1186,28 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     // Gauge Integration
-    
+
+    /// @notice Check if a loan is healthy (callable by gauge manager for staked positions)
+    /// @param tokenId The position token ID
+    /// @return isHealthy Whether the position has sufficient collateral
+    function checkLoanHealth(uint256 tokenId) external view returns (bool isHealthy) {
+        if (msg.sender != gaugeManager) {
+            revert Unauthorized();
+        }
+
+        uint256 debtShares = loans[tokenId].debtShares;
+
+        // No debt = always healthy
+        if (debtShares == 0) {
+            return true;
+        }
+
+        (uint256 debtExchangeRateX96,) = _calculateGlobalInterest();
+        uint256 debt = _convertToAssets(debtShares, debtExchangeRateX96, Math.Rounding.Up);
+
+        (isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, false);
+    }
+
     /// @notice Set gauge manager
     function setGaugeManager(address _gaugeManager) external onlyOwner {
         gaugeManager = _gaugeManager;
