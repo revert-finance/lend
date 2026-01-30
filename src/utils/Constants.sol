@@ -67,4 +67,5 @@ abstract contract Constants {
     // Aerodrome-specific errors
     error GaugeManagerNotSet();
     error NotDepositor();
+    error NotStaked();
 }

@@ -1202,14 +1202,49 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IGaugeManager(gaugeManager).stakePosition(tokenId);
     }
 
-    /// @notice Unstake position  
+    /// @notice Unstake position
     function unstakePosition(uint256 tokenId) external {
         if (gaugeManager == address(0)) revert GaugeManagerNotSet();
         if (ownerOf(tokenId) != msg.sender && transformedTokenId != tokenId) revert Unauthorized();
-        
+
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
     }
 
+    /// @notice Compound AERO rewards for a staked position
+    /// @param tokenId The position token ID
+    /// @param swapData0 Swap data for AERO->token0
+    /// @param swapData1 Swap data for AERO->token1
+    /// @param minAmount0 Minimum amount of token0 to receive from swap
+    /// @param minAmount1 Minimum amount of token1 to receive from swap
+    /// @param aeroSplitBps Basis points of AERO to swap to token0 (rest goes to token1)
+    /// @param deadline Transaction deadline
+    function compoundRewards(
+        uint256 tokenId,
+        bytes calldata swapData0,
+        bytes calldata swapData1,
+        uint256 minAmount0,
+        uint256 minAmount1,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) external {
+        if (gaugeManager == address(0)) revert GaugeManagerNotSet();
+        if (ownerOf(tokenId) != msg.sender) revert Unauthorized();
+
+        // Verify position is staked
+        if (IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) == address(0)) {
+            revert NotStaked();
+        }
+
+        IGaugeManager(gaugeManager).compoundRewards(
+            tokenId,
+            swapData0,
+            swapData1,
+            minAmount0,
+            minAmount1,
+            aeroSplitBps,
+            deadline
+        );
+    }
 
 
     /// @notice Unstake position if it's currently staked in a gauge

@@ -211,9 +211,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     ) external nonReentrant {
         require(aeroSplitBps <= 10000, "Invalid split");
 
-        // Check authorization - only owner can manually compound
+        // Check authorization - owner or vault (for vault positions) can compound
         address owner = positionOwners[tokenId];
-        require(msg.sender == owner, "Not authorized");
+        bool fromVault = isVaultPosition[tokenId];
+        require(
+            msg.sender == owner || (fromVault && msg.sender == address(vault)),
+            "Not authorized"
+        );
 
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
