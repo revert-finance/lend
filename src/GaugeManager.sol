@@ -211,9 +211,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     ) external nonReentrant {
         require(aeroSplitBps <= 10000, "Invalid split");
 
-        // Check authorization - only owner can manually compound
+        // Check authorization - owner or vault (for vault positions) can compound
         address owner = positionOwners[tokenId];
-        require(msg.sender == owner, "Not authorized");
+        bool fromVault = isVaultPosition[tokenId];
+        require(
+            msg.sender == owner || (fromVault && msg.sender == address(vault)),
+            "Not authorized"
+        );
 
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
@@ -305,8 +309,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         address owner = positionOwners[tokenId];
         require(msg.sender == owner, "Not authorized");
 
-        // Preserve vault position flag for when tokenId changes
-        bool fromVault = isVaultPosition[tokenId];
+        // Vault positions cannot use this function - they must use V3Vault.transform()
+        // This prevents collateral drain attacks and tokenId migration issues
+        if (isVaultPosition[tokenId]) {
+            revert Unauthorized();
+        }
 
         address gauge = tokenIdToGauge[tokenId];
         require(gauge != address(0), "Not staked");
@@ -354,11 +361,10 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             delete tokenIdToGauge[tokenId];
             delete positionOwners[tokenId];
             delete isVaultPosition[tokenId];
-            
-            // Set mappings for new tokenId
+
+            // Set mappings for new tokenId (isVaultPosition stays false - vault positions blocked above)
             tokenIdToGauge[tokenToStake] = gauge;
             positionOwners[tokenToStake] = owner;
-            isVaultPosition[tokenToStake] = fromVault;
         }
 
         emit PositionStaked(tokenToStake, owner);
@@ -499,17 +505,21 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         address transformer, 
         bytes calldata data
     ) external nonReentrant returns (uint256 newTokenId) {
+        // Vault positions cannot use this function - they must use V3Vault.transform()
+        // This prevents collateral drain attacks and tokenId migration issues
+        if (isVaultPosition[tokenId]) {
+            revert Unauthorized();
+        }
+
         // Check authorization
         address owner = positionOwners[tokenId];
-        bool fromVault = isVaultPosition[tokenId];
         require(
-            msg.sender == owner || 
-            (fromVault && msg.sender == address(vault)) ||
+            msg.sender == owner ||
             msg.sender == transformer || // Allow transformer-initiated calls (used by AutoCompound.executeWithGauge)
             transformApprovals[owner][tokenId][msg.sender], // Check if approved transformer
             "Not authorized"
         );
-        
+
         // Validate transformer
         require(transformerAllowList[transformer], "Transformer not allowed");
         require(transformedTokenId == 0, "Reentrancy");
@@ -562,9 +572,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         newTokenId = transformedTokenId;
         
         // Verify ownership
-        require(nonfungiblePositionManager.ownerOf(newTokenId) == address(this), 
+        require(nonfungiblePositionManager.ownerOf(newTokenId) == address(this),
                 "Position not returned");
-        
+
         // Clear approval
         nonfungiblePositionManager.approve(address(0), newTokenId);
         
@@ -577,16 +587,15 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             // Transfer approvals to new tokenId
             // Note: This is a design choice - we transfer approvals to maintain continuity
             // Alternatively, we could require re-approval for the new tokenId
-            
+
             // Clean up old tokenId
             delete tokenIdToGauge[tokenId];
             delete positionOwners[tokenId];
             delete isVaultPosition[tokenId];
-            
-            // Set up new tokenId
+
+            // Set up new tokenId (isVaultPosition stays false - vault positions blocked above)
             tokenIdToGauge[newTokenId] = gauge;
             positionOwners[newTokenId] = owner;
-            isVaultPosition[newTokenId] = fromVault;
         }
         
         // Clear reentrancy guard

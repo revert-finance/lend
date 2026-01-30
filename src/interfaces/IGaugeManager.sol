@@ -27,6 +27,7 @@ interface IGaugeManager {
         bytes calldata swapData1,
         uint256 minAmount0,
         uint256 minAmount1,
+        uint256 aeroSplitBps,
         uint256 deadline
     ) external;
     
