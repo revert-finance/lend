@@ -55,9 +55,9 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         uint32 maxDebtRatioX32; // Exit when debt/collateral > this (Q32 format, e.g., 0.9 = 0.9 * Q32)
         // Swap slippage protection (max allowed slippage from oracle price)
         uint64 maxSlippageX64; // e.g., 1% = Q64 / 100
-        // Reward config
-        bool onlyFees; // If true, reward only from fees (not principal)
-        uint64 maxRewardX64; // Max reward percentage for operator
+        // Protocol fee config (accumulated in contract for withdrawer)
+        bool onlyFees; // If true, protocol fee only from fees (not principal)
+        uint64 maxRewardX64; // Max protocol fee percentage
     }
 
     /// @notice Parameters for execute function
@@ -72,7 +72,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
         // Swap parameters for token1 -> asset
         uint256 swapAmount1; // Amount of token1 to swap (0 = no swap)
         bytes swapData1; // Swap data for token1 -> asset
-        uint64 rewardX64;
+        uint64 rewardX64; // Protocol fee percentage (accumulated in contract for withdrawer)
         uint256 deadline;
     }
 
@@ -199,7 +199,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
         );
 
-        // Calculate and deduct operator reward
+        // Calculate and deduct protocol fee (kept in contract for withdrawer)
         if (config.onlyFees) {
             uint256 reward0 = state.feeAmount0 * params.rewardX64 / Q64;
             uint256 reward1 = state.feeAmount1 * params.rewardX64 / Q64;
