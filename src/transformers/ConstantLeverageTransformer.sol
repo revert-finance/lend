@@ -261,7 +261,7 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         }
 
         // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
-        _sendLeftoversToOwner(params.tokenId, state, reward0, reward1);
+        _sendLeftoversToOwner(params.tokenId, state);
     }
 
     /// @notice Calculate borrow amount for increase leverage
@@ -397,7 +397,7 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         uint256 assetLeftover = _repayAndCalculateLeftover(params.tokenId, state.vault, asset, assetAmount, repayAmount);
 
         // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
-        _sendLeftoversToOwner(params.tokenId, state, reward0, reward1, asset, assetLeftover);
+        _sendLeftoversToOwner(params.tokenId, state, asset, assetLeftover);
     }
 
     /// @notice Execute swaps for decrease leverage (position tokens -> asset)
@@ -532,34 +532,27 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
     /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
     /// @dev Used by _increaseLeverage where asset is a position token
-    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state, uint256 reward0, uint256 reward1) internal {
-        _sendLeftoversToOwner(tokenId, state, reward0, reward1, address(0), 0);
+    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state) internal {
+        _sendLeftoversToOwner(tokenId, state, address(0), 0);
     }
 
     /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
-    /// @dev Used by _decreaseLeverage where asset may be different from position tokens
+    /// @dev Used by _decreaseLeverage where asset may be different from position tokens.
+    ///      Uses state.amount0/amount1 (which track only the current rebalance's deltas) instead
+    ///      of contract balances to avoid draining previously accrued rewards held for the withdrawer.
     function _sendLeftoversToOwner(
         uint256 tokenId,
         RebalanceState memory state,
-        uint256 reward0,
-        uint256 reward1,
         address asset,
         uint256 assetLeftover
     ) internal {
         address owner = IVault(state.vault).ownerOf(tokenId);
 
-        uint256 balance0 = IERC20(state.token0).balanceOf(address(this));
-        uint256 balance1 = IERC20(state.token1).balanceOf(address(this));
-
-        // Send only leftovers, keep rewards in contract for withdrawer
-        uint256 leftover0 = balance0 > reward0 ? balance0 - reward0 : 0;
-        uint256 leftover1 = balance1 > reward1 ? balance1 - reward1 : 0;
-
-        if (leftover0 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token0), owner, leftover0);
+        if (state.amount0 > 0) {
+            SafeERC20.safeTransfer(IERC20(state.token0), owner, state.amount0);
         }
-        if (leftover1 > 0) {
-            SafeERC20.safeTransfer(IERC20(state.token1), owner, leftover1);
+        if (state.amount1 > 0) {
+            SafeERC20.safeTransfer(IERC20(state.token1), owner, state.amount1);
         }
 
         // Send asset leftovers (if different from token0/token1)
