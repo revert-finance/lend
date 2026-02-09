@@ -229,6 +229,12 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
         address asset = IVault(state.vault).asset();
 
+        // Track pre-borrow asset balance to calculate leftover when asset != token0/token1
+        // (any asset balance above this after swaps is leftover borrowed asset to return)
+        uint256 assetBalancePreBorrow = (asset != state.token0 && asset != state.token1)
+            ? IERC20(asset).balanceOf(address(this))
+            : 0;
+
         // Borrow from vault
         IVault(state.vault).borrow(params.tokenId, borrowAmount);
 
@@ -261,8 +267,19 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
             _addLiquidity(params.tokenId, state);
         }
 
+        // Calculate leftover asset (borrowed but not swapped/used)
+        // When asset is token0 or token1, leftovers are already tracked in state.amount0/amount1.
+        // When asset differs, any balance above the pre-borrow snapshot is leftover to return.
+        uint256 assetLeftover = 0;
+        if (asset != state.token0 && asset != state.token1) {
+            uint256 assetBalanceAfter = IERC20(asset).balanceOf(address(this));
+            if (assetBalanceAfter > assetBalancePreBorrow) {
+                assetLeftover = assetBalanceAfter - assetBalancePreBorrow;
+            }
+        }
+
         // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
-        _sendLeftoversToOwner(params.tokenId, state);
+        _sendLeftoversToOwner(params.tokenId, state, asset, assetLeftover);
     }
 
     /// @notice Calculate borrow amount for increase leverage, accounting for collateral factor
@@ -551,12 +568,6 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         // Update amounts for leftover calculation
         state.amount0 -= added0;
         state.amount1 -= added1;
-    }
-
-    /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
-    /// @dev Used by _increaseLeverage where asset is a position token
-    function _sendLeftoversToOwner(uint256 tokenId, RebalanceState memory state) internal {
-        _sendLeftoversToOwner(tokenId, state, address(0), 0);
     }
 
     /// @notice Send leftover tokens to position owner (excluding rewards which stay in contract)
