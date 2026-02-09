@@ -329,6 +329,8 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
     }
 
     /// @notice Execute swaps for increase leverage (asset -> position tokens)
+    /// @dev When the vault asset is a position token (token0 or token1), swap amounts are capped
+    ///      to the post-reward state.amount to prevent consuming tokens reserved as protocol rewards.
     function _executeIncreaseSwaps(
         RebalanceParams calldata params,
         LeverageConfig memory config,
@@ -345,12 +347,30 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
 
         // Swap asset -> token0 if requested
         if (params.swapAmount0 > 0 && params.swapData0.length > 0) {
-            _executeIncreaseSwap(state, asset, state.token0, params.swapAmount0, params.swapData0, price0X96, config.maxSlippageX64);
+            // Cap swap amount to available asset balance (preserves rewards when asset is a position token)
+            uint256 swapAmount0 = params.swapAmount0;
+            if (asset == state.token0 && swapAmount0 > state.amount0) {
+                swapAmount0 = state.amount0;
+            } else if (asset == state.token1 && swapAmount0 > state.amount1) {
+                swapAmount0 = state.amount1;
+            }
+            if (swapAmount0 > 0) {
+                _executeIncreaseSwap(state, asset, state.token0, swapAmount0, params.swapData0, price0X96, config.maxSlippageX64);
+            }
         }
 
         // Swap asset -> token1 if requested
         if (params.swapAmount1 > 0 && params.swapData1.length > 0) {
-            _executeIncreaseSwap(state, asset, state.token1, params.swapAmount1, params.swapData1, price1X96, config.maxSlippageX64);
+            // Cap swap amount to available asset balance (preserves rewards when asset is a position token)
+            uint256 swapAmount1 = params.swapAmount1;
+            if (asset == state.token0 && swapAmount1 > state.amount0) {
+                swapAmount1 = state.amount0;
+            } else if (asset == state.token1 && swapAmount1 > state.amount1) {
+                swapAmount1 = state.amount1;
+            }
+            if (swapAmount1 > 0) {
+                _executeIncreaseSwap(state, asset, state.token1, swapAmount1, params.swapData1, price1X96, config.maxSlippageX64);
+            }
         }
     }
 
