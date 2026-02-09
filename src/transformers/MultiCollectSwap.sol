@@ -100,11 +100,11 @@ contract MultiCollectSwap is Transformer, Swapper {
         emit MultiCollectAndSwap(msg.sender, recipient, params.tokenIds);
     }
 
-    /// @dev Returns true if a swap exists that converts token to outputToken
+    /// @dev Returns true if an executable swap exists that converts token to outputToken
     function _swapExists(RouterSwapParams[] calldata swaps, address token, address outputToken) internal pure returns (bool) {
         uint256 length = swaps.length;
         for (uint256 i; i < length;) {
-            if (address(swaps[i].tokenIn) == token && address(swaps[i].tokenOut) == outputToken) {
+            if (address(swaps[i].tokenIn) == token && address(swaps[i].tokenOut) == outputToken && swaps[i].amountIn > 0 && swaps[i].swapData.length > 0) {
                 return true;
             }
             unchecked {

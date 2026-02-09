@@ -241,14 +241,14 @@ contract MultiCollectSwapTest is Test {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
-        // Create a dummy swap for USDC to pass validation
+        // Create a swap for USDC with non-zero amount/data to pass validation
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
         swaps[0] = Swapper.RouterSwapParams({
             tokenIn: USDC,
             tokenOut: DAI,
-            amountIn: 0,
+            amountIn: 1,
             amountOutMin: 0,
-            swapData: ""
+            swapData: hex"01"
         });
 
         // Try to collect from position we don't own - fails on ownership check (after validation passes)
@@ -281,14 +281,14 @@ contract MultiCollectSwapTest is Test {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
-        // Create a dummy swap for USDC to pass validation
+        // Create a swap for USDC with non-zero amount/data to pass validation
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
         swaps[0] = Swapper.RouterSwapParams({
             tokenIn: USDC,
             tokenOut: DAI,
-            amountIn: 0,
+            amountIn: 1,
             amountOutMin: 0,
-            swapData: ""
+            swapData: hex"01"
         });
 
         // Try to collect without transform approval - should fail
@@ -323,14 +323,14 @@ contract MultiCollectSwapTest is Test {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
-        // Create a dummy swap for USDC to pass validation
+        // Create a swap for USDC with non-zero amount/data to pass validation
         Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
         swaps[0] = Swapper.RouterSwapParams({
             tokenIn: USDC,
             tokenOut: DAI,
-            amountIn: 0,
+            amountIn: 1,
             amountOutMin: 0,
-            swapData: ""
+            swapData: hex"01"
         });
 
         // Third party (WHALE_ACCOUNT) tries to collect - should fail even though transform is approved
@@ -406,7 +406,65 @@ contract MultiCollectSwapTest is Test {
         swaps[0] = Swapper.RouterSwapParams({
             tokenIn: USDC,
             tokenOut: WETH, // Mismatch: outputToken is DAI but swap produces WETH
+            amountIn: 1,
+            amountOutMin: 0,
+            swapData: hex"01"
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.setApprovalForAll(address(multiCollectSwap), true);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        multiCollectSwap.execute(
+            MultiCollectSwap.ExecuteParams({
+                tokenIds: tokenIds,
+                swaps: swaps,
+                outputToken: address(DAI),
+                recipient: TEST_NFT_ACCOUNT
+            })
+        );
+    }
+
+    function testDummySwapZeroAmountReverts() external {
+        // A swap with zero amountIn should not satisfy the validation
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = TEST_NFT;
+
+        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
+        swaps[0] = Swapper.RouterSwapParams({
+            tokenIn: USDC,
+            tokenOut: DAI,
             amountIn: 0,
+            amountOutMin: 0,
+            swapData: hex"01"
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.setApprovalForAll(address(multiCollectSwap), true);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        multiCollectSwap.execute(
+            MultiCollectSwap.ExecuteParams({
+                tokenIds: tokenIds,
+                swaps: swaps,
+                outputToken: address(DAI),
+                recipient: TEST_NFT_ACCOUNT
+            })
+        );
+    }
+
+    function testDummySwapEmptyDataReverts() external {
+        // A swap with empty swapData should not satisfy the validation
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = TEST_NFT;
+
+        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
+        swaps[0] = Swapper.RouterSwapParams({
+            tokenIn: USDC,
+            tokenOut: DAI,
+            amountIn: 1,
             amountOutMin: 0,
             swapData: ""
         });
