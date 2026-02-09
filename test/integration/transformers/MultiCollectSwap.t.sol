@@ -426,8 +426,9 @@ contract MultiCollectSwapTest is Test {
         );
     }
 
-    function testDummySwapZeroAmountReverts() external {
-        // A swap with zero amountIn should not satisfy the validation
+    function testZeroAmountSwapPassesValidation() external {
+        // A swap with zero amountIn should satisfy validation (supports positions with zero fees on one side)
+        // _routerSwap will safely no-op, and leftover transfer ensures no tokens are stranded
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
@@ -443,8 +444,8 @@ contract MultiCollectSwapTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.setApprovalForAll(address(multiCollectSwap), true);
 
+        // Should succeed - zero-amount swap no-ops, collected USDC sent as leftover to recipient
         vm.prank(TEST_NFT_ACCOUNT);
-        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
@@ -455,8 +456,9 @@ contract MultiCollectSwapTest is Test {
         );
     }
 
-    function testDummySwapEmptyDataReverts() external {
-        // A swap with empty swapData should not satisfy the validation
+    function testEmptyDataSwapPassesValidation() external {
+        // A swap with empty swapData should satisfy validation (supports positions with zero fees on one side)
+        // _routerSwap will safely no-op, and leftover transfer ensures no tokens are stranded
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = TEST_NFT;
 
@@ -472,8 +474,8 @@ contract MultiCollectSwapTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.setApprovalForAll(address(multiCollectSwap), true);
 
+        // Should succeed - empty-data swap no-ops, collected USDC sent as leftover to recipient
         vm.prank(TEST_NFT_ACCOUNT);
-        vm.expectRevert(Constants.InvalidConfig.selector);
         multiCollectSwap.execute(
             MultiCollectSwap.ExecuteParams({
                 tokenIds: tokenIds,
