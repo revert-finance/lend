@@ -463,6 +463,18 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         // Repay debt and send leftovers
         uint256 assetLeftover = _repayAndCalculateLeftover(params.tokenId, state.vault, asset, assetAmount, repayAmount);
 
+        // When asset is token0 or token1, fold assetLeftover back into state so it's
+        // transferred via the normal token0/token1 path in _sendLeftoversToOwner
+        if (assetLeftover > 0) {
+            if (asset == state.token0) {
+                state.amount0 += assetLeftover;
+                assetLeftover = 0;
+            } else if (asset == state.token1) {
+                state.amount1 += assetLeftover;
+                assetLeftover = 0;
+            }
+        }
+
         // Send leftover tokens to position owner (rewards stay in contract for withdrawer)
         _sendLeftoversToOwner(params.tokenId, state, asset, assetLeftover);
     }
