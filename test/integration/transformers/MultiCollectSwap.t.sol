@@ -396,6 +396,36 @@ contract MultiCollectSwapTest is Test {
         );
     }
 
+    function testSwapTokenOutMismatchReverts() external {
+        // A swap exists for USDC but its tokenOut is WETH, not DAI (the outputToken)
+        // This should revert because the swap doesn't produce the outputToken
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = TEST_NFT;
+
+        Swapper.RouterSwapParams[] memory swaps = new Swapper.RouterSwapParams[](1);
+        swaps[0] = Swapper.RouterSwapParams({
+            tokenIn: USDC,
+            tokenOut: WETH, // Mismatch: outputToken is DAI but swap produces WETH
+            amountIn: 0,
+            amountOutMin: 0,
+            swapData: ""
+        });
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.setApprovalForAll(address(multiCollectSwap), true);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        multiCollectSwap.execute(
+            MultiCollectSwap.ExecuteParams({
+                tokenIds: tokenIds,
+                swaps: swaps,
+                outputToken: address(DAI),
+                recipient: TEST_NFT_ACCOUNT
+            })
+        );
+    }
+
     function testDirectCollectWithSingleApprovalRequiresSwaps() external {
         // Test using NPM.approve() for single token instead of setApprovalForAll()
         uint256[] memory tokenIds = new uint256[](1);

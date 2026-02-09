@@ -51,11 +51,11 @@ contract MultiCollectSwap is Transformer, Swapper {
             uint256 tokenId = params.tokenIds[i];
             (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
-            // Validate that position tokens are covered by outputToken or swaps
-            if (token0 != outputToken && !_swapExists(params.swaps, token0)) {
+            // Validate that position tokens are covered by outputToken or swaps that produce outputToken
+            if (token0 != outputToken && !_swapExists(params.swaps, token0, outputToken)) {
                 revert InvalidConfig();
             }
-            if (token1 != outputToken && !_swapExists(params.swaps, token1)) {
+            if (token1 != outputToken && !_swapExists(params.swaps, token1, outputToken)) {
                 revert InvalidConfig();
             }
 
@@ -100,11 +100,11 @@ contract MultiCollectSwap is Transformer, Swapper {
         emit MultiCollectAndSwap(msg.sender, recipient, params.tokenIds);
     }
 
-    /// @dev Returns true if a swap exists for the given token
-    function _swapExists(RouterSwapParams[] calldata swaps, address token) internal pure returns (bool) {
+    /// @dev Returns true if a swap exists that converts token to outputToken
+    function _swapExists(RouterSwapParams[] calldata swaps, address token, address outputToken) internal pure returns (bool) {
         uint256 length = swaps.length;
         for (uint256 i; i < length;) {
-            if (address(swaps[i].tokenIn) == token) {
+            if (address(swaps[i].tokenIn) == token && address(swaps[i].tokenOut) == outputToken) {
                 return true;
             }
             unchecked {
