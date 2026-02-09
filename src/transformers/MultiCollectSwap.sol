@@ -97,6 +97,20 @@ contract MultiCollectSwap is Transformer, Swapper {
             SafeERC20.safeTransfer(IERC20(outputToken), recipient, balance);
         }
 
+        // Transfer any leftover swap input tokens to recipient (from partial swaps or rounding)
+        for (uint256 i; i < length;) {
+            address tokenIn = address(params.swaps[i].tokenIn);
+            if (tokenIn != outputToken) {
+                uint256 leftover = IERC20(tokenIn).balanceOf(address(this));
+                if (leftover > 0) {
+                    SafeERC20.safeTransfer(IERC20(tokenIn), recipient, leftover);
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
         emit MultiCollectAndSwap(msg.sender, recipient, params.tokenIds);
     }
 
