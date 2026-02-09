@@ -247,6 +247,8 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         state.amount0 = state.feeAmount0;
         state.amount1 = state.feeAmount1;
 
+        bool assetIsPositionToken = (asset == state.token0 || asset == state.token1);
+
         // If asset is one of the position tokens, add borrowed amount directly
         if (asset == state.token0) {
             state.amount0 += borrowAmount;
@@ -254,13 +256,25 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
             state.amount1 += borrowAmount;
         }
 
-        // Calculate and deduct reward
-        (reward0, reward1) = _calculateRewardForIncrease(params.rewardX64, config.onlyFees, state);
-        state.amount0 -= reward0;
-        state.amount1 -= reward1;
+        // When asset is a position token, calculate and deduct reward BEFORE swaps
+        // (state.amount0/amount1 already includes both fees and borrowed amount)
+        if (assetIsPositionToken) {
+            (reward0, reward1) = _calculateRewardForIncrease(params.rewardX64, config.onlyFees, state);
+            state.amount0 -= reward0;
+            state.amount1 -= reward1;
+        }
 
         // Execute swaps (asset -> position tokens)
         _executeIncreaseSwaps(params, config, state, asset);
+
+        // When asset is NOT a position token, calculate and deduct reward AFTER swaps
+        // so that onlyFees=false correctly includes the borrowed principal that was swapped
+        // into position tokens (pre-swap, state.amount0/amount1 only contained fees)
+        if (!assetIsPositionToken) {
+            (reward0, reward1) = _calculateRewardForIncrease(params.rewardX64, config.onlyFees, state);
+            state.amount0 -= reward0;
+            state.amount1 -= reward1;
+        }
 
         // Add liquidity
         if (state.amount0 > 0 || state.amount1 > 0) {
@@ -271,7 +285,7 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         // When asset is token0 or token1, leftovers are already tracked in state.amount0/amount1.
         // When asset differs, any balance above the pre-borrow snapshot is leftover to return.
         uint256 assetLeftover = 0;
-        if (asset != state.token0 && asset != state.token1) {
+        if (!assetIsPositionToken) {
             uint256 assetBalanceAfter = IERC20(asset).balanceOf(address(this));
             if (assetBalanceAfter > assetBalancePreBorrow) {
                 assetLeftover = assetBalanceAfter - assetBalancePreBorrow;
@@ -313,7 +327,9 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         borrowAmount = (numerator - debtScaled) * fullValue / denominator;
     }
 
-    /// @notice Calculate reward for increase leverage (before swaps)
+    /// @notice Calculate reward for increase leverage
+    /// @dev Called before swaps when asset is a position token (amounts already include borrowed principal),
+    ///      or after swaps when asset differs (so amounts include swapped borrowed principal, not just fees)
     function _calculateRewardForIncrease(uint64 rewardX64, bool onlyFees, RebalanceState memory state)
         internal
         pure
