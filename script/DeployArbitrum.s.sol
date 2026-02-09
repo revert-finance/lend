@@ -11,6 +11,7 @@ import "../src/transformers/V3Utils.sol";
 import "../src/transformers/AutoRange.sol";
 import "../src/transformers/AutoCompound.sol";
 import "../src/transformers/LeverageTransformer.sol";
+import "../src/transformers/ConstantLeverageTransformer.sol";
 
 import "../src/automators/AutoExit.sol";
 
@@ -148,7 +149,19 @@ contract DeployArbitrum is Script {
         LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
-        
+
+        ConstantLeverageTransformer constantLeverageTransformer = new ConstantLeverageTransformer(
+            NPM,
+            address(0), // operator - set later via setOperator()
+            address(0), // withdrawer - set later via setWithdrawer()
+            60,         // TWAPSeconds
+            100,        // maxTWAPTickDifference
+            UNIVERSAL_ROUTER,
+            EX0x
+        );
+        constantLeverageTransformer.setVault(address(vault));
+        vault.setTransformer(address(constantLeverageTransformer), true);
+
         AutoRange autoRange = AutoRange(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
