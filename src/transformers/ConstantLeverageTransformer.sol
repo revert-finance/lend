@@ -153,7 +153,7 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         state.deadline = params.deadline;
 
         // Get current loan state
-        (uint256 debtBefore,, uint256 collateralValue,,) = IVault(state.vault).loanInfo(params.tokenId);
+        (uint256 debtBefore, uint256 fullValue, uint256 collateralValue,,) = IVault(state.vault).loanInfo(params.tokenId);
 
         if (collateralValue == 0) {
             revert NotConfigured();
@@ -173,9 +173,9 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         uint256 reward1;
 
         if (isIncrease) {
-            (reward0, reward1) = _increaseLeverage(params, config, state, debtBefore, collateralValue);
+            (reward0, reward1) = _increaseLeverage(params, config, state, debtBefore, fullValue, collateralValue);
         } else {
-            (reward0, reward1) = _decreaseLeverage(params, config, state, debtBefore, collateralValue);
+            (reward0, reward1) = _decreaseLeverage(params, config, state, debtBefore, fullValue, collateralValue);
         }
 
         (uint256 debtAfter,,,,) = IVault(state.vault).loanInfo(params.tokenId);
@@ -218,10 +218,11 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         LeverageConfig memory config,
         RebalanceState memory state,
         uint256 currentDebt,
+        uint256 fullValue,
         uint256 collateralValue
     ) internal returns (uint256 reward0, uint256 reward1) {
-        // Calculate how much to borrow to reach target
-        uint256 borrowAmount = _calculateBorrowAmount(config.targetLeverageBps, currentDebt, collateralValue);
+        // Calculate how much to borrow to reach target (accounts for collateral factor)
+        uint256 borrowAmount = _calculateBorrowAmount(config.targetLeverageBps, currentDebt, fullValue, collateralValue);
         if (borrowAmount == 0) {
             return (0, 0);
         }
@@ -264,24 +265,35 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         _sendLeftoversToOwner(params.tokenId, state);
     }
 
-    /// @notice Calculate borrow amount for increase leverage
-    function _calculateBorrowAmount(uint16 targetLeverageBps, uint256 currentDebt, uint256 collateralValue)
-        internal
-        pure
-        returns (uint256 borrowAmount)
-    {
-        // borrowAmount = (targetRatio * collateralValue - currentDebt * 10000) / (10000 - targetRatio)
-        uint256 denominator = 10000 - uint256(targetLeverageBps);
-        if (denominator == 0) {
+    /// @notice Calculate borrow amount for increase leverage, accounting for collateral factor
+    /// @dev When borrowing B, new debt = d+B and new collateralValue = c+B*(c/fv) because the
+    ///      borrowed asset is added as liquidity but discounted by the collateral factor (c/fv).
+    ///      Solving (d+B)/(c+B*c/fv) = t for B gives:
+    ///      B = (t*c - d) * fv / (fv - t*c)  [in ratio terms]
+    ///      In bps: B = (target*c - d*10000) * fv / (10000*fv - target*c)
+    function _calculateBorrowAmount(
+        uint16 targetLeverageBps,
+        uint256 currentDebt,
+        uint256 fullValue,
+        uint256 collateralValue
+    ) internal pure returns (uint256 borrowAmount) {
+        uint256 target = uint256(targetLeverageBps);
+        uint256 targetTimesCollateral = target * collateralValue;
+        uint256 denominatorBps = 10000 * fullValue;
+
+        if (denominatorBps <= targetTimesCollateral) {
             revert InvalidConfig();
         }
 
-        uint256 targetDebtNumerator = uint256(targetLeverageBps) * collateralValue;
-        if (targetDebtNumerator <= currentDebt * 10000) {
+        uint256 denominator = denominatorBps - targetTimesCollateral;
+
+        uint256 numerator = targetTimesCollateral;
+        uint256 debtScaled = currentDebt * 10000;
+        if (numerator <= debtScaled) {
             return 0; // Already at or above target
         }
 
-        borrowAmount = (targetDebtNumerator - currentDebt * 10000) / denominator;
+        borrowAmount = (numerator - debtScaled) * fullValue / denominator;
     }
 
     /// @notice Calculate reward for increase leverage (before swaps)
@@ -360,18 +372,20 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         LeverageConfig memory config,
         RebalanceState memory state,
         uint256 currentDebt,
+        uint256 fullValue,
         uint256 collateralValue
     ) internal returns (uint256 reward0, uint256 reward1) {
-        // Calculate how much debt to repay to reach target
-        uint256 repayAmount = _calculateRepayAmount(config.targetLeverageBps, currentDebt, collateralValue);
+        // Calculate how much debt to repay to reach target (accounts for collateral factor)
+        uint256 repayAmount = _calculateRepayAmount(config.targetLeverageBps, currentDebt, fullValue, collateralValue);
         if (repayAmount == 0) {
             return (0, 0);
         }
 
         address asset = IVault(state.vault).asset();
 
-        // Calculate and remove liquidity
-        uint128 liquidityToRemove = _calculateLiquidityToRemove(state.liquidity, repayAmount, collateralValue);
+        // Calculate and remove liquidity (use fullValue for proportional calculation since
+        // liquidity removal is based on actual position value, not discounted collateral)
+        uint128 liquidityToRemove = _calculateLiquidityToRemove(state.liquidity, repayAmount, fullValue);
         (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) =
             _decreaseFullLiquidityAndCollect(params.tokenId, liquidityToRemove, 0, 0, state.deadline);
 
@@ -462,23 +476,32 @@ contract ConstantLeverageTransformer is IConstantLeverageTransformer, Transforme
         }
     }
 
-    /// @notice Calculate repay amount for decrease leverage
-    function _calculateRepayAmount(uint16 targetLeverageBps, uint256 currentDebt, uint256 collateralValue)
-        internal
-        pure
-        returns (uint256 repayAmount)
-    {
-        uint256 denominator = 10000 - uint256(targetLeverageBps);
-        if (denominator == 0) {
+    /// @notice Calculate repay amount for decrease leverage, accounting for collateral factor
+    /// @dev When repaying R, new debt = d-R and new collateralValue = c-R*(c/fv) because removed
+    ///      liquidity reduces collateral by the discounted amount. Solving (d-R)/(c-R*c/fv) = t:
+    ///      R = (d*10000 - target*c) * fv / (10000*fv - target*c)
+    function _calculateRepayAmount(
+        uint16 targetLeverageBps,
+        uint256 currentDebt,
+        uint256 fullValue,
+        uint256 collateralValue
+    ) internal pure returns (uint256 repayAmount) {
+        uint256 target = uint256(targetLeverageBps);
+        uint256 targetTimesCollateral = target * collateralValue;
+        uint256 denominatorBps = 10000 * fullValue;
+
+        if (denominatorBps <= targetTimesCollateral) {
             revert InvalidConfig();
         }
 
-        uint256 targetDebtNumerator = uint256(targetLeverageBps) * collateralValue;
-        if (currentDebt * 10000 <= targetDebtNumerator) {
+        uint256 denominator = denominatorBps - targetTimesCollateral;
+
+        uint256 debtScaled = currentDebt * 10000;
+        if (debtScaled <= targetTimesCollateral) {
             return 0; // Already at or below target
         }
 
-        repayAmount = (currentDebt * 10000 - targetDebtNumerator) / denominator;
+        repayAmount = (debtScaled - targetTimesCollateral) * fullValue / denominator;
     }
 
     /// @notice Calculate liquidity to remove for repay
