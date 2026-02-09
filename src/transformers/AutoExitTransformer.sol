@@ -234,7 +234,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             if (swapAmount0 > 0) {
                 // Calculate minimum output based on oracle price and configured slippage
                 // amountOutMin = swapAmount * price0X96 / Q96 * (Q64 - maxSlippageX64) / Q64
-                uint256 amountOutMin = swapAmount0 * price0X96 / Q96 * (Q64 - config.maxSlippageX64) / Q64;
+                uint256 amountOutMin = FullMath.mulDiv(swapAmount0 * (Q64 - config.maxSlippageX64), price0X96, Q160);
                 (uint256 amountIn, uint256 amountOut) = _routerSwap(
                     Swapper.RouterSwapParams(
                         IERC20(state.token0),
@@ -254,7 +254,7 @@ contract AutoExitTransformer is Transformer, Automator, ReentrancyGuard {
             uint256 swapAmount1 = params.swapAmount1 > state.amount1 ? state.amount1 : params.swapAmount1;
             if (swapAmount1 > 0) {
                 // Calculate minimum output based on oracle price and configured slippage
-                uint256 amountOutMin = swapAmount1 * price1X96 / Q96 * (Q64 - config.maxSlippageX64) / Q64;
+                uint256 amountOutMin = FullMath.mulDiv(swapAmount1 * (Q64 - config.maxSlippageX64), price1X96, Q160);
                 (uint256 amountIn, uint256 amountOut) = _routerSwap(
                     Swapper.RouterSwapParams(
                         IERC20(state.token1),
