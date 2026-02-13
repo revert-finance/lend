@@ -19,6 +19,18 @@ import "../../src/utils/FlashloanLiquidator.sol";
 
 import "../../src/utils/Constants.sol";
 
+contract MockFlashPoolInfo {
+    address public immutable token0;
+    address public immutable token1;
+    uint24 public immutable fee;
+
+    constructor(address _token0, address _token1, uint24 _fee) {
+        token0 = _token0;
+        token1 = _token1;
+        fee = _fee;
+    }
+}
+
 contract V3VaultIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
     uint256 constant Q64 = 2 ** 64;
@@ -44,9 +56,11 @@ contract V3VaultIntegrationTest is Test {
     address constant UNISWAP_DAI_USDC = 0x5777d92f208679DB4b9778590Fa3CAB3aC9e2168; // 0.01% pool
     address constant UNISWAP_ETH_USDC = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640; // 0.05% pool
     address constant UNISWAP_DAI_USDC_005 = 0x6c6Bc977E13Df9b0de53b251522280BB72383700; // 0.05% pool
+    address constant UNISWAP_DAI_WETH_03 = 0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8; // 0.3% pool
 
     address constant TEST_NFT_ACCOUNT = 0x3b8ccaa89FcD432f1334D35b10fF8547001Ce3e5;
     uint256 constant TEST_NFT = 126; // DAI/USDC 0.05% - in range (-276330/-276320)
+    uint256 constant TEST_NFT_USDC_WETH = 37; // USDC/WETH 0.3% - out of range (192180/193380)
 
     address constant TEST_NFT_ACCOUNT_2 = 0x454CE089a879F7A0d0416eddC770a47A1F47Be99;
     uint256 constant TEST_NFT_2 = 1047; // DAI/USDC 0.05% - in range (-276330/-276320)
@@ -978,6 +992,72 @@ contract V3VaultIntegrationTest is Test {
         IUniswapV3Pool(UNISWAP_DAI_USDC).flash(address(liquidator), 0, 0, abi.encode(data));
     }
 
+    function testFlashloanCallbackRejectsInvalidAssetInPoolContext() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(UNISWAP_DAI_USDC),
+            WETH, // not part of DAI/USDC flash pool
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+        bytes memory callbackData = abi.encode(data);
+
+        vm.store(address(liquidator), bytes32(uint256(0)), bytes32(uint256(uint160(UNISWAP_DAI_USDC))));
+        vm.store(address(liquidator), bytes32(uint256(1)), keccak256(callbackData));
+
+        vm.prank(UNISWAP_DAI_USDC);
+        vm.expectRevert(Constants.InvalidPool.selector);
+        liquidator.uniswapV3FlashCallback(0, 0, callbackData);
+    }
+
+    function testFlashloanCallbackRejectsPoolNotFromFactory() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+        MockFlashPoolInfo fakePool = new MockFlashPoolInfo(address(DAI), address(USDC), 500);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(address(fakePool)),
+            USDC,
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+        bytes memory callbackData = abi.encode(data);
+
+        vm.store(address(liquidator), bytes32(uint256(0)), bytes32(uint256(uint160(address(fakePool)))));
+        vm.store(address(liquidator), bytes32(uint256(1)), keccak256(callbackData));
+
+        vm.prank(address(fakePool));
+        vm.expectRevert(Constants.Unauthorized.selector);
+        liquidator.uniswapV3FlashCallback(0, 0, callbackData);
+    }
+
+    function testLiquidationWithFlashloanRevertsForInvalidFlashPool() external {
+        _setupBasicLoan(true);
+        interestRateModel.setValues(Q64 / 10, Q64 * 2, Q64 * 2, 0);
+        vm.warp(block.timestamp + 15 days);
+
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        vm.expectRevert(Constants.InvalidPool.selector);
+        liquidator.liquidate(
+            FlashloanLiquidator.LiquidateParams(
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_WETH_03), 0, "", 0, "", 0, block.timestamp
+            )
+        );
+    }
+
     function testCollateralValueLimit() external {
         _setupBasicLoan(false);
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), uint32(Q32 / 10)); // max 10% debt for DAI
@@ -1182,6 +1262,19 @@ contract V3VaultIntegrationTest is Test {
 
         vm.expectRevert(Constants.GaugeManagerAlreadySet.selector);
         vault.setGaugeManager(address(0x789ABC));
+    }
+
+    function testSetReserveFactorMaxValueKeepsInterestMathHealthy() external {
+        vault.setReserveFactor(type(uint32).max);
+        assertEq(vault.reserveFactorX32(), type(uint32).max);
+
+        _setupBasicLoan(true);
+        vm.warp(block.timestamp + 3 days);
+
+        (uint256 debt, uint256 lent, uint256 balance,,,) = vault.vaultInfo();
+        assertGt(debt, 0);
+        assertGt(lent, 0);
+        assertGt(balance, 0);
     }
 
     function testReserves() external {
@@ -1570,5 +1663,56 @@ contract V3VaultIntegrationTest is Test {
         (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
         assertGt(debt, 0);
         assertEq(vault.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+    }
+
+    function test_LeverageUpWithAssetAsToken0() public {
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
+        vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
+
+        _deposit(10_000_000, WHALE_ACCOUNT);
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT_USDC_WETH);
+        vault.create(TEST_NFT_USDC_WETH, TEST_NFT_ACCOUNT);
+
+        uint256 amountIn1 = 500_000;
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(
+            address(leverageTransformer),
+            amountIn1,
+            1,
+            abi.encodePacked(address(USDC), uint24(500), address(WETH)),
+            false
+        );
+        inputs[1] = abi.encode(address(USDC), address(leverageTransformer), 0);
+        bytes memory swapData1 =
+            abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
+
+        LeverageTransformer.LeverageUpParams memory params = LeverageTransformer.LeverageUpParams({
+            tokenId: TEST_NFT_USDC_WETH,
+            borrowAmount: 1_000_000,
+            amountIn0: 0,
+            amountOut0Min: 0,
+            swapData0: "",
+            amountIn1: amountIn1,
+            amountOut1Min: 1,
+            swapData1: swapData1,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            recipient: TEST_NFT_ACCOUNT,
+            deadline: block.timestamp
+        });
+
+        vault.transform(
+            TEST_NFT_USDC_WETH,
+            address(leverageTransformer),
+            abi.encodeWithSelector(LeverageTransformer.leverageUp.selector, params)
+        );
+        vm.stopPrank();
+
+        (uint256 debt,,,,) = vault.loanInfo(TEST_NFT_USDC_WETH);
+        assertGt(debt, 0);
+        assertEq(vault.ownerOf(TEST_NFT_USDC_WETH), TEST_NFT_ACCOUNT);
     }
 }

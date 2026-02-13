@@ -118,6 +118,131 @@ contract V3UtilsIntegrationTest is Test {
         (success,) = address(v3utils).call{value: 123}("");
     }
 
+    function testOnERC721ReceivedWrongContract() external {
+        vm.expectRevert(Constants.WrongContract.selector);
+        v3utils.onERC721Received(address(this), TEST_NFT_ACCOUNT, TEST_NFT, "");
+    }
+
+    function testOnERC721ReceivedSelfSend() external {
+        vm.prank(address(NPM));
+        vm.expectRevert(Constants.SelfSend.selector);
+        v3utils.onERC721Received(address(this), address(v3utils), TEST_NFT, "");
+    }
+
+    function testExecuteRevertsOnAmountError() external {
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.COMPOUND_FEES,
+            address(DAI),
+            0,
+            0,
+            type(uint256).max,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_ACCOUNT,
+            TEST_NFT_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(v3utils), TEST_NFT);
+        vm.expectRevert(Constants.AmountError.selector);
+        v3utils.execute(TEST_NFT, inst);
+        vm.stopPrank();
+    }
+
+    function testExecuteChangeRangeWithToken0Target() external {
+        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2_A);
+        assertGt(liquidity, 0);
+
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.CHANGE_RANGE,
+            address(DAI),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            500,
+            -276330,
+            -276320,
+            liquidity,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_2_ACCOUNT,
+            TEST_NFT_2_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        vm.startPrank(TEST_NFT_2_ACCOUNT);
+        NPM.approve(address(v3utils), TEST_NFT_2_A);
+        uint256 newTokenId = v3utils.execute(TEST_NFT_2_A, inst);
+        vm.stopPrank();
+
+        assertGt(newTokenId, TEST_NFT_2_A);
+        assertEq(NPM.ownerOf(newTokenId), TEST_NFT_2_ACCOUNT);
+    }
+
+    function testExecuteWithdrawAndCollectWithToken0Target() external {
+        (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_5);
+        assertGt(liquidity, 0);
+
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP,
+            address(DAI),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            0,
+            0,
+            0,
+            liquidity / 10,
+            0,
+            0,
+            block.timestamp,
+            TEST_NFT_5_ACCOUNT,
+            TEST_NFT_5_ACCOUNT,
+            false,
+            "",
+            ""
+        );
+
+        vm.startPrank(TEST_NFT_5_ACCOUNT);
+        NPM.approve(address(v3utils), TEST_NFT_5);
+        v3utils.execute(TEST_NFT_5, inst);
+        vm.stopPrank();
+
+        assertEq(NPM.ownerOf(TEST_NFT_5), TEST_NFT_5_ACCOUNT);
+    }
+
     function testTransferWithCompoundNoSwap() external {
         V3Utils.Instructions memory inst = V3Utils.Instructions(
             V3Utils.WhatToDo.COMPOUND_FEES,

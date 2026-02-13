@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../../src/GaugeManager.sol";
+import "../../src/utils/Constants.sol";
 
 contract MockERC20Token is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
@@ -314,6 +315,82 @@ contract GaugeManagerUnitTest is Test {
         assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
         assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
         assertEq(gauge.staker(TOKEN_ID), address(gaugeManager));
+    }
+
+    function testSetGaugeRevertsForPoolGaugeMismatch() external {
+        MockPool otherPool = new MockPool();
+        otherPool.setGauge(address(0x1234));
+
+        vm.expectRevert(Constants.InvalidPool.selector);
+        gaugeManager.setGauge(address(otherPool), address(gauge));
+    }
+
+    function testStakeRevertsWhenCallerIsNotVault() external {
+        vm.expectRevert(Constants.Unauthorized.selector);
+        gaugeManager.stakePosition(TOKEN_ID);
+    }
+
+    function testStakeRevertsWhenGaugeIsNotConfigured() external {
+        uint256 tokenId = 2;
+        npm.setPosition(tokenId, address(token0), address(token1), 500, -60, 60, 10);
+        npm.mint(address(vault), tokenId);
+        vault.setOwner(tokenId, ALICE);
+
+        vm.prank(address(vault));
+        npm.approve(address(gaugeManager), tokenId);
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.NotConfigured.selector);
+        gaugeManager.stakePosition(tokenId);
+    }
+
+    function testStakeRevertsWhenAlreadyStaked() external {
+        _stake();
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        gaugeManager.stakePosition(TOKEN_ID);
+    }
+
+    function testUnstakeRevertsWhenNotStaked() external {
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.NotStaked.selector);
+        gaugeManager.unstakePosition(TOKEN_ID);
+    }
+
+    function testUnstakeRevertsWhenCallerIsNotVault() external {
+        _stake();
+
+        vm.expectRevert(Constants.Unauthorized.selector);
+        gaugeManager.unstakePosition(TOKEN_ID);
+    }
+
+    function testClaimRewardsRevertsWhenNotStaked() external {
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.NotStaked.selector);
+        gaugeManager.claimRewards(TOKEN_ID, RECIPIENT);
+    }
+
+    function testCompoundRewardsRevertsOnInvalidSplit() external {
+        _stake();
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, "", "", 0, 0, 10_001, block.timestamp + 1);
+    }
+
+    function testCompoundRewardsReturnsZeroWhenNoRewards() external {
+        _stake();
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, "", "", 0, 0, 0, block.timestamp + 1);
+
+        assertEq(aeroAmount, 0);
+        assertEq(amountAdded0, 0);
+        assertEq(amountAdded1, 0);
+        assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
+        assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
 
     function _stake() internal {
