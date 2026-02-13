@@ -37,4 +37,8 @@ contract ChainlinkFeedCombinatorTest is Test {
         (, answer, , , ) = combinator.latestRoundData();
         assertEq(answer, 352030917342);
     }
+
+    function testDecimals() external {
+        assertEq(combinator.decimals(), ETH_USD_FEED.decimals());
+    }
 }

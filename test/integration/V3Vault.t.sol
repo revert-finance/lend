@@ -220,6 +220,33 @@ contract V3VaultIntegrationTest is Test {
         assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), assets);
     }
 
+    function testERC4626ViewsAndMintPaths() external {
+        uint256 initialDeposit = 1_000_000;
+        uint256 mintShares = 200_000;
+
+        _deposit(initialDeposit, WHALE_ACCOUNT);
+
+        assertEq(vault.decimals(), IERC20Metadata(address(USDC)).decimals());
+        assertEq(vault.totalAssets(), initialDeposit);
+        assertEq(vault.convertToShares(500_000), 500_000);
+        assertEq(vault.convertToAssets(500_000), 500_000);
+        assertEq(vault.previewDeposit(123_456), 123_456);
+        assertEq(vault.previewMint(123_456), 123_456);
+        assertEq(vault.previewWithdraw(123_456), 123_456);
+        assertEq(vault.previewRedeem(123_456), 123_456);
+        assertGt(vault.maxDeposit(WHALE_ACCOUNT), 0);
+        assertGt(vault.maxMint(WHALE_ACCOUNT), 0);
+        assertEq(vault.maxWithdraw(WHALE_ACCOUNT), initialDeposit);
+        assertEq(vault.maxRedeem(WHALE_ACCOUNT), initialDeposit);
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), mintShares);
+        vm.prank(WHALE_ACCOUNT);
+        uint256 assetsIn = vault.mint(mintShares, WHALE_ACCOUNT);
+        assertEq(assetsIn, mintShares);
+        assertEq(vault.balanceOf(WHALE_ACCOUNT), initialDeposit + mintShares);
+    }
+
     // fuzz testing deposit amount
     function testDeposit(uint256 amount) external {
         uint256 balance = USDC.balanceOf(WHALE_ACCOUNT);
@@ -1337,6 +1364,49 @@ contract V3VaultIntegrationTest is Test {
         assertEq(debt, 0);
     }
 
+    function testMintWithPermit2() external {
+        uint256 amount = 1_000_000;
+        uint256 privateKey = 456;
+        address addr = vm.addr(privateKey);
+
+        vm.deal(addr, 1 ether);
+        vm.prank(WHALE_ACCOUNT);
+        USDC.transfer(addr, amount);
+
+        vm.prank(addr);
+        USDC.approve(PERMIT2, type(uint256).max);
+
+        ISignatureTransfer.PermitTransferFrom memory tf = ISignatureTransfer.PermitTransferFrom(
+            ISignatureTransfer.TokenPermissions(address(USDC), amount), 1, block.timestamp
+        );
+        bytes memory signature = _getPermitTransferFromSignature(tf, privateKey, address(vault));
+        bytes memory permitData = abi.encode(tf, signature);
+
+        vm.prank(addr);
+        uint256 assets = vault.mint(amount, addr, permitData);
+
+        assertEq(assets, amount);
+        assertEq(vault.balanceOf(addr), amount);
+        assertEq(vault.lendInfo(addr), amount);
+    }
+
+    function testCreateWithPermit() external {
+        uint256 privateKey = 777;
+        address owner = vm.addr(privateKey);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, owner, TEST_NFT);
+
+        (uint8 v, bytes32 r, bytes32 s) = _getNpmPermitSignature(TEST_NFT, address(vault), deadline, privateKey);
+
+        vm.prank(owner);
+        vault.createWithPermit(TEST_NFT, owner, deadline, v, r, s);
+
+        assertEq(vault.ownerOf(TEST_NFT), owner);
+        assertEq(NPM.ownerOf(TEST_NFT), address(vault));
+    }
+
     function _getPermitTransferFromSignature(
         ISignatureTransfer.PermitTransferFrom memory permit,
         uint256 privateKey,
@@ -1359,6 +1429,16 @@ contract V3VaultIntegrationTest is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, msgHash);
         return bytes.concat(r, s, bytes1(v));
+    }
+
+    function _getNpmPermitSignature(uint256 tokenId, address spender, uint256 deadline, uint256 privateKey)
+        internal
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        (uint96 nonce,,,,,,,,,,,) = NPM.positions(tokenId);
+        bytes32 structHash = keccak256(abi.encode(NPM.PERMIT_TYPEHASH(), spender, tokenId, nonce, deadline));
+        bytes32 msgHash = keccak256(abi.encodePacked("\x19\x01", NPM.DOMAIN_SEPARATOR(), structHash));
+        return vm.sign(privateKey, msgHash);
     }
 
     function testTransformExploit() external {
@@ -1439,5 +1519,56 @@ contract V3VaultIntegrationTest is Test {
 
         vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
         vm.stopPrank();
+    }
+
+    function test_LeverageUp() public {
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
+        vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
+
+        _deposit(10_000_000, WHALE_ACCOUNT);
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        uint256 amountIn0 = 500_000;
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(
+            address(leverageTransformer),
+            amountIn0,
+            1,
+            abi.encodePacked(address(USDC), uint24(500), address(DAI)),
+            false
+        );
+        inputs[1] = abi.encode(address(USDC), address(leverageTransformer), 0);
+        bytes memory swapData0 =
+            abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
+
+        LeverageTransformer.LeverageUpParams memory params = LeverageTransformer.LeverageUpParams({
+            tokenId: TEST_NFT,
+            borrowAmount: 1_000_000,
+            amountIn0: amountIn0,
+            amountOut0Min: 1,
+            swapData0: swapData0,
+            amountIn1: 0,
+            amountOut1Min: 0,
+            swapData1: "",
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            recipient: TEST_NFT_ACCOUNT,
+            deadline: block.timestamp
+        });
+
+        vault.transform(
+            TEST_NFT,
+            address(leverageTransformer),
+            abi.encodeWithSelector(LeverageTransformer.leverageUp.selector, params)
+        );
+        vm.stopPrank();
+
+        (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
+        assertGt(debt, 0);
+        assertEq(vault.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
     }
 }

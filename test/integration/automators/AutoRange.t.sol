@@ -41,6 +41,46 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
         assertEq(autoRange.operators(TEST_NFT_ACCOUNT), true);
     }
 
+    function testSetAutoCompoundReward() external {
+        uint64 currentReward = autoRange.totalRewardX64();
+        autoRange.setAutoCompoundReward(currentReward / 2);
+        assertEq(autoRange.totalRewardX64(), currentReward / 2);
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        autoRange.setAutoCompoundReward(currentReward);
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vm.expectRevert("Ownable: caller is not the owner");
+        autoRange.setAutoCompoundReward(currentReward / 4);
+    }
+
+    function testWithdrawBalancesAndEth() external {
+        uint256 tokenAmount = 1 ether;
+        vm.prank(WHALE_ACCOUNT);
+        DAI.transfer(address(autoRange), tokenAmount);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(DAI);
+
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.withdrawBalances(tokens, TEST_NFT_ACCOUNT);
+
+        uint256 tokenBalanceBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
+        vm.prank(WITHDRAWER_ACCOUNT);
+        autoRange.withdrawBalances(tokens, TEST_NFT_ACCOUNT);
+        assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - tokenBalanceBefore, tokenAmount);
+
+        vm.deal(address(autoRange), 1 ether);
+        uint256 ethBalanceBefore = TEST_NFT_ACCOUNT.balance;
+
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.withdrawETH(TEST_NFT_ACCOUNT);
+
+        vm.prank(WITHDRAWER_ACCOUNT);
+        autoRange.withdrawETH(TEST_NFT_ACCOUNT);
+        assertEq(TEST_NFT_ACCOUNT.balance - ethBalanceBefore, 1 ether);
+    }
+
     function testUnauthorizedSetConfig() external {
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);

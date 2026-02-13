@@ -10,6 +10,34 @@ import "v3-core/interfaces/pool/IUniswapV3PoolDerivedState.sol";
 
 import "../../src/utils/Constants.sol";
 
+contract MockSequencerFeed is AggregatorV3Interface {
+    int256 public answer;
+    uint256 public startedAt;
+
+    constructor(int256 _answer, uint256 _startedAt) {
+        answer = _answer;
+        startedAt = _startedAt;
+    }
+
+    function setStatus(int256 _answer, uint256 _startedAt) external {
+        answer = _answer;
+        startedAt = _startedAt;
+    }
+
+    function latestRoundData()
+        external
+        view
+        override
+        returns (uint80 roundId, int256 _answer, uint256 _startedAt, uint256 updatedAt, uint80 answeredInRound)
+    {
+        return (1, answer, startedAt, block.timestamp, 1);
+    }
+
+    function decimals() external pure override returns (uint8) {
+        return 8;
+    }
+}
+
 contract V3OracleIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
     uint256 constant Q96 = 2 ** 96;
@@ -191,5 +219,32 @@ contract V3OracleIntegrationTest is Test {
         );
         vm.expectRevert(Constants.PriceDifferenceExceeded.selector);
         oracle.getValue(TEST_NFT, address(WETH));
+    }
+
+    function testSequencerUptimeFeedChecks() external {
+        MockSequencerFeed sequencerFeed = new MockSequencerFeed(0, block.timestamp - 1000);
+
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert("Ownable: caller is not the owner");
+        oracle.setSequencerUptimeFeed(address(sequencerFeed));
+
+        oracle.setSequencerUptimeFeed(address(sequencerFeed));
+        assertEq(oracle.sequencerUptimeFeed(), address(sequencerFeed));
+
+        sequencerFeed.setStatus(1, block.timestamp - 1000);
+        vm.expectRevert(Constants.SequencerDown.selector);
+        oracle.getValue(TEST_NFT, address(WETH));
+
+        sequencerFeed.setStatus(0, 0);
+        vm.expectRevert(Constants.SequencerUptimeFeedInvalid.selector);
+        oracle.getValue(TEST_NFT, address(WETH));
+
+        sequencerFeed.setStatus(0, block.timestamp - 100);
+        vm.expectRevert(Constants.SequencerGracePeriodNotOver.selector);
+        oracle.getValue(TEST_NFT, address(WETH));
+
+        sequencerFeed.setStatus(0, block.timestamp - 1000);
+        (uint256 value,,,) = oracle.getValue(TEST_NFT, address(WETH));
+        assertGt(value, 0);
     }
 }

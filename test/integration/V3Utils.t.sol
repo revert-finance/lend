@@ -165,6 +165,52 @@ contract V3UtilsIntegrationTest is Test {
         assertEq(usdcAfter, 806331571);
         assertEq(liquidityAfter, 13034529712992826193);
     }
+
+    function testExecuteWithPermitCompoundNoSwap() external {
+        uint256 privateKey = 777;
+        address owner = vm.addr(privateKey);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.prank(TEST_NFT_3_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_3_ACCOUNT, owner, TEST_NFT_3);
+
+        V3Utils.Instructions memory inst = V3Utils.Instructions(
+            V3Utils.WhatToDo.COMPOUND_FEES,
+            address(0),
+            0,
+            0,
+            0,
+            0,
+            "",
+            0,
+            0,
+            "",
+            type(uint128).max,
+            type(uint128).max,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            deadline,
+            owner,
+            owner,
+            false,
+            "",
+            ""
+        );
+
+        (,,,,,,, uint128 liquidityBefore,,,,) = NPM.positions(TEST_NFT_3);
+        (uint8 v, bytes32 r, bytes32 s) = _getNpmPermitSignature(TEST_NFT_3, address(v3utils), deadline, privateKey);
+
+        vm.prank(owner);
+        v3utils.executeWithPermit(TEST_NFT_3, inst, v, r, s);
+
+        (,,,,,,, uint128 liquidityAfter,,,,) = NPM.positions(TEST_NFT_3);
+        assertEq(NPM.ownerOf(TEST_NFT_3), owner);
+        assertGe(liquidityAfter, liquidityBefore);
+    }
   
     function test_RevertWhen_EmptySwapAndMint() external {
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
@@ -288,6 +334,13 @@ contract V3UtilsIntegrationTest is Test {
         vm.stopPrank();
     }
 
+    function testSwapAndIncreaseLiquidityNoSwap() external {
+        (uint128 liquidity, uint256 amount0, uint256 amount1) = _increaseLiquidity();
+        assertGt(liquidity, 0);
+        assertGt(amount0, 0);
+        assertEq(amount1, 0);
+    }
+
     function _increaseLiquidity() internal returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         V3Utils.SwapAndIncreaseLiquidityParams memory params = V3Utils.SwapAndIncreaseLiquidityParams(
             TEST_NFT,
@@ -334,6 +387,16 @@ contract V3UtilsIntegrationTest is Test {
         return abi.encode(EX0x, hex"1234567890");
     }
 
+    function _getNpmPermitSignature(uint256 tokenId, address spender, uint256 deadline, uint256 privateKey)
+        internal
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        (uint96 nonce,,,,,,,,,,,) = NPM.positions(tokenId);
+        bytes32 structHash = keccak256(abi.encode(NPM.PERMIT_TYPEHASH(), spender, tokenId, nonce, deadline));
+        bytes32 msgHash = keccak256(abi.encodePacked("\x19\x01", NPM.DOMAIN_SEPARATOR(), structHash));
+        return vm.sign(privateKey, msgHash);
+    }
+
     function _getPermitBatchTransferFromSignature(
         ISignatureTransfer.PermitBatchTransferFrom memory permit,
         uint256 privateKey,
@@ -368,4 +431,3 @@ contract V3UtilsIntegrationTest is Test {
         return bytes.concat(r, s, bytes1(v));
     }
 }
-
