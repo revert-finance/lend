@@ -931,6 +931,26 @@ contract V3VaultIntegrationTest is Test {
         liquidator.uniswapV3FlashCallback(0, 0, abi.encode(data));
     }
 
+    function testFlashloanPoolInitiatedCallbackUnauthorized() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(UNISWAP_DAI_USDC),
+            USDC,
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+
+        vm.expectRevert();
+        IUniswapV3Pool(UNISWAP_DAI_USDC).flash(address(liquidator), 0, 0, abi.encode(data));
+    }
+
     function testCollateralValueLimit() external {
         _setupBasicLoan(false);
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), uint32(Q32 / 10)); // max 10% debt for DAI

@@ -9,6 +9,9 @@ import "./Swapper.sol";
 
 /// @title Helper contract which allows atomic liquidation and needed swaps by using UniV3 Flashloan
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
+    address private activeFlashPool;
+    bytes32 private activeFlashDataHash;
+
     struct FlashCallbackData {
         uint256 tokenId;
         uint256 liquidationCost;
@@ -44,6 +47,10 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     /// @notice Liquidates a loan, using a Uniswap Flashloan
     function liquidate(LiquidateParams calldata params) external {
+        if (activeFlashPool != address(0)) {
+            revert Unauthorized();
+        }
+
         (,,, uint256 liquidationCost, uint256 liquidationValue) = params.vault.loanInfo(params.tokenId);
         if (liquidationValue == 0) {
             revert NotLiquidatable();
@@ -72,10 +79,18 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
                 params.deadline
             )
         );
+        activeFlashPool = address(params.flashLoanPool);
+        activeFlashDataHash = keccak256(data);
         params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
+        activeFlashPool = address(0);
+        activeFlashDataHash = bytes32(0);
     }
 
     function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external override {
+        if (msg.sender != activeFlashPool || keccak256(callbackData) != activeFlashDataHash) {
+            revert Unauthorized();
+        }
+
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
         if (msg.sender != address(data.flashLoanPool)) {
             revert Unauthorized();
