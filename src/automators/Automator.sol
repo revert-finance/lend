@@ -185,6 +185,23 @@ abstract contract Automator is Ownable2Step, Swapper {
         }
     }
 
+    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (uint160 sqrtPriceX96, int24 tick) {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
+        if (!success || data.length < 64) {
+            revert InvalidPool();
+        }
+
+        uint256 word0;
+        uint256 word1;
+        assembly ("memory-safe") {
+            word0 := mload(add(data, 32))
+            word1 := mload(add(data, 64))
+        }
+
+        sqrtPriceX96 = uint160(word0);
+        tick = int24(int256(word1));
+    }
+
     function _decreaseFullLiquidityAndCollect(
         uint256 tokenId,
         uint128 liquidity,

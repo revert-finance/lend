@@ -23,6 +23,7 @@ import "permit2/interfaces/IPermit2.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IGaugeManager.sol";
 import "./utils/Constants.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
@@ -55,11 +56,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @notice oracle implementation
     IV3Oracle public immutable oracle;
 
-    /// @notice permit2 contract
-    IPermit2 public immutable permit2;
-
     /// @notice underlying asset for lending / borrowing
     address public immutable override asset;
+    /// @notice permit2 contract for signature-based transfers
+    IPermit2 public immutable permit2;
 
     /// @notice decimals of underlying token (are the same as ERC20 share token)
     uint8 private immutable assetDecimals;
@@ -104,6 +104,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
 
     event SetEmergencyAdmin(address emergencyAdmin);
+    event GaugeManagerSet(address indexed gaugeManager);
 
     // configured tokens
     struct TokenConfig {
@@ -169,6 +170,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
+    address public gaugeManager;
 
     constructor(
         string memory name,
@@ -180,12 +182,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IPermit2 _permit2
     ) ERC20(name, symbol) {
         asset = _asset;
+        permit2 = _permit2;
         assetDecimals = IERC20Metadata(_asset).decimals();
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         interestRateModel = _interestRateModel;
         oracle = _oracle;
-        permit2 = _permit2;
     }
 
     ////////////////// EXTERNAL VIEW FUNCTIONS
@@ -465,14 +467,16 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 oldTokenId = transformedTokenId;
 
         if (oldTokenId == 0) {
-            address owner = from;
-            if (data.length != 0) {
-                owner = abi.decode(data, (address));
+            // New deposit path.
+            if (tokenOwner[tokenId] == address(0)) {
+                address owner = from;
+                if (data.length != 0) {
+                    owner = abi.decode(data, (address));
+                }
+                loans[tokenId] = Loan(0);
+                _addTokenToOwner(owner, tokenId);
+                emit Add(tokenId, owner, 0);
             }
-            loans[tokenId] = Loan(0);
-
-            _addTokenToOwner(owner, tokenId);
-            emit Add(tokenId, owner, 0);
         } else {
             // if in transform mode - and a new position is sent - current position is replaced and returned
             if (tokenId != oldTokenId) {
@@ -515,11 +519,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit ApprovedTransform(tokenId, msg.sender, target, isActive);
     }
 
-    /// @notice Method which allows a contract to transform a loan by changing it (and only at the end checking collateral)
-    /// @param tokenId The token ID to be processed
-    /// @param transformer The address of a whitelisted transformer contract
-    /// @param data Encoded transformation params
-    /// @return newTokenId Final token ID (may be different than input token ID when the position was replaced by transformation)
     function transform(uint256 tokenId, address transformer, bytes calldata data)
         external
         override
@@ -542,6 +541,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
 
+        bool wasStaked = _unstakeIfNeeded(tokenId);
+
         // give access to transformer
         nonfungiblePositionManager.approve(transformer, tokenId);
 
@@ -556,6 +557,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // if token has changed - and operator was approved for old token - take over for new token
         if (tokenId != newTokenId && transformApprovals[loanOwner][tokenId][msg.sender]) {
             transformApprovals[loanOwner][newTokenId][msg.sender] = true;
+            delete transformApprovals[loanOwner][tokenId][msg.sender];
         }
 
         // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
@@ -571,6 +573,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         _requireLoanIsHealthy(newTokenId, debt, false);
 
         transformedTokenId = 0;
+
+        if (wasStaked) {
+            _stake(newTokenId);
+        }
     }
 
     /// @notice Borrows specified amount using token as collateral
@@ -631,11 +637,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Borrow(tokenId, owner, assets, shares);
     }
 
-    /// @dev Decreases the liquidity of a given position and collects the resultant assets (and possibly additional fees)
-    /// This function is not allowed during transformation (if a transformer wants to decreaseLiquidity he can call the methods directly on the NonfungiblePositionManager)
-    /// @param params Struct containing various parameters for the operation. Includes tokenId, liquidity amount, minimum asset amounts, and deadline.
-    /// @return amount0 The amount of the first type of asset collected.
-    /// @return amount1 The amount of the second type of asset collected.
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)
         external
         override
@@ -651,6 +652,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (owner != msg.sender) {
             revert Unauthorized();
         }
+
+        bool wasStaked = _unstakeIfNeeded(params.tokenId);
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
@@ -673,6 +676,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
         _requireLoanIsHealthy(params.tokenId, debt, true);
+
+        if (wasStaked) {
+            _stake(params.tokenId);
+        }
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
@@ -748,6 +755,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NotLiquidatable();
         }
 
+        _unstakeIfNeeded(params.tokenId);
+
         (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
             _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
 
@@ -758,24 +767,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         if (state.liquidatorCost != 0) {
-            if (params.permitData.length != 0) {
-                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                    abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-
-                if (permit.permitted.token != asset) {
-                    revert InvalidToken();
-                }
-
-                permit2.permitTransferFrom(
-                    permit,
-                    ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
-                    msg.sender,
-                    signature
-                );
-            } else {
-                // take value from liquidator
-                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
-            }
+            _pullAssetFromSender(state.liquidatorCost, params.permitData);
         }
 
         debtSharesTotal = debtSharesTotal - debtShares;
@@ -820,6 +812,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (loans[tokenId].debtShares != 0) {
             revert NeedsRepay();
         }
+
+        _unstakeIfNeeded(tokenId);
 
         _removeTokenFromOwner(owner, tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId, data);
@@ -972,22 +966,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
-
-        if (permitData.length != 0) {
-            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-
-            if (permit.permitted.token != asset) {
-                revert InvalidToken();
-            }
-
-            permit2.permitTransferFrom(
-                permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
-            );
-        } else {
-            // fails if not enough token approved
-            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-        }
+        _pullAssetFromSender(assets, permitData);
 
         _mint(receiver, shares);
 
@@ -1065,23 +1044,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             assets = _convertToAssets(shares, newDebtExchangeRateX96, Math.Rounding.Up);
         }
 
-        if (assets != 0) {
-            if (permitData.length != 0) {
-                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                    abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-
-                if (permit.permitted.token != asset) {
-                    revert InvalidToken();
-                }
-
-                permit2.permitTransferFrom(
-                    permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
-                );
-            } else {
-                // fails if not enough token approved
-                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-            }
-        }
+        _pullAssetFromSender(assets, permitData);
 
         uint256 loanDebtShares = currentShares - shares;
         loan.debtShares = loanDebtShares;
@@ -1103,6 +1066,25 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         emit Repay(tokenId, msg.sender, tokenOwner[tokenId], assets, shares);
+    }
+
+    function _pullAssetFromSender(uint256 assets, bytes memory permitData) internal {
+        if (assets == 0) {
+            return;
+        }
+
+        if (permitData.length != 0) {
+            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+            if (permit.permitted.token != asset) {
+                revert InvalidToken();
+            }
+            permit2.permitTransferFrom(
+                permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+        }
     }
 
     // checks how much balance is available
@@ -1359,6 +1341,66 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             dailyDebtIncreaseLimitLeft =
                 dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
             dailyDebtIncreaseLimitLastReset = time;
+        }
+    }
+
+    function setGaugeManager(address _gaugeManager) external onlyOwner {
+        gaugeManager = _gaugeManager;
+        emit GaugeManagerSet(_gaugeManager);
+    }
+
+    function stakePosition(uint256 tokenId) external override {
+        if (gaugeManager == address(0)) {
+            revert GaugeManagerNotSet();
+        }
+        if (tokenOwner[tokenId] != msg.sender) {
+            revert NotDepositor();
+        }
+
+        _stake(tokenId);
+    }
+
+    function unstakePosition(uint256 tokenId) external override {
+        if (gaugeManager == address(0)) {
+            revert GaugeManagerNotSet();
+        }
+        if (tokenOwner[tokenId] != msg.sender && transformedTokenId != tokenId) {
+            revert Unauthorized();
+        }
+
+        IGaugeManager(gaugeManager).unstakePosition(tokenId);
+    }
+
+    function compoundRewards(
+        uint256 tokenId,
+        bytes calldata swapData0,
+        bytes calldata swapData1,
+        uint256 minAmount0,
+        uint256 minAmount1,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) external override returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
+        if (gaugeManager == address(0)) {
+            revert GaugeManagerNotSet();
+        }
+        if (tokenOwner[tokenId] != msg.sender) {
+            revert Unauthorized();
+        }
+
+        (aeroAmount, amountAdded0, amountAdded1) = IGaugeManager(gaugeManager).compoundRewards(
+            tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline
+        );
+    }
+
+    function _stake(uint256 tokenId) internal {
+        nonfungiblePositionManager.approve(gaugeManager, tokenId);
+        IGaugeManager(gaugeManager).stakePosition(tokenId);
+    }
+
+    function _unstakeIfNeeded(uint256 tokenId) internal returns (bool wasStaked) {
+        if (gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
+            IGaugeManager(gaugeManager).unstakePosition(tokenId);
+            return true;
         }
     }
 

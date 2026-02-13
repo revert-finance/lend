@@ -3,11 +3,14 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
@@ -78,7 +81,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             bool isUniversalRouter;
             bytes memory swapData = params.swapData;
             address uniRouter = universalRouter;
-            assembly {
+            assembly ("memory-safe") {
                 let firstWord := mload(add(swapData, 32))
                 isUniversalRouter := eq(firstWord, uniRouter)
             }
@@ -161,6 +164,25 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+        // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in the `fee` field of positions().
+        (bool success, bytes memory data) = factory.staticcall(
+            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, int24(uint24(fee)))
+        );
+        if (success && data.length >= 32) {
+            address poolAddress = abi.decode(data, (address));
+            if (poolAddress != address(0)) {
+                return IUniswapV3Pool(poolAddress);
+            }
+        }
+
+        // Uniswap v3 uses getPool(tokenA, tokenB, fee).
+        (success, data) = factory.staticcall(
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee)
+        );
+        if (success && data.length >= 32) {
+            return IUniswapV3Pool(abi.decode(data, (address)));
+        }
+
+        return IUniswapV3Pool(address(0));
     }
 }

@@ -7,7 +7,6 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
 import "v3-core/libraries/TickMath.sol";
 
-import "v3-periphery/libraries/PoolAddress.sol";
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
@@ -20,6 +19,7 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
+import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./utils/Constants.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
@@ -402,7 +402,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint160 sqrtPriceX96;
         // if twap seconds set to 0 just use pool price
         if (twapSeconds == 0) {
-            (sqrtPriceX96,,,,,,) = pool.slot0();
+            (sqrtPriceX96,) = _getPoolSlot0(pool);
         } else {
             uint32[] memory secondsAgos = new uint32[](2);
             secondsAgos[0] = 0; // from (before)
@@ -469,7 +469,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         state.tokensOwed0 = tokensOwed0;
         state.tokensOwed1 = tokensOwed1;
         state.pool = _getPool(token0, token1, fee);
-        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
+        (state.sqrtPriceX96, state.tick) = _getPoolSlot0(state.pool);
     }
 
     // gets prices according to oracle configuration (this reverts if any price is configured wrongly)
@@ -547,8 +547,10 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint256 feeGrowthGlobal0X128,
         uint256 feeGrowthGlobal1X128
     ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
-        (,, uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128,,,,) = pool.ticks(tickLower);
-        (,, uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128,,,,) = pool.ticks(tickUpper);
+        (uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128) =
+            _getFeeGrowthOutside(pool, tickLower);
+        (uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128) =
+            _getFeeGrowthOutside(pool, tickUpper);
 
         // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
         unchecked {
@@ -565,8 +567,71 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
     }
 
+    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (uint160 sqrtPriceX96, int24 tick) {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
+        if (!success || data.length < 64) {
+            revert InvalidPool();
+        }
+
+        uint256 word0;
+        uint256 word1;
+        assembly ("memory-safe") {
+            word0 := mload(add(data, 32))
+            word1 := mload(add(data, 64))
+        }
+
+        sqrtPriceX96 = uint160(word0);
+        tick = int24(int256(word1));
+    }
+
+    function _getFeeGrowthOutside(IUniswapV3Pool pool, int24 tick)
+        internal
+        view
+        returns (uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128)
+    {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.ticks.selector, tick));
+        if (!success) {
+            revert InvalidPool();
+        }
+
+        // Uniswap v3 ticks() => 8 outputs.
+        if (data.length == 256) {
+            (, , feeGrowthOutside0X128, feeGrowthOutside1X128,,,,) =
+                abi.decode(data, (uint128, int128, uint256, uint256, int56, uint160, uint32, bool));
+            return (feeGrowthOutside0X128, feeGrowthOutside1X128);
+        }
+
+        // Aerodrome Slipstream ticks() => 10 outputs (extra staked/reward fields).
+        if (data.length == 320) {
+            (, , , feeGrowthOutside0X128, feeGrowthOutside1X128,,,,,) =
+                abi.decode(data, (uint128, int128, int128, uint256, uint256, uint256, int56, uint160, uint32, bool));
+            return (feeGrowthOutside0X128, feeGrowthOutside1X128);
+        }
+
+        revert InvalidPool();
+    }
+
     // helper method to get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(factory, PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+        // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in positions().fee.
+        (bool success, bytes memory data) = factory.staticcall(
+            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, int24(uint24(fee)))
+        );
+        if (success && data.length >= 32) {
+            address poolAddress = abi.decode(data, (address));
+            if (poolAddress != address(0)) {
+                return IUniswapV3Pool(poolAddress);
+            }
+        }
+
+        // Uniswap v3 uses getPool(tokenA, tokenB, fee).
+        (success, data) = factory.staticcall(
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee)
+        );
+        if (success && data.length >= 32) {
+            return IUniswapV3Pool(abi.decode(data, (address)));
+        }
+
+        return IUniswapV3Pool(address(0));
     }
 }

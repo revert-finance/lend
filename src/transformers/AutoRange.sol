@@ -173,7 +173,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
+        (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
 
         if (
             state.currentTick < state.tickLower - config.lowerTickLimit
@@ -209,7 +209,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                     params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
 
                 // update tick
-                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
+                (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
             }
 
             int24 tickSpacing = _getTickSpacing(state.fee);
@@ -391,7 +391,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             // if a swap is requested - check TWAP oracle
             if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+                (state.sqrtPriceX96, state.tick) = _getPoolSlot0(pool);
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;
@@ -521,11 +521,19 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         } else if (fee == 500) {
             return 10;
         } else {
-            int24 spacing = IUniswapV3Factory(factory).feeAmountTickSpacing(fee);
-            if (spacing <= 0) {
+            // Uniswap: map fee tier to tick spacing via factory.
+            try IUniswapV3Factory(factory).feeAmountTickSpacing(fee) returns (int24 spacing) {
+                if (spacing > 0) {
+                    return spacing;
+                }
+            } catch {}
+
+            // Aerodrome Slipstream: positions().fee stores tick spacing directly.
+            int24 tickSpacing = int24(uint24(fee));
+            if (tickSpacing <= 0) {
                 revert NotSupportedFeeTier();
             }
-            return spacing;
+            return tickSpacing;
         }
     }
 }

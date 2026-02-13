@@ -133,7 +133,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
             // if a swap is requested - check TWAP oracle
             if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+                (state.sqrtPriceX96, state.tick) = _getPoolSlot0(pool);
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;

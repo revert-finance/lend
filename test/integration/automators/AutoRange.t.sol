@@ -264,9 +264,7 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
         (,,,,, int24 tickLowerAfter, int24 tickUpperAfter,,,,,) = NPM.positions(state.tokenId);
         (,, state.token0, state.token1, state.fee,,, state.liquidityOld,,,,) = NPM.positions(TEST_NFT_2);
 
-        IUniswapV3Pool pool = IUniswapV3Pool(
-            PoolAddress.computeAddress(FACTORY, PoolAddress.getPoolKey(state.token0, state.token1, state.fee))
-        );
+        IUniswapV3Pool pool = IUniswapV3Pool(IUniswapV3Factory(FACTORY).getPool(state.token0, state.token1, state.fee));
         (uint160 sqrtPriceX96, int24 currentTick,,,,,) = pool.slot0();
 
         (state.amount0, state.amount1) = LiquidityAmounts.getAmountsForLiquidity(
