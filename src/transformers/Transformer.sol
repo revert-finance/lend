@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 import "../utils/Constants.sol";
 import "../interfaces/IVault.sol";

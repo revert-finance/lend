@@ -7,8 +7,8 @@ import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-import "v3-periphery/libraries/PoolAddress.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/libraries/PoolAddress.sol";
 
 import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";

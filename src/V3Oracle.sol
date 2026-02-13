@@ -7,10 +7,10 @@ import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "v3-core/libraries/FullMath.sol";
 import "v3-core/libraries/TickMath.sol";
 
-import "v3-periphery/libraries/PoolAddress.sol";
+import "v3-periphery-patched/libraries/PoolAddress.sol";
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";

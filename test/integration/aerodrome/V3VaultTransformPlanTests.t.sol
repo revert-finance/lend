@@ -6,7 +6,7 @@ import "../../../src/V3Vault.sol";
 import "../../../src/transformers/AutoCompound.sol";
 import "../../../src/transformers/AutoRange.sol";
 import "./mocks/MockAerodromePositionManager.sol";
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 contract MockTokenIdMigrator {
     MockAerodromePositionManager public immutable npm;

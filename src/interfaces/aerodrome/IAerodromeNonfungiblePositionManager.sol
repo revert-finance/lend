@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.0;
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 /// @title Aerodrome Slipstream Nonfungible Position Manager Interface
 /// @notice Aerodrome's position manager is compatible with Uniswap V3

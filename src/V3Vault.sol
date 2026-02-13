@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";

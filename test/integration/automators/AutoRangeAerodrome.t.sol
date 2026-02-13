@@ -8,7 +8,7 @@ import "../../../src/transformers/AutoRange.sol";
 import "../../../src/transformers/V3Utils.sol";
 import "../../../src/utils/Constants.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 contract AutoRangeAerodromeTest is Test, Constants {
     uint64 constant MAX_REWARD = uint64(Q64 / 400); //0.25%

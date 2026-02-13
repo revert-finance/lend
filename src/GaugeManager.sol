@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -18,6 +19,7 @@ import "./utils/Swapper.sol";
 /// @notice Vault-only adapter for staking/un-staking and rewarding V3 positions
 contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper {
     using SafeERC20 for IERC20;
+    using SafeCast for uint256;
 
     error UnexpectedNFT();
 
@@ -297,8 +299,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             (, uint256 amount0Added, uint256 amount1Added) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
-                    uint128(maxAddAmount0),
-                    uint128(maxAddAmount1),
+                    maxAddAmount0.toUint128(),
+                    maxAddAmount1.toUint128(),
                     0,
                     0,
                     deadline
