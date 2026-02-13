@@ -105,10 +105,6 @@ contract DeployAerodromeProtocol is Script {
         console.log("   - Includes swapAndIncreaseStakedPosition for deposits to staked positions");
         console.log("   - Includes migrateToVault for seamless migration from staking to borrowing");
         
-        // Configure V3Utils in GaugeManager
-        gaugeManager.setV3Utils(V3_UTILS);
-        console.log("   - V3Utils configured in GaugeManager");
-        
         // 5. Deploy LeverageTransformer
         console.log("\n5. Deploying LeverageTransformer...");
         leverageTransformer = new LeverageTransformer(
@@ -133,10 +129,6 @@ contract DeployAerodromeProtocol is Script {
         console.log("   AutoCompound deployed:", address(autoCompound));
         console.log("   - Automated compounding with configurable fees (0-5%)");
         console.log("   - Supports AERO reward compounding");
-        
-        // Configure GaugeManager in AutoCompound
-        autoCompound.setGaugeManager(address(gaugeManager), true);
-        console.log("   - GaugeManager configured in AutoCompound");
         
         // 7. Configure Oracle
         console.log("\n7. Configuring Oracle...");
@@ -190,11 +182,10 @@ contract DeployAerodromeProtocol is Script {
         vault.setGaugeManager(address(gaugeManager));
         console.log("   Gauge manager set");
         
-        // Enable transformers
-        vault.setTransformer(V3_UTILS, true);
+        // Enable vault transformers
         vault.setTransformer(address(leverageTransformer), true);
         vault.setTransformer(address(autoCompound), true);
-        console.log("   Transformers enabled (V3Utils, LeverageTransformer, AutoCompound)");
+        console.log("   Transformers enabled (LeverageTransformer, AutoCompound)");
         
         // Configure vault in LeverageTransformer
         leverageTransformer.setVault(address(vault));
@@ -245,7 +236,7 @@ contract DeployAerodromeProtocol is Script {
         console.log("4. Set emergency admin");
         console.log("5. Set compound fee percentage using setReward() on GaugeManager");
         console.log("\nNote: V3Utils is already configured in GaugeManager");
-        console.log("If you need to update it later, use SetV3Utils.s.sol");
+        console.log("If you need to update it later, use the latest deployment scripts");
         console.log("\nTo find gauge addresses:");
         console.log("- Check Aerodrome UI for each pool");
         console.log("- Or call: GaugeFactory.gauges(poolAddress)");

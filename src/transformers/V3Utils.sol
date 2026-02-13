@@ -120,24 +120,24 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         override
         returns (bytes4)
     {
-        // only Uniswap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
 
-        // not allowed to send to itself
-        if (from == address(this)) {
-            revert SelfSend();
+        Instructions memory instructions;
+        try this._decodeInstructions(data) returns (Instructions memory decodedInstructions) {
+            instructions = decodedInstructions;
+        } catch {
+            revert("ERC721: transfer to non ERC721Receiver implementer");
         }
 
-        Instructions memory instructions = abi.decode(data, (Instructions));
-
         execute(tokenId, instructions);
-
-        // return token to owner (this line guarantees that token is returned to originating owner)
-        nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
-
         return IERC721Receiver.onERC721Received.selector;
+    }
+
+    /// @notice Internal helper used only to catch invalid instruction decoding in onERC721Received.
+    function _decodeInstructions(bytes calldata data) external pure returns (Instructions memory instructions) {
+        instructions = abi.decode(data, (Instructions));
     }
 
     /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner

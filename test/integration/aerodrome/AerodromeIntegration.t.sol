@@ -62,7 +62,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         
         // 6. Claim rewards
         uint256 aeroBalanceBefore = aero.balanceOf(bob);
-        gaugeManager.claimRewards(tokenId);
+        vault.claimRewards(tokenId);
         uint256 aeroBalanceAfter = aero.balanceOf(bob);
         assertGt(aeroBalanceAfter, aeroBalanceBefore);
         
@@ -103,10 +103,10 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         
         // Both users claim rewards
         vm.prank(alice);
-        gaugeManager.claimRewards(tokenId1);
+        vault.claimRewards(tokenId1);
         
         vm.prank(bob);
-        gaugeManager.claimRewards(tokenId2);
+        vault.claimRewards(tokenId2);
         
         // Check both received rewards
         assertGt(aero.balanceOf(alice), 0);
@@ -198,7 +198,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         
         // Claim all rewards
         vm.prank(alice);
-        gaugeManager.claimRewards(tokenId);
+        vault.claimRewards(tokenId);
         
         // Verify Alice received rewards
         assertGt(aero.balanceOf(alice), 0);

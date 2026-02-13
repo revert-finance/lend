@@ -24,6 +24,9 @@ import "./utils/Constants.sol";
 contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
 
+    error PositionIsStaked();
+    error UnexpectedDeposit();
+
     uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100);
 
     uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100);
@@ -121,6 +124,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     mapping(address => uint256[]) private ownedTokens; 
     mapping(uint256 => uint256) private ownedTokensIndex; 
     mapping(uint256 => address) private tokenOwner; 
+    mapping(uint256 => address) public pendingDepositRecipient;
 
     uint256 public override transformedTokenId; 
 
@@ -342,6 +346,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     function create(uint256 tokenId, address recipient) external override {
         if (recipient == address(0)) revert ZeroAddress();
+        pendingDepositRecipient[tokenId] = recipient;
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
@@ -350,6 +355,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
     {
         if (recipient == address(0)) revert ZeroAddress();
+        pendingDepositRecipient[tokenId] = recipient;
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
@@ -372,10 +378,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             // Check if this is a new token or returning from staking
             if (tokenOwner[tokenId] == address(0)) {
                 // NEW token being deposited for the first time
-                address owner = from;
-                if (data.length != 0) {
-                    owner = abi.decode(data, (address));
+                address owner = pendingDepositRecipient[tokenId];
+                if (owner == address(0)) {
+                    revert UnexpectedDeposit();
                 }
+                delete pendingDepositRecipient[tokenId];
 
                 loans[tokenId] = Loan(0);
                 _addTokenToOwner(owner, tokenId, 0);
@@ -395,6 +402,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 loans[tokenId] = Loan(debtShares);
 
+                _removeTokenFromOwner(owner, oldTokenId);
                 _addTokenToOwner(owner, tokenId, oldTokenId);
 
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96);
@@ -425,9 +433,43 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
         }
+        if (gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
+            revert PositionIsStaked();
+        }
+
+        return _transformUnstaked(tokenId, transformer, data);
+    }
+
+    function unstakeTransformStake(
+        uint256 tokenId,
+        address transformer,
+        bytes calldata data
+    ) external override returns (uint256 newTokenId) {
+        bool wasStaked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
+        if (wasStaked) {
+            IGaugeManager(gaugeManager).unstakePosition(tokenId);
+        }
+
+        newTokenId = _transformUnstaked(tokenId, transformer, data);
+
+        if (wasStaked) {
+            nonfungiblePositionManager.approve(gaugeManager, newTokenId);
+            IGaugeManager(gaugeManager).stakePosition(newTokenId);
+        }
+    }
+
+    function _transformUnstaked(
+        uint256 tokenId,
+        address transformer,
+        bytes calldata data
+    ) internal returns (uint256 newTokenId) {
         if (transformedTokenId != 0) {
             revert Reentrancy();
         }
+        if (tokenId == 0 || !transformerAllowList[transformer]) {
+            revert TransformNotAllowed();
+        }
+
         transformedTokenId = tokenId;
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
@@ -436,14 +478,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
-        }
-
-        // Track if position was staked before transformation
-        bool wasStaked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
-
-        // Unstake position if needed
-        if (wasStaked) {
-            _unstakeIfNeeded(tokenId);
         }
 
         nonfungiblePositionManager.approve(transformer, tokenId);
@@ -467,16 +501,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         nonfungiblePositionManager.approve(address(0), newTokenId);
 
-        uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(newTokenId, debt, false);
+        uint256 debtShares = loans[newTokenId].debtShares;
+        if (debtShares != 0) {
+            uint256 debt = _convertToAssets(debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+            _requireLoanIsHealthy(newTokenId, debt, false);
+        }
 
         transformedTokenId = 0;
-        
-        // Re-stake the position if it was previously staked
-        if (wasStaked) {
-            nonfungiblePositionManager.approve(gaugeManager, newTokenId);
-            IGaugeManager(gaugeManager).stakePosition(newTokenId);
-        }
     }
 
     function borrow(uint256 tokenId, uint256 assets) external override {
@@ -1208,6 +1239,18 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (ownerOf(tokenId) != msg.sender && transformedTokenId != tokenId) revert Unauthorized();
 
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
+    }
+
+    /// @notice Claim AERO rewards for a staked position
+    function claimRewards(uint256 tokenId) external {
+        if (gaugeManager == address(0)) revert GaugeManagerNotSet();
+        if (ownerOf(tokenId) != msg.sender) revert Unauthorized();
+
+        if (IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) == address(0)) {
+            revert NotStaked();
+        }
+
+        IGaugeManager(gaugeManager).claimRewards(tokenId);
     }
 
     /// @notice Compound AERO rewards for a staked position

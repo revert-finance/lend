@@ -5,7 +5,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
-import "../interfaces/IGaugeManager.sol";
 
 /// @title AutoRange
 /// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
@@ -114,9 +113,6 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
     uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
     uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
     
-    // GaugeManager integration
-    mapping(address => bool) public gaugeManagers;
-
     /**
      * @notice Adjust token (which is in a Vault) - via transform method
      * Can only be called from configured operator account - vault must be configured as well
@@ -126,19 +122,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)));
-    }
-
-    /**
-     * @notice Adjust token (which is in a GaugeManager) - via transform method
-     * Can only be called from configured operator account - gaugeManager must be configured as well
-     * Swap needs to be done with max price difference from current pool price - otherwise reverts
-     */
-    function executeWithGauge(ExecuteParams calldata params, address gaugeManager) external {
-        if (!operators[msg.sender] || !gaugeManagers[gaugeManager]) {
-            revert Unauthorized();
-        }
-        IGaugeManager(gaugeManager).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)));
+        IVault(vault).unstakeTransformStake(params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)));
     }
 
     /**
@@ -148,7 +132,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
      */
     function execute(ExecuteParams calldata params) external {
         if (!operators[msg.sender]) {
-            if (vaults[msg.sender] || gaugeManagers[msg.sender]) {
+            if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
             } else {
                 revert Unauthorized();
@@ -273,8 +257,6 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             state.realOwner = state.owner;
             if (vaults[state.owner]) {
                 state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
-            } else if (gaugeManagers[state.owner]) {
-                state.realOwner = IGaugeManager(state.owner).positionOwners(params.tokenId);
             }
 
             // send the new nft to the owner / vault
@@ -366,7 +348,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)));
+        IVault(vault).unstakeTransformStake(params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)));
     }
 
      /**
@@ -467,8 +449,6 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             state.realOwner = state.owner;
             if (vaults[state.owner]) {
                 state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
-            } else if (gaugeManagers[state.owner]) {
-                state.realOwner = IGaugeManager(state.owner).positionOwners(params.tokenId);
             }
 
 
@@ -497,15 +477,9 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, address vaultOrGauge, PositionConfig calldata config) external {
-        // Check if it's a gauge manager
-        if (gaugeManagers[vaultOrGauge]) {
-            // Validate caller owns position in GaugeManager
-            address owner = IGaugeManager(vaultOrGauge).positionOwners(tokenId);
-            if (owner != msg.sender) {
-                revert Unauthorized();
-            }
+        if (vaultOrGauge == address(0) || !vaults[vaultOrGauge]) {
+            _validateCaller(nonfungiblePositionManager, tokenId);
         } else {
-            // Use existing validation for vault or direct ownership
             _validateOwner(nonfungiblePositionManager, tokenId, vaultOrGauge);
         }
 
@@ -540,15 +514,6 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         }
         totalRewardX64 = _totalRewardX64;
         emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
-    }
-
-    /**
-     * @notice Owner controlled function to activate/deactivate gauge manager
-     * @param gaugeManager GaugeManager address
-     * @param active Whether to activate or deactivate
-     */
-    function setGaugeManager(address gaugeManager, bool active) external onlyOwner {
-        gaugeManagers[gaugeManager] = active;
     }
 
     // get tick spacing for fee tier (cached when possible)

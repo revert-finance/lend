@@ -408,7 +408,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint160 sqrtPriceX96;
         // if twap seconds set to 0 just use pool price
         if (twapSeconds == 0) {
-            (sqrtPriceX96,,,,,) = pool.slot0();
+            (sqrtPriceX96,,,,,,) = pool.slot0();
         } else {
             uint32[] memory secondsAgos = new uint32[](2);
             secondsAgos[0] = 0; // from (before)
@@ -475,7 +475,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         state.tokensOwed0 = tokensOwed0;
         state.tokensOwed1 = tokensOwed1;
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.tick,,,,) = state.pool.slot0();
+        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
     }
 
     // gets prices according to oracle configuration (this reverts if any price is configured wrongly)

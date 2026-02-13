@@ -16,12 +16,17 @@ contract ChainlinkFeedCombinatorTest is Test {
     AggregatorV3Interface constant WSETH_ETH_FEED = AggregatorV3Interface(0xb523AE262D20A936BC152e6023996e46FDC2A95D);
     AggregatorV3Interface constant ETH_USD_FEED = AggregatorV3Interface(0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612);
 
+    function _arbitrumRpc() internal returns (string memory) {
+        try vm.envString("ARBITRUM_RPC_URL") returns (string memory url) {
+            return url;
+        } catch {
+            return "https://arb1.arbitrum.io/rpc";
+        }
+    }
+
     function setUp() external {
-          string memory ANKR_RPC = string.concat(
-            "https://rpc.ankr.com/arbitrum/",
-            vm.envString("ANKR_API_KEY")
-        );
-        mainnetFork = vm.createFork(ANKR_RPC, 211619406);
+        string memory rpc = _arbitrumRpc();
+        mainnetFork = vm.createFork(rpc, 211619406);
         vm.selectFork(mainnetFork);
 
         combinator = new ChainlinkFeedCombinator(WSETH_ETH_FEED, ETH_USD_FEED);

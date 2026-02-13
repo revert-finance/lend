@@ -14,6 +14,7 @@ contract MockPool is IAerodromeSlipstreamPool {
     uint16 public observationIndex;
     uint16 public observationCardinality;
     uint16 public observationCardinalityNext;
+    uint8 public feeProtocol;
     bool public unlocked = true;
     
     uint256 public override feeGrowthGlobal0X128;
@@ -32,6 +33,7 @@ contract MockPool is IAerodromeSlipstreamPool {
         tickSpacing = _tickSpacing;
         sqrtPriceX96 = 79228162514264337593543950336; // 1:1 price
         tick = 0;
+        feeProtocol = 0;
     }
     
     function slot0() external view override returns (
@@ -40,6 +42,7 @@ contract MockPool is IAerodromeSlipstreamPool {
         uint16 observationIndex_,
         uint16 observationCardinality_,
         uint16 observationCardinalityNext_,
+        uint8 feeProtocol_,
         bool unlocked_
     ) {
         return (
@@ -48,6 +51,7 @@ contract MockPool is IAerodromeSlipstreamPool {
             observationIndex,
             observationCardinality,
             observationCardinalityNext,
+            feeProtocol,
             unlocked
         );
     }

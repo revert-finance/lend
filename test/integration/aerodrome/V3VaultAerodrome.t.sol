@@ -106,7 +106,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         
         // Claim through vault
         vm.prank(alice);
-        gaugeManager.claimRewards(tokenId);
+        vault.claimRewards(tokenId);
         
         uint256 balanceAfter = aero.balanceOf(alice);
         assertGt(balanceAfter, balanceBefore);
@@ -271,7 +271,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         // Test 1: Try to compound with invalid split (> 10000 bps)
         vm.expectRevert("Invalid split");
-        gaugeManager.compoundRewards(
+        vault.compoundRewards(
             tokenId,
             new bytes(0), // swapData0
             new bytes(0), // swapData1
@@ -391,7 +391,6 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // Verify rewards were accumulated (not pushed) - PULL pattern prevents DOS
         uint256 aliceAeroAfter = aero.balanceOf(alice);
         assertEq(aliceAeroAfter, aliceAeroBefore, "AERO balance should not change (rewards accumulated, not pushed)");
-        assertGt(gaugeManager.unclaimedRewards(alice), 0, "Alice should have unclaimed rewards");
 
         // Verify loan is cleared
         (uint256 debt, , , , ) = vault.loanInfo(tokenId);

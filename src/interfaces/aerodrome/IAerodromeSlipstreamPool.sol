@@ -5,13 +5,13 @@ pragma solidity ^0.8.0;
 /// @notice Aerodrome's concentrated liquidity pool interface
 /// @dev Aerodrome CLPool has a different slot0 structure than Uniswap V3
 interface IAerodromeSlipstreamPool {
-    /// @notice The 0th storage slot in the pool stores many values, and is exposed as a single method to save gas
-    /// @dev Aerodrome version: removed feeProtocol field compared to Uniswap V3
+    /// @notice The 0th storage slot in the pool stores many values, and is exposed as a single method to save gas.
     /// @return sqrtPriceX96 The current price of the pool as a sqrt(token1/token0) Q64.96 value
     /// @return tick The current tick of the pool
     /// @return observationIndex The index of the last oracle observation that was written
     /// @return observationCardinality The current maximum number of observations stored in the pool
     /// @return observationCardinalityNext The next maximum number of observations, to be updated when the observation
+    /// @return feeProtocol The protocol fee field returned by `slot0`
     /// @return unlocked Whether the pool is currently locked to reentrancy
     function slot0()
         external
@@ -22,6 +22,7 @@ interface IAerodromeSlipstreamPool {
             uint16 observationIndex,
             uint16 observationCardinality,
             uint16 observationCardinalityNext,
+            uint8 feeProtocol,
             bool unlocked
         );
 

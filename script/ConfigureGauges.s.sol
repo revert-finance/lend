@@ -4,13 +4,11 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 import "../src/GaugeManager.sol";
 import "../src/V3Vault.sol";
-import "../src/transformers/AutoCompound.sol";
 
 contract ConfigureGauges is Script {
     // Deployed contract addresses (Latest deployment: 2025-12-05)
     address constant GAUGE_MANAGER = 0x66a2481b784Cf26103441cA6067F997f90d3E129;
     address constant VAULT = 0x22CE292d882C7799183949509B011512352454cB;
-    address constant AUTOCOMPOUND = 0xa3dA4c5954d43b316e60092927Fa212f2B8C238e;
     
     // Pool addresses
     address constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;
@@ -43,12 +41,6 @@ contract ConfigureGauges is Script {
         
         GaugeManager gaugeManager = GaugeManager(GAUGE_MANAGER);
 
-        // Configure AutoCompound as transformer in GaugeManager
-        console.log("Configuring AutoCompound transformer...");
-        gaugeManager.setTransformer(AUTOCOMPOUND, true);
-        console.log("  AutoCompound registered as transformer in GaugeManager");
-        console.log("");
-
         // Configure pool -> gauge mappings
         console.log("Setting gauge mappings...");
 
@@ -77,7 +69,6 @@ contract ConfigureGauges is Script {
         console.log("VERIFICATION");
         console.log("==========================================");
 
-        console.log("AutoCompound transformer enabled:", gaugeManager.transformerAllowList(AUTOCOMPOUND));
         console.log("WETH/USDC gauge:", gaugeManager.poolToGauge(WETH_USDC_POOL));
         if (CBBTC_USDC_GAUGE != address(0)) {
             console.log("cbBTC/USDC gauge:", gaugeManager.poolToGauge(CBBTC_USDC_POOL));
