@@ -65,6 +65,7 @@ abstract contract Constants {
     error NotSupportedFeeTier();
 
     error GaugeManagerNotSet();
+    error GaugeManagerAlreadySet();
     error NotDepositor();
     error NotStaked();
 }

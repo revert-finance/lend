@@ -1345,6 +1345,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function setGaugeManager(address _gaugeManager) external onlyOwner {
+        if (_gaugeManager == address(0)) {
+            revert InvalidConfig();
+        }
+        if (gaugeManager != address(0)) {
+            revert GaugeManagerAlreadySet();
+        }
+
         gaugeManager = _gaugeManager;
         emit GaugeManagerSet(_gaugeManager);
     }

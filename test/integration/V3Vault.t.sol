@@ -1102,6 +1102,18 @@ contract V3VaultIntegrationTest is Test {
         vault.setLimits(0, 0, 0, 0, 0);
     }
 
+    function testSetGaugeManagerOnlyOnce() external {
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vault.setGaugeManager(address(0));
+
+        address firstManager = address(0x123456);
+        vault.setGaugeManager(firstManager);
+        assertEq(vault.gaugeManager(), firstManager);
+
+        vm.expectRevert(Constants.GaugeManagerAlreadySet.selector);
+        vault.setGaugeManager(address(0x789ABC));
+    }
+
     function testReserves() external {
         vault.setReserveFactor(uint32(Q32 / 10)); // 10%
         vault.setReserveProtectionFactor(uint32(Q32 / 100)); // 1%
