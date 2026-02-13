@@ -568,6 +568,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // remove access for transformer
         nonfungiblePositionManager.approve(address(0), newTokenId);
+        if (tokenId != newTokenId) {
+            // old token may be burned during transform; clear approval best-effort
+            try nonfungiblePositionManager.approve(address(0), tokenId) {}
+            catch {}
+        }
 
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
         _requireLoanIsHealthy(newTokenId, debt, false);

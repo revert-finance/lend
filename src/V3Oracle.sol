@@ -119,10 +119,12 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
 
         // calculate outputs
-        value = (state.price0X96 * (amount0 + fees0) + state.price1X96 * (amount1 + fees1)) / priceTokenX96;
-        feeValue = (state.price0X96 * fees0 + state.price1X96 * fees1) / priceTokenX96;
-        price0X96 = state.price0X96 * Q96 / priceTokenX96;
-        price1X96 = state.price1X96 * Q96 / priceTokenX96;
+        uint256 amount0WithFees = amount0 + fees0;
+        uint256 amount1WithFees = amount1 + fees1;
+        value = _sumMulDiv(state.price0X96, amount0WithFees, state.price1X96, amount1WithFees, priceTokenX96);
+        feeValue = _sumMulDiv(state.price0X96, fees0, state.price1X96, fees1, priceTokenX96);
+        price0X96 = FullMath.mulDiv(state.price0X96, Q96, priceTokenX96);
+        price1X96 = FullMath.mulDiv(state.price1X96, Q96, priceTokenX96);
     }
 
     function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000)
@@ -483,7 +485,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         // this prevents manipulations of pool to get distorted proportions of collateral tokens - for borrowing
         // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
         // will move price back to reasonable range and enable liquidation
-        uint256 derivedPoolPriceX96 = state.price0X96 * Q96 / state.price1X96;
+        uint256 derivedPoolPriceX96 = FullMath.mulDiv(state.price0X96, Q96, state.price1X96);
 
         // current pool price
         uint256 priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
@@ -491,6 +493,19 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
         // calculate derived sqrt price
         state.derivedSqrtPriceX96 = SafeCast.toUint160(Math.sqrt(derivedPoolPriceX96) * (2 ** 48));
+    }
+
+    function _sumMulDiv(uint256 a, uint256 b, uint256 c, uint256 d, uint256 denominator)
+        internal
+        pure
+        returns (uint256 result)
+    {
+        uint256 q1 = FullMath.mulDiv(a, b, denominator);
+        uint256 q2 = FullMath.mulDiv(c, d, denominator);
+        uint256 r1 = mulmod(a, b, denominator);
+        uint256 r2 = mulmod(c, d, denominator);
+
+        result = q1 + q2 + (r1 + r2) / denominator;
     }
 
     // calculate position amounts given derived price from oracle

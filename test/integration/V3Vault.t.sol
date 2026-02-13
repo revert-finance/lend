@@ -576,6 +576,9 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         autoRange.executeWithVault(params, address(vault));
 
+        // old token approval should be cleared even when tokenId gets replaced
+        assertEq(NPM.getApproved(TEST_NFT), address(0));
+
         // check leftover tokens were sent to real owner
         assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - previousDAI, 299539766920961007);
 
@@ -906,6 +909,26 @@ contract V3VaultIntegrationTest is Test {
 
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+    }
+
+    function testFlashloanCallbackUnauthorized() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(UNISWAP_DAI_USDC),
+            USDC,
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+
+        vm.expectRevert(Constants.Unauthorized.selector);
+        liquidator.uniswapV3FlashCallback(0, 0, abi.encode(data));
     }
 
     function testCollateralValueLimit() external {
