@@ -12,16 +12,15 @@ import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
-import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
-import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
-import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
-import "./utils/AerodromePoolAddress.sol";
-import "./utils/AerodromeHelper.sol";
-import "./utils/Slot0Reader.sol";
+	import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+	import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
+	import "./interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
+	import "./utils/AerodromePoolAddress.sol";
+	import "./utils/AerodromeHelper.sol";
 
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
+	import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+	import "@openzeppelin/contracts/access/Ownable2Step.sol";
+	import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "../lib/AggregatorV3Interface.sol";
@@ -411,7 +410,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint160 sqrtPriceX96;
         // if twap seconds set to 0 just use pool price
         if (twapSeconds == 0) {
-            (sqrtPriceX96,) = Slot0Reader.read(address(pool));
+            (sqrtPriceX96,,,,,) = pool.slot0();
         } else {
             uint32[] memory secondsAgos = new uint32[](2);
             secondsAgos[0] = 0; // from (before)
@@ -478,7 +477,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         state.tokensOwed0 = tokensOwed0;
         state.tokensOwed1 = tokensOwed1;
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.tick) = Slot0Reader.read(address(state.pool));
+        (state.sqrtPriceX96, state.tick,,,,) = state.pool.slot0();
     }
 
     // gets prices according to oracle configuration (this reverts if any price is configured wrongly)

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.0;
+	pragma solidity ^0.8.0;
 
-import "./Automator.sol";
-import "../utils/Slot0Reader.sol";
+	import "./Automator.sol";
+	import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 /// @title AutoExit
 /// @notice Lets a v3 position to be automatically removed (limit order) or swapped to the opposite token (stop loss order) when it reaches a certain tick.
@@ -126,7 +126,7 @@ contract AutoExit is Automator {
         }
 
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (, state.tick) = Slot0Reader.read(address(state.pool));
+        (, state.tick,,,,) = IAerodromeSlipstreamPool(address(state.pool)).slot0();
 
         // not triggered
         if (config.token0TriggerTick <= state.tick && state.tick < config.token1TriggerTick) {
@@ -155,7 +155,7 @@ contract AutoExit is Automator {
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
             if (state.swapAmount != 0) {
-                (state.sqrtPriceX96, state.currentTick) = Slot0Reader.read(address(state.pool));
+                (state.sqrtPriceX96, state.currentTick,,,,) = IAerodromeSlipstreamPool(address(state.pool)).slot0();
 
                 // checks if price in valid oracle range and calculates amountOutMin
                 state.amountOutMin = _validateSwap(

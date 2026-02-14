@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+	import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-import "../automators/Automator.sol";
-import "../transformers/Transformer.sol";
-import "../utils/Slot0Reader.sol";
+	import "../automators/Automator.sol";
+	import "../transformers/Transformer.sol";
+	import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 /// @title AutoRange
 /// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
@@ -174,7 +174,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.currentTick) = Slot0Reader.read(address(state.pool));
+        (state.sqrtPriceX96, state.currentTick,,,,) = IAerodromeSlipstreamPool(address(state.pool)).slot0();
 
         if (
             state.currentTick < state.tickLower - config.lowerTickLimit
@@ -210,7 +210,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                     params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
 
                 // update tick
-                (state.sqrtPriceX96, state.currentTick) = Slot0Reader.read(address(state.pool));
+                (state.sqrtPriceX96, state.currentTick,,,,) = IAerodromeSlipstreamPool(address(state.pool)).slot0();
             }
 
             int24 tickSpacing = _getTickSpacing(state.fee);
@@ -389,15 +389,15 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         if (state.amount0 != 0 || state.amount1 != 0) {
             uint256 amountIn = params.amountIn;
 
-            // if a swap is requested - check TWAP oracle
-            if (amountIn != 0) {
-                IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick) = Slot0Reader.read(address(pool));
+                // if a swap is requested - check TWAP oracle
+                if (amountIn != 0) {
+                    IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+                    (state.sqrtPriceX96, state.tick,,,,) = IAerodromeSlipstreamPool(address(pool)).slot0();
 
-                // how many seconds are needed for TWAP protection
-                uint32 tSecs = TWAPSeconds;
-                if (tSecs != 0) {
-                    if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
+                    // how many seconds are needed for TWAP protection
+                    uint32 tSecs = TWAPSeconds;
+                    if (tSecs != 0) {
+                        if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
                         // if there is no valid TWAP - disable swap
                         amountIn = 0;
                     }

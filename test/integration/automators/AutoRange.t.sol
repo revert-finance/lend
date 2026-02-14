@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "./AutomatorIntegrationTestBase.sol";
 
 import "../../../src/transformers/AutoRange.sol";
+import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -269,7 +270,7 @@ contract AutoRangeTest is AutomatorIntegrationTestBase {
         IUniswapV3Pool pool = IUniswapV3Pool(
             PoolAddress.computeAddress(FACTORY, PoolAddress.getPoolKey(state.token0, state.token1, state.fee))
         );
-        (uint160 sqrtPriceX96, int24 currentTick,,,,,) = pool.slot0();
+        (uint160 sqrtPriceX96, int24 currentTick,,,,) = IAerodromeSlipstreamPool(address(pool)).slot0();
 
         (state.amount0, state.amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPriceX96,

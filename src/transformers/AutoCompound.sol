@@ -5,11 +5,11 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
+	import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
-import "../automators/Automator.sol";
-import "../transformers/Transformer.sol";
-import "../utils/Slot0Reader.sol";
+	import "../automators/Automator.sol";
+	import "../transformers/Transformer.sol";
+	import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
@@ -142,15 +142,15 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         if (state.amount0 != 0 || state.amount1 != 0) {
             uint256 amountIn = params.amountIn;
 
-            // if a swap is requested - check TWAP oracle
-            if (amountIn != 0) {
-                IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick) = Slot0Reader.read(address(pool));
+                // if a swap is requested - check TWAP oracle
+                if (amountIn != 0) {
+                    IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+                    (state.sqrtPriceX96, state.tick,,,,) = IAerodromeSlipstreamPool(address(pool)).slot0();
 
-                // how many seconds are needed for TWAP protection
-                uint32 tSecs = TWAPSeconds;
-                if (tSecs != 0) {
-                    if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
+                    // how many seconds are needed for TWAP protection
+                    uint32 tSecs = TWAPSeconds;
+                    if (tSecs != 0) {
+                        if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
                         // if there is no valid TWAP - disable swap
                         amountIn = 0;
                     }

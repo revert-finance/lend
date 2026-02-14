@@ -105,7 +105,6 @@ interface IPool {
         uint16 observationIndex,
         uint16 observationCardinality,
         uint16 observationCardinalityNext,
-        uint8 feeProtocol,
         bool unlocked
     );
 }
@@ -143,7 +142,7 @@ contract SimpleStakeCompound is Script {
         require(pool != address(0), "Pool not found");
         
         // Get current tick
-        (,int24 currentTick,,,,,) = IPool(pool).slot0();
+        (, int24 currentTick,,,,) = IPool(pool).slot0();
         
         // Calculate optimal split based on position in range
         if (currentTick >= tickUpper) {
