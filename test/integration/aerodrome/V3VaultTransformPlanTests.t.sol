@@ -313,8 +313,7 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
             IERC20(address(aero)),
             IVault(address(vault)),
             address(0),
-            address(0),
-            admin
+            address(0)
         );
 
         usdcDaiGauge = new MockGauge(address(aero), address(npm));

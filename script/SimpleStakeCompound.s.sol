@@ -15,8 +15,8 @@ interface IGaugeManager {
         uint256 minAmount1,
         uint256 aeroSplitBps,
         uint256 deadline
-    ) external;
-    function claimRewards(uint256 tokenId) external;
+    ) external returns (uint256 aeroAmount, uint256 amount0Added, uint256 amount1Added);
+    function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
     function tokenIdToGauge(uint256 tokenId) external view returns (address);
     function positionOwners(uint256 tokenId) external view returns (address);
     
@@ -212,7 +212,7 @@ contract SimpleStakeCompound is Script {
     function claim(uint256 tokenId) external {
         vm.startBroadcast();
         
-        IGaugeManager(GAUGE_MANAGER).claimRewards(tokenId);
+        IGaugeManager(GAUGE_MANAGER).claimRewards(tokenId, msg.sender);
         
         vm.stopBroadcast();
         

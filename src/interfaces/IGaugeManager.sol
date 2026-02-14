@@ -10,9 +10,6 @@ interface IGaugeManager {
     event PositionStaked(uint256 indexed tokenId, address indexed owner);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
-    event RewardUpdated(address account, uint64 totalRewardX64);
-    event FeeWithdrawerUpdated(address withdrawer);
-    event FeesWithdrawn(address token, address to, uint256 amount);
 
     function aeroToken() external view returns (IERC20);
     function vault() external view returns (IVault);
@@ -33,17 +30,11 @@ interface IGaugeManager {
         uint256 minAmount1,
         uint256 aeroSplitBps,
         uint256 deadline
-    ) external;
+    ) external returns (uint256 aeroAmount, uint256 amount0Added, uint256 amount1Added);
 
     // Simple claim without compounding
-    function claimRewards(uint256 tokenId) external;
+    function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
 
     // Admin functions
     function setGauge(address pool, address gauge) external;
-    function setReward(uint64 _totalRewardX64) external;
-    function setFeeWithdrawer(address _feeWithdrawer) external;
-    function withdrawFees(address[] calldata tokens, address to) external;
-
-    function totalRewardX64() external view returns (uint64);
-    function feeWithdrawer() external view returns (address);
 }

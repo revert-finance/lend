@@ -98,8 +98,7 @@ contract DeployAerodromeProtocol is Script {
             IERC20(AERO),
             IVault(address(vault)),
             UNIVERSAL_ROUTER,
-            ZEROX_ALLOWANCE_HOLDER,
-            deployer // feeWithdrawer - set to deployer initially
+            ZEROX_ALLOWANCE_HOLDER
         );
         console.log("   GaugeManager deployed:", address(gaugeManager));
         console.log("   - Includes swapAndIncreaseStakedPosition for deposits to staked positions");

@@ -26,9 +26,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     event PositionStaked(uint256 indexed tokenId, address indexed owner);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner);
     event RewardsCompounded(uint256 indexed tokenId, uint256 aeroAmount, uint256 amount0, uint256 amount1);
-    event RewardUpdated(address account, uint64 totalRewardX64);
-    event FeeWithdrawerUpdated(address withdrawer);
-    event FeesWithdrawn(address token, address to, uint256 amount);
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -36,10 +33,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     // Pool -> gauge mapping and staked position -> gauge mapping
     mapping(address => address) public poolToGauge;
     mapping(uint256 => address) public tokenIdToGauge;
-
-    uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
-    uint64 public totalRewardX64 = 0; // Start at 0%
-    address public feeWithdrawer;
 
     bool private expectingNft;
     address private expectedNftFrom;
@@ -50,8 +43,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         IERC20 _aeroToken,
         IVault _vault,
         address _universalRouter,
-        address _zeroxAllowanceHolder,
-        address _feeWithdrawer
+        address _zeroxAllowanceHolder
     ) Swapper(
         INonfungiblePositionManager(address(_npm)),
         _universalRouter,
@@ -59,7 +51,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
     ) Ownable2Step() {
         aeroToken = _aeroToken;
         vault = _vault;
-        feeWithdrawer = _feeWithdrawer;
     }
 
     modifier onlyVault() {
@@ -136,7 +127,7 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 minAmount1,
         uint256 aeroSplitBps,
         uint256 deadline
-    ) external nonReentrant onlyVault {
+    ) external nonReentrant onlyVault returns (uint256 aeroAmount, uint256 amount0Added, uint256 amount1Added) {
         require(aeroSplitBps <= 10000, "Invalid split");
 
         address owner = vault.ownerOf(tokenId);
@@ -151,24 +142,25 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
-        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
         if (aeroAmount == 0) {
-            return;
+            return (0, 0, 0);
         }
 
         _setExpectedNftTransfer(gauge, tokenId);
         IGauge(gauge).withdraw(tokenId);
-        _compoundIntoPosition(tokenId, owner, aeroAmount, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline);
+        (amount0Added, amount1Added) =
+            _compoundIntoPosition(tokenId, owner, aeroAmount, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline);
 
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
-
+        return (aeroAmount, amount0Added, amount1Added);
     }
 
     /// @notice Simple reward claiming without compounding
-    function claimRewards(uint256 tokenId) external nonReentrant onlyVault {
+    function claimRewards(uint256 tokenId, address recipient) external nonReentrant onlyVault returns (uint256 aeroAmount) {
         address owner = vault.ownerOf(tokenId);
-        if (owner == address(0)) {
+        if (owner == address(0) || recipient == address(0)) {
             revert Unauthorized();
         }
 
@@ -179,10 +171,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
-        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
         if (aeroAmount != 0) {
-            _transferRewards(owner, aeroAmount);
+            _transferRewards(recipient, aeroAmount);
         }
+        return aeroAmount;
     }
 
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata)
@@ -200,31 +193,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
 
     function _transferRewards(address account, uint256 amount) internal {
         aeroToken.safeTransfer(account, amount);
-    }
-
-    /// @notice Set compound reward fee (onlyOwner)
-    function setReward(uint64 _totalRewardX64) external onlyOwner {
-        require(_totalRewardX64 <= MAX_REWARD_X64, "Fee too high");
-        totalRewardX64 = _totalRewardX64;
-        emit RewardUpdated(msg.sender, _totalRewardX64);
-    }
-
-    /// @notice Set fee withdrawer address (onlyOwner)
-    function setFeeWithdrawer(address _feeWithdrawer) external onlyOwner {
-        feeWithdrawer = _feeWithdrawer;
-        emit FeeWithdrawerUpdated(_feeWithdrawer);
-    }
-
-    /// @notice Withdraw accumulated compound fees
-    function withdrawFees(address[] calldata tokens, address to) external nonReentrant {
-        require(msg.sender == feeWithdrawer, "Not fee withdrawer");
-        for (uint i = 0; i < tokens.length; i++) {
-            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
-            if (balance > 0) {
-                IERC20(tokens[i]).safeTransfer(to, balance);
-                emit FeesWithdrawn(tokens[i], to, balance);
-            }
-        }
     }
 
     function _setExpectedNftTransfer(address from, uint256 tokenId) internal {
@@ -250,9 +218,9 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 minAmount1,
         uint256 aeroSplitBps,
         uint256 deadline
-    ) internal {
+    ) internal returns (uint256 amount0Added, uint256 amount1Added) {
         if (owner == address(0) || aeroAmount == 0) {
-            return;
+            return (0, 0);
         }
         if (swapData0.length == 0) {
             require(aeroSplitBps == 0, "Missing swapData0");
@@ -306,19 +274,15 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             SafeERC20.safeTransfer(aeroToken, owner, unswappedAero);
         }
 
-        uint256 rewardX64 = totalRewardX64;
-        uint256 maxAddAmount0 = amount0 * Q64 / (rewardX64 + Q64);
-        uint256 maxAddAmount1 = amount1 * Q64 / (rewardX64 + Q64);
+        if (amount0 != 0 || amount1 != 0) {
+            SafeERC20.safeIncreaseAllowance(IERC20(token0), address(nonfungiblePositionManager), amount0);
+            SafeERC20.safeIncreaseAllowance(IERC20(token1), address(nonfungiblePositionManager), amount1);
 
-        if (maxAddAmount0 != 0 || maxAddAmount1 != 0) {
-            SafeERC20.safeIncreaseAllowance(IERC20(token0), address(nonfungiblePositionManager), maxAddAmount0);
-            SafeERC20.safeIncreaseAllowance(IERC20(token1), address(nonfungiblePositionManager), maxAddAmount1);
-
-            (, uint256 amount0Added, uint256 amount1Added) = nonfungiblePositionManager.increaseLiquidity(
+            (, amount0Added, amount1Added) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
-                    maxAddAmount0.toUint128(),
-                    maxAddAmount1.toUint128(),
+                    amount0.toUint128(),
+                    amount1.toUint128(),
                     0,
                     0,
                     deadline
@@ -328,16 +292,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), 0);
             SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), 0);
 
-            uint256 leftover0 = maxAddAmount0 - amount0Added;
-            uint256 leftover1 = maxAddAmount1 - amount1Added;
-            if (leftover0 > 0) {
-                SafeERC20.safeTransfer(IERC20(token0), owner, leftover0);
-            }
-            if (leftover1 > 0) {
-                SafeERC20.safeTransfer(IERC20(token1), owner, leftover1);
-            }
-
-            emit RewardsCompounded(tokenId, aeroAmount, amount0Added, amount1Added);
+            uint256 leftover0 = amount0 - amount0Added;
+            uint256 leftover1 = amount1 - amount1Added;
+            if (leftover0 > 0) SafeERC20.safeTransfer(IERC20(token0), owner, leftover0);
+            if (leftover1 > 0) SafeERC20.safeTransfer(IERC20(token1), owner, leftover1);
         }
+
+        emit RewardsCompounded(tokenId, aeroAmount, amount0Added, amount1Added);
+        return (amount0Added, amount1Added);
     }
 }

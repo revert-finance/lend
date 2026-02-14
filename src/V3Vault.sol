@@ -1246,7 +1246,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     /// @notice Claim AERO rewards for a staked position
-    function claimRewards(uint256 tokenId) external {
+    function claimRewards(uint256 tokenId) external returns (uint256 aeroAmount) {
         if (gaugeManager == address(0)) revert GaugeManagerNotSet();
         if (ownerOf(tokenId) != msg.sender) revert Unauthorized();
 
@@ -1254,7 +1254,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NotStaked();
         }
 
-        IGaugeManager(gaugeManager).claimRewards(tokenId);
+        return IGaugeManager(gaugeManager).claimRewards(tokenId, msg.sender);
     }
 
     /// @notice Compound AERO rewards for a staked position
@@ -1273,7 +1273,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 minAmount1,
         uint256 aeroSplitBps,
         uint256 deadline
-    ) external {
+    ) external returns (uint256 aeroAmount, uint256 amount0Added, uint256 amount1Added) {
         if (gaugeManager == address(0)) revert GaugeManagerNotSet();
         if (ownerOf(tokenId) != msg.sender) revert Unauthorized();
 
@@ -1282,7 +1282,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NotStaked();
         }
 
-        IGaugeManager(gaugeManager).compoundRewards(
+        return IGaugeManager(gaugeManager).compoundRewards(
             tokenId,
             swapData0,
             swapData1,
