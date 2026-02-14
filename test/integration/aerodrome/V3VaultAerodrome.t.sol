@@ -45,10 +45,10 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vm.expectRevert("Ownable: caller is not the owner");
         vault.setGaugeManager(newGaugeManager);
         
-        // Owner sets gauge manager
+        // Gauge manager is set-once (ops safety): cannot change once configured
+        vm.expectRevert(V3Vault.GaugeManagerAlreadySet.selector);
         vault.setGaugeManager(newGaugeManager);
-        // Note: gaugeManager was removed from V3Vault to save contract size
-        // assertEq(vault.gaugeManager(), newGaugeManager);
+        assertEq(vault.gaugeManager(), address(gaugeManager));
     }
     
     function testStakePositionFlow() public {
@@ -164,17 +164,24 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
    
 
     function testStakeWithoutGaugeManager() public {
-        // Remove gauge manager
-        vault.setGaugeManager(address(0));
+        // Use a fresh vault instance without configuring gauge manager
+        V3Vault vaultNoGauge = new V3Vault(
+            "Revert Lend USDC",
+            "rlUSDC",
+            address(usdc),
+            npm,
+            irm,
+            oracle
+        );
         
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
         
         vm.startPrank(alice);
-        npm.approve(address(vault), tokenId);
-        vault.create(tokenId, alice);
+        npm.approve(address(vaultNoGauge), tokenId);
+        vaultNoGauge.create(tokenId, alice);
         
         vm.expectRevert(GaugeManagerNotSet.selector);
-        vault.stakePosition(tokenId);
+        vaultNoGauge.stakePosition(tokenId);
         vm.stopPrank();
     }
     

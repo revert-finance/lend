@@ -24,6 +24,9 @@ import "./utils/Constants.sol";
 contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
 
+    error GaugeManagerAlreadySet();
+    error InvalidGaugeManager();
+
     error PositionIsStaked();
     error UnexpectedDeposit();
 
@@ -1219,6 +1222,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @notice Set gauge manager
     function setGaugeManager(address _gaugeManager) external onlyOwner {
+        if (gaugeManager != address(0)) revert GaugeManagerAlreadySet();
+        if (_gaugeManager == address(0)) revert InvalidGaugeManager();
         gaugeManager = _gaugeManager;
         emit GaugeManagerSet(_gaugeManager);
     }
