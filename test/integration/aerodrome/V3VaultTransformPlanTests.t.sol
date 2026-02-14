@@ -220,9 +220,10 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
 
         assertTrue(newTokenId != tokenId);
         assertEq(vault.ownerOf(newTokenId), alice);
-        assertEq(vault.ownerOf(tokenId), address(0));
+        assertEq(vault.ownerOf(tokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
+        assertEq(vault.loans(tokenId).debtShares, 0);
     }
 
     function testExecuteWithVaultCanRunUnstakedToStakedCycle() public {
