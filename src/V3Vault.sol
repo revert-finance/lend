@@ -402,7 +402,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 loans[tokenId] = Loan(debtShares);
 
-                _removeTokenFromOwner(owner, oldTokenId);
                 _addTokenToOwner(owner, tokenId, oldTokenId);
 
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96);
