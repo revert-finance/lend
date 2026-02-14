@@ -111,7 +111,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
             revert NotStaked();
         }
 
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
+        uint256 aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        if (aeroAmount != 0) {
+            _transferRewards(owner, aeroAmount);
+        }
 
         _setExpectedNftTransfer(gauge, tokenId);
         IGauge(gauge).withdraw(tokenId);
@@ -158,7 +163,6 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
 
-        emit RewardsCompounded(tokenId, aeroAmount, 0, 0);
     }
 
     /// @notice Simple reward claiming without compounding

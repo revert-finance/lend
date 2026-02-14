@@ -127,4 +127,45 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         _testWithdrawLeftover();
         _testWithdrawProtocolFee(0, 1916359786106899);
     }
+
+    function testCompoundKeepsFullAccountingForRewardsAndLeftover() external {
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.approve(address(autoCompound), TEST_NFT_2);
+
+        (,,,, address token0, address token1,,,,,,,) = NPM.positions(TEST_NFT_2);
+
+        uint256 reward = Q64 / 50; // 2%
+        vm.prank(address(this));
+        autoCompound.setReward(uint64(reward));
+
+        uint256 token0ContractBefore = IERC20(token0).balanceOf(address(autoCompound));
+        uint256 token1ContractBefore = IERC20(token1).balanceOf(address(autoCompound));
+
+        uint256 token0UserBefore = autoCompound.positionBalances(TEST_NFT_2, token0);
+        uint256 token1UserBefore = autoCompound.positionBalances(TEST_NFT_2, token1);
+        uint256 token0ProtocolBefore = autoCompound.positionBalances(0, token0);
+        uint256 token1ProtocolBefore = autoCompound.positionBalances(0, token1);
+
+        vm.prank(OPERATOR_ACCOUNT);
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0, block.timestamp));
+
+        uint256 token0ContractAfter = IERC20(token0).balanceOf(address(autoCompound));
+        uint256 token1ContractAfter = IERC20(token1).balanceOf(address(autoCompound));
+
+        uint256 token0UserAfter = autoCompound.positionBalances(TEST_NFT_2, token0);
+        uint256 token1UserAfter = autoCompound.positionBalances(TEST_NFT_2, token1);
+        uint256 token0ProtocolAfter = autoCompound.positionBalances(0, token0);
+        uint256 token1ProtocolAfter = autoCompound.positionBalances(0, token1);
+
+        assertEq(
+            (token0UserAfter - token0UserBefore) + (token0ProtocolAfter - token0ProtocolBefore),
+            token0ContractAfter - token0ContractBefore,
+            "token0 accounting must match physical contract balance delta"
+        );
+        assertEq(
+            (token1UserAfter - token1UserBefore) + (token1ProtocolAfter - token1ProtocolBefore),
+            token1ContractAfter - token1ContractBefore,
+            "token1 accounting must match physical contract balance delta"
+        );
+    }
 }

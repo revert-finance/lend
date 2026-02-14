@@ -58,7 +58,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
 
     uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
-    uint64 public totalRewardX64 = uint64(Q64 / 50); // Start at 2%
+    uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
     
     /// @notice params for execute()
     struct ExecuteParams {
@@ -184,9 +184,9 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                     )
                 );
 
-            // Protocol fees are the amount reserved from the actually added liquidity.
-            state.amount0Fees = state.compounded0 * rewardX64 / Q64;
-            state.amount1Fees = state.compounded1 * rewardX64 / Q64;
+            // Protocol fees are the amount reserved (not added as liquidity)
+            state.amount0Fees = state.amount0 - state.maxAddAmount0;
+            state.amount1Fees = state.amount1 - state.maxAddAmount1;
         }
 
             // Leftover for owner is only the slippage (difference between max and actual)
