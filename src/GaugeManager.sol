@@ -254,6 +254,12 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         if (owner == address(0) || aeroAmount == 0) {
             return;
         }
+        if (swapData0.length == 0) {
+            require(aeroSplitBps == 0, "Missing swapData0");
+        }
+        if (swapData1.length == 0) {
+            require(aeroSplitBps == 10000, "Missing swapData1");
+        }
 
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
@@ -262,10 +268,11 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         uint256 amount1;
         uint256 aeroForToken0 = 0;
 
+        uint256 aeroSpent;
         if (swapData0.length > 0) {
             aeroForToken0 = (aeroAmount * aeroSplitBps) / 10000;
             if (aeroForToken0 > 0) {
-                (, amount0) = _routerSwap(
+                (aeroSpent, amount0) = _routerSwap(
                     RouterSwapParams(
                         aeroToken,
                         IERC20(token0),
@@ -280,7 +287,8 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
         if (swapData1.length > 0) {
             uint256 remainingAero = aeroAmount - aeroForToken0;
             if (remainingAero > 0) {
-                (, amount1) = _routerSwap(
+                uint256 amount1Spent;
+                (amount1Spent, amount1) = _routerSwap(
                     RouterSwapParams(
                         aeroToken,
                         IERC20(token1),
@@ -289,7 +297,13 @@ contract GaugeManager is Ownable2Step, IERC721Receiver, ReentrancyGuard, Swapper
                         swapData1
                     )
                 );
+                aeroSpent += amount1Spent;
             }
+        }
+
+        uint256 unswappedAero = aeroAmount - aeroSpent;
+        if (unswappedAero > 0) {
+            SafeERC20.safeTransfer(aeroToken, owner, unswappedAero);
         }
 
         uint256 rewardX64 = totalRewardX64;

@@ -223,7 +223,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
-        assertEq(vault.loans(tokenId).debtShares, 0);
+        assertEq(vault.loans(tokenId), 0);
     }
 
     function testExecuteWithVaultCanRunUnstakedToStakedCycle() public {
@@ -412,7 +412,7 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
         MockAutoRangeAerodromePositionManager rangeNpm = MockAutoRangeAerodromePositionManager(address(npm));
         uint256 newTokenId = rangeNpm.lastMintedTokenId();
 
-        assertEq(vault.ownerOf(tokenId), address(0));
+        assertEq(vault.ownerOf(tokenId), alice);
         assertEq(vault.ownerOf(newTokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));

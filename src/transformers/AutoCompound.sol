@@ -58,7 +58,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
 
     uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
-    uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
+    uint64 public totalRewardX64 = uint64(Q64 / 50); // Start at 2%, owner can set up to 5%
     
     /// @notice params for execute()
     struct ExecuteParams {
