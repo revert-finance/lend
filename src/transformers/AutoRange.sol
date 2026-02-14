@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
+import "../utils/Slot0Reader.sol";
 
 /// @title AutoRange
 /// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
@@ -173,7 +174,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
+        (state.sqrtPriceX96, state.currentTick) = Slot0Reader.read(address(state.pool));
 
         if (
             state.currentTick < state.tickLower - config.lowerTickLimit
@@ -209,7 +210,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                     params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
 
                 // update tick
-                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
+                (state.sqrtPriceX96, state.currentTick) = Slot0Reader.read(address(state.pool));
             }
 
             int24 tickSpacing = _getTickSpacing(state.fee);
@@ -391,7 +392,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             // if a swap is requested - check TWAP oracle
             if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+                (state.sqrtPriceX96, state.tick) = Slot0Reader.read(address(pool));
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;

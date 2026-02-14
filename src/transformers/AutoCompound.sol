@@ -9,6 +9,7 @@ import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
+import "../utils/Slot0Reader.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
@@ -144,7 +145,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
             // if a swap is requested - check TWAP oracle
             if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+                (state.sqrtPriceX96, state.tick) = Slot0Reader.read(address(pool));
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;
