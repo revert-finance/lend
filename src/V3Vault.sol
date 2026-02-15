@@ -502,6 +502,16 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         nonfungiblePositionManager.approve(address(0), newTokenId);
+        if (tokenId != newTokenId) {
+            // If the old token still exists, it must remain in vault custody and must not keep transformer approval.
+            // Some transforms may burn the old tokenId; in that case `ownerOf` will revert and we skip this.
+            try nonfungiblePositionManager.ownerOf(tokenId) returns (address oldOwner) {
+                if (oldOwner != address(this)) {
+                    revert Unauthorized();
+                }
+                nonfungiblePositionManager.approve(address(0), tokenId);
+            } catch {}
+        }
 
         uint256 debtShares = loans[newTokenId].debtShares;
         if (debtShares != 0) {
