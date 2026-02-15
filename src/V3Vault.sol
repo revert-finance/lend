@@ -476,6 +476,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
+        uint256 debtSharesBefore = loans[tokenId].debtShares;
+
         address loanOwner = tokenOwner[tokenId];
 
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
@@ -516,7 +518,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 debtShares = loans[newTokenId].debtShares;
         if (debtShares != 0) {
             uint256 debt = _convertToAssets(debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-            _requireLoanIsHealthy(newTokenId, debt, false);
+            // Only enforce the borrow safety buffer if the transform increased debt.
+            // This prevents bypassing the buffer via transform-mode borrows, without making non-debt-increasing
+            // transforms (e.g. maintenance transforms) unnecessarily stricter.
+            _requireLoanIsHealthy(newTokenId, debt, debtShares > debtSharesBefore);
         }
 
         transformedTokenId = 0;
