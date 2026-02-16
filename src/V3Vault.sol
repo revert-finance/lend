@@ -288,7 +288,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @inheritdoc IERC4626
     function totalAssets() public view override returns (uint256) {
-        return IERC20(asset).balanceOf(address(this));
+        (uint256 debtExchangeRateX96,) = _calculateGlobalInterest();
+        uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
+        return IERC20(asset).balanceOf(address(this)) + debt;
     }
 
     /// @inheritdoc IERC4626
@@ -1016,12 +1018,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
         }
 
-        uint256 ownerBalance = balanceOf(owner);
-        if (shares > ownerBalance) {
-            shares = ownerBalance;
-            assets = _convertToAssets(shares, newLendExchangeRateX96, Math.Rounding.Down);
-        }
-
         // if caller has allowance for owners shares - may call withdraw
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
@@ -1120,7 +1116,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         view
         returns (uint256 balance, uint256 reserves)
     {
-        balance = totalAssets();
+        balance = IERC20(asset).balanceOf(address(this));
         uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
         uint256 lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
         reserves = balance + debt > lent ? balance + debt - lent : 0;

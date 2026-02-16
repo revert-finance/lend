@@ -289,6 +289,20 @@ contract V3VaultIntegrationTest is Test {
         assertEq(vault.balanceOf(WHALE_ACCOUNT), initialDeposit + mintShares);
     }
 
+    function testWithdrawRevertsWhenExceedingOwnerAssets() external {
+        uint256 amount = 1_000_000;
+
+        vm.startPrank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), amount * 2);
+        vault.deposit(amount, WHALE_ACCOUNT);
+        vault.deposit(amount, TEST_NFT_ACCOUNT_2);
+        vm.stopPrank();
+
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert();
+        vault.withdraw(amount + 1, WHALE_ACCOUNT, WHALE_ACCOUNT);
+    }
+
     // fuzz testing deposit amount
     function testDeposit(uint256 amount) external {
         uint256 balance = USDC.balanceOf(WHALE_ACCOUNT);
@@ -1433,8 +1447,10 @@ contract V3VaultIntegrationTest is Test {
         vaultBalance = USDC.balanceOf(address(vault));
         lent = vault.lendInfo(WHALE_ACCOUNT);
         
-        if (lent > vaultBalance && withdraw > vaultBalance && lent > 0) {
+        if (withdraw > vaultBalance) {
             vm.expectRevert(Constants.InsufficientLiquidity.selector);
+        } else if (withdraw > lent) {
+            vm.expectRevert();
         }
         vm.prank(WHALE_ACCOUNT);
         vault.withdraw(withdraw, WHALE_ACCOUNT, WHALE_ACCOUNT);

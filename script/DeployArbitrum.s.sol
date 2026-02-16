@@ -138,14 +138,14 @@ contract DeployArbitrum is Script {
         vault.setReserveFactor(uint32(Q32 * 10 / 100));
         vault.setReserveProtectionFactor(uint32(Q32 * 5 / 100));
 
-        new FlashloanLiquidator(NPM, EX0x, UNIVERSAL_ROUTER);
+        new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
 
         // deploy transformers and automators
         V3Utils v3Utils = V3Utils(payable(0xcfd55ac7647454Ea0F7C4c9eC231e0A282B30980));
         v3Utils.setVault(address(vault));
         vault.setTransformer(address(v3Utils), true);
 
-        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
         

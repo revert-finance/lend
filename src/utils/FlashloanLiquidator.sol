@@ -9,6 +9,9 @@ import "./Swapper.sol";
 
 /// @title Helper contract which allows atomic liquidation and needed swaps by using UniV3 Flashloan
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
+    // NOTE FOR AUDITS:
+    // This helper is intentionally designed to be stateless between calls. Any unsolicited/dust token balance that
+    // ends up here is treated as out-of-protocol and recoverability is not guaranteed by design.
     address private activeFlashPool;
     bytes32 private activeFlashDataHash;
 
