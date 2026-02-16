@@ -9,14 +9,56 @@ contract BorrowDuringTransformTransformer {
     }
 }
 
+contract UnexpectedNFTSender {
+    function push(MockAerodromePositionManager npm, address from, address to, uint256 tokenId) external {
+        npm.safeTransferFrom(from, to, tokenId);
+    }
+}
+
+contract UnexpectedNFTTransferTransformer {
+    MockAerodromePositionManager internal immutable npm;
+    UnexpectedNFTSender internal immutable sender;
+
+    constructor(MockAerodromePositionManager _npm) {
+        npm = _npm;
+        sender = new UnexpectedNFTSender();
+    }
+
+    function execute(address vault, uint256 unexpectedTokenId) external {
+        npm.approve(address(sender), unexpectedTokenId);
+        sender.push(npm, address(this), vault, unexpectedTokenId);
+    }
+}
+
+contract DirectNFTTransferTransformer {
+    MockAerodromePositionManager internal immutable npm;
+
+    constructor(MockAerodromePositionManager _npm) {
+        npm = _npm;
+    }
+
+    function execute(address vault, uint256 newTokenId) external {
+        npm.safeTransferFrom(address(this), vault, newTokenId);
+    }
+}
+
 contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
     BorrowDuringTransformTransformer internal transformer;
+    UnexpectedNFTTransferTransformer internal unexpectedNftTransformer;
+    DirectNFTTransferTransformer internal directNftTransformer;
 
     function setUp() public override {
         super.setUp();
 
         transformer = new BorrowDuringTransformTransformer();
         vault.setTransformer(address(transformer), true);
+
+        unexpectedNftTransformer = new UnexpectedNFTTransferTransformer(npm);
+        vault.setTransformer(address(unexpectedNftTransformer), true);
+
+        directNftTransformer = new DirectNFTTransferTransformer(npm);
+        vault.setTransformer(address(directNftTransformer), true);
+
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         // Provide pool liquidity so borrows can succeed up to the health check.
@@ -69,5 +111,78 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
             address(transformer),
             abi.encodeCall(BorrowDuringTransformTransformer.execute, (address(vault), tokenId, amount))
         );
+    }
+
+    function testTransformRevertsOnUnexpectedNftReceivedDuringTransform() external {
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50000e6,
+            50000e18
+        );
+
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+
+        uint256 unexpectedTokenId = 9_999_999;
+        npm.setPosition(unexpectedTokenId, address(usdc), address(dai), 1, -100, 100, 1e18);
+        npm.setTokensOwed(unexpectedTokenId, 0, 0);
+        npm.mint(address(unexpectedNftTransformer), unexpectedTokenId);
+
+        vm.prank(alice);
+        vm.expectRevert(Constants.TransformFailed.selector);
+        vault.transform(
+            tokenId,
+            address(unexpectedNftTransformer),
+            abi.encodeCall(UnexpectedNFTTransferTransformer.execute, (address(vault), unexpectedTokenId))
+        );
+
+        assertEq(vault.ownerOf(tokenId), alice);
+        assertEq(npm.ownerOf(tokenId), address(vault));
+        assertEq(npm.ownerOf(unexpectedTokenId), address(unexpectedNftTransformer));
+    }
+
+    function testTransformAllowsMigrationWhenOperatorIsActiveTransformer() external {
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50000e6,
+            50000e18
+        );
+
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+
+        uint256 newTokenId = 8_888_888;
+        npm.setPosition(newTokenId, address(usdc), address(dai), 1, -100, 100, 1e18);
+        npm.setTokensOwed(newTokenId, 0, 0);
+        npm.mint(address(directNftTransformer), newTokenId);
+
+        vm.prank(alice);
+        uint256 returnedTokenId = vault.transform(
+            tokenId,
+            address(directNftTransformer),
+            abi.encodeCall(DirectNFTTransferTransformer.execute, (address(vault), newTokenId))
+        );
+
+        assertEq(returnedTokenId, newTokenId);
+        assertEq(vault.ownerOf(newTokenId), alice);
+        assertEq(vault.ownerOf(tokenId), alice);
+        assertEq(npm.ownerOf(newTokenId), address(vault));
+        assertEq(npm.ownerOf(tokenId), address(vault));
     }
 }
