@@ -5,6 +5,11 @@ import "forge-std/Script.sol";
 import "../src/transformers/V3Utils.sol";
 
 interface IGaugeManager {
+    function tokenIdToGauge(uint256 tokenId) external view returns (address);
+    function vault() external view returns (address);
+}
+
+interface IVault {
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
     function compoundRewards(
@@ -16,21 +21,11 @@ interface IGaugeManager {
         uint256 aeroSplitBps,
         uint256 deadline
     ) external returns (uint256 aeroAmount, uint256 amount0Added, uint256 amount1Added);
-    function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
-    function tokenIdToGauge(uint256 tokenId) external view returns (address);
-    function positionOwners(uint256 tokenId) external view returns (address);
-    
-    
-    function executeV3UtilsWithOptionalCompound(
+    function claimRewards(uint256 tokenId) external returns (uint256 aeroAmount);
+    function unstakeTransformStake(
         uint256 tokenId,
-        address v3utils,
-        V3Utils.Instructions memory instructions,
-        bool shouldCompound,
-        bytes memory aeroSwapData0,
-        bytes memory aeroSwapData1,
-        uint256 minAeroAmount0,
-        uint256 minAeroAmount1,
-        uint256 aeroSplitBps
+        address transformer,
+        bytes calldata data
     ) external returns (uint256 newTokenId);
 }
 
@@ -128,6 +123,10 @@ contract SimpleStakeCompound is Script {
     // Token addresses
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+
+    function _vault() internal view returns (IVault) {
+        return IVault(IGaugeManager(GAUGE_MANAGER).vault());
+    }
     
     /// @notice Calculate optimal aeroSplitBps based on position state
     /// @param tokenId The position to analyze
@@ -164,12 +163,7 @@ contract SimpleStakeCompound is Script {
     /// @notice Stake your Aerodrome position NFT
     function stake(uint256 tokenId) external {
         vm.startBroadcast();
-        
-        // Approve GaugeManager to take your NFT
-        INPM(NPM).approve(GAUGE_MANAGER, tokenId);
-        
-        // Stake it
-        IGaugeManager(GAUGE_MANAGER).stakePosition(tokenId);
+        _vault().stakePosition(tokenId);
         
         vm.stopBroadcast();
         
@@ -193,7 +187,7 @@ contract SimpleStakeCompound is Script {
         bytes memory swapData1 = abi.encode(UNIVERSAL_ROUTER, hex"");
         
         // Compound with calculated optimal split
-        IGaugeManager(GAUGE_MANAGER).compoundRewards(
+        _vault().compoundRewards(
             tokenId,
             swapData0,
             swapData1,
@@ -211,8 +205,7 @@ contract SimpleStakeCompound is Script {
     /// @notice Claim AERO rewards without compounding (for debugging)
     function claim(uint256 tokenId) external {
         vm.startBroadcast();
-        
-        IGaugeManager(GAUGE_MANAGER).claimRewards(tokenId, msg.sender);
+        _vault().claimRewards(tokenId);
         
         vm.stopBroadcast();
         
@@ -226,7 +219,7 @@ contract SimpleStakeCompound is Script {
         // Unstake the position - this will:
         // 1. Claim any pending AERO rewards and send them to the owner
         // 2. Return the NFT back to the original owner
-        IGaugeManager(GAUGE_MANAGER).unstakePosition(tokenId);
+        _vault().unstakePosition(tokenId);
         
         vm.stopBroadcast();
         
@@ -298,7 +291,7 @@ contract SimpleStakeCompound is Script {
         console.log("Min amount token1:", minAmount1);
         
         // Execute compound with the provided 0x swap data
-        IGaugeManager(GAUGE_MANAGER).compoundRewards(
+        _vault().compoundRewards(
             tokenId,
             swapData0,
             swapData1,
@@ -334,6 +327,8 @@ contract SimpleStakeCompound is Script {
         uint256 aeroSplitBps,
         bool shouldCompound
     ) external {
+        address vaultAddress = IGaugeManager(GAUGE_MANAGER).vault();
+
         // Get position details
         (,, address token0, address token1, uint24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity,,,,) = 
             INPM(NPM).positions(tokenId);
@@ -355,8 +350,15 @@ contract SimpleStakeCompound is Script {
         console.log("Should compound:", shouldCompound);
         
         if (shouldCompound) {
-            console.log("WARNING: AERO compounding temporarily disabled in changeRangeWith0x");
-            console.log("         Use executeV3UtilsWithOptionalCompound for full control");
+            IVault(vaultAddress).compoundRewards(
+                tokenId,
+                swapData0,
+                swapData1,
+                minAmount0,
+                minAmount1,
+                aeroSplitBps,
+                block.timestamp + 1200
+            );
         }
         
         // Execute range change with optional AERO compounding
@@ -382,23 +384,17 @@ contract SimpleStakeCompound is Script {
             amountAddMin0: 0,
             amountAddMin1: 0,
             deadline: block.timestamp + 1200,
-            recipient: IGaugeManager(GAUGE_MANAGER).positionOwners(tokenId),
-            recipientNFT: address(GAUGE_MANAGER),
+            recipient: msg.sender,
+            recipientNFT: vaultAddress,
             unwrap: false,
             returnData: "",
             swapAndMintReturnData: ""
         });
         
-        uint256 newTokenId = IGaugeManager(GAUGE_MANAGER).executeV3UtilsWithOptionalCompound(
+        uint256 newTokenId = IVault(vaultAddress).unstakeTransformStake(
             tokenId,
             V3_UTILS,
-            instructions,
-            false, // Disable compounding for now
-            "", // aeroSwapData0
-            "", // aeroSwapData1
-            0, // minAeroAmount0
-            0, // minAeroAmount1
-            aeroSplitBps // Will be used if/when we enable compounding
+            abi.encodeCall(V3Utils.execute, (tokenId, instructions))
         );
         
         vm.stopBroadcast();
@@ -430,6 +426,8 @@ contract SimpleStakeCompound is Script {
         uint256 aeroSplitBps,
         bool shouldCompound
     ) external {
+        address vaultAddress = IGaugeManager(GAUGE_MANAGER).vault();
+
         // Get position details
         (,, address token0, address token1, uint24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity,,,,) = 
             INPM(NPM).positions(tokenId);
@@ -463,7 +461,7 @@ contract SimpleStakeCompound is Script {
             amountAddMin1: 0,
             deadline: block.timestamp + 1200,
             recipient: msg.sender, // Send dust to caller
-            recipientNFT: GAUGE_MANAGER, // New NFT goes to GaugeManager
+            recipientNFT: vaultAddress, // New NFT goes to Vault
             unwrap: false,
             returnData: "",
             swapAndMintReturnData: ""
@@ -478,17 +476,22 @@ contract SimpleStakeCompound is Script {
         console.log("New tick upper:", uint256(int256(newTickUpper)));
         console.log("Should compound:", shouldCompound);
         
-        // Execute with proper AERO compounding support
-        uint256 newTokenId = IGaugeManager(GAUGE_MANAGER).executeV3UtilsWithOptionalCompound(
+        if (shouldCompound) {
+            IVault(vaultAddress).compoundRewards(
+                tokenId,
+                swapData0,
+                swapData1,
+                minAmount0,
+                minAmount1,
+                aeroSplitBps,
+                block.timestamp + 1200
+            );
+        }
+
+        uint256 newTokenId = IVault(vaultAddress).unstakeTransformStake(
             tokenId,
             V3_UTILS,
-            instructions,
-            shouldCompound,
-            swapData0, // AERO -> token0 swap data
-            swapData1, // AERO -> token1 swap data
-            minAmount0, // Min token0 from AERO
-            minAmount1, // Min token1 from AERO
-            aeroSplitBps
+            abi.encodeCall(V3Utils.execute, (tokenId, instructions))
         );
         
         vm.stopBroadcast();
@@ -514,6 +517,7 @@ contract SimpleStakeCompound is Script {
         uint256 swapAmount,
         uint256 aeroSplitBps
     ) external {
+        address vaultAddress = IGaugeManager(GAUGE_MANAGER).vault();
         vm.startBroadcast();
         
         // Get position details
@@ -572,23 +576,16 @@ contract SimpleStakeCompound is Script {
             amountAddMin1: 0,
             deadline: block.timestamp + 1200,
             recipient: msg.sender, // Send dust to owner
-            recipientNFT: GAUGE_MANAGER, // New NFT goes to GaugeManager
+            recipientNFT: vaultAddress, // New NFT goes to Vault
             unwrap: false,
             returnData: "",
             swapAndMintReturnData: ""
         });
         
-        // Execute via GaugeManager - no AERO compounding for shift operations
-        uint256 newTokenId = IGaugeManager(GAUGE_MANAGER).executeV3UtilsWithOptionalCompound(
+        uint256 newTokenId = IVault(vaultAddress).unstakeTransformStake(
             tokenId,
             V3_UTILS,
-            instructions,
-            false, // No AERO compounding
-            "", // No AERO swap data
-            "", // No AERO swap data
-            0,  // No min amounts
-            0,  // No min amounts
-            aeroSplitBps // Not used but required by interface
+            abi.encodeCall(V3Utils.execute, (tokenId, instructions))
         );
         
         vm.stopBroadcast();
