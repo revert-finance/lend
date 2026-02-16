@@ -9,7 +9,7 @@ interface IGaugeManager {
     function vault() external view returns (address);
 }
 
-interface IVault {
+interface ISimpleVault {
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
     function compoundRewards(
@@ -124,8 +124,8 @@ contract SimpleStakeCompound is Script {
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
-    function _vault() internal view returns (IVault) {
-        return IVault(IGaugeManager(GAUGE_MANAGER).vault());
+    function _vault() internal view returns (ISimpleVault) {
+        return ISimpleVault(IGaugeManager(GAUGE_MANAGER).vault());
     }
     
     /// @notice Calculate optimal aeroSplitBps based on position state
@@ -350,7 +350,7 @@ contract SimpleStakeCompound is Script {
         console.log("Should compound:", shouldCompound);
         
         if (shouldCompound) {
-            IVault(vaultAddress).compoundRewards(
+            ISimpleVault(vaultAddress).compoundRewards(
                 tokenId,
                 swapData0,
                 swapData1,
@@ -391,7 +391,7 @@ contract SimpleStakeCompound is Script {
             swapAndMintReturnData: ""
         });
         
-        uint256 newTokenId = IVault(vaultAddress).unstakeTransformStake(
+        uint256 newTokenId = ISimpleVault(vaultAddress).unstakeTransformStake(
             tokenId,
             V3_UTILS,
             abi.encodeCall(V3Utils.execute, (tokenId, instructions))
@@ -477,7 +477,7 @@ contract SimpleStakeCompound is Script {
         console.log("Should compound:", shouldCompound);
         
         if (shouldCompound) {
-            IVault(vaultAddress).compoundRewards(
+            ISimpleVault(vaultAddress).compoundRewards(
                 tokenId,
                 swapData0,
                 swapData1,
@@ -488,7 +488,7 @@ contract SimpleStakeCompound is Script {
             );
         }
 
-        uint256 newTokenId = IVault(vaultAddress).unstakeTransformStake(
+        uint256 newTokenId = ISimpleVault(vaultAddress).unstakeTransformStake(
             tokenId,
             V3_UTILS,
             abi.encodeCall(V3Utils.execute, (tokenId, instructions))
@@ -582,7 +582,7 @@ contract SimpleStakeCompound is Script {
             swapAndMintReturnData: ""
         });
         
-        uint256 newTokenId = IVault(vaultAddress).unstakeTransformStake(
+        uint256 newTokenId = ISimpleVault(vaultAddress).unstakeTransformStake(
             tokenId,
             V3_UTILS,
             abi.encodeCall(V3Utils.execute, (tokenId, instructions))
