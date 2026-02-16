@@ -88,7 +88,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
             if (isUniversalRouter) {
                 // Handle Universal Router case
-                (address target, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
+                (, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
                 UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
                 SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);

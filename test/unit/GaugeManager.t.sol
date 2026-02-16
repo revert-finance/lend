@@ -420,15 +420,6 @@ contract GaugeManagerUnitTest is Test {
         assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
 
-    function testRejectsUnexpectedNftTransfer() external {
-        uint256 tokenId = 2;
-        npm.mint(ALICE, tokenId);
-
-        vm.prank(ALICE);
-        vm.expectRevert(Constants.WrongContract.selector);
-        npm.safeTransferFrom(ALICE, address(gaugeManager), tokenId);
-    }
-
     function _stake() internal {
         vm.prank(address(vault));
         gaugeManager.stakePosition(TOKEN_ID);

@@ -24,8 +24,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     mapping(address => address) public override poolToGauge;
     mapping(uint256 => address) public override tokenIdToGauge;
-    address private expectedNftFrom;
-    uint256 private expectedNftTokenId;
 
     struct CompoundState {
         address gauge;
@@ -96,9 +94,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             revert NotConfigured();
         }
 
-        _setExpectedNftTransfer(address(vault), tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(vault), address(this), tokenId);
-        _clearExpectedNftTransfer();
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
 
@@ -132,9 +128,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         address owner = vault.ownerOf(tokenId);
         _claimAndSendRewards(gauge, tokenId, owner);
-        _setExpectedNftTransfer(gauge, tokenId);
         IGauge(gauge).withdraw(tokenId);
-        _clearExpectedNftTransfer();
         nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
         delete tokenIdToGauge[tokenId];
         emit PositionUnstaked(tokenId, owner, gauge);
@@ -189,9 +183,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             return (0, 0, 0);
         }
 
-        _setExpectedNftTransfer(state.gauge, tokenId);
         IGauge(state.gauge).withdraw(tokenId);
-        _clearExpectedNftTransfer();
         (,, state.token0, state.token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         state = _swapAeroForPosition(state, aeroSplitBps, swapData0, swapData1, minAmount0, minAmount1);
@@ -291,26 +283,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
-    function _setExpectedNftTransfer(address from, uint256 tokenId) internal {
-        expectedNftFrom = from;
-        expectedNftTokenId = tokenId;
-    }
-
-    function _clearExpectedNftTransfer() internal {
-        expectedNftFrom = address(0);
-        expectedNftTokenId = 0;
-    }
-
-    function onERC721Received(address, address from, uint256 tokenId, bytes calldata)
-        external
-        view
-        override
-        returns (bytes4)
-    {
-        if (
-            msg.sender != address(nonfungiblePositionManager) || from != expectedNftFrom
-                || tokenId != expectedNftTokenId
-        ) {
+    function onERC721Received(address, address, uint256, bytes calldata) external view override returns (bytes4) {
+        if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
         return IERC721Receiver.onERC721Received.selector;
