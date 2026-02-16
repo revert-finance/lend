@@ -130,7 +130,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     mapping(uint256 => address) public pendingDepositRecipient;
 
     uint256 public override transformedTokenId; 
-    address private activeTransformer;
 
     mapping(address => bool) public transformerAllowList; 
     mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; 
@@ -364,7 +363,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
-    function onERC721Received(address operator,  address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address,  address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
@@ -396,10 +395,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 // The NFT is just being returned to vault custody
             }
         } else {
-            if (operator != activeTransformer) {
-                revert Unauthorized();
-            }
-            
             if (tokenId != oldTokenId) {
                 address owner = tokenOwner[oldTokenId];
 
@@ -477,7 +472,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         transformedTokenId = tokenId;
-        activeTransformer = transformer;
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
@@ -530,7 +524,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         transformedTokenId = 0;
-        activeTransformer = address(0);
     }
 
     function borrow(uint256 tokenId, uint256 assets) external override {

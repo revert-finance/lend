@@ -113,7 +113,7 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         );
     }
 
-    function testTransformRevertsOnUnexpectedNftReceivedDuringTransform() external {
+    function testTransformAllowsMigrationWhenOperatorDiffersButMaintainsCustody() external {
         uint256 tokenId = createPositionProper(
             alice,
             address(usdc),
@@ -137,16 +137,17 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         npm.mint(address(unexpectedNftTransformer), unexpectedTokenId);
 
         vm.prank(alice);
-        vm.expectRevert(Constants.TransformFailed.selector);
-        vault.transform(
+        uint256 returnedTokenId = vault.transform(
             tokenId,
             address(unexpectedNftTransformer),
             abi.encodeCall(UnexpectedNFTTransferTransformer.execute, (address(vault), unexpectedTokenId))
         );
 
+        assertEq(returnedTokenId, unexpectedTokenId);
+        assertEq(vault.ownerOf(unexpectedTokenId), alice);
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(npm.ownerOf(tokenId), address(vault));
-        assertEq(npm.ownerOf(unexpectedTokenId), address(unexpectedNftTransformer));
+        assertEq(npm.ownerOf(unexpectedTokenId), address(vault));
     }
 
     function testTransformAllowsMigrationWhenOperatorIsActiveTransformer() external {
