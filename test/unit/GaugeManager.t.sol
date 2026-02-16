@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../../src/GaugeManager.sol";
@@ -46,7 +47,7 @@ contract MockPool {
     }
 }
 
-contract MockVault {
+contract MockVault is IERC721Receiver {
     mapping(uint256 => address) public owners;
 
     function setOwner(uint256 tokenId, address owner) external {
@@ -55,6 +56,10 @@ contract MockVault {
 
     function ownerOf(uint256 tokenId) external view returns (address) {
         return owners[tokenId];
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return IERC721Receiver.onERC721Received.selector;
     }
 }
 
@@ -363,6 +368,28 @@ contract GaugeManagerUnitTest is Test {
 
         vm.expectRevert(Constants.Unauthorized.selector);
         gaugeManager.unstakePosition(TOKEN_ID);
+    }
+
+    function testUnstakeIfStakedReturnsFalseWhenNotStaked() external {
+        vm.prank(address(vault));
+        bool wasStaked = gaugeManager.unstakeIfStaked(TOKEN_ID);
+        assertFalse(wasStaked);
+    }
+
+    function testUnstakeIfStakedReturnsTrueWhenStaked() external {
+        _stake();
+
+        vm.prank(address(vault));
+        bool wasStaked = gaugeManager.unstakeIfStaked(TOKEN_ID);
+
+        assertTrue(wasStaked);
+        assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(0));
+        assertEq(npm.ownerOf(TOKEN_ID), address(vault));
+    }
+
+    function testUnstakeIfStakedRevertsWhenCallerIsNotVault() external {
+        vm.expectRevert(Constants.Unauthorized.selector);
+        gaugeManager.unstakeIfStaked(TOKEN_ID);
     }
 
     function testClaimRewardsRevertsWhenNotStaked() external {

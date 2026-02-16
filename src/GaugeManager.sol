@@ -107,19 +107,32 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             revert Unauthorized();
         }
 
+        bool wasStaked = _unstakePosition(tokenId);
+        if (!wasStaked) {
+            revert NotStaked();
+        }
+    }
+
+    function unstakeIfStaked(uint256 tokenId) external override nonReentrant returns (bool wasStaked) {
+        if (msg.sender != address(vault)) {
+            revert Unauthorized();
+        }
+        return _unstakePosition(tokenId);
+    }
+
+    function _unstakePosition(uint256 tokenId) internal returns (bool wasStaked) {
         address gauge = tokenIdToGauge[tokenId];
         if (gauge == address(0)) {
-            revert NotStaked();
+            return false;
         }
 
         address owner = vault.ownerOf(tokenId);
         _claimAndSendRewards(gauge, tokenId, owner);
-
         IGauge(gauge).withdraw(tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
-
         delete tokenIdToGauge[tokenId];
         emit PositionUnstaked(tokenId, owner, gauge);
+        return true;
     }
 
     function claimRewards(uint256 tokenId, address recipient)

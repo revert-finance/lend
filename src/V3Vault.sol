@@ -1410,9 +1410,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function _unstakeIfNeeded(uint256 tokenId) internal returns (bool wasStaked) {
-        if (gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)) {
-            IGaugeManager(gaugeManager).unstakePosition(tokenId);
-            return true;
+        if (gaugeManager != address(0)) {
+            return IGaugeManager(gaugeManager).unstakeIfStaked(tokenId);
         }
     }
 

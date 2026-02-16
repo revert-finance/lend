@@ -21,6 +21,7 @@ interface IGaugeManager {
 
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
+    function unstakeIfStaked(uint256 tokenId) external returns (bool wasStaked);
 
     function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
 
