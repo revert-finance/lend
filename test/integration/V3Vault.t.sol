@@ -37,6 +37,28 @@ contract BorrowDuringTransformTransformer {
     }
 }
 
+contract MockNoopGaugeManager {
+    mapping(address => address) public poolToGauge;
+    mapping(uint256 => address) public tokenIdToGauge;
+
+    function setGauge(address, address) external {}
+    function stakePosition(uint256) external {}
+    function unstakePosition(uint256) external {}
+    function unstakeIfStaked(uint256) external pure returns (bool wasStaked) {
+        return false;
+    }
+    function claimRewards(uint256, address) external pure returns (uint256 aeroAmount) {
+        return 0;
+    }
+    function compoundRewards(uint256, bytes calldata, bytes calldata, uint256, uint256, uint256, uint256)
+        external
+        pure
+        returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
+    {
+        return (0, 0, 0);
+    }
+}
+
 contract V3VaultIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
     uint256 constant Q64 = 2 ** 64;
@@ -1262,7 +1284,10 @@ contract V3VaultIntegrationTest is Test {
         vm.expectRevert(Constants.InvalidConfig.selector);
         vault.setGaugeManager(address(0));
 
-        address firstManager = address(0x123456);
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vault.setGaugeManager(address(0x123456));
+
+        address firstManager = address(new MockNoopGaugeManager());
         vault.setGaugeManager(firstManager);
         assertEq(vault.gaugeManager(), firstManager);
 
@@ -1504,6 +1529,44 @@ contract V3VaultIntegrationTest is Test {
 
         assertEq(vault.ownerOf(TEST_NFT), owner);
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
+    }
+
+    function testCreateRevertsWithZeroRecipient() external {
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.create(TEST_NFT, address(0));
+    }
+
+    function testCreateWithPermitRevertsWithZeroRecipient() external {
+        uint256 privateKey = 778;
+        address owner = vm.addr(privateKey);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, owner, TEST_NFT);
+
+        (uint8 v, bytes32 r, bytes32 s) = _getNpmPermitSignature(TEST_NFT, address(vault), deadline, privateKey);
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vm.prank(owner);
+        vault.createWithPermit(TEST_NFT, address(0), deadline, v, r, s);
+    }
+
+    function testStakeRevertsIfGaugeManagerDidNotTakeCustody() external {
+        _setupBasicLoan(false);
+
+        MockNoopGaugeManager noopGaugeManager = new MockNoopGaugeManager();
+        vault.setGaugeManager(address(noopGaugeManager));
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.stakePosition(TEST_NFT);
+
+        assertEq(NPM.ownerOf(TEST_NFT), address(vault));
+        assertEq(NPM.getApproved(TEST_NFT), address(0));
     }
 
     function _getPermitTransferFromSignature(

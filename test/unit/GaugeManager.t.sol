@@ -322,6 +322,40 @@ contract GaugeManagerUnitTest is Test {
         assertEq(gauge.staker(TOKEN_ID), address(gaugeManager));
     }
 
+    function testCompoundRewardsUsesUnswappedAeroWhenTokenIsInPair() external {
+        uint256 tokenId = 3;
+        npm.setPosition(tokenId, address(aero), address(token1), 100, -60, 60, 10);
+        npm.mint(address(vault), tokenId);
+        vault.setOwner(tokenId, ALICE);
+        factory.setPool(address(aero), address(token1), 100, address(pool));
+
+        vm.prank(address(vault));
+        npm.approve(address(gaugeManager), tokenId);
+        vm.prank(address(vault));
+        gaugeManager.stakePosition(tokenId);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(tokenId, 100 ether);
+        token1.mint(address(allowanceHolder), 1_000 ether);
+
+        bytes memory swapData1 =
+            abi.encodeCall(MockAllowanceHolder.executeSwap, (address(aero), address(token1), 40 ether, 80 ether));
+
+        uint256 aeroBefore = aero.balanceOf(ALICE);
+        uint256 token1Before = token1.balanceOf(ALICE);
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(tokenId, "", swapData1, 0, 0, 0, block.timestamp + 1);
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(amountAdded0, 60 ether);
+        assertEq(amountAdded1, 80 ether);
+        assertEq(aero.balanceOf(ALICE), aeroBefore);
+        assertEq(token1.balanceOf(ALICE), token1Before);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(gauge));
+    }
+
     function testSetGaugeRevertsForPoolGaugeMismatch() external {
         MockPool otherPool = new MockPool();
         otherPool.setGauge(address(0x1234));

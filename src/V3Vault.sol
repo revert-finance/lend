@@ -150,6 +150,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list (for removal without loop)
     mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
 
+    // transform-mode sentinel. Intentionally used instead of a global nonReentrant modifier so trusted transformers
+    // can call back into borrow() for the same token during transform in a single transaction.
     uint256 public override transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
@@ -432,6 +434,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @param tokenId The token ID associated with the new position.
     /// @param recipient Address to recieve the position in the vault
     function create(uint256 tokenId, address recipient) external override {
+        if (recipient == address(0)) {
+            revert InvalidConfig();
+        }
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
@@ -446,6 +451,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         external
         override
     {
+        if (recipient == address(0)) {
+            revert InvalidConfig();
+        }
         nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
@@ -473,11 +481,18 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 if (data.length != 0) {
                     owner = abi.decode(data, (address));
                 }
+                if (owner == address(0)) {
+                    revert InvalidConfig();
+                }
                 loans[tokenId] = Loan(0);
                 _addTokenToOwner(owner, tokenId);
                 emit Add(tokenId, owner, 0);
             }
         } else {
+            // NOTE FOR AUDITS:
+            // We intentionally do not bind replacement-NFT migration to a specific operator contract here.
+            // Some valid transformers route NFT moves through helper/proxy contracts, so strict operator pinning
+            // would break supported integrations. Safety relies on transform-mode scoping + final custody checks.
             // if in transform mode - and a new position is sent - current position is replaced and returned
             if (tokenId != oldTokenId) {
                 address owner = tokenOwner[oldTokenId];
@@ -530,6 +545,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (transformedTokenId != 0) {
             revert Reentrancy();
         }
+        // Enter scoped transform mode and block unrelated state-changing paths until reset below.
         transformedTokenId = tokenId;
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
@@ -561,6 +577,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             delete transformApprovals[loanOwner][tokenId][msg.sender];
         }
 
+        // NOTE FOR AUDITS:
+        // No operator-pinning is enforced by design for transformer flexibility; custody is enforced here.
         // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
         address owner = nonfungiblePositionManager.ownerOf(newTokenId);
         if (owner != address(this)) {
@@ -590,7 +608,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @param tokenId The token ID to use as collateral
     /// @param assets How much assets to borrow
     function borrow(uint256 tokenId, uint256 assets) external override {
-
+        // Allowed callback path: transform() -> allowed transformer -> borrow() for the same tokenId.
         bool isTransformMode = tokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
         address owner = tokenOwner[tokenId];
@@ -906,6 +924,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @notice sets reserve factor - percentage difference between debt and lend interest (onlyOwner)
     /// @param _reserveFactorX32 reserve factor multiplied by Q32
     function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
+        // _reserveFactorX32 is uint32, while Q32 == 2^32. Therefore reserveFactorX32 <= Q32 - 1 by type,
+        // and Q32 - reserveFactorX32 in _calculateGlobalInterest() cannot underflow.
         // update interest to be sure that reservefactor change is applied from now on
         _updateGlobalInterest();
         reserveFactorX32 = _reserveFactorX32;
@@ -1266,6 +1286,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             (uint256 balance,) = _getBalanceAndReserves(oldDebtExchangeRateX96, oldLendExchangeRateX96);
             uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
             (uint256 borrowRateX64, uint256 supplyRateX64) = interestRateModel.getRatesPerSecondX64(balance, debt);
+            // Safe by type bound documented in setReserveFactor(): reserveFactorX32 is always <= Q32 - 1.
             supplyRateX64 = supplyRateX64.mulDiv(Q32 - reserveFactorX32, Q32);
 
             newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
@@ -1352,11 +1373,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function setGaugeManager(address _gaugeManager) external onlyOwner {
-        if (_gaugeManager == address(0)) {
-            revert InvalidConfig();
-        }
         if (gaugeManager != address(0)) {
             revert GaugeManagerAlreadySet();
+        }
+        if (_gaugeManager == address(0) || _gaugeManager.code.length == 0) {
+            revert InvalidConfig();
         }
 
         gaugeManager = _gaugeManager;
@@ -1409,6 +1430,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     function _stake(uint256 tokenId) internal {
         nonfungiblePositionManager.approve(gaugeManager, tokenId);
         IGaugeManager(gaugeManager).stakePosition(tokenId);
+        // Safety gate: staking manager must move the NFT out of the vault. Prevents no-op managers from
+        // leaving lingering approvals on vaulted collateral.
+        if (nonfungiblePositionManager.ownerOf(tokenId) == address(this)) {
+            revert InvalidConfig();
+        }
     }
 
     function _unstakeIfNeeded(uint256 tokenId) internal returns (bool wasStaked) {

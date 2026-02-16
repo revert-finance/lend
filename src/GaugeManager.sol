@@ -237,6 +237,18 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             state.amount1Out += amountOutDelta1;
         }
 
+        // If one side of the position is AERO itself, any unswapped rewards can be added directly as liquidity.
+        uint256 unswappedAero = state.aeroAmount - state.spentAero;
+        if (unswappedAero != 0) {
+            if (state.token0 == address(aeroToken)) {
+                state.amount0Out += unswappedAero;
+                state.spentAero += unswappedAero;
+            } else if (state.token1 == address(aeroToken)) {
+                state.amount1Out += unswappedAero;
+                state.spentAero += unswappedAero;
+            }
+        }
+
         return state;
     }
 
@@ -287,6 +299,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
+        // WARNING: unsolicited NFTs sent directly to GaugeManager are not tracked by tokenIdToGauge and cannot
+        // be recovered by protocol flows. Users must interact through V3Vault only.
         return IERC721Receiver.onERC721Received.selector;
     }
 }
