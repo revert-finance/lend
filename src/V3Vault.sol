@@ -533,6 +533,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         transformedTokenId = tokenId;
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
+        uint256 debtSharesBefore = loans[tokenId].debtShares;
 
         address loanOwner = tokenOwner[tokenId];
 
@@ -575,7 +576,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(newTokenId, debt, false);
+        // apply borrow buffer only when transform flow increased debt
+        _requireLoanIsHealthy(newTokenId, debt, loans[newTokenId].debtShares > debtSharesBefore);
 
         transformedTokenId = 0;
 

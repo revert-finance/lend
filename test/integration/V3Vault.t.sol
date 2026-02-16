@@ -31,6 +31,12 @@ contract MockFlashPoolInfo {
     }
 }
 
+contract BorrowDuringTransformTransformer {
+    function execute(address vault, uint256 tokenId, uint256 amount) external {
+        IVault(vault).borrow(tokenId, amount);
+    }
+}
+
 contract V3VaultIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
     uint256 constant Q64 = 2 ** 64;
@@ -1570,6 +1576,25 @@ contract V3VaultIntegrationTest is Test {
         vm.expectRevert(Constants.TransformFailed.selector);
         vm.prank(EXPLOITER_ACCOUNT);
         vault.transform(EXPLOITER_NFT, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+    }
+
+    function testTransformBorrowIncreaseRequiresBorrowBuffer() external {
+        BorrowDuringTransformTransformer transformer = new BorrowDuringTransformTransformer();
+        vault.setTransformer(address(transformer), true);
+
+        _setupBasicLoan(false);
+
+        // Collateral value for TEST_NFT is ~8.846179 USDC at this fork block.
+        // 8.5 USDC would be healthy without buffer, but exceeds the 95% borrow safety buffer.
+        uint256 riskyBorrowAmount = 8_500_000;
+
+        vm.expectRevert(Constants.CollateralFail.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(
+            TEST_NFT,
+            address(transformer),
+            abi.encodeCall(BorrowDuringTransformTransformer.execute, (address(vault), TEST_NFT, riskyBorrowAmount))
+        );
     }
 
     function test_LeverageDown() public {
