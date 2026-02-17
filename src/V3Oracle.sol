@@ -596,6 +596,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
 
         sqrtPriceX96 = uint160(word0);
+        // slot0() ABI-encodes signed int24 as a sign-extended 32-byte word; this cast safely decodes negative ticks.
         tick = int24(int256(word1));
     }
 

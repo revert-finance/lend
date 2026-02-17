@@ -199,7 +199,9 @@ abstract contract Automator is Ownable2Step, Swapper {
         }
 
         sqrtPriceX96 = uint160(word0);
-        tick = int24(int256(word1));
+        assembly ("memory-safe") {
+            tick := signextend(2, word1)
+        }
     }
 
     function _decreaseFullLiquidityAndCollect(
