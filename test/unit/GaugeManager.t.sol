@@ -188,6 +188,7 @@ contract MockGauge is IGauge {
 
     mapping(uint256 => address) public staker;
     mapping(uint256 => uint256) public rewardPerTokenId;
+    bool public revertOnGetReward;
 
     constructor(IERC721 _nft, IERC20 _rewardToken) {
         nft = _nft;
@@ -196,6 +197,10 @@ contract MockGauge is IGauge {
 
     function setReward(uint256 tokenId, uint256 amount) external {
         rewardPerTokenId[tokenId] = amount;
+    }
+
+    function setRevertOnGetReward(bool value) external {
+        revertOnGetReward = value;
     }
 
     function deposit(uint256 tokenId) external override {
@@ -212,6 +217,9 @@ contract MockGauge is IGauge {
     }
 
     function getReward(uint256 tokenId) external override {
+        if (revertOnGetReward) {
+            revert("reward revert");
+        }
         if (staker[tokenId] == address(0)) {
             revert("not staked");
         }
@@ -397,6 +405,17 @@ contract GaugeManagerUnitTest is Test {
         gaugeManager.unstakePosition(TOKEN_ID);
     }
 
+    function testUnstakeSucceedsWhenGetRewardReverts() external {
+        _stake();
+        gauge.setRevertOnGetReward(true);
+
+        vm.prank(address(vault));
+        gaugeManager.unstakePosition(TOKEN_ID);
+
+        assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(0));
+        assertEq(npm.ownerOf(TOKEN_ID), address(vault));
+    }
+
     function testUnstakeRevertsWhenCallerIsNotVault() external {
         _stake();
 
@@ -421,6 +440,18 @@ contract GaugeManagerUnitTest is Test {
         assertEq(npm.ownerOf(TOKEN_ID), address(vault));
     }
 
+    function testUnstakeIfStakedSucceedsWhenGetRewardReverts() external {
+        _stake();
+        gauge.setRevertOnGetReward(true);
+
+        vm.prank(address(vault));
+        bool wasStaked = gaugeManager.unstakeIfStaked(TOKEN_ID);
+
+        assertTrue(wasStaked);
+        assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(0));
+        assertEq(npm.ownerOf(TOKEN_ID), address(vault));
+    }
+
     function testUnstakeIfStakedRevertsWhenCallerIsNotVault() external {
         vm.expectRevert(Constants.Unauthorized.selector);
         gaugeManager.unstakeIfStaked(TOKEN_ID);
@@ -429,6 +460,15 @@ contract GaugeManagerUnitTest is Test {
     function testClaimRewardsRevertsWhenNotStaked() external {
         vm.prank(address(vault));
         vm.expectRevert(Constants.NotStaked.selector);
+        gaugeManager.claimRewards(TOKEN_ID, RECIPIENT);
+    }
+
+    function testClaimRewardsRevertsWhenGaugeGetRewardReverts() external {
+        _stake();
+        gauge.setRevertOnGetReward(true);
+
+        vm.prank(address(vault));
+        vm.expectRevert(bytes("reward revert"));
         gaugeManager.claimRewards(TOKEN_ID, RECIPIENT);
     }
 

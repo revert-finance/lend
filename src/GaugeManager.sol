@@ -127,7 +127,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
 
         address owner = vault.ownerOf(tokenId);
-        _claimAndSendRewards(gauge, tokenId, owner);
+        _claimAndSendRewardsBestEffort(gauge, tokenId, owner);
         IGauge(gauge).withdraw(tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
         delete tokenIdToGauge[tokenId];
@@ -205,10 +205,28 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
+    function _claimAndSendRewardsBestEffort(address gauge, uint256 tokenId, address recipient) internal {
+        uint256 aeroAmount = _claimRewardsToSelfBestEffort(gauge, tokenId);
+        if (aeroAmount != 0) {
+            aeroToken.safeTransfer(recipient, aeroAmount);
+        }
+    }
+
     function _claimRewardsToSelf(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
         aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+    }
+
+    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
+        // Liveness over reward payout: unstake/remove/liquidation must not depend on a successful reward claim.
+        try IGauge(gauge).getReward(tokenId) {
+            uint256 aeroAfter = aeroToken.balanceOf(address(this));
+            if (aeroAfter > aeroBefore) {
+                aeroAmount = aeroAfter - aeroBefore;
+            }
+        } catch {}
     }
 
     function _swapAeroForPosition(
