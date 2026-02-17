@@ -101,7 +101,19 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
         address poolToken0 = data.flashLoanPool.token0();
         address poolToken1 = data.flashLoanPool.token1();
-        if (address(_getPool(poolToken0, poolToken1, data.flashLoanPool.fee())) != msg.sender) {
+        bool isFactoryPool = address(_getPool(poolToken0, poolToken1, data.flashLoanPool.fee())) == msg.sender;
+        if (!isFactoryPool) {
+            // Slipstream resolves pools by tickSpacing (positions store this in `fee`), not by swap fee.
+            (bool success, bytes memory tickSpacingData) =
+                msg.sender.staticcall(abi.encodeWithSignature("tickSpacing()"));
+            if (success && tickSpacingData.length >= 32) {
+                int24 tickSpacing = abi.decode(tickSpacingData, (int24));
+                if (tickSpacing > 0) {
+                    isFactoryPool = address(_getPool(poolToken0, poolToken1, uint24(tickSpacing))) == msg.sender;
+                }
+            }
+        }
+        if (!isFactoryPool) {
             revert Unauthorized();
         }
         if (address(data.asset) != poolToken0 && address(data.asset) != poolToken1) {
