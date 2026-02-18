@@ -416,4 +416,67 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
     }
+
+    function testAutoRangeUsesPoolTickSpacingInsteadOfPositionFeeValue() public {
+        AutoRange autoRange = _deployAutoRange();
+
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -1, 1, 1000e18);
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+        vm.prank(alice);
+        vault.stakePosition(tokenId);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, admin, true);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, address(autoRange), true);
+
+        // In this test harness the pool tick spacing is 1, while the Aerodrome position "fee" field is 500.
+        // The transform must round using the pool tick spacing, not Uniswap fee-tier mapping.
+        MockPool(usdcDaiPool).setTick(7);
+
+        AutoRange.PositionConfig memory config = AutoRange.PositionConfig({
+            lowerTickLimit: 0,
+            upperTickLimit: 0,
+            lowerTickDelta: -1,
+            upperTickDelta: 1,
+            token0SlippageX64: 0,
+            token1SlippageX64: 0,
+            onlyFees: false,
+            autoCompound: false,
+            maxRewardX64: 0
+        });
+
+        vm.prank(alice);
+        autoRange.configToken(tokenId, address(vault), config);
+
+        npm.setLiquidity(tokenId, 0);
+        npm.setTokensOwed(tokenId, 0, 0);
+
+        AutoRange.ExecuteParams memory params = AutoRange.ExecuteParams({
+            tokenId: tokenId,
+            swap0To1: true,
+            amountIn: 0,
+            swapData: "",
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: block.timestamp + 1 hours,
+            rewardX64: 0
+        });
+
+        vm.prank(admin);
+        autoRange.executeWithVault(params, address(vault));
+
+        MockAutoRangeAerodromePositionManager rangeNpm = MockAutoRangeAerodromePositionManager(address(npm));
+        uint256 newTokenId = rangeNpm.lastMintedTokenId();
+        (,,,,, int24 tickLower, int24 tickUpper,,,,,) = npm.positions(newTokenId);
+
+        assertEq(tickLower, 6, "lower tick should be rounded from pool tickSpacing=1");
+        assertEq(tickUpper, 8, "upper tick should be rounded from pool tickSpacing=1");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+        assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
+    }
 }

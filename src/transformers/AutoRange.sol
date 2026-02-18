@@ -213,7 +213,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 (state.sqrtPriceX96, state.currentTick,,,,) = IAerodromeSlipstreamPool(address(state.pool)).slot0();
             }
 
-            int24 tickSpacing = _getTickSpacing(state.fee);
+            int24 tickSpacing = IAerodromeSlipstreamPool(address(state.pool)).tickSpacing();
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             if (
@@ -517,20 +517,4 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
     }
 
-    // get tick spacing for fee tier (cached when possible)
-    function _getTickSpacing(uint24 fee) internal view returns (int24) {
-        if (fee == 10000) {
-            return 200;
-        } else if (fee == 3000) {
-            return 60;
-        } else if (fee == 500) {
-            return 10;
-        } else {
-            int24 spacing = IUniswapV3Factory(factory).feeAmountTickSpacing(fee);
-            if (spacing <= 0) {
-                revert NotSupportedFeeTier();
-            }
-            return spacing;
-        }
-    }
 }
