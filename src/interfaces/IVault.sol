@@ -43,12 +43,18 @@ interface IVault is IERC4626 {
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
+    function unstakeTransformStake(
+        uint256 tokenId,
+        address transformer,
+        bytes calldata data
+    ) external returns (uint256 newTokenId);
     
     // Gauge integration functions
     function gaugeManager() external view returns (address);
     function setGaugeManager(address _gaugeManager) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
+    function claimRewards(uint256 tokenId) external returns (uint256 aeroAmount);
     function compoundRewards(
         uint256 tokenId,
         bytes calldata swapData0,
@@ -57,7 +63,7 @@ interface IVault is IERC4626 {
         uint256 minAmount1,
         uint256 aeroSplitBps,
         uint256 deadline
-    ) external;
+    ) external returns (uint256 aeroAmount, uint256 amount0Added, uint256 amount1Added);
 
     // params for decreasing liquidity of collateralized position
     struct DecreaseLiquidityAndCollectParams {

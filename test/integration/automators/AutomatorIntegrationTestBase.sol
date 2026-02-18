@@ -63,12 +63,66 @@ abstract contract AutomatorIntegrationTestBase is Test {
 
     V3Utils v3utils;
 
+    function _tryMainnetFork(string memory rpc, uint256 blockNumber) internal returns (uint256 forkId) {
+        if (bytes(rpc).length == 0) {
+            return 0;
+        }
+        try vm.createFork(rpc, blockNumber) returns (uint256 candidateFork) {
+            vm.selectFork(candidateFork);
+            if (address(NPM).code.length > 0) {
+                return candidateFork;
+            }
+        } catch {}
+        return 0;
+    }
+
+    function _createMainnetFork(uint256 blockNumber) internal returns (uint256) {
+        string memory rpc;
+        try vm.envString("MAINNET_RPC_URL") returns (string memory mainnetRpc) {
+            rpc = mainnetRpc;
+        } catch {}
+        if (bytes(rpc).length > 0) {
+            uint256 forkId = _tryMainnetFork(rpc, blockNumber);
+            if (forkId != 0) {
+                return forkId;
+            }
+        }
+
+        try vm.envString("ETHEREUM_RPC_URL") returns (string memory ethereumRpc) {
+            rpc = ethereumRpc;
+        } catch {}
+
+        if (bytes(rpc).length > 0) {
+            uint256 forkId = _tryMainnetFork(rpc, blockNumber);
+            if (forkId != 0) {
+                return forkId;
+            }
+        }
+
+        try vm.envString("ETH_RPC_URL") returns (string memory ethRpc) {
+            rpc = ethRpc;
+        } catch {}
+
+        if (bytes(rpc).length > 0) {
+            uint256 forkId = _tryMainnetFork(rpc, blockNumber);
+            if (forkId != 0) {
+                return forkId;
+            }
+        }
+
+        uint256 fallbackFork = _tryMainnetFork("https://eth.llamarpc.com", blockNumber);
+        if (fallbackFork != 0) {
+            return fallbackFork;
+        }
+        fallbackFork = _tryMainnetFork("https://eth-mainnet.public.blastapi.io", blockNumber);
+        if (fallbackFork != 0) {
+            return fallbackFork;
+        }
+        revert("No valid mainnet fork RPC available");
+    }
+
     function _setupBase() internal {
-          string memory ANKR_RPC = string.concat(
-            "https://rpc.ankr.com/eth/",
-            vm.envString("ANKR_API_KEY")
-        );
-        mainnetFork = vm.createFork(ANKR_RPC, 15489169);
+        mainnetFork = _createMainnetFork(15489169);
         vm.selectFork(mainnetFork);
 
         v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);

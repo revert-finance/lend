@@ -45,10 +45,10 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vm.expectRevert("Ownable: caller is not the owner");
         vault.setGaugeManager(newGaugeManager);
         
-        // Owner sets gauge manager
+        // Gauge manager is set-once (ops safety): cannot change once configured
+        vm.expectRevert(V3Vault.GaugeManagerAlreadySet.selector);
         vault.setGaugeManager(newGaugeManager);
-        // Note: gaugeManager was removed from V3Vault to save contract size
-        // assertEq(vault.gaugeManager(), newGaugeManager);
+        assertEq(vault.gaugeManager(), address(gaugeManager));
     }
     
     function testStakePositionFlow() public {
@@ -106,7 +106,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         
         // Claim through vault
         vm.prank(alice);
-        gaugeManager.claimRewards(tokenId);
+        vault.claimRewards(tokenId);
         
         uint256 balanceAfter = aero.balanceOf(alice);
         assertGt(balanceAfter, balanceBefore);
@@ -164,17 +164,24 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
    
 
     function testStakeWithoutGaugeManager() public {
-        // Remove gauge manager
-        vault.setGaugeManager(address(0));
+        // Use a fresh vault instance without configuring gauge manager
+        V3Vault vaultNoGauge = new V3Vault(
+            "Revert Lend USDC",
+            "rlUSDC",
+            address(usdc),
+            npm,
+            irm,
+            oracle
+        );
         
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
         
         vm.startPrank(alice);
-        npm.approve(address(vault), tokenId);
-        vault.create(tokenId, alice);
+        npm.approve(address(vaultNoGauge), tokenId);
+        vaultNoGauge.create(tokenId, alice);
         
         vm.expectRevert(GaugeManagerNotSet.selector);
-        vault.stakePosition(tokenId);
+        vaultNoGauge.stakePosition(tokenId);
         vm.stopPrank();
     }
     
@@ -268,16 +275,40 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
+        usdcDaiGauge.setRewardForUser(address(gaugeManager), 10e18);
 
         // Test 1: Try to compound with invalid split (> 10000 bps)
         vm.expectRevert("Invalid split");
-        gaugeManager.compoundRewards(
+        vault.compoundRewards(
+            tokenId,
+            new bytes(1), // swapData0 present
+            new bytes(0), // swapData1 missing
+            0, // minAmount0
+            0, // minAmount1
+            10001, // aeroSplitBps > 10000 (invalid)
+            block.timestamp + 1000 // deadline
+        );
+
+        // Test 2: Require payloads for both swap legs when split is partial
+        vm.expectRevert("Missing swapData0");
+        vault.compoundRewards(
             tokenId,
             new bytes(0), // swapData0
             new bytes(0), // swapData1
             0, // minAmount0
             0, // minAmount1
-            10001, // aeroSplitBps > 10000 (invalid)
+            5000, // partial split requires both swap payloads
+            block.timestamp + 1000 // deadline
+        );
+
+        vm.expectRevert("Missing swapData1");
+        vault.compoundRewards(
+            tokenId,
+            new bytes(1), // swapData0
+            new bytes(0), // swapData1
+            0, // minAmount0
+            0, // minAmount1
+            5000, // aeroSplitBps not 10000
             block.timestamp + 1000 // deadline
         );
 
@@ -318,6 +349,8 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // With 80% CF = $160 borrowing power, but vault may have additional safety buffer
         // Borrow 140 USDC
         vault.borrow(tokenId, 140e6);
+        usdcDaiGauge.setRewardRate(0);
+        usdcDaiGauge.setRewardForUser(address(gaugeManager), 1e18);
 
         (uint256 debt1, uint256 fullValue1, uint256 collateralValue1, , ) = vault.loanInfo(tokenId);
         
@@ -388,10 +421,9 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // Vault should still track the original owner (alice) after liquidation
         assertEq(vault.ownerOf(tokenId), alice, "Vault should track alice as owner after liquidation");
 
-        // Verify rewards were accumulated (not pushed) - PULL pattern prevents DOS
+        // Verify liquidation forwards claimed rewards on unstake
         uint256 aliceAeroAfter = aero.balanceOf(alice);
-        assertEq(aliceAeroAfter, aliceAeroBefore, "AERO balance should not change (rewards accumulated, not pushed)");
-        assertGt(gaugeManager.unclaimedRewards(alice), 0, "Alice should have unclaimed rewards");
+        assertEq(aliceAeroAfter - aliceAeroBefore, 1e18, "AERO reward should be forwarded to user on unstake");
 
         // Verify loan is cleared
         (uint256 debt, , , , ) = vault.loanInfo(tokenId);

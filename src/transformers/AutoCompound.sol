@@ -5,11 +5,11 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+	import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
 
-import "../automators/Automator.sol";
-import "../transformers/Transformer.sol";
-import "../interfaces/IGaugeManager.sol";
+	import "../automators/Automator.sol";
+	import "../transformers/Transformer.sol";
+	import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 /// @title AutoCompound
 /// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
@@ -28,19 +28,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         address token1
     );
     
-    // gauge autocompound event
-    event GaugeAutoCompounded(
-        address account,
-        uint256 tokenId,
-        uint256 aeroAmount,
-        uint256 amountAdded0,
-        uint256 amountAdded1,
-        uint256 reward0,
-        uint256 reward1,
-        address token0,
-        address token1
-    );
-
     // config changes
     event RewardUpdated(address account, uint64 totalRewardX64);
 
@@ -49,11 +36,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     event BalanceRemoved(uint256 tokenId, address token, uint256 amount);
     event BalanceWithdrawn(uint256 tokenId, address token, address to, uint256 amount);
     
-    // gauge manager event
-    event GaugeManagerSet(address gaugeManager, bool active);
-
-    // Gauge support
-    mapping(address => bool) public gaugeManagers;
     IERC20 public immutable aeroToken;
     
     constructor(
@@ -77,28 +59,8 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public positionBalances;
 
     uint64 public constant MAX_REWARD_X64 = uint64(Q64 * 5 / 100); // 5% max fee
-    uint64 public totalRewardX64 = 0; // Start at 0%, owner can set up to 5%
+    uint64 public totalRewardX64 = uint64(Q64 / 50); // Start at 2%, owner can set up to 5%
     
-    /// @notice params for executeForGauge()
-    struct ExecuteGaugeParams {
-        // tokenid to autocompound
-        uint256 tokenId;
-        // amount of AERO transferred for this compound operation
-        uint256 aeroAmount;
-        // swap data for AERO to token0
-        bytes swapData0;
-        // swap data for AERO to token1
-        bytes swapData1;
-        // minimum amount of token0 from swap
-        uint256 minAmount0;
-        // minimum amount of token1 from swap
-        uint256 minAmount1;
-        // basis points of AERO to swap to token0 (rest goes to token1)
-        uint256 aeroSplitBps;
-        // for uniswap operations
-        uint256 deadline;
-    }
-
     /// @notice params for execute()
     struct ExecuteParams {
         // tokenid to autocompound
@@ -142,7 +104,7 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params)));
+        IVault(vault).unstakeTransformStake(params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params)));
     }
 
     /**
@@ -180,15 +142,15 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         if (state.amount0 != 0 || state.amount1 != 0) {
             uint256 amountIn = params.amountIn;
 
-            // if a swap is requested - check TWAP oracle
-            if (amountIn != 0) {
-                IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+                // if a swap is requested - check TWAP oracle
+                if (amountIn != 0) {
+                    IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+                    (state.sqrtPriceX96, state.tick,,,,) = IAerodromeSlipstreamPool(address(pool)).slot0();
 
-                // how many seconds are needed for TWAP protection
-                uint32 tSecs = TWAPSeconds;
-                if (tSecs != 0) {
-                    if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
+                    // how many seconds are needed for TWAP protection
+                    uint32 tSecs = TWAPSeconds;
+                    if (tSecs != 0) {
+                        if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
                         // if there is no valid TWAP - disable swap
                         amountIn = 0;
                     }
@@ -223,10 +185,10 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                     )
                 );
 
-                // Protocol fees are the amount reserved (not added as liquidity)
-                state.amount0Fees = state.amount0 - state.maxAddAmount0;
-                state.amount1Fees = state.amount1 - state.maxAddAmount1;
-            }
+            // Protocol fees are the amount reserved (not added as liquidity)
+            state.amount0Fees = state.amount0 - state.maxAddAmount0;
+            state.amount1Fees = state.amount1 - state.maxAddAmount1;
+        }
 
             // Leftover for owner is only the slippage (difference between max and actual)
             _setBalance(params.tokenId, state.token0, state.maxAddAmount0 - state.compounded0);
@@ -248,131 +210,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
             state.token1
         );
     }
-    
-    /**
-     * @notice Compound gauge rewards (which is in a GaugeManager) - via transform method
-     * Can only be called from configured operator account - gauge manager must be configured as well
-     */
-    function executeWithGauge(ExecuteGaugeParams calldata params, address gaugeManager) external {
-        if (!operators[msg.sender] || !gaugeManagers[gaugeManager]) {
-            revert Unauthorized();
-        }
-        // GaugeManager will override params.aeroAmount with the actual claimed amount
-        // Callers should pass 0 for aeroAmount as it will be replaced
-        IGaugeManager(gaugeManager).transform(params.tokenId, address(this), abi.encodeCall(AutoCompound.executeForGauge, (params)));
-    }
-    
-    /**
-     * @notice Compound AERO rewards into position (called by GaugeManager via transform)
-     * AERO should already be transferred to this contract by GaugeManager
-     */
-    function executeForGauge(ExecuteGaugeParams calldata params) external nonReentrant {
-        if (!gaugeManagers[msg.sender]) {
-            revert Unauthorized();
-        }
-        
-        ExecuteState memory state;
-        
-        // Use the AERO amount that was specifically transferred for this operation
-        uint256 aeroAmount = params.aeroAmount;
-        
-        if (aeroAmount == 0) {
-            return; // Nothing to compound
-        }
-        
-        // Verify we have at least this amount of AERO
-        require(aeroToken.balanceOf(address(this)) >= aeroAmount, "Insufficient AERO balance");
-        
-        // Get position info
-        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
-            nonfungiblePositionManager.positions(params.tokenId);
-        
-        // Swap AERO to position tokens
-        uint256 aeroForToken0 = 0;
-        if (params.swapData0.length > 0 && params.aeroSplitBps > 0) {
-            aeroForToken0 = (aeroAmount * params.aeroSplitBps) / 10000;
-            if (aeroForToken0 > 0) {
-                // Approve router if needed
-                if (aeroToken.allowance(address(this), universalRouter) < aeroForToken0) {
-                    SafeERC20.safeApprove(aeroToken, universalRouter, type(uint256).max);
-                }
-                
-                (, state.amount0) = _routerSwap(
-                    RouterSwapParams(
-                        aeroToken,
-                        IERC20(state.token0),
-                        aeroForToken0,
-                        params.minAmount0,
-                        params.swapData0
-                    )
-                );
-            }
-        }
-        
-        if (params.swapData1.length > 0) {
-            uint256 remainingAero = aeroAmount - aeroForToken0;
-            if (remainingAero > 0) {
-                // Approve router if needed
-                if (aeroToken.allowance(address(this), universalRouter) < remainingAero) {
-                    SafeERC20.safeApprove(aeroToken, universalRouter, type(uint256).max);
-                }
-                
-                (, state.amount1) = _routerSwap(
-                    RouterSwapParams(
-                        aeroToken,
-                        IERC20(state.token1),
-                        remainingAero,
-                        params.minAmount1,
-                        params.swapData1
-                    )
-                );
-            }
-        }
-        
-        // Add previous balances from given tokens
-        state.amount0 = state.amount0 + positionBalances[params.tokenId][state.token0];
-        state.amount1 = state.amount1 + positionBalances[params.tokenId][state.token1];
-        
-        uint256 rewardX64 = totalRewardX64;
-        
-        state.maxAddAmount0 = state.amount0 * Q64 / (rewardX64 + Q64);
-        state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
-        
-        // deposit liquidity into tokenId
-        if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
-            _checkApprovals(state.token0, state.token1);
-            
-            (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
-                INonfungiblePositionManager.IncreaseLiquidityParams(
-                    params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, params.deadline
-                )
-            );
-            
-            // Protocol fees are the amount reserved (not added as liquidity)
-            state.amount0Fees = state.amount0 - state.maxAddAmount0;
-            state.amount1Fees = state.amount1 - state.maxAddAmount1;
-        }
-        
-        // Leftover for owner is only the slippage (difference between max and actual)
-        _setBalance(params.tokenId, state.token0, state.maxAddAmount0 - state.compounded0);
-        _setBalance(params.tokenId, state.token1, state.maxAddAmount1 - state.compounded1);
-        
-        // add fees to protocol balance
-        _increaseBalance(0, state.token0, state.amount0Fees);
-        _increaseBalance(0, state.token1, state.amount1Fees);
-        
-        emit GaugeAutoCompounded(
-            msg.sender,
-            params.tokenId,
-            aeroAmount,
-            state.compounded0,
-            state.compounded1,
-            state.amount0Fees,
-            state.amount1Fees,
-            state.token0,
-            state.token1
-        );
-    }
 
     /**
      * @notice Withdraws leftover token balance for a token
@@ -383,8 +220,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         address owner = nonfungiblePositionManager.ownerOf(tokenId);
         if (vaults[owner]) {
             owner = IVault(owner).ownerOf(tokenId);
-        } else if (gaugeManagers[owner]) {
-            owner = IGaugeManager(owner).positionOwners(tokenId);
         }
         if (owner != msg.sender) {
             revert Unauthorized();
@@ -435,17 +270,6 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
         emit RewardUpdated(msg.sender, _totalRewardX64);
     }
     
-    /**
-     * @notice Set gauge manager contract (onlyOwner)
-     * @param gaugeManager The gauge manager address
-     * @param active Whether to activate or deactivate
-     */
-    function setGaugeManager(address gaugeManager, bool active) external onlyOwner {
-        gaugeManagers[gaugeManager] = active;
-        emit GaugeManagerSet(gaugeManager, active);
-    }
-    
-
     function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
         positionBalances[tokenId][token] += amount;
         emit BalanceAdded(tokenId, token, amount);

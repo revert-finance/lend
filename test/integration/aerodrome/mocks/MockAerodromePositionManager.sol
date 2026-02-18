@@ -108,7 +108,7 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         revert("Not implemented");
     }
 
-    function mint(MintParams calldata) external payable override returns (uint256, uint128, uint256, uint256) {
+    function mint(MintParams calldata) external payable virtual override returns (uint256, uint128, uint256, uint256) {
         revert("Not implemented");
     }
 
@@ -141,7 +141,7 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         revert("Not implemented");
     }
 
-    function permit(address, uint256, uint256, uint8, bytes32, bytes32) external payable override {
+    function permit(address, uint256, uint256, uint8, bytes32, bytes32) external payable virtual override {
         revert("Not implemented");
     }
 

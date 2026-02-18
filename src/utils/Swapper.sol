@@ -7,8 +7,8 @@ import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
-import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-import "v3-periphery/libraries/PoolAddress.sol";
+import "v3-periphery-patched/interfaces/INonfungiblePositionManager.sol";
+import "v3-periphery-patched/libraries/PoolAddress.sol";
 
 import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -167,13 +167,18 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        // In Aerodrome, the fee parameter actually contains the tickSpacing
+        // In Aerodrome, the fee parameter actually contains the tickSpacing. Try this path first.
         int24 tickSpacing = int24(uint24(fee));
-        
-        // Get pool from factory (Aerodrome uses getPool instead of computing address)
-        address poolAddress = IAerodromeSlipstreamFactory(factory).getPool(tokenA, tokenB, tickSpacing);
+        try IAerodromeSlipstreamFactory(factory).getPool(tokenA, tokenB, tickSpacing) returns (address poolAddress) {
+            if (poolAddress != address(0)) {
+                return IUniswapV3Pool(poolAddress);
+            }
+        } catch {}
+
+        // Fallback to Uniswap V3 canonical address derivation.
+        PoolAddress.PoolKey memory poolKey = PoolAddress.getPoolKey(tokenA, tokenB, fee);
+        address poolAddress = PoolAddress.computeAddress(factory, poolKey);
         require(poolAddress != address(0), "Pool does not exist");
-        
         return IUniswapV3Pool(poolAddress);
     }
 }

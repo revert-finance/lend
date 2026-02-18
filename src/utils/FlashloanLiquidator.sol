@@ -9,10 +9,14 @@ import "./Swapper.sol";
 
 /// @title Helper contract which allows atomic liquidation and needed swaps by using UniV3 Flashloan
 contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
+    address private activeFlashPool;
+    bytes32 private activeFlashDataHash;
+
     struct FlashCallbackData {
         uint256 tokenId;
         uint256 liquidationCost;
         IVault vault;
+        IUniswapV3Pool flashLoanPool;
         IERC20 asset;
         RouterSwapParams swap0;
         RouterSwapParams swap1;
@@ -43,6 +47,11 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
     /// @notice Liquidates a loan, using a Uniswap Flashloan
     function liquidate(LiquidateParams calldata params) external {
+        // Ensure callback context is single-use and cannot be confused by external callers.
+        if (activeFlashPool != address(0)) {
+            revert Unauthorized();
+        }
+
         (,,, uint256 liquidationCost, uint256 liquidationValue) = params.vault.loanInfo(params.tokenId);
         if (liquidationValue == 0) {
             revert NotLiquidatable();
@@ -51,12 +60,19 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
         address asset = params.vault.asset();
 
-        bool isAsset0 = params.flashLoanPool.token0() == asset;
+        address flashToken0 = params.flashLoanPool.token0();
+        address flashToken1 = params.flashLoanPool.token1();
+        bool isAsset0 = flashToken0 == asset;
+        if (!isAsset0 && flashToken1 != asset) {
+            revert InvalidPool();
+        }
+
         bytes memory data = abi.encode(
             FlashCallbackData(
                 params.tokenId,
                 liquidationCost,
                 params.vault,
+                params.flashLoanPool,
                 IERC20(asset),
                 RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0),
                 RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1),
@@ -65,13 +81,33 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
                 params.deadline
             )
         );
+        activeFlashPool = address(params.flashLoanPool);
+        activeFlashDataHash = keccak256(data);
         params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
+        activeFlashPool = address(0);
+        activeFlashDataHash = bytes32(0);
     }
 
     function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external override {
-        // no origin check is needed - because the contract doesn't hold any funds - there is no benefit in calling uniswapV3FlashCallback() from another context
+        // Callback must match an active flash context we initiated.
+        if (msg.sender != activeFlashPool || keccak256(callbackData) != activeFlashDataHash) {
+            revert Unauthorized();
+        }
 
         FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
+
+        if (msg.sender != address(data.flashLoanPool)) {
+            revert Unauthorized();
+        }
+
+        address poolToken0 = data.flashLoanPool.token0();
+        address poolToken1 = data.flashLoanPool.token1();
+        if (address(_getPool(poolToken0, poolToken1, data.flashLoanPool.fee())) != msg.sender) {
+            revert Unauthorized();
+        }
+        if (address(data.asset) != poolToken0 && address(data.asset) != poolToken1) {
+            revert InvalidPool();
+        }
 
         SafeERC20.safeIncreaseAllowance(data.asset, address(data.vault), data.liquidationCost);
         data.vault.liquidate(

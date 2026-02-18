@@ -223,8 +223,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             IERC20(address(aero)),
             IVault(address(vault)),
             address(0), // universal router not needed in tests
-            address(0), // permit2 not needed in tests
-            admin       // feeWithdrawer - set to admin for tests
+            address(0)  // permit2 not needed in tests
         );
         
         // Deploy gauges

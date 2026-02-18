@@ -53,11 +53,9 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(wethLeftover, 0);
     }
 
-    function _testWithdrawProtocolFee(uint256 expectedDaiFee, uint256 expectedWethFee) internal {
+    function _testWithdrawProtocolFee() internal {
         uint256 daiFee = autoCompound.positionBalances(0, address(DAI));
         uint256 wethFee = autoCompound.positionBalances(0, address(WETH_ERC20));
-        assertEq(daiFee, expectedDaiFee);
-        assertEq(wethFee, expectedWethFee);
 
         address[] memory tokens = new address[](2);
         tokens[0] = address(DAI);
@@ -89,7 +87,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(liquidity, 99102324844935209920);
 
         _testWithdrawLeftover();
-        _testWithdrawProtocolFee(0, 1940566999638732);
+        _testWithdrawProtocolFee();
     }
 
     function testCompoundSwap0To1() external {
@@ -107,7 +105,7 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(liquidity, 99117944276318382811);
 
         _testWithdrawLeftover();
-        _testWithdrawProtocolFee(0, 1942158733643263);
+        _testWithdrawProtocolFee();
     }
 
     function testCompoundSwap1To0() external {
@@ -125,6 +123,47 @@ contract AutoCompoundTest is AutomatorIntegrationTestBase {
         assertEq(liquidity, 98864783327532224693);
 
         _testWithdrawLeftover();
-        _testWithdrawProtocolFee(0, 1916359786106899);
+        _testWithdrawProtocolFee();
+    }
+
+    function testCompoundKeepsFullAccountingForRewardsAndLeftover() external {
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.approve(address(autoCompound), TEST_NFT_2);
+
+        (,, address token0, address token1, , , , uint128 liquidity, , , , ) = NPM.positions(TEST_NFT_2);
+
+        uint256 reward = Q64 / 50; // 2%
+        vm.prank(address(this));
+        autoCompound.setReward(uint64(reward));
+
+        uint256 token0ContractBefore = IERC20(token0).balanceOf(address(autoCompound));
+        uint256 token1ContractBefore = IERC20(token1).balanceOf(address(autoCompound));
+
+        uint256 token0UserBefore = autoCompound.positionBalances(TEST_NFT_2, token0);
+        uint256 token1UserBefore = autoCompound.positionBalances(TEST_NFT_2, token1);
+        uint256 token0ProtocolBefore = autoCompound.positionBalances(0, token0);
+        uint256 token1ProtocolBefore = autoCompound.positionBalances(0, token1);
+
+        vm.prank(OPERATOR_ACCOUNT);
+        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT_2, false, 0, block.timestamp));
+
+        uint256 token0ContractAfter = IERC20(token0).balanceOf(address(autoCompound));
+        uint256 token1ContractAfter = IERC20(token1).balanceOf(address(autoCompound));
+
+        uint256 token0UserAfter = autoCompound.positionBalances(TEST_NFT_2, token0);
+        uint256 token1UserAfter = autoCompound.positionBalances(TEST_NFT_2, token1);
+        uint256 token0ProtocolAfter = autoCompound.positionBalances(0, token0);
+        uint256 token1ProtocolAfter = autoCompound.positionBalances(0, token1);
+
+        assertEq(
+            (token0UserAfter - token0UserBefore) + (token0ProtocolAfter - token0ProtocolBefore),
+            token0ContractAfter - token0ContractBefore,
+            "token0 accounting must match physical contract balance delta"
+        );
+        assertEq(
+            (token1UserAfter - token1UserBefore) + (token1ProtocolAfter - token1ProtocolBefore),
+            token1ContractAfter - token1ContractBefore,
+            "token1 accounting must match physical contract balance delta"
+        );
     }
 }

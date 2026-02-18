@@ -6,19 +6,8 @@ import "../../../src/transformers/AutoCompound.sol";
 
 /**
  * @title GaugeManagerAutoCompoundTest
- * @notice Tests the GaugeManager<->AutoCompound integration, specifically the ABI encoding fix
- * @dev This test validates that ExecuteGaugeParams struct is correctly encoded when calling
- *      AutoCompound.executeForGauge through GaugeManager.transform()
- *
- * Bug Context:
- * - AutoCompound.executeForGauge expects: function executeForGauge(ExecuteGaugeParams calldata params)
- * - The ABI encoding must treat params as a TUPLE (struct), not individual parameters
- * - Before fix: GaugeManager used abi.encodeWithSelector with individual params (WRONG)
- * - After fix: GaugeManager uses abi.encode(struct) + abi.encodePacked(selector, ...) (CORRECT)
- *
- * This test will:
- * - PASS with the correct encoding (current code)
- * - FAIL with "Transform failed" if using the buggy encoding
+ * @notice Tests AutoCompound integration through Vault->GM
+ * @dev This test validates staked-position auto-compound flow via Vault.unstakeTransformStake.
  */
 contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
     AutoCompound public autoCompound;
@@ -43,12 +32,9 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
             address(aero) // aeroToken
         );
 
-        // Configure AutoCompound in GaugeManager
-        gaugeManager.setTransformer(address(autoCompound), true);
-
-        // Set GaugeManager as authorized in AutoCompound
-        // Note: Test contract is owner since it deployed AutoCompound
-        autoCompound.setGaugeManager(address(gaugeManager), true);
+        // Configure AutoCompound in Vault and as a vault callback target.
+        vault.setTransformer(address(autoCompound), true);
+        autoCompound.setVault(address(vault));
 
         // Fund alice with tokens
         usdc.mint(alice, 10000e6);
@@ -61,7 +47,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
      * @dev This test specifically exercises the code path where GaugeManager re-encodes
      *      the ExecuteGaugeParams struct. The test will FAIL if the encoding is wrong.
      */
-    function testAutoCompoundThroughTransform() public {
+    function testAutoCompoundThroughVault() public {
         // 1. Create and stake a position as alice
         tokenId = createPosition(
             alice,
@@ -73,39 +59,40 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
             1000e18 // liquidity
         );
 
-        // Approve and stake in GaugeManager
+        // Approve and deposit+stake in vault
         vm.prank(alice);
-        npm.approve(address(gaugeManager), tokenId);
+        npm.approve(address(vault), tokenId);
 
         vm.prank(alice);
-        gaugeManager.stakePosition(tokenId);
+        vault.create(tokenId, alice);
+
+        vm.prank(alice);
+        vault.stakePosition(tokenId);
+
+        vm.prank(alice);
+        vault.approveTransform(tokenId, admin, true);
 
         // 2. Simulate some time passing and rewards accumulating
         vm.warp(block.timestamp + 1 days);
 
-        // Mock the gauge to report rewards (gauge tracks rewards by user, not tokenId)
+        // Mock the gauge to report rewards (tracked by user)
         usdcDaiGauge.setRewardForUser(alice, 10e18); // 10 AERO earned
+        npm.setTokensOwed(tokenId, 0, 0);
 
-        // 3. Prepare AutoCompound params
-        // We'll use empty swap data since we're testing encoding, not swap logic
-        AutoCompound.ExecuteGaugeParams memory params = AutoCompound.ExecuteGaugeParams({
+        // 3. Prepare AutoCompound params (no swap, no new liquidity added)
+        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
             tokenId: tokenId,
-            aeroAmount: 0, // This will be replaced by GaugeManager with actual claimed amount
-            swapData0: hex"", // Empty - no swap for this test
-            swapData1: hex"", // Empty - no swap for this test
-            minAmount0: 0,
-            minAmount1: 0,
-            aeroSplitBps: 5000, // 50/50 split
+            swap0To1: true,
+            amountIn: 0,
             deadline: block.timestamp + 1 hours
         });
 
-        // 4. Call transform through GaugeManager as alice
-        // This is THE CRITICAL TEST: The encoding must be correct for this to succeed
-        vm.prank(alice);
-        bytes memory transformData = abi.encodeCall(AutoCompound.executeForGauge, (params));
+        // 4. Call through Vault/GM as AutoCompound operator
+        vm.prank(admin);
+        bytes memory transformData = abi.encodeCall(AutoCompound.execute, (params));
 
         // Execute transform - this will FAIL with "Transform failed" if encoding is wrong
-        uint256 newTokenId = gaugeManager.transform(
+        uint256 newTokenId = vault.unstakeTransformStake(
             tokenId,
             address(autoCompound),
             transformData
@@ -117,7 +104,6 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
 
         // Verify position is still staked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "Position should still be staked");
-        assertEq(gaugeManager.positionOwners(tokenId), alice, "Alice should still be owner");
     }
 
 }

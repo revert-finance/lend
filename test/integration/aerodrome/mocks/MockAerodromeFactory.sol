@@ -5,6 +5,7 @@ import "../../../../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 
 contract MockAerodromeFactory is IAerodromeSlipstreamFactory {
     mapping(address => mapping(address => mapping(int24 => address))) public pools;
+    mapping(int24 => uint24) private tickSpacingByAmount;
     address public immutable override owner;
     address public immutable override poolImplementation;
 
@@ -16,11 +17,16 @@ contract MockAerodromeFactory is IAerodromeSlipstreamFactory {
     function setPool(address tokenA, address tokenB, int24 tickSpacing, address pool) external {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         pools[token0][token1][tickSpacing] = pool;
+        tickSpacingByAmount[tickSpacing] = uint24(uint24(tickSpacing));
     }
 
     function getPool(address tokenA, address tokenB, int24 tickSpacing) external view override returns (address pool) {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         return pools[token0][token1][tickSpacing];
+    }
+
+    function feeAmountTickSpacing(int24 tickSpacing) external view returns (int24) {
+        return int24(tickSpacingByAmount[tickSpacing]);
     }
 
     function createPool(address tokenA, address tokenB, int24 tickSpacing, uint160 sqrtPriceX96) 
