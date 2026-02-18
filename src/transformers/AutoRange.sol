@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
+import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 
@@ -212,7 +213,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
             }
 
-            int24 tickSpacing = _getTickSpacing(state.fee);
+            int24 tickSpacing = IAerodromeSlipstreamPool(address(state.pool)).tickSpacing();
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             if (
@@ -512,28 +513,4 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
     }
 
-    // get tick spacing for fee tier (cached when possible)
-    function _getTickSpacing(uint24 fee) internal view returns (int24) {
-        if (fee == 10000) {
-            return 200;
-        } else if (fee == 3000) {
-            return 60;
-        } else if (fee == 500) {
-            return 10;
-        } else {
-            // Uniswap: map fee tier to tick spacing via factory.
-            try IUniswapV3Factory(factory).feeAmountTickSpacing(fee) returns (int24 spacing) {
-                if (spacing > 0) {
-                    return spacing;
-                }
-            } catch {}
-
-            // Aerodrome Slipstream: positions().fee stores tick spacing directly.
-            int24 tickSpacing = int24(uint24(fee));
-            if (tickSpacing <= 0) {
-                revert NotSupportedFeeTier();
-            }
-            return tickSpacing;
-        }
-    }
 }
