@@ -245,8 +245,8 @@ abstract contract AerodromeTestBase is Test, Constants {
         
         // Configure vault collateral factors using X32 scaling
         // CF must be scaled by Q32 = 2^32 = 4,294,967,296
-        uint32 cf90Percent = uint32(Q32 * 90 / 100);  // 3,865,470,566
-        uint32 cf85Percent = uint32(Q32 * 85 / 100);  // 3,650,722,201
+        uint32 cf90Percent = 3_865_470_566; // floor(Q32 * 90 / 100)
+        uint32 cf85Percent = 3_650_722_201; // floor(Q32 * 85 / 100)
         vault.setTokenConfig(address(usdc), cf90Percent, type(uint32).max); // 90% CF, max limit
         vault.setTokenConfig(address(dai), cf90Percent, type(uint32).max); // 90% CF, max limit
         vault.setTokenConfig(address(weth), cf85Percent, type(uint32).max); // 85% CF, max limit

@@ -160,7 +160,8 @@ abstract contract Automator is Ownable2Step, Swapper {
         (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
         if (twapOk) {
             int256 res = twapTick - currentTick;
-            return res >= -int16(maxDifference) && res <= int16(maxDifference);
+            int256 maxDifferenceInt = int256(uint256(maxDifference));
+            return res >= -maxDifferenceInt && res <= maxDifferenceInt;
         } else {
             return false;
         }
@@ -174,11 +175,10 @@ abstract contract Automator is Ownable2Step, Swapper {
 
         // pool observe may fail when there is not enough history available
         try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
-            if (
-                tickCumulatives[0] - tickCumulatives[1] < 0
-                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
-            ) tick--;
+            int56 delta = tickCumulatives[0] - tickCumulatives[1];
+            int256 twapSecondsInt = int256(uint256(twapSeconds));
+            int24 tick = SafeCast.toInt24(int256(delta) / twapSecondsInt);
+            if (delta < 0 && int256(delta) % twapSecondsInt != 0) tick--;
             return (tick, true);
         } catch {
             return (0, false);
@@ -198,7 +198,7 @@ abstract contract Automator is Ownable2Step, Swapper {
             word1 := mload(add(data, 64))
         }
 
-        sqrtPriceX96 = uint160(word0);
+        sqrtPriceX96 = SafeCast.toUint160(word0);
         assembly ("memory-safe") {
             tick := signextend(2, word1)
         }

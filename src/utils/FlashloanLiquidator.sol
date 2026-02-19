@@ -109,7 +109,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
             if (success && tickSpacingData.length >= 32) {
                 int24 tickSpacing = abi.decode(tickSpacingData, (int24));
                 if (tickSpacing > 0) {
-                    isFactoryPool = address(_getPool(poolToken0, poolToken1, uint24(tickSpacing))) == msg.sender;
+                    isFactoryPool = address(_getPool(poolToken0, poolToken1, _toTickSpacingU24(tickSpacing))) == msg.sender;
                 }
             }
         }
@@ -158,6 +158,12 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
             if (balance != 0) {
                 SafeERC20.safeTransfer(data.asset, data.liquidator, balance);
             }
+        }
+    }
+
+    function _toTickSpacingU24(int24 tickSpacing) internal pure returns (uint24 value) {
+        assembly ("memory-safe") {
+            value := tickSpacing
         }
     }
 }

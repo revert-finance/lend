@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
@@ -138,8 +139,13 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
                     params.fee
                 )
             );
-            amountInDelta = params.swap0For1 ? uint256(amount0Delta) : uint256(amount1Delta);
-            amountOutDelta = params.swap0For1 ? uint256(-amount1Delta) : uint256(-amount0Delta);
+            if (params.swap0For1) {
+                amountInDelta = SafeCast.toUint256(amount0Delta);
+                amountOutDelta = SafeCast.toUint256(-amount1Delta);
+            } else {
+                amountInDelta = SafeCast.toUint256(amount1Delta);
+                amountOutDelta = SafeCast.toUint256(-amount0Delta);
+            }
 
             // amountMin slippage check
             if (amountOutDelta < params.amountOutMin) {
@@ -159,14 +165,15 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         }
 
         // transfer needed amount of tokenIn
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta));
+        int256 amountInDelta = amount0Delta > 0 ? amount0Delta : amount1Delta;
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, SafeCast.toUint256(amountInDelta));
     }
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
         // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in the `fee` field of positions().
         (bool success, bytes memory data) = factory.staticcall(
-            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, int24(uint24(fee)))
+            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, _toTickSpacing(fee))
         );
         if (success && data.length >= 32) {
             address poolAddress = abi.decode(data, (address));
@@ -184,5 +191,11 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         }
 
         return IUniswapV3Pool(address(0));
+    }
+
+    function _toTickSpacing(uint24 fee) internal pure returns (int24 tickSpacing) {
+        assembly ("memory-safe") {
+            tickSpacing := fee
+        }
     }
 }

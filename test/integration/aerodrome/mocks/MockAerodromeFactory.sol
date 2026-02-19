@@ -17,7 +17,7 @@ contract MockAerodromeFactory is IAerodromeSlipstreamFactory {
     function setPool(address tokenA, address tokenB, int24 tickSpacing, address pool) external {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         pools[token0][token1][tickSpacing] = pool;
-        tickSpacingByAmount[tickSpacing] = uint24(uint24(tickSpacing));
+        tickSpacingByAmount[tickSpacing] = _toUint24(tickSpacing);
     }
 
     function getPool(address tokenA, address tokenB, int24 tickSpacing) external view override returns (address pool) {
@@ -26,7 +26,7 @@ contract MockAerodromeFactory is IAerodromeSlipstreamFactory {
     }
 
     function feeAmountTickSpacing(int24 tickSpacing) external view returns (int24) {
-        return int24(tickSpacingByAmount[tickSpacing]);
+        return _toInt24(tickSpacingByAmount[tickSpacing]);
     }
 
     function createPool(address tokenA, address tokenB, int24 tickSpacing, uint160)
@@ -39,5 +39,17 @@ contract MockAerodromeFactory is IAerodromeSlipstreamFactory {
         pool = address(uint160(uint256(keccak256(abi.encodePacked(token0, token1, tickSpacing)))));
         pools[token0][token1][tickSpacing] = pool;
         return pool;
+    }
+
+    function _toUint24(int24 value) internal pure returns (uint24 result) {
+        assembly ("memory-safe") {
+            result := value
+        }
+    }
+
+    function _toInt24(uint24 value) internal pure returns (int24 result) {
+        assembly ("memory-safe") {
+            result := value
+        }
     }
 }

@@ -82,7 +82,7 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
             operator: address(0),
             token0: token0,
             token1: token1,
-            tickSpacing: uint24(tickSpacing),
+            tickSpacing: _toUint24(tickSpacing),
             tickLower: tickLower,
             tickUpper: tickUpper,
             liquidity: liquidity,
@@ -91,6 +91,12 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
             tokensOwed0: 0,
             tokensOwed1: 0
         });
+    }
+
+    function _toUint24(int24 value) internal pure returns (uint24 result) {
+        assembly ("memory-safe") {
+            result := value
+        }
     }
     
     function setTokensOwed(uint256 tokenId, uint128 tokensOwed0, uint128 tokensOwed1) external {

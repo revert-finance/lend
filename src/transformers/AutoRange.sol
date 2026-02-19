@@ -111,7 +111,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
     }
 
     // reward handling for autocompound
-    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
+    uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
     uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
 
     /**

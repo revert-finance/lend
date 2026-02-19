@@ -16,7 +16,7 @@ abstract contract AerodromeAutomatorTestBase is Test {
     // Base network token addresses
     IERC20 constant WETH_ERC20 = IERC20(0x4200000000000000000000000000000000000006);  // WETH on Base
     IERC20 constant USDC = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);  // USDC on Base
-    IERC20 constant USDbC = IERC20(0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA);  // USDbC (Bridged USDC) on Base
+    IERC20 constant USDBC = IERC20(0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA); // USDbC (Bridged USDC) on Base
     IERC20 constant DAI = IERC20(0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb);  // DAI on Base
     IERC20 constant AERO = IERC20(0x940181a94A35A4569E4529A3CDfB74e38FD98631);  // AERO on Base
 
@@ -25,8 +25,8 @@ abstract contract AerodromeAutomatorTestBase is Test {
     address constant OPERATOR_ACCOUNT = 0x3304E22DDaa22bCdC5fCa2269b418046aE7b566A;
     address constant WITHDRAWER_ACCOUNT = 0x3304E22DDaa22bCdC5fCa2269b418046aE7b566A;
 
-    uint64 constant MAX_REWARD = uint64(Q64 / 400); //0.25%
-    uint64 constant MAX_FEE_REWARD = uint64(Q64 / 20); //5%
+    uint64 constant MAX_REWARD = 46_116_860_184_273_879; // floor(Q64 / 400)
+    uint64 constant MAX_FEE_REWARD = 922_337_203_685_477_580; // floor(Q64 / 20)
 
     // Aerodrome Slipstream Factory on Base
     address FACTORY = 0x420DD381b31aEf6683db6B902084cB0FFECe40Da;

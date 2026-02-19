@@ -383,7 +383,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
             revert ChainlinkPriceError();
         }
 
-        return uint256(answer) * Q96 / (10 ** feedConfig.feedDecimals);
+        return SafeCast.toUint256(answer) * Q96 / (10 ** feedConfig.feedDecimals);
     }
 
     // calculates TWAP price given feedConfig
@@ -410,11 +410,10 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
             secondsAgos[0] = 0; // from (before)
             secondsAgos[1] = twapSeconds; // from (before)
             (int56[] memory tickCumulatives,) = pool.observe(secondsAgos); // pool observe may fail when there is not enough history available (only use pool with enough history!)
-            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
-            if (
-                tickCumulatives[0] - tickCumulatives[1] < 0
-                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
-            ) tick--;
+            int56 delta = tickCumulatives[0] - tickCumulatives[1];
+            int256 twapSecondsInt = int256(uint256(twapSeconds));
+            int24 tick = SafeCast.toInt24(int256(delta) / twapSecondsInt);
+            if (delta < 0 && int256(delta) % twapSecondsInt != 0) tick--;
             sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
         }
 
@@ -595,9 +594,11 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
             word1 := mload(add(data, 64))
         }
 
-        sqrtPriceX96 = uint160(word0);
-        // slot0() ABI-encodes signed int24 as a sign-extended 32-byte word; this cast safely decodes negative ticks.
-        tick = int24(int256(word1));
+        sqrtPriceX96 = SafeCast.toUint160(word0);
+        // slot0() ABI-encodes signed int24 as a sign-extended 32-byte word.
+        assembly ("memory-safe") {
+            tick := signextend(2, word1)
+        }
     }
 
     function _getFeeGrowthOutside(IUniswapV3Pool pool, int24 tick)
@@ -631,7 +632,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
         // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in positions().fee.
         (bool success, bytes memory data) = factory.staticcall(
-            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, int24(uint24(fee)))
+            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, _toTickSpacing(fee))
         );
         if (success && data.length >= 32) {
             address poolAddress = abi.decode(data, (address));
@@ -649,5 +650,11 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
 
         return IUniswapV3Pool(address(0));
+    }
+
+    function _toTickSpacing(uint24 fee) internal pure returns (int24 tickSpacing) {
+        assembly ("memory-safe") {
+            tickSpacing := fee
+        }
     }
 }

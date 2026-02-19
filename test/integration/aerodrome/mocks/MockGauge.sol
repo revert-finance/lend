@@ -2,10 +2,13 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "../../../../src/interfaces/aerodrome/IGauge.sol";
 
 contract MockGauge is IGauge {
+    using SafeERC20 for IERC20;
+
     IERC20 internal immutable _rewardToken;
     address public immutable stake;
 
@@ -73,7 +76,7 @@ contract MockGauge is IGauge {
         uint256 reward = earned(msg.sender);
         if (reward > 0) {
             rewards[msg.sender] = 0;
-            _rewardToken.transfer(msg.sender, reward);
+            _rewardToken.safeTransfer(msg.sender, reward);
             emit RewardPaid(msg.sender, reward);
         }
     }
@@ -82,7 +85,7 @@ contract MockGauge is IGauge {
         uint256 reward = earned(user);
         if (reward > 0) {
             rewards[user] = 0;
-            _rewardToken.transfer(user, reward);
+            _rewardToken.safeTransfer(user, reward);
             emit RewardPaid(user, reward);
         }
     }
@@ -93,7 +96,7 @@ contract MockGauge is IGauge {
         uint256 reward = earned(user);
         if (reward > 0) {
             rewards[user] = 0;
-            _rewardToken.transfer(user, reward);
+            _rewardToken.safeTransfer(user, reward);
             emit RewardPaid(user, reward);
         }
     }

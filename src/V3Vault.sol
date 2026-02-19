@@ -32,17 +32,17 @@ import "./utils/Constants.sol";
 contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
 
-    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); // 90%
+    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = 3_865_470_566; // floor(Q32 * 90 / 100)
 
-    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100); // 2%
-    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 10 / 100); // 10%
+    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = 85_899_345; // floor(Q32 * 2 / 100)
+    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = 429_496_729; // floor(Q32 * 10 / 100)
 
-    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
+    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = 42_949_672; // floor(Q32 / 100)
 
-    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); //10%
-    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
+    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = 429_496_729; // floor(Q32 / 10)
+    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = 429_496_729; // floor(Q32 / 10)
 
-    uint256 public constant BORROW_SAFETY_BUFFER_X32 = uint32(Q32 * 95 / 100); //95% of collateral value
+    uint256 public constant BORROW_SAFETY_BUFFER_X32 = 4_080_218_931; // floor(Q32 * 95 / 100)
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
