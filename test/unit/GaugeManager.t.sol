@@ -31,7 +31,7 @@ contract MockSlipstreamFactory {
     }
 
     function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address) {
-        return pools[_key(tokenA, tokenB, int24(uint24(fee)))];
+        return pools[_key(tokenA, tokenB, int24(fee))];
     }
 
     function _key(address tokenA, address tokenB, int24 tickSpacing) internal pure returns (bytes32) {

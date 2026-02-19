@@ -6,3 +6,9 @@ optimizer = true
 optimizer_runs = 25
 via_ir = true
 solc = "0.8.24"
+
+[lint]
+exclude_lints = [
+  "unsafe-typecast",
+  "erc20-unchecked-transfer",
+]

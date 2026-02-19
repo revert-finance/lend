@@ -19,7 +19,7 @@ contract AutoRangeAerodromeTest is Test, Constants {
     IERC20 constant AERO = IERC20(0x940181a94A35A4569E4529A3CDfB74e38FD98631);
     
     // Aerodrome contracts on Base
-    address constant FACTORY = 0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
+    address constant FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
     address constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
     

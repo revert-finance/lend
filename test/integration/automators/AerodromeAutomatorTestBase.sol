@@ -29,7 +29,7 @@ abstract contract AerodromeAutomatorTestBase is Test {
     uint64 constant MAX_FEE_REWARD = 922_337_203_685_477_580; // floor(Q64 / 20)
 
     // Aerodrome Slipstream Factory on Base
-    address FACTORY = 0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
+    address FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;
 
     // Aerodrome Slipstream NFT Position Manager on Base
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);

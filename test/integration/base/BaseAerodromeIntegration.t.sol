@@ -12,6 +12,7 @@ import "../../../src/interfaces/IVault.sol";
 import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../../../src/transformers/AutoCompound.sol";
+import "../../../src/utils/FlashloanLiquidator.sol";
 import "../../../src/utils/Constants.sol";
 
 contract MockChainlinkFeed is AggregatorV3Interface {
@@ -64,6 +65,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     MockChainlinkFeed internal wethUsdFeed;
 
     IUniswapV3Pool internal wethUsdcPool;
+    IUniswapV3Pool internal wethUsdcFlashPool;
     address internal wethUsdcGauge;
 
     function setUp() external {
@@ -84,6 +86,15 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         if (wethUsdcGauge == address(0)) {
             revert InvalidPool();
         }
+
+        address flashPoolAddress = IAerodromeSlipstreamFactory(factory).getPool(WETH, USDC, 1);
+        if (flashPoolAddress == address(0) || flashPoolAddress == poolAddress) {
+            flashPoolAddress = IAerodromeSlipstreamFactory(factory).getPool(WETH, USDC, 10);
+        }
+        if (flashPoolAddress == address(0) || flashPoolAddress == poolAddress) {
+            revert InvalidPool();
+        }
+        wethUsdcFlashPool = IUniswapV3Pool(flashPoolAddress);
 
         oracle = new V3Oracle(NPM, USDC, address(0));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
@@ -262,6 +273,68 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
         assertEq(vault.ownerOf(tokenId), ALICE);
+    }
+
+    function testFlashloanLiquidationHappyPath() external {
+        uint256 tokenId = TEST_NFT;
+        _depositCollateral(tokenId, ALICE);
+
+        (, , uint256 collateralValue,,) = vault.loanInfo(tokenId);
+        assertGt(collateralValue, 0);
+
+        // Borrow close to the allowed buffer to make interest-driven unhealthy state reachable.
+        uint256 borrowAmount = collateralValue * vault.BORROW_SAFETY_BUFFER_X32() / Q32;
+        if (borrowAmount > 140_000e6) {
+            borrowAmount = 140_000e6;
+        }
+        if (borrowAmount > 1e6) {
+            borrowAmount -= 1e6;
+        }
+        assertGt(borrowAmount, 0);
+
+        vm.prank(ALICE);
+        vault.borrow(tokenId, borrowAmount);
+
+        // Deterministically force unhealthy state for liquidation path validation.
+        vault.setTokenConfig(WETH, 0, type(uint32).max);
+
+        (,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(tokenId);
+
+        assertGt(liquidationValue, 0, "position not liquidatable");
+        assertGt(liquidationCost, 0, "missing liquidation cost");
+
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, address(0), address(0));
+
+        // No swaps in this happy path; pre-fund helper with USDC so callback always has repayment headroom.
+        vm.prank(BASE_WHALE);
+        IERC20(USDC).transfer(address(liquidator), liquidationCost + 10_000e6);
+
+        uint256 bobUsdcBefore = IERC20(USDC).balanceOf(BOB);
+
+        vm.prank(BOB);
+        liquidator.liquidate(
+            FlashloanLiquidator.LiquidateParams({
+                tokenId: tokenId,
+                vault: IVault(address(vault)),
+                flashLoanPool: wethUsdcFlashPool,
+                amount0In: 0,
+                swapData0: "",
+                amount1In: 0,
+                swapData1: "",
+                minReward: 0,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
+        (uint256 debtAfter,,, uint256 liquidationCostAfter, uint256 liquidationValueAfter) = vault.loanInfo(tokenId);
+        assertEq(debtAfter, 0);
+        assertEq(liquidationCostAfter, 0);
+        assertEq(liquidationValueAfter, 0);
+        assertEq(vault.loans(tokenId), 0);
+
+        assertEq(vault.ownerOf(tokenId), ALICE);
+        assertEq(NPM.ownerOf(tokenId), address(vault));
+        assertGt(IERC20(USDC).balanceOf(BOB), bobUsdcBefore);
     }
 
     function testSetGaugeManagerOnlyOnce() external {

@@ -199,6 +199,7 @@ abstract contract Automator is Ownable2Step, Swapper {
         }
 
         sqrtPriceX96 = SafeCast.toUint160(word0);
+        // slot0() ABI-encodes signed int24 as a sign-extended 32-byte word.
         assembly ("memory-safe") {
             tick := signextend(2, word1)
         }
