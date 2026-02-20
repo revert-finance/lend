@@ -180,7 +180,10 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         return (state.aeroAmount, state.amountAdded0, state.amountAdded1);
     }
 
-    function _claimAndSendRewards(address gauge, uint256 tokenId, address recipient) internal returns (uint256 aeroAmount) {
+    function _claimAndSendRewards(address gauge, uint256 tokenId, address recipient)
+        internal
+        returns (uint256 aeroAmount)
+    {
         aeroAmount = _claimRewardsToSelf(gauge, tokenId);
         _sendAeroIfAny(recipient, aeroAmount);
     }
@@ -236,18 +239,16 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     ) internal returns (CompoundState memory) {
         if (swapData0.length != 0) {
             uint256 requestedAero0 = state.aeroAmount * aeroSplitBps / 10_000;
-            (uint256 amountInDelta0, uint256 amountOutDelta0) = _routerSwap(
-                RouterSwapParams(aeroToken, IERC20(state.token0), requestedAero0, minAmount0, swapData0)
-            );
+            (uint256 amountInDelta0, uint256 amountOutDelta0) =
+                _routerSwap(RouterSwapParams(aeroToken, IERC20(state.token0), requestedAero0, minAmount0, swapData0));
             state.spentAero += amountInDelta0;
             state.amount0Out += amountOutDelta0;
         }
 
         if (swapData1.length != 0) {
             uint256 remainingAero = state.aeroAmount - state.spentAero;
-            (uint256 amountInDelta1, uint256 amountOutDelta1) = _routerSwap(
-                RouterSwapParams(aeroToken, IERC20(state.token1), remainingAero, minAmount1, swapData1)
-            );
+            (uint256 amountInDelta1, uint256 amountOutDelta1) =
+                _routerSwap(RouterSwapParams(aeroToken, IERC20(state.token1), remainingAero, minAmount1, swapData1));
             state.spentAero += amountInDelta1;
             state.amount1Out += amountOutDelta1;
         }
@@ -280,7 +281,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         if (state.amount0Out != 0 || state.amount1Out != 0) {
             (, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.increaseLiquidity(
-                INonfungiblePositionManager.IncreaseLiquidityParams(tokenId, state.amount0Out, state.amount1Out, 0, 0, deadline)
+                INonfungiblePositionManager.IncreaseLiquidityParams(
+                    tokenId, state.amount0Out, state.amount1Out, 0, 0, deadline
+                )
             );
         }
 

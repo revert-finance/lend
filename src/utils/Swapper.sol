@@ -51,7 +51,6 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         zeroxAllowanceHolder = _zeroxAllowanceHolder;
     }
 
-
     // swap data for uni - must include sweep for input token
     struct UniversalRouterData {
         bytes commands;
@@ -133,17 +132,18 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     // amounts must be available on the contract for both tokens
     function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
         if (params.amountIn != 0) {
-            (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(
-                address(this),
-                params.swap0For1,
-                int256(params.amountIn),
-                (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
-                abi.encode(
-                    params.swap0For1 ? params.token0 : params.token1,
-                    params.swap0For1 ? params.token1 : params.token0,
-                    params.fee
-                )
-            );
+            (int256 amount0Delta, int256 amount1Delta) = params.pool
+                .swap(
+                    address(this),
+                    params.swap0For1,
+                    int256(params.amountIn),
+                    (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
+                    abi.encode(
+                        params.swap0For1 ? params.token0 : params.token1,
+                        params.swap0For1 ? params.token1 : params.token0,
+                        params.fee
+                    )
+                );
             if (params.swap0For1) {
                 amountInDelta = SafeCast.toUint256(amount0Delta);
                 amountOutDelta = SafeCast.toUint256(-amount1Delta);
@@ -188,9 +188,8 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         }
 
         // Uniswap v3 uses getPool(tokenA, tokenB, fee).
-        (success, data) = factory.staticcall(
-            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee)
-        );
+        (success, data) =
+            factory.staticcall(abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee));
         if (success && data.length >= 32) {
             return IUniswapV3Pool(abi.decode(data, (address)));
         }

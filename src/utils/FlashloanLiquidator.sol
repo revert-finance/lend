@@ -32,9 +32,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         INonfungiblePositionManager _nonfungiblePositionManager,
         address _universalRouter,
         address _zeroxAllowanceHolder
-    )
-        Swapper(_nonfungiblePositionManager, _universalRouter, _zeroxAllowanceHolder)
-    {}
+    ) Swapper(_nonfungiblePositionManager, _universalRouter, _zeroxAllowanceHolder) {}
 
     struct LiquidateParams {
         uint256 tokenId; // loan to liquidate
@@ -109,9 +107,12 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         }
 
         SafeERC20.safeIncreaseAllowance(data.asset, address(data.vault), data.liquidationCost);
-        data.vault.liquidate(
-            IVault.LiquidateParams(data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), data.deadline)
-        );
+        data.vault
+            .liquidate(
+                IVault.LiquidateParams(
+                    data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), data.deadline
+                )
+            );
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);
 
         // do swaps
@@ -144,7 +145,8 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         }
 
         // Slipstream style: resolve by tickSpacing.
-        (bool success, bytes memory tickSpacingData) = address(pool).staticcall(abi.encodeWithSignature("tickSpacing()"));
+        (bool success, bytes memory tickSpacingData) =
+            address(pool).staticcall(abi.encodeWithSignature("tickSpacing()"));
         if (!success || tickSpacingData.length < 32) {
             return false;
         }

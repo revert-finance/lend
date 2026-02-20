@@ -445,7 +445,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
     /// @inheritdoc IERC721Receiver
-    function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(
+        address,
+        /*operator*/
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    )
         external
         override
         returns (bytes4)
@@ -497,9 +503,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96);
 
                 // sets data of new loan
-                _updateAndCheckCollateral(
-                    tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, debtShares
-                );
+                _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, debtShares);
             }
         }
 
@@ -574,8 +578,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         nonfungiblePositionManager.approve(address(0), newTokenId);
         if (tokenId != newTokenId) {
             // old token may be burned during transform; clear approval best-effort
-            try nonfungiblePositionManager.approve(address(0), tokenId) {}
-            catch {}
+            try nonfungiblePositionManager.approve(address(0), tokenId) {} catch {}
         }
 
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
@@ -678,7 +681,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
             params.tokenId,
             params.recipient,
-            params.feeAmount0 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount0 + params.feeAmount0),
+            params.feeAmount0 == type(uint128).max
+                ? type(uint128).max
+                : SafeCast.toUint128(amount0 + params.feeAmount0),
             params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
         );
 
@@ -757,8 +762,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // calculate reserve (before transfering liquidation money - otherwise calculation is off)
         if (state.reserveCost != 0) {
-            state.missing =
-                _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
+            state.missing = _handleReserveLiquidation(
+                state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96
+            );
         }
 
         if (state.liquidatorCost != 0) {
@@ -824,8 +830,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     function withdrawReserves(uint256 amount, address receiver) external onlyOwner {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
 
-        uint256 protected =
-            _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * reserveProtectionFactorX32 / Q32;
+        uint256 protected = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+            * reserveProtectionFactorX32 / Q32;
         (uint256 balance, uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
         uint256 unprotected = reserves > protected ? reserves - protected : 0;
         uint256 available = balance > unprotected ? unprotected : balance;
@@ -1006,10 +1012,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    function _repay(uint256 tokenId, uint256 amount, bool isShare)
-        internal
-        returns (uint256 assets, uint256 shares)
-    {
+    function _repay(uint256 tokenId, uint256 amount, bool isShare) internal returns (uint256 assets, uint256 shares) {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
         _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
@@ -1204,10 +1207,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         return factor0X32 > factor1X32 ? factor1X32 : factor0X32;
     }
 
-    function _updateGlobalInterest()
-        internal
-        returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96)
-    {
+    function _updateGlobalInterest() internal returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) {
         // only needs to be updated once per block (when needed)
         if (block.timestamp > lastExchangeRateUpdate) {
             (newDebtExchangeRateX96, newLendExchangeRateX96) = _calculateGlobalInterest();
@@ -1234,7 +1234,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
         if (timeElapsed != 0 && lastRateUpdate != 0) {
-
             (uint256 balance,) = _getBalanceAndReserves(oldDebtExchangeRateX96, oldLendExchangeRateX96);
             uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
             (uint256 borrowRateX64, uint256 supplyRateX64) = interestRateModel.getRatesPerSecondX64(balance, debt);
@@ -1372,9 +1371,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
 
-        (aeroAmount, amountAdded0, amountAdded1) = IGaugeManager(gaugeManager).compoundRewards(
-            tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline
-        );
+        (aeroAmount, amountAdded0, amountAdded1) = IGaugeManager(gaugeManager)
+            .compoundRewards(tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline);
     }
 
     function _stake(uint256 tokenId) internal {

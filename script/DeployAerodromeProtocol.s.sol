@@ -10,8 +10,11 @@ import "../src/GaugeManager.sol";
 import "../src/transformers/LeverageTransformer.sol";
 import "../src/transformers/AutoCompound.sol";
 import "../src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
+import "../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+import "../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 contract DeployAerodromeProtocol is Script {
+    uint256 internal constant BASE_CHAIN_ID = 8453;
     uint256 internal constant Q32 = 2 ** 32;
     uint256 internal constant Q64 = 2 ** 64;
 
@@ -39,6 +42,8 @@ contract DeployAerodromeProtocol is Script {
     address internal constant CBBTC_USDC_POOL = 0x4e962BB3889Bf030368F56810A9c96B83CB3E778;
 
     function run() external {
+        _validateDeploymentConfig();
+
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
 
@@ -55,25 +60,12 @@ contract DeployAerodromeProtocol is Script {
             Q64 * 80 / 100 // kink (80%)
         );
 
-        V3Vault vault = new V3Vault(
-            "Revert Lend USDC",
-            "rlUSDC",
-            USDC,
-            npm,
-            irm,
-            oracle
-        );
+        V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", USDC, npm, irm, oracle);
 
-        GaugeManager gaugeManager = new GaugeManager(
-            npm,
-            IERC20(AERO),
-            IVault(address(vault)),
-            UNIVERSAL_ROUTER,
-            ZEROX_ALLOWANCE_HOLDER
-        );
+        GaugeManager gaugeManager =
+            new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
-        LeverageTransformer leverageTransformer =
-            new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
+        LeverageTransformer leverageTransformer = new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
         AutoCompound autoCompound = new AutoCompound(
             npm,
@@ -150,5 +142,39 @@ contract DeployAerodromeProtocol is Script {
         console2.log("GAUGE_MANAGER", address(gaugeManager));
         console2.log("LEVERAGE_TRANSFORMER", address(leverageTransformer));
         console2.log("AUTO_COMPOUND", address(autoCompound));
+    }
+
+    function _validateDeploymentConfig() internal view {
+        require(block.chainid == BASE_CHAIN_ID, "DeployAerodromeProtocol: wrong chain");
+        _requireCode(AERODROME_NPM, "DeployAerodromeProtocol: NPM missing code");
+        _requireCode(AERODROME_FACTORY, "DeployAerodromeProtocol: factory missing code");
+        _requireCode(AERODROME_GAUGE_FACTORY, "DeployAerodromeProtocol: gauge factory missing code");
+        _requireCode(UNIVERSAL_ROUTER, "DeployAerodromeProtocol: universal router missing code");
+        _requireCode(ZEROX_ALLOWANCE_HOLDER, "DeployAerodromeProtocol: 0x allowance holder missing code");
+
+        IAerodromeNonfungiblePositionManager npm = IAerodromeNonfungiblePositionManager(AERODROME_NPM);
+        require(npm.factory() == AERODROME_FACTORY, "DeployAerodromeProtocol: NPM factory mismatch");
+        _validatePool(WETH_USDC_POOL, WETH, USDC);
+        _validatePool(CBBTC_USDC_POOL, CBBTC, USDC);
+    }
+
+    function _validatePool(address pool, address tokenA, address tokenB) internal view {
+        _requireCode(pool, "DeployAerodromeProtocol: pool missing code");
+        IAerodromeSlipstreamPool slipstreamPool = IAerodromeSlipstreamPool(pool);
+
+        address token0 = slipstreamPool.token0();
+        address token1 = slipstreamPool.token1();
+        require(
+            (token0 == tokenA && token1 == tokenB) || (token0 == tokenB && token1 == tokenA),
+            "DeployAerodromeProtocol: pool token mismatch"
+        );
+
+        address resolved =
+            IAerodromeSlipstreamFactory(AERODROME_FACTORY).getPool(token0, token1, slipstreamPool.tickSpacing());
+        require(resolved == pool, "DeployAerodromeProtocol: pool not from factory");
+    }
+
+    function _requireCode(address target, string memory errorMessage) internal view {
+        require(target.code.length != 0, errorMessage);
     }
 }

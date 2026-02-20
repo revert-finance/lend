@@ -2,102 +2,129 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import "forge-std/console.sol";
 
 import "../../../../src/transformers/AutoRange.sol";
-import "../../../../src/transformers/V3Utils.sol";
 import "../../../../src/utils/Constants.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 contract AutoRangeAerodromeTest is Test, Constants {
-    uint64 constant MAX_REWARD = uint64(Q64 / 400); //0.25%
-    
-    // Base network token addresses
-    IERC20 constant WETH = IERC20(0x4200000000000000000000000000000000000006);
-    IERC20 constant USDC = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
-    IERC20 constant AERO = IERC20(0x940181a94A35A4569E4529A3CDfB74e38FD98631);
-    
-    // Aerodrome contracts on Base
-    address constant FACTORY = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;
-    INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
-    address constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
-    
-    // Test accounts
-    address constant OPERATOR_ACCOUNT = address(0x1111);
-    address constant WITHDRAWER_ACCOUNT = address(0x2222);
-    address constant POSITION_OWNER = address(0x3333);
-    
-    AutoRange autoRange;
-    V3Utils v3utils;
-    uint256 baseFork;
-    
+    INonfungiblePositionManager internal constant NPM =
+        INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
+    address internal constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
+
+    address internal constant OPERATOR_ACCOUNT = address(0x1111);
+    address internal constant WITHDRAWER_ACCOUNT = address(0x2222);
+    address internal constant POSITION_OWNER = address(0x3333);
+    uint256 internal constant MOCK_TOKEN_ID = 123_456;
+
+    AutoRange internal autoRange;
+    uint256 internal baseFork;
+
     function setUp() external {
-        // Fork Base network
-        string memory BASE_RPC;
+        string memory baseRpc;
         try vm.envString("BASE_RPC_URL") returns (string memory url) {
-            BASE_RPC = url;
+            baseRpc = url;
         } catch {
-            BASE_RPC = "https://mainnet.base.org";
+            baseRpc = "https://mainnet.base.org";
         }
-        baseFork = vm.createFork(BASE_RPC);
+        baseFork = vm.createFork(baseRpc);
         vm.selectFork(baseFork);
-        
-        // Deploy contracts
-        v3utils = new V3Utils(NPM, address(0), UNIVERSAL_ROUTER);
-        autoRange = new AutoRange(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, address(0), UNIVERSAL_ROUTER);
+
+        autoRange = new AutoRange(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
     }
-    
+
     function testSetTWAPSeconds() external {
         uint16 maxTWAPTickDifference = autoRange.maxTWAPTickDifference();
         autoRange.setTWAPConfig(maxTWAPTickDifference, 120);
         assertEq(autoRange.TWAPSeconds(), 120);
-        
+
         vm.expectRevert(Constants.InvalidConfig.selector);
         autoRange.setTWAPConfig(maxTWAPTickDifference, 30);
     }
-    
+
     function testSetMaxTWAPTickDifference() external {
-        uint32 TWAPSeconds = autoRange.TWAPSeconds();
-        autoRange.setTWAPConfig(5, TWAPSeconds);
+        uint32 twapSeconds = autoRange.TWAPSeconds();
+        autoRange.setTWAPConfig(5, twapSeconds);
         assertEq(autoRange.maxTWAPTickDifference(), 5);
-        
+
         vm.expectRevert(Constants.InvalidConfig.selector);
-        autoRange.setTWAPConfig(600, TWAPSeconds);
+        autoRange.setTWAPConfig(600, twapSeconds);
     }
-    
+
     function testSetOperator() external {
         address newOperator = address(0x4444);
-        assertEq(autoRange.operators(newOperator), false);
+        assertFalse(autoRange.operators(newOperator));
         autoRange.setOperator(newOperator, true);
-        assertEq(autoRange.operators(newOperator), true);
+        assertTrue(autoRange.operators(newOperator));
     }
-    
+
     function testUnauthorizedSetConfig() external {
-        // Mock position ownership check will fail for a non-existent token
-        // For now, we'll skip this test as it requires a real position
-        // In production, you'd create an actual position first
-        // TODO: Create actual position and test with it
+        _mockNpmOwner(MOCK_TOKEN_ID, POSITION_OWNER);
+
+        AutoRange.PositionConfig memory config = _defaultConfig();
+        vm.expectRevert(Constants.Unauthorized.selector);
+        vm.prank(OPERATOR_ACCOUNT);
+        autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
     }
-    
+
     function testResetConfig() external {
-        // Skip this test as it requires a real position
-        // In production, you'd create an actual position first
-        // TODO: Create actual position and test with it
+        _mockNpmOwner(MOCK_TOKEN_ID, POSITION_OWNER);
+
+        AutoRange.PositionConfig memory config = _defaultConfig();
+        vm.prank(POSITION_OWNER);
+        autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
+
+        (int32 lowerTickLimit,,,,,,,,) = autoRange.positionConfigs(MOCK_TOKEN_ID);
+        assertEq(lowerTickLimit, config.lowerTickLimit);
+
+        AutoRange.PositionConfig memory cleared;
+        vm.prank(POSITION_OWNER);
+        autoRange.configToken(MOCK_TOKEN_ID, address(0), cleared);
+
+        (
+            int32 cLowerTickLimit,
+            int32 cUpperTickLimit,
+            int32 cLowerTickDelta,
+            int32 cUpperTickDelta,
+            uint64 cToken0SlippageX64,
+            uint64 cToken1SlippageX64,
+            bool cOnlyFees,
+            bool cAutoCompound,
+            uint64 cMaxRewardX64
+        ) = autoRange.positionConfigs(MOCK_TOKEN_ID);
+        assertEq(cLowerTickLimit, 0);
+        assertEq(cUpperTickLimit, 0);
+        assertEq(cLowerTickDelta, 0);
+        assertEq(cUpperTickDelta, 0);
+        assertEq(cToken0SlippageX64, 0);
+        assertEq(cToken1SlippageX64, 0);
+        assertFalse(cOnlyFees);
+        assertFalse(cAutoCompound);
+        assertEq(cMaxRewardX64, 0);
     }
-    
-    // Simplified test for basic configuration
+
     function testBasicConfiguration() external {
-        // Test basic setup
         assertEq(autoRange.TWAPSeconds(), 60);
         assertEq(autoRange.maxTWAPTickDifference(), 100);
-        assertEq(autoRange.operators(OPERATOR_ACCOUNT), true);
+        assertTrue(autoRange.operators(OPERATOR_ACCOUNT));
         assertEq(autoRange.withdrawer(), WITHDRAWER_ACCOUNT);
     }
-    
-    // Note: More complex tests involving actual position adjustments would require:
-    // 1. Creating real positions on Aerodrome
-    // 2. Funding test accounts with tokens
-    // 3. Setting up pools with liquidity
-    // These would be integration tests that interact with the actual Aerodrome protocol
-} 
+
+    function _defaultConfig() internal pure returns (AutoRange.PositionConfig memory config) {
+        config = AutoRange.PositionConfig({
+            lowerTickLimit: -2000,
+            upperTickLimit: 2000,
+            lowerTickDelta: -120,
+            upperTickDelta: 120,
+            token0SlippageX64: uint64(Q64 / 100),
+            token1SlippageX64: uint64(Q64 / 100),
+            onlyFees: false,
+            autoCompound: true,
+            maxRewardX64: uint64(Q64 / 400)
+        });
+    }
+
+    function _mockNpmOwner(uint256 tokenId, address owner) internal {
+        vm.mockCall(address(NPM), abi.encodeWithSignature("ownerOf(uint256)", tokenId), abi.encode(owner));
+    }
+}
