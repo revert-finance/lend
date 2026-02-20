@@ -104,7 +104,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
 
     event SetEmergencyAdmin(address emergencyAdmin);
-    event GaugeManagerSet(address indexed gaugeManager);
+    event SetGaugeManager(address indexed gaugeManager);
 
     // configured tokens
     struct TokenConfig {
@@ -289,6 +289,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @inheritdoc IERC4626
     function totalAssets() public view override returns (uint256) {
         (uint256 debtExchangeRateX96,) = _calculateGlobalInterest();
+        // Round debt up to avoid understating liabilities in share pricing/accounting.
         uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
         return IERC20(asset).balanceOf(address(this)) + debt;
     }
@@ -1381,7 +1382,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         gaugeManager = _gaugeManager;
-        emit GaugeManagerSet(_gaugeManager);
+        emit SetGaugeManager(_gaugeManager);
     }
 
     function stakePosition(uint256 tokenId) external override {

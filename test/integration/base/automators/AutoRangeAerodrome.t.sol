@@ -4,9 +4,9 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "../../../src/transformers/AutoRange.sol";
-import "../../../src/transformers/V3Utils.sol";
-import "../../../src/utils/Constants.sol";
+import "../../../../src/transformers/AutoRange.sol";
+import "../../../../src/transformers/V3Utils.sol";
+import "../../../../src/utils/Constants.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 

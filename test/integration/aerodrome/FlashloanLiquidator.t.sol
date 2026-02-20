@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "../../../src/utils/FlashloanLiquidator.sol";
 import "../../../src/interfaces/IVault.sol";
-import "../aerodrome/AerodromeTestBase.sol";
+import "./AerodromeTestBase.sol";
 
 contract MockFlashVault {
     IERC20 public immutable assetToken;

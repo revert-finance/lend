@@ -5,19 +5,19 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 // base contracts
-import "../../src/V3Oracle.sol";
-import "../../src/V3Vault.sol";
-import "../../src/InterestRateModel.sol";
+import "../../../src/V3Oracle.sol";
+import "../../../src/V3Vault.sol";
+import "../../../src/InterestRateModel.sol";
 
 // transformers
-import "../../src/transformers/LeverageTransformer.sol";
-import "../../src/transformers/V3Utils.sol";
-import "../../src/transformers/AutoRange.sol";
-import "../../src/transformers/AutoCompound.sol";
+import "../../../src/transformers/LeverageTransformer.sol";
+import "../../../src/transformers/V3Utils.sol";
+import "../../../src/transformers/AutoRange.sol";
+import "../../../src/transformers/AutoCompound.sol";
 
-import "../../src/utils/FlashloanLiquidator.sol";
+import "../../../src/utils/FlashloanLiquidator.sol";
 
-import "../../src/utils/Constants.sol";
+import "../../../src/utils/Constants.sol";
 
 contract MockFlashPoolInfo {
     address public immutable token0;

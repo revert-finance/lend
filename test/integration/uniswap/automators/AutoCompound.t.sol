@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 
 import "./AutomatorIntegrationTestBase.sol";
 
-import "../../../src/transformers/AutoCompound.sol";
-import "../../../src/utils/Constants.sol";
+import "../../../../src/transformers/AutoCompound.sol";
+import "../../../../src/utils/Constants.sol";
 
 contract AutoCompoundTest is AutomatorIntegrationTestBase {
     AutoCompound autoCompound;

@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 
 import "./AutomatorIntegrationTestBase.sol";
 
-import "../../../src/automators/AutoExit.sol";
-import "../../../src/utils/Constants.sol";
+import "../../../../src/automators/AutoExit.sol";
+import "../../../../src/utils/Constants.sol";
 
 contract AutoExitTest is AutomatorIntegrationTestBase {
     AutoExit autoExit;

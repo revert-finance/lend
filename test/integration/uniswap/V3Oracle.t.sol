@@ -5,10 +5,10 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 // base contracts
-import "../../src/V3Oracle.sol";
+import "../../../src/V3Oracle.sol";
 import "v3-core/interfaces/pool/IUniswapV3PoolDerivedState.sol";
 
-import "../../src/utils/Constants.sol";
+import "../../../src/utils/Constants.sol";
 
 contract MockSequencerFeed is AggregatorV3Interface {
     int256 public answer;

@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 // base contracts
-import "../../src/InterestRateModel.sol";
+import "../../../src/InterestRateModel.sol";
 
 contract InterestRateModelIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;

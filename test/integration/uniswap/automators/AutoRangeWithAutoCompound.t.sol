@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 
 import "./AutomatorIntegrationTestBase.sol";
 
-import "../../../src/transformers/AutoRange.sol";
-import "../../../src/utils/Constants.sol";
+import "../../../../src/transformers/AutoRange.sol";
+import "../../../../src/utils/Constants.sol";
 
 contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
     AutoRange autoRange;
