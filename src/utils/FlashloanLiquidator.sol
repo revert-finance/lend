@@ -122,9 +122,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
         SafeERC20.safeIncreaseAllowance(data.asset, address(data.vault), data.liquidationCost);
         data.vault.liquidate(
-            IVault.LiquidateParams(
-                data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), "", data.deadline
-            )
+            IVault.LiquidateParams(data.tokenId, data.swap0.amountIn, data.swap1.amountIn, address(this), data.deadline)
         );
         SafeERC20.safeApprove(data.asset, address(data.vault), 0);
 

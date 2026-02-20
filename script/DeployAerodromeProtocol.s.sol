@@ -28,7 +28,6 @@ contract DeployAerodromeProtocol is Script {
     // Routing infra
     address internal constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
     address internal constant ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
-    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // Chainlink feeds on Base
     address internal constant CHAINLINK_ETH_USD = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
@@ -62,8 +61,7 @@ contract DeployAerodromeProtocol is Script {
             USDC,
             npm,
             irm,
-            oracle,
-            IPermit2(PERMIT2)
+            oracle
         );
 
         GaugeManager gaugeManager = new GaugeManager(

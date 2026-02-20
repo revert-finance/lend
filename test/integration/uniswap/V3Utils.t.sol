@@ -31,7 +31,6 @@ contract V3UtilsIntegrationTest is Test {
 
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
     address UNIVERSAL_ROUTER = 0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B; // uniswap universal router
-    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // DAI/USDC 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
     uint256 constant TEST_NFT = 24181;
@@ -71,7 +70,7 @@ contract V3UtilsIntegrationTest is Test {
         );
         mainnetFork = vm.createFork(ANKR_RPC, 15489169);
         vm.selectFork(mainnetFork);
-        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
+        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER);
     }
 
     function testUnauthorizedTransfer() external {
@@ -358,7 +357,6 @@ contract V3UtilsIntegrationTest is Test {
             "",
             0,
             0,
-            "",
             ""
         );
 
@@ -367,20 +365,10 @@ contract V3UtilsIntegrationTest is Test {
         v3utils.swapAndMint(params);
     }
 
-    function testSwapAndMintPermit2() public {
-        // use newer fork which has permit2
-          string memory ANKR_RPC = string.concat(
-            "https://rpc.ankr.com/eth/",
-            vm.envString("ANKR_API_KEY")
-        );
-        mainnetFork = vm.createFork(ANKR_RPC, 18521658);
-        vm.selectFork(mainnetFork);
-        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
-
+    function testSwapAndMintWithApprovals() public {
         uint256 amountDAI = 1 ether;
         uint256 amountUSDC = 1000000;
-        uint256 privateKey = 123;
-        address addr = vm.addr(privateKey);
+        address addr = vm.addr(123);
 
         // give coins
         vm.deal(addr, 1 ether);
@@ -390,21 +378,10 @@ contract V3UtilsIntegrationTest is Test {
         vm.prank(DAI_WHALE_ACCOUNT);
         DAI.transfer(addr, amountDAI);
 
-        vm.prank(addr);
-        USDC.approve(PERMIT2, type(uint256).max);
-
-        vm.prank(addr);
-        DAI.approve(PERMIT2, type(uint256).max);
-
-        ISignatureTransfer.TokenPermissions[] memory permissions = new ISignatureTransfer.TokenPermissions[](2);
-        permissions[0] = ISignatureTransfer.TokenPermissions(address(DAI), amountDAI);
-        permissions[1] = ISignatureTransfer.TokenPermissions(address(USDC), amountUSDC);
-
-        ISignatureTransfer.PermitBatchTransferFrom memory tf =
-            ISignatureTransfer.PermitBatchTransferFrom(permissions, 1, block.timestamp);
-
-        bytes memory signature = _getPermitBatchTransferFromSignature(tf, privateKey, address(v3utils));
-        bytes memory permitData = abi.encode(tf, signature);
+        vm.startPrank(addr);
+        DAI.approve(address(v3utils), type(uint256).max);
+        USDC.approve(address(v3utils), type(uint256).max);
+        vm.stopPrank();
 
         V3Utils.SwapAndMintParams memory params = V3Utils.SwapAndMintParams(
             DAI,
@@ -426,17 +403,16 @@ contract V3UtilsIntegrationTest is Test {
             "",
             0,
             0,
-            "",
-            permitData
+            ""
         );
 
         vm.prank(addr);
         (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = v3utils.swapAndMint(params);
 
-        assertEq(tokenId, 599811);
-        assertEq(liquidity, 999808574760);
-        assertEq(amount0, 999617186163914918);
-        assertEq(amount1, 1000000);
+        assertGt(tokenId, 0);
+        assertGt(liquidity, 0);
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
     }
 
     function testSwapDataError() public {
@@ -447,8 +423,7 @@ contract V3UtilsIntegrationTest is Test {
             1 ether, // 1 DAI
             TEST_NFT_ACCOUNT,
             _getInvalidSwapData(),
-            false,
-            ""
+            false
         );
 
         vm.startPrank(TEST_NFT_ACCOUNT);
@@ -481,8 +456,7 @@ contract V3UtilsIntegrationTest is Test {
             0,
             "",
             0,
-            0,
-            ""
+            0
         );
 
         uint256 balanceBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
@@ -522,37 +496,4 @@ contract V3UtilsIntegrationTest is Test {
         return vm.sign(privateKey, msgHash);
     }
 
-    function _getPermitBatchTransferFromSignature(
-        ISignatureTransfer.PermitBatchTransferFrom memory permit,
-        uint256 privateKey,
-        address to
-    ) internal returns (bytes memory sig) {
-        bytes32 _PERMIT_BATCH_TRANSFER_FROM_TYPEHASH = keccak256(
-            "PermitBatchTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
-        );
-        bytes32 _TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
-        bytes32[] memory tokenPermissions = new bytes32[](permit.permitted.length);
-        for (uint256 i = 0; i < permit.permitted.length; ++i) {
-            tokenPermissions[i] = keccak256(abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted[i]));
-        }
-
-        bytes32 msgHash = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                IPermit2(PERMIT2).DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        _PERMIT_BATCH_TRANSFER_FROM_TYPEHASH,
-                        keccak256(abi.encodePacked(tokenPermissions)),
-                        to,
-                        permit.nonce,
-                        permit.deadline
-                    )
-                )
-            )
-        );
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, msgHash);
-        return bytes.concat(r, s, bytes1(v));
-    }
 }

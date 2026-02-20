@@ -173,8 +173,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             address(usdc),
             npm,
             irm,
-            oracle,
-            address(permit2)
+            oracle
         );
         
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
@@ -404,7 +403,6 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             amount0Min: 0,
             amount1Min: 0,
             recipient: bob,
-            permitData: "",
             deadline: block.timestamp + 1000
         });
 

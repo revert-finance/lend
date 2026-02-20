@@ -12,16 +12,14 @@ contract V3VaultCompat is V3Vault {
         address _asset,
         INonfungiblePositionManager _nonfungiblePositionManager,
         IInterestRateModel _interestRateModel,
-        IV3Oracle _oracle,
-        address _permit2
+        IV3Oracle _oracle
     ) V3Vault(
         name,
         symbol,
         _asset,
         _nonfungiblePositionManager,
         _interestRateModel,
-        _oracle,
-        IPermit2(_permit2)
+        _oracle
     ) {}
 
     function pendingDepositRecipient(uint256) external pure returns (address) {

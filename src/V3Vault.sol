@@ -18,8 +18,6 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
-import "permit2/interfaces/IPermit2.sol";
-
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
@@ -58,8 +56,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @notice underlying asset for lending / borrowing
     address public immutable override asset;
-    /// @notice permit2 contract for signature-based transfers
-    IPermit2 public immutable permit2;
 
     /// @notice decimals of underlying token (are the same as ERC20 share token)
     uint8 private immutable assetDecimals;
@@ -180,11 +176,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         address _asset,
         INonfungiblePositionManager _nonfungiblePositionManager,
         IInterestRateModel _interestRateModel,
-        IV3Oracle _oracle,
-        IPermit2 _permit2
+        IV3Oracle _oracle
     ) ERC20(name, symbol) {
         asset = _asset;
-        permit2 = _permit2;
         assetDecimals = IERC20Metadata(_asset).decimals();
         nonfungiblePositionManager = _nonfungiblePositionManager;
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
@@ -397,13 +391,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @inheritdoc IERC4626
     function deposit(uint256 assets, address receiver) external override returns (uint256) {
-        (, uint256 shares) = _deposit(receiver, assets, false, "");
+        (, uint256 shares) = _deposit(receiver, assets, false);
         return shares;
     }
 
     /// @inheritdoc IERC4626
     function mint(uint256 shares, address receiver) external override returns (uint256) {
-        (uint256 assets,) = _deposit(receiver, shares, true, "");
+        (uint256 assets,) = _deposit(receiver, shares, true);
         return assets;
     }
 
@@ -416,18 +410,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @inheritdoc IERC4626
     function redeem(uint256 shares, address receiver, address owner) external override returns (uint256) {
         (uint256 assets,) = _withdraw(receiver, owner, shares, true);
-        return assets;
-    }
-
-    // deposit using permit2 data
-    function deposit(uint256 assets, address receiver, bytes calldata permitData) external override returns (uint256) {
-        (, uint256 shares) = _deposit(receiver, assets, false, permitData);
-        return shares;
-    }
-
-    // mint using permit2 data
-    function mint(uint256 shares, address receiver, bytes calldata permitData) external override returns (uint256) {
-        (uint256 assets,) = _deposit(receiver, shares, true, permitData);
         return assets;
     }
 
@@ -723,22 +705,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
         returns (uint256 assets, uint256 shares)
     {
-        (assets, shares) = _repay(tokenId, amount, isShare, "");
-    }
-
-    /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
-    /// @param tokenId The token ID to use as collateral
-    /// @param amount How many assets/debt shares to repay
-    /// @param isShare Is amount specified in assets or debt shares.
-    /// @param permitData Permit2 data and signature
-    /// @return assets The amount of the assets repayed
-    /// @return shares The amount of the shares repayed
-    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
-        external
-        override
-        returns (uint256 assets, uint256 shares)
-    {
-        (assets, shares) = _repay(tokenId, amount, isShare, permitData);
+        (assets, shares) = _repay(tokenId, amount, isShare);
     }
 
     // state used in liquidation function to avoid stack too deep errors
@@ -795,7 +762,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         if (state.liquidatorCost != 0) {
-            _pullAssetFromSender(state.liquidatorCost, params.permitData);
+            _pullAssetFromSender(state.liquidatorCost);
         }
 
         debtSharesTotal = debtSharesTotal - debtShares;
@@ -971,7 +938,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     ////////////////// INTERNAL FUNCTIONS
 
-    function _deposit(address receiver, uint256 amount, bool isShare, bytes memory permitData)
+    function _deposit(address receiver, uint256 amount, bool isShare)
         internal
         returns (uint256 assets, uint256 shares)
     {
@@ -996,7 +963,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
-        _pullAssetFromSender(assets, permitData);
+        _pullAssetFromSender(assets);
 
         _mint(receiver, shares);
 
@@ -1039,7 +1006,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData)
+    function _repay(uint256 tokenId, uint256 amount, bool isShare)
         internal
         returns (uint256 assets, uint256 shares)
     {
@@ -1068,7 +1035,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             assets = _convertToAssets(shares, newDebtExchangeRateX96, Math.Rounding.Up);
         }
 
-        _pullAssetFromSender(assets, permitData);
+        _pullAssetFromSender(assets);
 
         uint256 loanDebtShares = currentShares - shares;
         loan.debtShares = loanDebtShares;
@@ -1092,23 +1059,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Repay(tokenId, msg.sender, tokenOwner[tokenId], assets, shares);
     }
 
-    function _pullAssetFromSender(uint256 assets, bytes memory permitData) internal {
+    function _pullAssetFromSender(uint256 assets) internal {
         if (assets == 0) {
             return;
         }
-
-        if (permitData.length != 0) {
-            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
-                abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
-            if (permit.permitted.token != asset) {
-                revert InvalidToken();
-            }
-            permit2.permitTransferFrom(
-                permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
-            );
-        } else {
-            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-        }
+        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
     }
 
     // checks how much balance is available

@@ -24,7 +24,6 @@ contract DeployArbitrum is Script {
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
     address UNIVERSAL_ROUTER = 0x5E325eDA8064b456f4781070C0738d849c824258;
-    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // initially supported coins
     address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
@@ -124,7 +123,7 @@ contract DeployArbitrum is Script {
             200
         );
 
-        V3Vault vault = new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
+        V3Vault vault = new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDC_E, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value

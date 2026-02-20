@@ -30,7 +30,6 @@ abstract contract AutomatorIntegrationTestBase is Test {
 
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
     address UNIVERSAL_ROUTER = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD; // uniswap universal router
-    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3; // permit2 contract
 
     // DAI/USDC 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
     uint256 constant TEST_NFT = 24181;
@@ -71,6 +70,6 @@ abstract contract AutomatorIntegrationTestBase is Test {
         mainnetFork = vm.createFork(ANKR_RPC, 15489169);
         vm.selectFork(mainnetFork);
 
-        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
+        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER);
     }
 }

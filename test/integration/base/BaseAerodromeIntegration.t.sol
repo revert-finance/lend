@@ -50,7 +50,6 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant AERO = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
-    address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     INonfungiblePositionManager constant NPM =
         INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
@@ -111,8 +110,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
             USDC,
             NPM,
             interestRateModel,
-            oracle,
-            IPermit2(PERMIT2)
+            oracle
         );
         vault.setTokenConfig(USDC, uint32(Q32 * 9 / 10), type(uint32).max);
         vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), type(uint32).max);

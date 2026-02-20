@@ -363,7 +363,6 @@ contract AtlasTransitionsTest is AerodromeTestBase {
             amount0Min: 0,
             amount1Min: 0,
             recipient: bob,
-            permitData: "",
             deadline: block.timestamp + 1 hours
         });
         (uint256 amount0, uint256 amount1) = vault.liquidate(params);

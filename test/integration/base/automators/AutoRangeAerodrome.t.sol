@@ -44,7 +44,7 @@ contract AutoRangeAerodromeTest is Test, Constants {
         vm.selectFork(baseFork);
         
         // Deploy contracts
-        v3utils = new V3Utils(NPM, address(0), UNIVERSAL_ROUTER, address(0));
+        v3utils = new V3Utils(NPM, address(0), UNIVERSAL_ROUTER);
         autoRange = new AutoRange(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, address(0), UNIVERSAL_ROUTER);
     }
     

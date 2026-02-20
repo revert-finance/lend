@@ -87,12 +87,6 @@ contract MockChainlinkAggregator {
     }
 }
 
-// Mock Permit2 for testing
-contract MockPermit2 {
-    // Minimal mock - just needs to exist as a contract
-    // Tests don't actually use permit2 functionality
-}
-
 abstract contract AerodromeTestBase is Test, Constants {
     // Constants are inherited from Constants contract
     
@@ -125,7 +119,6 @@ abstract contract AerodromeTestBase is Test, Constants {
     MockChainlinkAggregator public usdcFeed;
     MockChainlinkAggregator public daiFeed;
     MockChainlinkAggregator public ethFeed;
-    MockPermit2 public permit2;
     
     function setUp() public virtual {
         // Deploy mocks
@@ -173,9 +166,6 @@ abstract contract AerodromeTestBase is Test, Constants {
         // Deploy interest rate model
         irm = new MockInterestRateModel();
 
-        // Deploy mock permit2
-        permit2 = new MockPermit2();
-
         // Deploy oracle
         oracle = new V3Oracle(npm, address(usdc), address(usdc));
         
@@ -215,8 +205,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             address(usdc),
             npm,
             irm,
-            oracle,
-            address(permit2)
+            oracle
         );
         
         // Deploy gauge manager

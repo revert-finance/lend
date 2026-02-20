@@ -270,8 +270,7 @@ contract V3VaultCreateWithPermitTests is AerodromeTestBase {
             address(usdc),
             npm,
             irm,
-            oracle,
-            address(permit2)
+            oracle
         );
     }
 
@@ -332,8 +331,7 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
             address(usdc),
             npm,
             irm,
-            oracle,
-            address(permit2)
+            oracle
         );
 
         gaugeManager = new GaugeManager(
