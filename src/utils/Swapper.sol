@@ -74,44 +74,49 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         internal
         returns (uint256 amountInDelta, uint256 amountOutDelta)
     {
-        if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0) && address(params.tokenIn) != address(0)) {
-            uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
-            uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
-
-            // Check if this is Universal Router data by looking at first 32 bytes
-            bool isUniversalRouter;
-            bytes memory swapData = params.swapData;
-            address uniRouter = universalRouter;
-            assembly ("memory-safe") {
-                let firstWord := mload(add(swapData, 32))
-                isUniversalRouter := eq(firstWord, uniRouter)
-            }
-
-            if (isUniversalRouter) {
-                // Handle Universal Router case
-                (, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
-                UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
-                SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
-                IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
-            } else {
-                // For 0x v2, use raw data
-                SafeERC20.safeIncreaseAllowance(params.tokenIn, zeroxAllowanceHolder, params.amountIn);
-                (bool success,) = zeroxAllowanceHolder.call(params.swapData);
-                if (!success) {
-                    revert SwapFailed();
-                }
-                SafeERC20.safeApprove(params.tokenIn, zeroxAllowanceHolder, 0);
-            }
-
-            amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
-            amountOutDelta = params.tokenOut.balanceOf(address(this)) - balanceOutBefore;
-
-            if (amountOutDelta < params.amountOutMin) {
-                revert SlippageError();
-            }
-
-            emit Swap(address(params.tokenIn), address(params.tokenOut), amountInDelta, amountOutDelta);
+        if (
+            params.amountIn == 0 || params.swapData.length == 0 || address(params.tokenOut) == address(0)
+                || address(params.tokenIn) == address(0)
+        ) {
+            return (0, 0);
         }
+
+        uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
+        uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
+
+        // Check if this is Universal Router data by looking at first 32 bytes
+        bool isUniversalRouter;
+        bytes memory swapData = params.swapData;
+        address uniRouter = universalRouter;
+        assembly ("memory-safe") {
+            let firstWord := mload(add(swapData, 32))
+            isUniversalRouter := eq(firstWord, uniRouter)
+        }
+
+        if (isUniversalRouter) {
+            // Handle Universal Router case
+            (, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
+            UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
+            SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
+            IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
+        } else {
+            // For 0x v2, use raw data
+            SafeERC20.safeIncreaseAllowance(params.tokenIn, zeroxAllowanceHolder, params.amountIn);
+            (bool success,) = zeroxAllowanceHolder.call(params.swapData);
+            if (!success) {
+                revert SwapFailed();
+            }
+            SafeERC20.safeApprove(params.tokenIn, zeroxAllowanceHolder, 0);
+        }
+
+        amountInDelta = balanceInBefore - params.tokenIn.balanceOf(address(this));
+        amountOutDelta = params.tokenOut.balanceOf(address(this)) - balanceOutBefore;
+
+        if (amountOutDelta < params.amountOutMin) {
+            revert SlippageError();
+        }
+
+        emit Swap(address(params.tokenIn), address(params.tokenOut), amountInDelta, amountOutDelta);
     }
 
     struct PoolSwapParams {

@@ -924,7 +924,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert CollateralFactorExceedsMax();
         }
         TokenConfig storage config = tokenConfigs[token];
-        config.collateralFactorX32 = collateralFactorX32; 
+        config.collateralFactorX32 = collateralFactorX32;
         config.collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
     }
@@ -1341,9 +1341,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function stakePosition(uint256 tokenId) external override {
-        if (gaugeManager == address(0)) {
-            revert GaugeManagerNotSet();
-        }
+        _requireGaugeManagerSet();
         if (tokenOwner[tokenId] != msg.sender) {
             revert NotDepositor();
         }
@@ -1352,9 +1350,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function unstakePosition(uint256 tokenId) external override {
-        if (gaugeManager == address(0)) {
-            revert GaugeManagerNotSet();
-        }
+        _requireGaugeManagerSet();
         if (tokenOwner[tokenId] != msg.sender && transformedTokenId != tokenId) {
             revert Unauthorized();
         }
@@ -1371,9 +1367,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 aeroSplitBps,
         uint256 deadline
     ) external override returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
-        if (gaugeManager == address(0)) {
-            revert GaugeManagerNotSet();
-        }
+        _requireGaugeManagerSet();
         if (tokenOwner[tokenId] != msg.sender) {
             revert Unauthorized();
         }
@@ -1408,6 +1402,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
         isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
+    }
+
+    function _requireGaugeManagerSet() internal view {
+        if (gaugeManager == address(0)) {
+            revert GaugeManagerNotSet();
+        }
     }
 
     function _convertToShares(uint256 amount, uint256 exchangeRateX96, Math.Rounding rounding)

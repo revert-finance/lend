@@ -69,9 +69,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     }
 
     function stakePosition(uint256 tokenId) external override nonReentrant {
-        if (msg.sender != address(vault)) {
-            revert Unauthorized();
-        }
+        _requireVaultCaller();
         if (tokenIdToGauge[tokenId] != address(0)) {
             revert InvalidConfig();
         }
@@ -103,9 +101,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     }
 
     function unstakePosition(uint256 tokenId) external override nonReentrant {
-        if (msg.sender != address(vault)) {
-            revert Unauthorized();
-        }
+        _requireVaultCaller();
 
         bool wasStaked = _unstakePosition(tokenId);
         if (!wasStaked) {
@@ -114,9 +110,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     }
 
     function unstakeIfStaked(uint256 tokenId) external override nonReentrant returns (bool wasStaked) {
-        if (msg.sender != address(vault)) {
-            revert Unauthorized();
-        }
+        _requireVaultCaller();
         return _unstakePosition(tokenId);
     }
 
@@ -141,14 +135,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         nonReentrant
         returns (uint256 aeroAmount)
     {
-        if (msg.sender != address(vault)) {
-            revert Unauthorized();
-        }
-
-        address gauge = tokenIdToGauge[tokenId];
-        if (gauge == address(0)) {
-            revert NotStaked();
-        }
+        _requireVaultCaller();
+        address gauge = _requireStakedGauge(tokenId);
 
         address owner = vault.ownerOf(tokenId);
         aeroAmount = _claimAndSendRewards(gauge, tokenId, recipient);
@@ -164,18 +152,13 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 aeroSplitBps,
         uint256 deadline
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
-        if (msg.sender != address(vault)) {
-            revert Unauthorized();
-        }
+        _requireVaultCaller();
         if (aeroSplitBps > 10_000) {
             revert InvalidConfig();
         }
 
         CompoundState memory state;
-        state.gauge = tokenIdToGauge[tokenId];
-        if (state.gauge == address(0)) {
-            revert NotStaked();
-        }
+        state.gauge = _requireStakedGauge(tokenId);
 
         state.owner = vault.ownerOf(tokenId);
         state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId);
@@ -199,17 +182,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     function _claimAndSendRewards(address gauge, uint256 tokenId, address recipient) internal returns (uint256 aeroAmount) {
         aeroAmount = _claimRewardsToSelf(gauge, tokenId);
-
-        if (aeroAmount != 0) {
-            aeroToken.safeTransfer(recipient, aeroAmount);
-        }
+        _sendAeroIfAny(recipient, aeroAmount);
     }
 
     function _claimAndSendRewardsBestEffort(address gauge, uint256 tokenId, address recipient) internal {
         uint256 aeroAmount = _claimRewardsToSelfBestEffort(gauge, tokenId);
-        if (aeroAmount != 0) {
-            aeroToken.safeTransfer(recipient, aeroAmount);
-        }
+        _sendAeroIfAny(recipient, aeroAmount);
     }
 
     function _claimRewardsToSelf(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
@@ -227,6 +205,25 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
                 aeroAmount = aeroAfter - aeroBefore;
             }
         } catch {}
+    }
+
+    function _requireVaultCaller() internal view {
+        if (msg.sender != address(vault)) {
+            revert Unauthorized();
+        }
+    }
+
+    function _requireStakedGauge(uint256 tokenId) internal view returns (address gauge) {
+        gauge = tokenIdToGauge[tokenId];
+        if (gauge == address(0)) {
+            revert NotStaked();
+        }
+    }
+
+    function _sendAeroIfAny(address recipient, uint256 amount) internal {
+        if (amount != 0) {
+            aeroToken.safeTransfer(recipient, amount);
+        }
     }
 
     function _swapAeroForPosition(

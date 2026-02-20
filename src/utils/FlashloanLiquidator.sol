@@ -101,19 +101,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
 
         address poolToken0 = data.flashLoanPool.token0();
         address poolToken1 = data.flashLoanPool.token1();
-        bool isFactoryPool = address(_getPool(poolToken0, poolToken1, data.flashLoanPool.fee())) == msg.sender;
-        if (!isFactoryPool) {
-            // Slipstream resolves pools by tickSpacing (positions store this in `fee`), not by swap fee.
-            (bool success, bytes memory tickSpacingData) =
-                msg.sender.staticcall(abi.encodeWithSignature("tickSpacing()"));
-            if (success && tickSpacingData.length >= 32) {
-                int24 tickSpacing = abi.decode(tickSpacingData, (int24));
-                if (tickSpacing > 0) {
-                    isFactoryPool = address(_getPool(poolToken0, poolToken1, _toTickSpacingU24(tickSpacing))) == msg.sender;
-                }
-            }
-        }
-        if (!isFactoryPool) {
+        if (!_isFactoryPool(data.flashLoanPool, poolToken0, poolToken1)) {
             revert Unauthorized();
         }
         if (address(data.asset) != poolToken0 && address(data.asset) != poolToken1) {
@@ -133,29 +121,46 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
         // transfer lent amount + fee (only one token can have fee) - back to pool
         SafeERC20.safeTransfer(data.asset, msg.sender, data.liquidationCost + (fee0 + fee1));
 
-        uint256 balance;
-
         // return all leftover tokens to liquidator
         if (data.swap0.tokenIn != data.asset) {
-            balance = data.swap0.tokenIn.balanceOf(address(this));
-            if (balance != 0) {
-                SafeERC20.safeTransfer(data.swap0.tokenIn, data.liquidator, balance);
-            }
+            _transferBalanceIfNonZero(data.swap0.tokenIn, data.liquidator);
         }
         if (data.swap1.tokenIn != data.asset) {
-            balance = data.swap1.tokenIn.balanceOf(address(this));
-            if (balance != 0) {
-                SafeERC20.safeTransfer(data.swap1.tokenIn, data.liquidator, balance);
-            }
+            _transferBalanceIfNonZero(data.swap1.tokenIn, data.liquidator);
         }
-        {
-            balance = data.asset.balanceOf(address(this));
-            if (balance < data.minReward) {
-                revert NotEnoughReward();
-            }
-            if (balance != 0) {
-                SafeERC20.safeTransfer(data.asset, data.liquidator, balance);
-            }
+        uint256 assetBalance = data.asset.balanceOf(address(this));
+        if (assetBalance < data.minReward) {
+            revert NotEnoughReward();
+        }
+        if (assetBalance != 0) {
+            SafeERC20.safeTransfer(data.asset, data.liquidator, assetBalance);
+        }
+    }
+
+    function _isFactoryPool(IUniswapV3Pool pool, address poolToken0, address poolToken1) internal view returns (bool) {
+        // Uniswap style: resolve by fee.
+        if (address(_getPool(poolToken0, poolToken1, pool.fee())) == address(pool)) {
+            return true;
+        }
+
+        // Slipstream style: resolve by tickSpacing.
+        (bool success, bytes memory tickSpacingData) = address(pool).staticcall(abi.encodeWithSignature("tickSpacing()"));
+        if (!success || tickSpacingData.length < 32) {
+            return false;
+        }
+
+        int24 tickSpacing = abi.decode(tickSpacingData, (int24));
+        if (tickSpacing <= 0) {
+            return false;
+        }
+
+        return address(_getPool(poolToken0, poolToken1, _toTickSpacingU24(tickSpacing))) == address(pool);
+    }
+
+    function _transferBalanceIfNonZero(IERC20 token, address recipient) internal {
+        uint256 balance = token.balanceOf(address(this));
+        if (balance != 0) {
+            SafeERC20.safeTransfer(token, recipient, balance);
         }
     }
 
