@@ -50,6 +50,59 @@ Supported chains:
 - `42161` (Arbitrum)
 - `8453` (Base)
 
+### Special code changes for PancakeSwap (from `v3utils` README)
+
+These are the required code-level adaptations when syncing upstream Uniswap v3 libraries/interfaces for PancakeSwap compatibility.
+
+1. Update pool init code hash in `lib/v3-periphery/contracts/libraries/PoolAddress.sol`:
+
+```solidity
+bytes32 internal constant POOL_INIT_CODE_HASH = 0x6ce8eb472fa82df5469c6ab6d485f17c3ad13c8cd7af59b3d4a8026c5ce0f7e2;
+```
+
+2. Use `uint32 feeProtocol` in `slot0()` return type in `lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolState.sol`:
+
+```solidity
+function slot0()
+    external
+    view
+    returns (
+        uint160 sqrtPriceX96,
+        int24 tick,
+        uint16 observationIndex,
+        uint16 observationCardinality,
+        uint16 observationCardinalityNext,
+        uint32 feeProtocol,
+        bool unlocked
+    );
+```
+
+3. Add `deployer()` to `lib/v3-periphery/contracts/interfaces/IPeripheryImmutableState.sol`:
+
+```solidity
+function deployer() external view returns (address);
+```
+
+4. Update `src/automators/Automator.sol` to use Pancake deployer for pool address computation:
+
+```solidity
+address private immutable deployer;
+```
+
+```solidity
+deployer = npm.deployer();
+```
+
+```solidity
+function _getPool(
+    address tokenA,
+    address tokenB,
+    uint24 fee
+) internal view returns (IUniswapV3Pool) {
+    return IUniswapV3Pool(PoolAddress.computeAddress(deployer, PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+}
+```
+
 ### Defaults used by the script
 
 The script has built-in defaults for Pancake and infra addresses:
