@@ -20,8 +20,15 @@ contract MockTransformerMintNew {
 
     // Called by the vault during V3Vault.transform/_transformUnstaked via low-level call.
     function exec(uint256 oldTokenId, uint256 newTokenId) external {
-        (,, address token0, address token1, uint24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity,,,,) =
-            npm.positions(oldTokenId);
+        (
+            ,,
+            address token0,
+            address token1,
+            uint24 tickSpacing,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,,,,
+        ) = npm.positions(oldTokenId);
 
         npm.mint(address(this), newTokenId);
         npm.setPosition(newTokenId, token0, token1, int24(uint24(tickSpacing)), tickLower, tickUpper, liquidity);
@@ -91,17 +98,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
 
     function testRawSafeTransferIntoVaultCreatesLoan() public {
         vm.warp(block.timestamp + 1);
-        uint256 tokenId = createPositionProper(
-            alice,
-            address(usdc),
-            address(dai),
-            1,
-            -100,
-            100,
-            1e18,
-            100e6,
-            100e18
-        );
+        uint256 tokenId = createPositionProper(alice, address(usdc), address(dai), 1, -100, 100, 1e18, 100e6, 100e18);
 
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
@@ -178,14 +175,13 @@ contract AtlasTransitionsTest is AerodromeTestBase {
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
     }
 
-    function testUnstakeTransformStakeUnstakesExecutesAndRestakes() public {
+    function testTransformUnstakesExecutesAndRestakes() public {
         uint256 tokenId = _depositPosition(alice);
         vm.prank(alice);
         vault.stakePosition(tokenId);
 
         vm.prank(alice);
-        uint256 newTokenId =
-            vault.unstakeTransformStake(tokenId, address(noop), abi.encodeCall(MockTransformerNoop.exec, ()));
+        uint256 newTokenId = vault.transform(tokenId, address(noop), abi.encodeCall(MockTransformerNoop.exec, ()));
 
         assertEq(newTokenId, tokenId);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
@@ -359,11 +355,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
         vm.startPrank(bob);
         usdc.approve(address(vault), type(uint256).max);
         IVault.LiquidateParams memory params = IVault.LiquidateParams({
-            tokenId: tokenId,
-            amount0Min: 0,
-            amount1Min: 0,
-            recipient: bob,
-            deadline: block.timestamp + 1 hours
+            tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: bob, deadline: block.timestamp + 1 hours
         });
         (uint256 amount0, uint256 amount1) = vault.liquidate(params);
         vm.stopPrank();
@@ -395,7 +387,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
         // Accrue interest once; 1 hour is enough with the mock IRM.
         vm.warp(block.timestamp + 1 hours);
 
-        (uint256 debt, uint256 lentDown, uint256 balance, uint256 reserves, , uint256 lendExchangeRateX96) =
+        (uint256 debt, uint256 lentDown, uint256 balance, uint256 reserves,, uint256 lendExchangeRateX96) =
             vault.vaultInfo();
         assertGt(debt, 0, "expected debt");
         assertGt(lentDown, 0, "expected lent");

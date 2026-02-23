@@ -29,8 +29,15 @@ contract MockTransformerMintNewForInvariant {
     }
 
     function exec(uint256 oldTokenId, uint256 newTokenId) external {
-        (,, address token0, address token1, uint24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity,,,,) =
-            npm.positions(oldTokenId);
+        (
+            ,,
+            address token0,
+            address token1,
+            uint24 tickSpacing,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,,,,
+        ) = npm.positions(oldTokenId);
         npm.mint(address(this), newTokenId);
         npm.setPosition(newTokenId, token0, token1, int24(uint24(tickSpacing)), tickLower, tickUpper, liquidity);
         npm.safeTransferFrom(address(this), vault, newTokenId, "");
@@ -237,7 +244,9 @@ contract AtlasHandler is Test, Constants {
         address owner = vault.ownerOf(tokenId);
         uint256 newTokenId = uint256(keccak256(abi.encodePacked(tokenId, "new", block.timestamp)));
         vm.prank(owner);
-        try vault.transform(tokenId, address(mintNew), abi.encodeCall(MockTransformerMintNewForInvariant.exec, (tokenId, newTokenId))) returns (
+        try vault.transform(
+            tokenId, address(mintNew), abi.encodeCall(MockTransformerMintNewForInvariant.exec, (tokenId, newTokenId))
+        ) returns (
             uint256 returned
         ) {
             if (returned == newTokenId) {
@@ -373,7 +382,6 @@ contract AtlasInvariantsTest is AerodromeTestBase {
         _invariant_tokenConfigTotalsMatchLoansForKnownTokens();
         _invariant_trackedNFTCustodyMatchesStakedFlag();
         _invariant_trackedNFTOwnerIsKnownActor();
-        _invariant_noPendingDepositForTrackedTokens();
         _invariant_nftApprovalsClearedForTrackedTokens();
         _invariant_loanListsAreSelfConsistent();
         _invariant_removedTokensAreNotInProtocolOrCustodiedByVault();
@@ -500,14 +508,6 @@ contract AtlasInvariantsTest is AerodromeTestBase {
             uint256 tokenId = handler.tokenIdAt(i);
             address owner = vault.ownerOf(tokenId);
             assertTrue(owner == alice || owner == bob || owner == carol, "tracked token owner must be known actor");
-        }
-    }
-
-    function _invariant_noPendingDepositForTrackedTokens() internal {
-        uint256 n = handler.tokenIdCount();
-        for (uint256 i = 0; i < n; i++) {
-            uint256 tokenId = handler.tokenIdAt(i);
-            assertEq(vault.pendingDepositRecipient(tokenId), address(0), "pendingDepositRecipient must be cleared");
         }
     }
 

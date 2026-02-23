@@ -6,7 +6,6 @@ import "../../../src/V3Vault.sol";
 import "../../../src/transformers/AutoCompound.sol";
 import "../../../src/transformers/AutoRange.sol";
 import "./mocks/MockAerodromePositionManager.sol";
-import "./mocks/V3VaultCompat.sol";
 import "../../../lib/AggregatorV3Interface.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
@@ -21,9 +20,8 @@ contract MockTokenIdMigrator {
     }
 
     function migrate(uint256 tokenId) external {
-        (
-            ,, address token0, address token1, uint24 tickSpacing, int24 tickLower, int24 tickUpper,,,,,
-        ) = npm.positions(tokenId);
+        (,, address token0, address token1, uint24 tickSpacing, int24 tickLower, int24 tickUpper,,,,,) =
+            npm.positions(tokenId);
 
         uint256 newTokenId = 1_000_000 + tokenSequence;
         tokenSequence++;
@@ -49,7 +47,10 @@ contract MockAutoRangeAerodromePositionManager is MockAerodromePositionManager {
 
     constructor(address _factory, address _weth) MockAerodromePositionManager(_factory, _weth) {}
 
-    function mint(MintParams calldata params) external payable override
+    function mint(MintParams calldata params)
+        external
+        payable
+        override
         returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
     {
         tokenId = 1_000_000 + tokenSequence;
@@ -57,15 +58,10 @@ contract MockAutoRangeAerodromePositionManager is MockAerodromePositionManager {
         lastMintedTokenId = tokenId;
 
         _mint(params.recipient, tokenId);
-        MockAerodromePositionManager(address(this)).setPosition(
-            tokenId,
-            params.token0,
-            params.token1,
-            int24(uint24(params.fee)),
-            params.tickLower,
-            params.tickUpper,
-            1
-        );
+        MockAerodromePositionManager(address(this))
+            .setPosition(
+                tokenId, params.token0, params.token1, int24(uint24(params.fee)), params.tickLower, params.tickUpper, 1
+            );
 
         return (tokenId, 1, 0, 0);
     }
@@ -83,13 +79,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function _deployAutoCompound() internal returns (AutoCompound) {
-        AutoCompound autoCompound = new AutoCompound(
-            INonfungiblePositionManager(address(npm)),
-            admin,
-            admin,
-            60,
-            200
-        );
+        AutoCompound autoCompound = new AutoCompound(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200);
         vault.setTransformer(address(autoCompound), true);
         autoCompound.setVault(address(vault));
         return autoCompound;
@@ -120,10 +110,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.approveTransform(tokenId, address(autoCompound), true);
 
         AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
-            tokenId: tokenId,
-            swap0To1: true,
-            amountIn: 0,
-            deadline: block.timestamp + 1 hours
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
         oracle.setMaxPoolPriceDifference(type(uint16).max);
@@ -137,7 +124,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
     }
 
-    function testUnstakeTransformStakeWorksForUnstakedPosition() public {
+    function testTransformWorksForUnstakedPosition() public {
         AutoCompound autoCompound = _deployAutoCompound();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
@@ -149,24 +136,22 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.approveTransform(tokenId, admin, true);
 
         AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
-            tokenId: tokenId,
-            swap0To1: true,
-            amountIn: 0,
-            deadline: block.timestamp + 1 hours
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         npm.setTokensOwed(tokenId, 0, 0);
 
         vm.prank(admin);
-        uint256 transformedTokenId = vault.unstakeTransformStake(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+        uint256 transformedTokenId =
+            vault.transform(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
 
         assertEq(transformedTokenId, tokenId);
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
     }
 
-    function testDebtZeroTransformCanRunThroughUnstakeTransformStake() public {
+    function testDebtZeroTransformCanRunThroughTransform() public {
         AutoCompound autoCompound = _deployAutoCompound();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
@@ -180,23 +165,21 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.approveTransform(tokenId, admin, true);
 
         AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
-            tokenId: tokenId,
-            swap0To1: true,
-            amountIn: 0,
-            deadline: block.timestamp + 1 hours
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         npm.setTokensOwed(tokenId, 0, 0);
 
         vm.prank(admin);
-        uint256 transformedTokenId = vault.unstakeTransformStake(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+        uint256 transformedTokenId =
+            vault.transform(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
 
         assertEq(transformedTokenId, tokenId);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
     }
 
-    function testTokenIdMigrationCanRestakeThroughWrapper() public {
+    function testTokenIdMigrationCanRestakeThroughTransform() public {
         MockTokenIdMigrator migrator = new MockTokenIdMigrator(npm);
         vault.setTransformer(address(migrator), true);
 
@@ -215,7 +198,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         bytes memory transformData = abi.encodeWithSelector(MockTokenIdMigrator.migrate.selector, tokenId);
 
         vm.prank(admin);
-        uint256 newTokenId = vault.unstakeTransformStake(tokenId, address(migrator), transformData);
+        uint256 newTokenId = vault.transform(tokenId, address(migrator), transformData);
 
         assertTrue(newTokenId != tokenId);
         assertEq(vault.ownerOf(newTokenId), alice);
@@ -241,10 +224,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.approveTransform(tokenId, address(autoCompound), true);
 
         AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
-            tokenId: tokenId,
-            swap0To1: true,
-            amountIn: 0,
-            deadline: block.timestamp + 1 hours
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
         npm.setTokensOwed(tokenId, 0, 0);
@@ -264,26 +244,11 @@ contract V3VaultCreateWithPermitTests is AerodromeTestBase {
 
         npm = new MockPermitAerodromePositionManager(address(factory), address(weth));
         oracle = new V3Oracle(npm, address(usdc), address(usdc));
-        vault = new V3VaultCompat(
-            "Revert Lend USDC",
-            "rlUSDC",
-            address(usdc),
-            npm,
-            irm,
-            oracle
-        );
+        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(usdc), npm, irm, oracle);
     }
 
     function testCreateWithPermitFlow() public {
-        uint256 tokenId = createPosition(
-            alice,
-            address(usdc),
-            address(dai),
-            1,
-            -100,
-            100,
-            1000e18
-        );
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000e18);
 
         vm.prank(alice);
         vault.createWithPermit(tokenId, alice, block.timestamp + 1 hours, 0, bytes32(0), bytes32(0));
@@ -325,14 +290,7 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             type(uint16).max
         );
-        vault = new V3VaultCompat(
-            "Revert Lend USDC",
-            "rlUSDC",
-            address(usdc),
-            npm,
-            irm,
-            oracle
-        );
+        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(usdc), npm, irm, oracle);
 
         gaugeManager = new GaugeManager(
             IAerodromeNonfungiblePositionManager(address(npm)),
@@ -368,15 +326,8 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
     }
 
     function _deployAutoRange() internal returns (AutoRange) {
-        AutoRange autoRange = new AutoRange(
-            INonfungiblePositionManager(address(npm)),
-            admin,
-            admin,
-            60,
-            200,
-            address(0x1),
-            address(0x2)
-        );
+        AutoRange autoRange =
+            new AutoRange(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0x1), address(0x2));
 
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));

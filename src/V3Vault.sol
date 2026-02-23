@@ -1326,7 +1326,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @notice Sets gauge manager address once (owner only)
     /// @dev Safety note: this only validates that `_gaugeManager` is a contract and then permanently locks it.
     /// @dev GaugeManager enforces `msg.sender == address(vault)`, so configuring a manager deployed for a different
-    ///      vault will make stake/unstake/compound paths revert Unauthorized and cannot be corrected afterward.
+    ///      vault will make stake/unstake/claim/compound paths revert Unauthorized and cannot be corrected afterward.
     function setGaugeManager(address _gaugeManager) external onlyOwner {
         if (gaugeManager != address(0)) {
             revert GaugeManagerAlreadySet();
@@ -1355,6 +1355,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
+    }
+
+    function claimRewards(uint256 tokenId) external override returns (uint256 aeroAmount) {
+        _requireGaugeManagerSet();
+        if (tokenOwner[tokenId] != msg.sender) {
+            revert Unauthorized();
+        }
+
+        aeroAmount = IGaugeManager(gaugeManager).claimRewards(tokenId, msg.sender);
     }
 
     function compoundRewards(

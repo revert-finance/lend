@@ -48,6 +48,7 @@ interface IVault is IERC4626 {
     function setGaugeManager(address _gaugeManager) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
+    function claimRewards(uint256 tokenId) external returns (uint256 aeroAmount);
     function compoundRewards(
         uint256 tokenId,
         bytes calldata swapData0,

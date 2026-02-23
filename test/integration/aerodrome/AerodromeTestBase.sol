@@ -9,7 +9,6 @@ import "./mocks/MockAerodromePositionManager.sol";
 import "./mocks/MockAerodromeFactory.sol";
 import "./mocks/MockGauge.sol";
 import "./mocks/MockPool.sol";
-import "./mocks/V3VaultCompat.sol";
 
 import "../../../src/V3Vault.sol";
 import "../../../src/V3Oracle.sol";
@@ -20,16 +19,16 @@ import "../../../lib/AggregatorV3Interface.sol";
 // Mock tokens
 contract MockERC20 is ERC20 {
     uint8 private _decimals;
-    
+
     constructor(string memory name, string memory symbol, uint8 decimals_) ERC20(name, symbol) {
         _decimals = decimals_;
-        _mint(msg.sender, 1000000 * 10**decimals_);
+        _mint(msg.sender, 1000000 * 10 ** decimals_);
     }
-    
+
     function decimals() public view virtual override returns (uint8) {
         return _decimals;
     }
-    
+
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
@@ -42,8 +41,8 @@ contract MockWETH is MockERC20 {
 
 // Mock interest rate model
 contract MockInterestRateModel is IInterestRateModel {
-    uint256 constant Q96 = 2**96;
-    
+    uint256 constant Q96 = 2 ** 96;
+
     function getUtilizationRateX96(uint256 debt, uint256 lent) external pure returns (uint256) {
         if (lent == 0) return 0;
         return debt * Q96 / lent;
@@ -55,10 +54,10 @@ contract MockInterestRateModel is IInterestRateModel {
         uint256 supplyRate = borrowRate * 9 / 10; // 90% of borrow rate
         return (borrowRate, supplyRate);
     }
-    
+
     function getRatesPerSecondX64(uint256 cash, uint256 debt) external pure returns (uint256, uint256) {
         // Mock implementation using X64 precision
-        uint256 Q64 = 2**64;
+        uint256 Q64 = 2 ** 64;
         uint256 utilization = debt * Q64 / (cash + debt + 1);
         uint256 borrowRate = utilization / 100;
         uint256 supplyRate = borrowRate * 9 / 10;
@@ -76,99 +75,97 @@ contract MockChainlinkAggregator {
         decimals = _decimals;
     }
 
-    function latestRoundData() external view returns (
-        uint80 roundId,
-        int256 answer,
-        uint256 startedAt,
-        uint256 updatedAt,
-        uint80 answeredInRound
-    ) {
+    function latestRoundData()
+        external
+        view
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
+    {
         return (1, price, block.timestamp, block.timestamp, 1);
     }
 }
 
 abstract contract AerodromeTestBase is Test, Constants {
     // Constants are inherited from Constants contract
-    
+
     // Core contracts
     MockAerodromePositionManager public npm;
     MockAerodromeFactory public factory;
-    V3VaultCompat public vault;
+    V3Vault public vault;
     V3Oracle public oracle;
     GaugeManager public gaugeManager;
-    
+
     // Mock tokens
     MockERC20 public usdc;
     MockERC20 public dai;
     MockERC20 public aero;
     MockWETH public weth;
-    
+
     // Mock pools and gauges
     address public usdcDaiPool;
     address public wethUsdcPool;
     MockGauge public usdcDaiGauge;
     MockGauge public wethUsdcGauge;
-    
+
     // Test users
     address public alice = address(0x1);
     address public bob = address(0x2);
     address public admin = address(0x3);
-    
+
     // Mock contracts
     MockInterestRateModel public irm;
     MockChainlinkAggregator public usdcFeed;
     MockChainlinkAggregator public daiFeed;
     MockChainlinkAggregator public ethFeed;
-    
+
     function setUp() public virtual {
         // Deploy mocks
         factory = new MockAerodromeFactory();
         npm = new MockAerodromePositionManager(address(factory), address(0));
-        
+
         // Deploy tokens with proper decimals
-        usdc = new MockERC20("USD Coin", "USDC", 6);  // 6 decimals for USDC
-        dai = new MockERC20("Dai Stablecoin", "DAI", 18);  // 18 decimals for DAI
-        aero = new MockERC20("Aerodrome", "AERO", 18);  // 18 decimals for AERO
-        weth = new MockWETH();  // WETH already has 18 decimals
-        
+        usdc = new MockERC20("USD Coin", "USDC", 6); // 6 decimals for USDC
+        dai = new MockERC20("Dai Stablecoin", "DAI", 18); // 18 decimals for DAI
+        aero = new MockERC20("Aerodrome", "AERO", 18); // 18 decimals for AERO
+        weth = new MockWETH(); // WETH already has 18 decimals
+
         // Deploy mock pools - order tokens correctly
         if (address(usdc) < address(dai)) {
             usdcDaiPool = address(new MockPool(address(usdc), address(dai), 1, 1));
         } else {
             usdcDaiPool = address(new MockPool(address(dai), address(usdc), 1, 1));
         }
-        
-        // For WETH/USDC pair - order tokens correctly  
+
+        // For WETH/USDC pair - order tokens correctly
         if (address(weth) < address(usdc)) {
             wethUsdcPool = address(new MockPool(address(weth), address(usdc), 10, 10));
         } else {
             wethUsdcPool = address(new MockPool(address(usdc), address(weth), 10, 10));
         }
-        
+
         // Set pools in factory - always use sorted order (token0 < token1)
         if (address(usdc) < address(dai)) {
             factory.setPool(address(usdc), address(dai), 1, usdcDaiPool);
         } else {
             factory.setPool(address(dai), address(usdc), 1, usdcDaiPool);
         }
-        
+
         if (address(weth) < address(usdc)) {
             factory.setPool(address(weth), address(usdc), 10, wethUsdcPool);
         } else {
             factory.setPool(address(usdc), address(weth), 10, wethUsdcPool);
         }
-        
+
         // Deploy price feeds
         usdcFeed = new MockChainlinkAggregator(1e8, 8); // $1
         daiFeed = new MockChainlinkAggregator(1e8, 8); // $1
         ethFeed = new MockChainlinkAggregator(2000e8, 8); // $2000
-        
+
         // Deploy interest rate model
         irm = new MockInterestRateModel();
 
         // Deploy oracle
         oracle = new V3Oracle(npm, address(usdc), address(usdc));
-        
+
         // Configure oracle
         oracle.setTokenConfig(
             address(usdc),
@@ -177,7 +174,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             IUniswapV3Pool(usdcDaiPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            type(uint16).max  // Set to max to bypass price checks in tests
+            type(uint16).max // Set to max to bypass price checks in tests
         );
         oracle.setTokenConfig(
             address(dai),
@@ -186,7 +183,7 @@ abstract contract AerodromeTestBase is Test, Constants {
             IUniswapV3Pool(usdcDaiPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            type(uint16).max  // Set to max to bypass price checks in tests
+            type(uint16).max // Set to max to bypass price checks in tests
         );
         oracle.setTokenConfig(
             address(weth),
@@ -195,28 +192,21 @@ abstract contract AerodromeTestBase is Test, Constants {
             IUniswapV3Pool(wethUsdcPool),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            type(uint16).max  // Set to max to bypass price checks in tests
+            type(uint16).max // Set to max to bypass price checks in tests
         );
-        
+
         // Deploy vault
-        vault = new V3VaultCompat(
-            "Revert Lend USDC",
-            "rlUSDC",
-            address(usdc),
-            npm,
-            irm,
-            oracle
-        );
-        
+        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(usdc), npm, irm, oracle);
+
         // Deploy gauge manager
         gaugeManager = new GaugeManager(
             IAerodromeNonfungiblePositionManager(address(npm)),
             IERC20(address(aero)),
             IVault(address(vault)),
             address(0), // universal router not needed in tests
-            address(0)  // allowance holder not needed in tests
+            address(0) // allowance holder not needed in tests
         );
-        
+
         // Deploy gauges
         usdcDaiGauge = new MockGauge(address(aero), address(npm));
         wethUsdcGauge = new MockGauge(address(aero), address(npm));
@@ -228,10 +218,10 @@ abstract contract AerodromeTestBase is Test, Constants {
         // Configure gauge manager (will verify gauge matches pool)
         gaugeManager.setGauge(usdcDaiPool, address(usdcDaiGauge));
         gaugeManager.setGauge(wethUsdcPool, address(wethUsdcGauge));
-        
+
         // Set gauge manager in vault
         vault.setGaugeManager(address(gaugeManager));
-        
+
         // Configure vault collateral factors using X32 scaling
         // CF must be scaled by Q32 = 2^32 = 4,294,967,296
         uint32 cf90Percent = 3_865_470_566; // floor(Q32 * 90 / 100)
@@ -239,19 +229,19 @@ abstract contract AerodromeTestBase is Test, Constants {
         vault.setTokenConfig(address(usdc), cf90Percent, type(uint32).max); // 90% CF, max limit
         vault.setTokenConfig(address(dai), cf90Percent, type(uint32).max); // 90% CF, max limit
         vault.setTokenConfig(address(weth), cf85Percent, type(uint32).max); // 85% CF, max limit
-        
+
         // Fund test users
-        usdc.mint(alice, 100000e6);  // 100,000 USDC with 6 decimals
-        usdc.mint(bob, 100000e6);    // 100,000 USDC with 6 decimals
+        usdc.mint(alice, 100000e6); // 100,000 USDC with 6 decimals
+        usdc.mint(bob, 100000e6); // 100,000 USDC with 6 decimals
         dai.mint(alice, 100000e18);
         dai.mint(bob, 100000e18);
         deal(address(weth), alice, 100 ether);
         deal(address(weth), bob, 100 ether);
-        
+
         // Fund gauges with AERO rewards
         aero.mint(address(usdcDaiGauge), 1000000e18);
         aero.mint(address(wethUsdcGauge), 1000000e18);
-        
+
         // Labels
         vm.label(address(npm), "PositionManager");
         vm.label(address(factory), "Factory");
@@ -263,7 +253,7 @@ abstract contract AerodromeTestBase is Test, Constants {
         vm.label(address(weth), "WETH");
         vm.label(address(aero), "AERO");
     }
-    
+
     // Helper function to create a position
     function createPosition(
         address owner,
@@ -275,16 +265,16 @@ abstract contract AerodromeTestBase is Test, Constants {
         uint128 liquidity
     ) internal returns (uint256 tokenId) {
         tokenId = uint256(keccak256(abi.encodePacked(owner, token0, token1, block.timestamp)));
-        
+
         npm.mint(owner, tokenId);
         npm.setPosition(tokenId, token0, token1, tickSpacing, tickLower, tickUpper, liquidity);
-        
+
         // Add some tokens owed to give the position value
         npm.setTokensOwed(tokenId, 100e6, 100e18); // 100 USDC and 100 DAI
-        
+
         return tokenId;
     }
-    
+
     // Helper function to create a position with proper token amounts
     function createPositionProper(
         address owner,
@@ -298,20 +288,20 @@ abstract contract AerodromeTestBase is Test, Constants {
         uint128 amountB
     ) internal returns (uint256 tokenId) {
         tokenId = uint256(keccak256(abi.encodePacked(owner, tokenA, tokenB, block.timestamp)));
-        
+
         npm.mint(owner, tokenId);
         npm.setPosition(tokenId, tokenA, tokenB, tickSpacing, tickLower, tickUpper, liquidity);
-        
+
         // Determine token ordering (lower address is token0)
         if (tokenA < tokenB) {
             npm.setTokensOwed(tokenId, amountA, amountB);
         } else {
             npm.setTokensOwed(tokenId, amountB, amountA);
         }
-        
+
         return tokenId;
     }
-    
+
     // Helper to calculate fee from tick spacing
     // No conversion needed - Aerodrome uses tickSpacing directly
     // The tickSpacing is immutable for a pool and stored directly in positions

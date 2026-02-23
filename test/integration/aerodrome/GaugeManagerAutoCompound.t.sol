@@ -7,7 +7,7 @@ import "../../../src/transformers/AutoCompound.sol";
 /**
  * @title GaugeManagerAutoCompoundTest
  * @notice Tests AutoCompound integration through Vault->GM
- * @dev This test validates staked-position auto-compound flow via Vault.unstakeTransformStake.
+ * @dev This test validates staked-position auto-compound flow via Vault.transform.
  */
 contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
     AutoCompound public autoCompound;
@@ -23,10 +23,10 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         // Note: Using dummy addresses for routers since we don't test swap functionality
         autoCompound = new AutoCompound(
             INonfungiblePositionManager(address(npm)),
-            admin,      // operator
-            admin,      // withdrawer
-            60,         // TWAPSeconds
-            200         // maxTWAPTickDifference
+            admin, // operator
+            admin, // withdrawer
+            60, // TWAPSeconds
+            200 // maxTWAPTickDifference
         );
 
         // Configure AutoCompound in Vault and as a vault callback target.
@@ -51,9 +51,9 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
             alice,
             address(usdc),
             address(dai),
-            1,      // tickSpacing
-            -100,   // tickLower
-            100,    // tickUpper
+            1, // tickSpacing
+            -100, // tickLower
+            100, // tickUpper
             1000e18 // liquidity
         );
 
@@ -79,10 +79,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
 
         // 3. Prepare AutoCompound params (no swap, no new liquidity added)
         AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
-            tokenId: tokenId,
-            swap0To1: true,
-            amountIn: 0,
-            deadline: block.timestamp + 1 hours
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
         // 4. Call through Vault/GM as AutoCompound operator
@@ -90,11 +87,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         bytes memory transformData = abi.encodeCall(AutoCompound.execute, (params));
 
         // Execute transform - this will FAIL with "Transform failed" if encoding is wrong
-        uint256 newTokenId = vault.unstakeTransformStake(
-            tokenId,
-            address(autoCompound),
-            transformData
-        );
+        uint256 newTokenId = vault.transform(tokenId, address(autoCompound), transformData);
 
         // 5. Verify transform succeeded
         // If we get here without reverting, the encoding was correct!
@@ -103,5 +96,4 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         // Verify position is still staked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "Position should still be staked");
     }
-
 }

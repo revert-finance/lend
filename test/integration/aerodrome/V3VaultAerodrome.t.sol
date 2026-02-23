@@ -4,135 +4,135 @@ pragma solidity ^0.8.0;
 import "forge-std/console.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "./AerodromeTestBase.sol";
-import "./mocks/V3VaultCompat.sol";
 
 contract V3VaultAerodromeTest is AerodromeTestBase {
     event DebugUint(string label, uint256 value);
+
     function setUp() public override {
         super.setUp();
-        
+
         // Set global debt and lend limits (higher to accommodate tests)
         // Increase the daily lend increase limit to allow large deposits
         vault.setLimits(0, 10000000e6, 10000000e6, 10000000e6, 10000000e6);
         //                                           ^^^^^^^^^^^ increased from 10000e6
-        
+
         // Fund vault with some USDC for lending
         usdc.mint(address(this), 1000000e6);
-        
+
         // Deposit USDC to vault to create shares (lent assets)
         usdc.approve(address(vault), 1000000e6);
         vault.deposit(1000000e6, address(this));
     }
-    
+
     function testCreatePositionWithAerodrome() public {
         // Create Aerodrome position
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
-        
+
         // Deposit to vault
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vm.stopPrank();
-        
+
         // Check position is owned by vault
         assertEq(npm.ownerOf(tokenId), address(vault));
         assertEq(vault.ownerOf(tokenId), alice);
     }
-    
+
     function testSetGaugeManager() public {
         address newGaugeManager = address(0x123);
-        
+
         // Only owner can set
         vm.prank(alice);
         vm.expectRevert("Ownable: caller is not the owner");
         vault.setGaugeManager(newGaugeManager);
-        
+
         // Gauge manager is set-once (ops safety): cannot change once configured
         vm.expectRevert(Constants.GaugeManagerAlreadySet.selector);
         vault.setGaugeManager(newGaugeManager);
         assertEq(vault.gaugeManager(), address(gaugeManager));
     }
-    
+
     function testStakePositionFlow() public {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
-        
+
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
-        
+
         // Stake position
         vault.stakePosition(tokenId);
         vm.stopPrank();
-        
+
         // Position should still be owned by vault in records
         assertEq(vault.ownerOf(tokenId), alice);
-        
+
         // NFT is now in the gauge (not gauge manager - gauge manager deposits it into the gauge)
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
-        
+
         // And tracked as staked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
     }
-    
+
     function testUnstakePosition() public {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
-        
+
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
-        
+
         // Unstake
         vault.unstakePosition(tokenId);
         vm.stopPrank();
-        
+
         // NFT back in vault
         assertEq(npm.ownerOf(tokenId), address(vault));
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(vault.ownerOf(tokenId), alice, "Wrong owner");
     }
-    
+
     function testClaimRewardsFlow() public {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
-        
+
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
         vm.stopPrank();
-        
+
         // Set some rewards
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 100e18);
-        
+
         uint256 balanceBefore = aero.balanceOf(alice);
-        
+
         // Claim through vault
         vm.prank(alice);
         vault.claimRewards(tokenId);
-        
+
         uint256 balanceAfter = aero.balanceOf(alice);
         assertGt(balanceAfter, balanceBefore);
     }
-    
+
     function testRemoveWithStakedPosition() public {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
-        
+
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
-        
+
         // Remove position (should auto-unstake)
         vault.remove(tokenId, alice, "");
         vm.stopPrank();
-        
+
         // Position returned to alice
         assertEq(npm.ownerOf(tokenId), alice);
-        
+
         // No longer staked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
     }
-    
+
     function testBorrowWithStakedPosition() public {
         // Create position with explicit token amounts for better collateral value
         uint256 tokenId = createPositionProper(
@@ -143,50 +143,42 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             -100,
             100,
             1e18,
-            1000e6,  // 1000 USDC
-            1000e18  // 1000 DAI
+            1000e6, // 1000 USDC
+            1000e18 // 1000 DAI
         );
-        
+
         // Set a very high maxPoolPriceDifference to bypass the price check
         oracle.setMaxPoolPriceDifference(type(uint16).max);
-        
+
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
-        
+
         // Should be able to borrow against staked position
         vault.borrow(tokenId, 1e6); // Borrow only 1 USDC (reduced from 10 USDC)
         vm.stopPrank();
-        
+
         // Check loan exists
-        (uint256 debt, , , , ) = vault.loanInfo(tokenId);
+        (uint256 debt,,,,) = vault.loanInfo(tokenId);
         assertGt(debt, 0);
     }
-   
 
     function testStakeWithoutGaugeManager() public {
         // Use a fresh vault instance without configuring gauge manager
-        V3VaultCompat vaultNoGauge = new V3VaultCompat(
-            "Revert Lend USDC",
-            "rlUSDC",
-            address(usdc),
-            npm,
-            irm,
-            oracle
-        );
-        
+        V3Vault vaultNoGauge = new V3Vault("Revert Lend USDC", "rlUSDC", address(usdc), npm, irm, oracle);
+
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
-        
+
         vm.startPrank(alice);
         npm.approve(address(vaultNoGauge), tokenId);
         vaultNoGauge.create(tokenId, alice);
-        
+
         vm.expectRevert(GaugeManagerNotSet.selector);
         vaultNoGauge.stakePosition(tokenId);
         vm.stopPrank();
     }
-    
+
     function testMultipleUsersStaking() public {
         // Alice stakes
         uint256 aliceTokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
@@ -195,7 +187,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vault.create(aliceTokenId, alice);
         vault.stakePosition(aliceTokenId);
         vm.stopPrank();
-        
+
         // Bob stakes
         uint256 bobTokenId = createPosition(bob, address(weth), address(usdc), 10, -1000, 1000, 500000);
         vm.startPrank(bob);
@@ -203,7 +195,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vault.create(bobTokenId, bob);
         vault.stakePosition(bobTokenId);
         vm.stopPrank();
-        
+
         // Both positions staked in different gauges
         assertEq(gaugeManager.tokenIdToGauge(aliceTokenId), address(usdcDaiGauge));
         assertEq(gaugeManager.tokenIdToGauge(bobTokenId), address(wethUsdcGauge));
@@ -219,8 +211,8 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             -100,
             100,
             1e18,
-            50e6,   // 50 USDC
-            50e18   // 50 DAI
+            50e6, // 50 USDC
+            50e18 // 50 DAI
         );
 
         // Set a very high maxPoolPriceDifference to bypass the price check
@@ -236,7 +228,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vault.borrow(tokenId, 10e6); // Borrow 10 USDC
 
         // Verify debt exists
-        (uint256 debtBefore, , , , ) = vault.loanInfo(tokenId);
+        (uint256 debtBefore,,,,) = vault.loanInfo(tokenId);
         assertGt(debtBefore, 0, "Should have debt before staking");
 
         // Stake the position
@@ -246,8 +238,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vault.unstakePosition(tokenId);
 
         // Check debt after unstaking
-        (uint256 debtAfter, , , , ) = vault.loanInfo(tokenId);
-
+        (uint256 debtAfter,,,,) = vault.loanInfo(tokenId);
 
         assertEq(debtAfter, debtBefore, "Debt should remain after unstaking");
 
@@ -315,8 +306,6 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             block.timestamp + 1000 // deadline
         );
 
-   
-
         vm.stopPrank();
     }
 
@@ -325,7 +314,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // 80% CF = 0.80 * Q32 = 0.80 * 2^32 = 3,435,973,836
         uint32 cf80Percent = uint32(Q32 * 80 / 100);
         vault.setTokenConfig(address(usdc), cf80Percent, type(uint32).max); // 80% CF, max limit
-        vault.setTokenConfig(address(dai), cf80Percent, type(uint32).max);  // 80% CF, max limit
+        vault.setTokenConfig(address(dai), cf80Percent, type(uint32).max); // 80% CF, max limit
 
         // Create position with larger amounts to allow meaningful borrowing
         uint256 tokenId = createPositionProper(
@@ -335,9 +324,9 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             1,
             -100,
             100,
-            0,       // No liquidity - value comes only from tokensOwed
-            100e6,   // 100 USDC
-            100e18   // 100 DAI
+            0, // No liquidity - value comes only from tokensOwed
+            100e6, // 100 USDC
+            100e18 // 100 DAI
         );
 
         // Set a very high maxPoolPriceDifference to bypass the price check
@@ -380,14 +369,13 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             type(uint16).max
         );
 
-  
         // Advance time to accrue interest
         vm.warp(block.timestamp + 1 days);
 
         // Bob will liquidate Alice's position
         // Debug: Check position values before liquidation to know how much Bob needs
-        (uint256 debtCheck, , , , ) = vault.loanInfo(tokenId);
-   
+        (uint256 debtCheck,,,,) = vault.loanInfo(tokenId);
+
         // Give Bob enough USDC to cover the debt (debt includes interest accrued)
         usdc.mint(bob, debtCheck);
 
@@ -399,11 +387,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         // Set liquidation parameters
         IVault.LiquidateParams memory params = IVault.LiquidateParams({
-            tokenId: tokenId,
-            amount0Min: 0,
-            amount1Min: 0,
-            recipient: bob,
-            deadline: block.timestamp + 1000
+            tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: bob, deadline: block.timestamp + 1000
         });
 
         // Liquidate the staked position
@@ -426,7 +410,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         assertEq(aliceAeroAfter - aliceAeroBefore, 1e18, "AERO reward should be forwarded to user on unstake");
 
         // Verify loan is cleared
-        (uint256 debt, , , , ) = vault.loanInfo(tokenId);
+        (uint256 debt,,,,) = vault.loanInfo(tokenId);
         assertEq(debt, 0, "Debt should be cleared after liquidation");
     }
 }
