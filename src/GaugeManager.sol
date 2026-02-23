@@ -313,13 +313,21 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
-    function onERC721Received(address, address, uint256, bytes calldata) external view override returns (bytes4) {
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata)
+        external
+        view
+        override
+        returns (bytes4)
+    {
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
-        // NOTE FOR AUDITS:
-        // Direct NFT sends to GaugeManager are intentionally outside protocol flows. Such NFTs are not tracked in
-        // tokenIdToGauge and recoverability is not guaranteed by design. Users must interact through V3Vault only.
+        // Accept only protocol-managed custody hops:
+        // - Vault -> GaugeManager during stake flow (mapping not set yet)
+        // - Gauge -> GaugeManager during unstake flow (mapping points to source gauge)
+        if (from != address(vault) && from != tokenIdToGauge[tokenId]) {
+            revert Unauthorized();
+        }
         return IERC721Receiver.onERC721Received.selector;
     }
 }
