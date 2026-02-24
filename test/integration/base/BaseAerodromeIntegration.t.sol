@@ -278,12 +278,14 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
                 tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
             }),
             address(vault),
-            "",
-            "",
-            0,
-            0,
-            0,
-            block.timestamp + 1 hours
+            IVault.RewardCompoundParams({
+                swapData0: "",
+                swapData1: "",
+                minAmount0: 0,
+                minAmount1: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp + 1 hours
+            })
         );
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);

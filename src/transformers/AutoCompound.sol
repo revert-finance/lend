@@ -102,29 +102,14 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     function executeWithVaultAndRewardCompound(
         ExecuteParams calldata params,
         address vault,
-        bytes calldata rewardSwapData0,
-        bytes calldata rewardSwapData1,
-        uint256 rewardMinAmount0,
-        uint256 rewardMinAmount1,
-        uint256 rewardAeroSplitBps,
-        uint256 rewardDeadline
+        IVault.RewardCompoundParams calldata rewardParams
     ) external {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId,
-                address(this),
-                abi.encodeCall(AutoCompound.execute, (params)),
-                IVault.RewardCompoundParams({
-                    swapData0: rewardSwapData0,
-                    swapData1: rewardSwapData1,
-                    minAmount0: rewardMinAmount0,
-                    minAmount1: rewardMinAmount1,
-                    aeroSplitBps: rewardAeroSplitBps,
-                    deadline: rewardDeadline
-                })
+                params.tokenId, address(this), abi.encodeCall(AutoCompound.execute, (params)), rewardParams
             );
     }
 
