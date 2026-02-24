@@ -208,7 +208,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         vault.stakePosition(tokenId);
 
         vm.prank(ALICE);
-        vault.compoundRewards(tokenId, "", "", 0, 0, 5_000, block.timestamp + 1 hours);
+        gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 5_000, block.timestamp + 1 hours);
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
         assertEq(NPM.ownerOf(tokenId), wethUsdcGauge);

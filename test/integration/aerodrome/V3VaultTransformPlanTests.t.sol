@@ -33,14 +33,6 @@ contract MockTokenIdMigrator {
     }
 }
 
-contract MockPermitAerodromePositionManager is MockAerodromePositionManager {
-    constructor(address _factory, address _weth) MockAerodromePositionManager(_factory, _weth) {}
-
-    function permit(address spender, uint256 tokenId, uint256, uint8, bytes32, bytes32) external payable override {
-        _approve(spender, tokenId);
-    }
-}
-
 contract MockAutoRangeAerodromePositionManager is MockAerodromePositionManager {
     uint256 public tokenSequence;
     uint256 public lastMintedTokenId;
@@ -316,25 +308,6 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
 
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
-    }
-}
-
-contract V3VaultCreateWithPermitTests is AerodromeTestBase {
-    function setUp() public override {
-        super.setUp();
-
-        npm = new MockPermitAerodromePositionManager(address(factory), address(weth));
-        oracle = new V3Oracle(npm, address(usdc), address(usdc));
-        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(usdc), npm, irm, oracle);
-    }
-
-    function testCreateWithPermitFlow() public {
-        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000e18);
-
-        vm.prank(alice);
-        vault.createWithPermit(tokenId, alice, block.timestamp + 1 hours, 0, bytes32(0), bytes32(0));
-
-        assertEq(vault.ownerOf(tokenId), alice);
     }
 }
 

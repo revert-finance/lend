@@ -44,12 +44,15 @@ contract MockNoopGaugeManager {
     function setGauge(address, address) external {}
     function stakePosition(uint256) external {}
     function unstakePosition(uint256) external {}
+
     function unstakeIfStaked(uint256) external pure returns (bool wasStaked) {
         return false;
     }
+
     function claimRewards(uint256, address) external pure returns (uint256 aeroAmount) {
         return 0;
     }
+
     function compoundRewards(uint256, bytes calldata, bytes calldata, uint256, uint256, uint256, uint256)
         external
         pure
@@ -105,10 +108,7 @@ contract V3VaultIntegrationTest is Test {
     V3Oracle oracle;
 
     function setUp() external {
-        string memory ANKR_RPC = string.concat(
-            "https://rpc.ankr.com/eth/",
-            vm.envString("ANKR_API_KEY")
-        );
+        string memory ANKR_RPC = string.concat("https://rpc.ankr.com/eth/", vm.envString("ANKR_API_KEY"));
         mainnetFork = vm.createFork(ANKR_RPC, 18521658);
         vm.selectFork(mainnetFork);
 
@@ -326,7 +326,6 @@ contract V3VaultIntegrationTest is Test {
 
     // fuzz testing withdraw amount
     function testWithdraw(uint256 amount) external {
-
         // 0 borrow loan
         _setupBasicLoan(false);
 
@@ -421,7 +420,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, amount, isShare);
     }
-    
+
     function testTransformWithdrawCollect() external {
         _setupBasicLoan(true);
 
@@ -612,7 +611,9 @@ contract V3VaultIntegrationTest is Test {
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompoundWithVault(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault));
+        autoRange.autoCompoundWithVault(
+            AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault)
+        );
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoRange), true);
@@ -649,7 +650,9 @@ contract V3VaultIntegrationTest is Test {
         vault.approveTransform(TEST_NFT, address(autoRange), true);
 
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0));
+        autoRange.configToken(
+            TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0)
+        );
 
         uint256 previousDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
 
@@ -1444,7 +1447,7 @@ contract V3VaultIntegrationTest is Test {
 
         vaultBalance = USDC.balanceOf(address(vault));
         lent = vault.lendInfo(WHALE_ACCOUNT);
-        
+
         if (withdraw > vaultBalance) {
             vm.expectRevert(Constants.InsufficientLiquidity.selector);
         } else if (withdraw > lent) {
@@ -1454,23 +1457,6 @@ contract V3VaultIntegrationTest is Test {
         vault.withdraw(withdraw, WHALE_ACCOUNT, WHALE_ACCOUNT);
     }
 
-    function testCreateWithPermit() external {
-        uint256 privateKey = 777;
-        address owner = vm.addr(privateKey);
-        uint256 deadline = block.timestamp + 1 hours;
-
-        vm.prank(TEST_NFT_ACCOUNT);
-        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, owner, TEST_NFT);
-
-        (uint8 v, bytes32 r, bytes32 s) = _getNpmPermitSignature(TEST_NFT, address(vault), deadline, privateKey);
-
-        vm.prank(owner);
-        vault.createWithPermit(TEST_NFT, owner, deadline, v, r, s);
-
-        assertEq(vault.ownerOf(TEST_NFT), owner);
-        assertEq(NPM.ownerOf(TEST_NFT), address(vault));
-    }
-
     function testCreateRevertsWithZeroRecipient() external {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(vault), TEST_NFT);
@@ -1478,21 +1464,6 @@ contract V3VaultIntegrationTest is Test {
         vm.expectRevert(Constants.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.create(TEST_NFT, address(0));
-    }
-
-    function testCreateWithPermitRevertsWithZeroRecipient() external {
-        uint256 privateKey = 778;
-        address owner = vm.addr(privateKey);
-        uint256 deadline = block.timestamp + 1 hours;
-
-        vm.prank(TEST_NFT_ACCOUNT);
-        NPM.safeTransferFrom(TEST_NFT_ACCOUNT, owner, TEST_NFT);
-
-        (uint8 v, bytes32 r, bytes32 s) = _getNpmPermitSignature(TEST_NFT, address(vault), deadline, privateKey);
-
-        vm.expectRevert(Constants.InvalidConfig.selector);
-        vm.prank(owner);
-        vault.createWithPermit(TEST_NFT, address(0), deadline, v, r, s);
     }
 
     function testStakeRevertsIfGaugeManagerDidNotTakeCustody() external {
@@ -1507,16 +1478,6 @@ contract V3VaultIntegrationTest is Test {
 
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
         assertEq(NPM.getApproved(TEST_NFT), address(0));
-    }
-
-    function _getNpmPermitSignature(uint256 tokenId, address spender, uint256 deadline, uint256 privateKey)
-        internal
-        returns (uint8 v, bytes32 r, bytes32 s)
-    {
-        (uint96 nonce,,,,,,,,,,,) = NPM.positions(tokenId);
-        bytes32 structHash = keccak256(abi.encode(NPM.PERMIT_TYPEHASH(), spender, tokenId, nonce, deadline));
-        bytes32 msgHash = keccak256(abi.encodePacked("\x19\x01", NPM.DOMAIN_SEPARATOR(), structHash));
-        return vm.sign(privateKey, msgHash);
     }
 
     function testTransformExploit() external {

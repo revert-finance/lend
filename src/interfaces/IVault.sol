@@ -38,8 +38,6 @@ interface IVault is IERC4626 {
     function loanAtIndex(address owner, uint256 index) external view returns (uint256);
 
     function create(uint256 tokenId, address recipient) external;
-    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
-        external;
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
@@ -59,16 +57,6 @@ interface IVault is IERC4626 {
     function setGaugeManager(address _gaugeManager) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
-    function claimRewards(uint256 tokenId) external returns (uint256 aeroAmount);
-    function compoundRewards(
-        uint256 tokenId,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1,
-        uint256 aeroSplitBps,
-        uint256 deadline
-    ) external returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1);
 
     // params for decreasing liquidity of collateralized position
     struct DecreaseLiquidityAndCollectParams {

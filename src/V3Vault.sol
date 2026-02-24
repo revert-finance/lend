@@ -425,24 +425,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
-    /// @notice Creates a new collateralized position with a permit for token spending (transfer position with permit)
-    /// @param tokenId The token ID associated with the new position.
-    /// @param recipient Address to recieve the position in the vault
-    /// @param deadline Timestamp until which the permit is valid.
-    /// @param v Components of the signature for the permit.
-    /// @param r Components of the signature for the permit.
-    /// @param s Components of the signature for the permit.
-    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
-        external
-        override
-    {
-        if (recipient == address(0)) {
-            revert InvalidConfig();
-        }
-        nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
-        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
-    }
-
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
     /// @inheritdoc IERC721Receiver
     function onERC721Received(
@@ -1365,7 +1347,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @notice Sets gauge manager address once (owner only)
     /// @dev Safety note: this only validates that `_gaugeManager` is a contract and then permanently locks it.
     /// @dev GaugeManager enforces `msg.sender == address(vault)`, so configuring a manager deployed for a different
-    ///      vault will make stake/unstake/claim/compound paths revert Unauthorized and cannot be corrected afterward.
+    ///      vault will make stake/unstake/reward-precompound paths revert Unauthorized and cannot be corrected afterward.
     function setGaugeManager(address _gaugeManager) external onlyOwner {
         if (gaugeManager != address(0)) {
             revert GaugeManagerAlreadySet();
@@ -1394,33 +1376,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
-    }
-
-    function claimRewards(uint256 tokenId) external override returns (uint256 aeroAmount) {
-        _requireGaugeManagerSet();
-        if (tokenOwner[tokenId] != msg.sender) {
-            revert Unauthorized();
-        }
-
-        aeroAmount = IGaugeManager(gaugeManager).claimRewards(tokenId, msg.sender);
-    }
-
-    function compoundRewards(
-        uint256 tokenId,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1,
-        uint256 aeroSplitBps,
-        uint256 deadline
-    ) external override returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
-        _requireGaugeManagerSet();
-        if (tokenOwner[tokenId] != msg.sender) {
-            revert Unauthorized();
-        }
-
-        (aeroAmount, amountAdded0, amountAdded1) = IGaugeManager(gaugeManager)
-            .compoundRewards(tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline);
     }
 
     function _stake(uint256 tokenId) internal {

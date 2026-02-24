@@ -136,7 +136,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
 
         uint256 beforeBal = aero.balanceOf(alice);
         vm.prank(alice);
-        uint256 paid = vault.claimRewards(tokenId);
+        uint256 paid = gaugeManager.claimRewards(tokenId, alice);
 
         assertEq(paid, 5e18);
         assertEq(aero.balanceOf(alice) - beforeBal, 5e18);
@@ -154,7 +154,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
 
         vm.prank(alice);
         (uint256 aeroAmt, uint256 added0, uint256 added1) =
-            vault.compoundRewards(tokenId, "", "", 0, 0, 0, block.timestamp + 1 hours);
+            gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 0, block.timestamp + 1 hours);
 
         assertEq(aeroAmt, 0);
         assertEq(added0, 0);

@@ -106,9 +106,9 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         uint256 balanceBefore = aero.balanceOf(alice);
 
-        // Claim through vault
+        // Claim through gauge manager
         vm.prank(alice);
-        vault.claimRewards(tokenId);
+        gaugeManager.claimRewards(tokenId, alice);
 
         uint256 balanceAfter = aero.balanceOf(alice);
         assertGt(balanceAfter, balanceBefore);
@@ -272,7 +272,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         // Test 1: Try to compound with invalid split (> 10000 bps)
         vm.expectRevert(Constants.InvalidConfig.selector);
-        vault.compoundRewards(
+        gaugeManager.compoundRewards(
             tokenId,
             new bytes(1), // swapData0 present
             new bytes(0), // swapData1 missing
@@ -283,7 +283,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         );
 
         // Test 2: Partial split without payloads is allowed (unswapped AERO is returned to owner).
-        vault.compoundRewards(
+        gaugeManager.compoundRewards(
             tokenId,
             new bytes(0), // swapData0
             new bytes(0), // swapData1
@@ -296,7 +296,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // Test 3: malformed swap payload still reverts (selector is not stable here).
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 10e18);
         vm.expectRevert();
-        vault.compoundRewards(
+        gaugeManager.compoundRewards(
             tokenId,
             new bytes(1), // invalid swapData0
             new bytes(0),
