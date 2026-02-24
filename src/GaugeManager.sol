@@ -15,7 +15,7 @@ import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./utils/Swapper.sol";
 
-/// @notice Gauge helper for vaulted positions. All user entrypoints should go through V3Vault.
+/// @notice Gauge helper for vaulted positions.
 contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper, IGaugeManager {
     using SafeERC20 for IERC20;
 
@@ -135,10 +135,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         nonReentrant
         returns (uint256 aeroAmount)
     {
-        _requireVaultCaller();
+        address owner = _requireVaultOrOwner(tokenId);
         address gauge = _requireStakedGauge(tokenId);
 
-        address owner = vault.ownerOf(tokenId);
+        if (recipient == address(0)) {
+            recipient = owner;
+        }
         aeroAmount = _claimAndSendRewards(gauge, tokenId, recipient);
         emit RewardsClaimed(tokenId, owner, aeroAmount);
     }
@@ -152,7 +154,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 aeroSplitBps,
         uint256 deadline
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
-        _requireVaultCaller();
+        address owner = _requireVaultOrOwner(tokenId);
         if (aeroSplitBps > 10_000) {
             revert InvalidConfig();
         }
@@ -160,7 +162,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         CompoundState memory state;
         state.gauge = _requireStakedGauge(tokenId);
 
-        state.owner = vault.ownerOf(tokenId);
+        state.owner = owner;
         state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId);
         if (state.aeroAmount == 0) {
             return (0, 0, 0);
@@ -212,6 +214,13 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     function _requireVaultCaller() internal view {
         if (msg.sender != address(vault)) {
+            revert Unauthorized();
+        }
+    }
+
+    function _requireVaultOrOwner(uint256 tokenId) internal returns (address owner) {
+        owner = vault.ownerOf(tokenId);
+        if (msg.sender != address(vault) && msg.sender != owner) {
             revert Unauthorized();
         }
     }

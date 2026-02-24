@@ -293,6 +293,34 @@ contract GaugeManagerUnitTest is Test {
         assertEq(aero.balanceOf(RECIPIENT) - before, 10 ether);
     }
 
+    function testClaimRewardsFromOwnerDirectly() external {
+        _stake();
+
+        aero.mint(address(gauge), 10 ether);
+        gauge.setReward(TOKEN_ID, 10 ether);
+
+        uint256 before = aero.balanceOf(ALICE);
+        vm.prank(ALICE);
+        uint256 claimed = gaugeManager.claimRewards(TOKEN_ID, ALICE);
+
+        assertEq(claimed, 10 ether);
+        assertEq(aero.balanceOf(ALICE) - before, 10 ether);
+    }
+
+    function testClaimRewardsDefaultsRecipientToOwnerWhenZeroAddress() external {
+        _stake();
+
+        aero.mint(address(gauge), 10 ether);
+        gauge.setReward(TOKEN_ID, 10 ether);
+
+        uint256 before = aero.balanceOf(ALICE);
+        vm.prank(ALICE);
+        uint256 claimed = gaugeManager.claimRewards(TOKEN_ID, address(0));
+
+        assertEq(claimed, 10 ether);
+        assertEq(aero.balanceOf(ALICE) - before, 10 ether);
+    }
+
     function testCompoundRewardsSwapsAddsLiquidityAndSendsLeftovers() external {
         _stake();
 
@@ -328,6 +356,30 @@ contract GaugeManagerUnitTest is Test {
         assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
         assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
         assertEq(gauge.staker(TOKEN_ID), address(gaugeManager));
+    }
+
+    function testCompoundRewardsFromOwnerDirectly() external {
+        _stake();
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        token0.mint(address(allowanceHolder), 1_000 ether);
+        token1.mint(address(allowanceHolder), 1_000 ether);
+
+        bytes memory swapData0 =
+            abi.encodeCall(MockAllowanceHolder.executeSwap, (address(aero), address(token0), 30 ether, 60 ether));
+        bytes memory swapData1 =
+            abi.encodeCall(MockAllowanceHolder.executeSwap, (address(aero), address(token1), 30 ether, 60 ether));
+
+        vm.prank(ALICE);
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, swapData0, swapData1, 0, 0, 5_000, block.timestamp + 1);
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(amountAdded0, 60 ether);
+        assertEq(amountAdded1, 60 ether);
+        assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
+        assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
 
     function testCompoundRewardsUsesUnswappedAeroWhenTokenIsInPair() external {
@@ -463,6 +515,14 @@ contract GaugeManagerUnitTest is Test {
         gaugeManager.claimRewards(TOKEN_ID, RECIPIENT);
     }
 
+    function testClaimRewardsRevertsWhenCallerIsNotVaultOrOwner() external {
+        _stake();
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        gaugeManager.claimRewards(TOKEN_ID, RECIPIENT);
+    }
+
     function testClaimRewardsRevertsWhenGaugeGetRewardReverts() external {
         _stake();
         gauge.setRevertOnGetReward(true);
@@ -478,6 +538,14 @@ contract GaugeManagerUnitTest is Test {
         vm.prank(address(vault));
         vm.expectRevert(Constants.InvalidConfig.selector);
         gaugeManager.compoundRewards(TOKEN_ID, "", "", 0, 0, 10_001, block.timestamp + 1);
+    }
+
+    function testCompoundRewardsRevertsWhenCallerIsNotVaultOrOwner() external {
+        _stake();
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, "", "", 0, 0, 0, block.timestamp + 1);
     }
 
     function testCompoundRewardsReturnsZeroWhenNoRewards() external {
