@@ -517,15 +517,19 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 tokenId,
         address transformer,
         bytes calldata data,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1,
-        uint256 aeroSplitBps,
-        uint256 deadline
+        RewardCompoundParams calldata rewardParams
     ) external override returns (uint256 newTokenId) {
         return _transform(
-            tokenId, transformer, data, true, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline
+            tokenId,
+            transformer,
+            data,
+            true,
+            rewardParams.swapData0,
+            rewardParams.swapData1,
+            rewardParams.minAmount0,
+            rewardParams.minAmount1,
+            rewardParams.aeroSplitBps,
+            rewardParams.deadline
         );
     }
 

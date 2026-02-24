@@ -117,12 +117,14 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
                 params.tokenId,
                 address(this),
                 abi.encodeCall(AutoCompound.execute, (params)),
-                rewardSwapData0,
-                rewardSwapData1,
-                rewardMinAmount0,
-                rewardMinAmount1,
-                rewardAeroSplitBps,
-                rewardDeadline
+                IVault.RewardCompoundParams({
+                    swapData0: rewardSwapData0,
+                    swapData1: rewardSwapData1,
+                    minAmount0: rewardMinAmount0,
+                    minAmount1: rewardMinAmount1,
+                    aeroSplitBps: rewardAeroSplitBps,
+                    deadline: rewardDeadline
+                })
             );
     }
 

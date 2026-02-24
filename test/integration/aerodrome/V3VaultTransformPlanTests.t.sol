@@ -147,12 +147,14 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             tokenId,
             address(autoCompound),
             abi.encodeCall(AutoCompound.execute, (params)),
-            "",
-            "",
-            0,
-            0,
-            0,
-            block.timestamp + 1 hours
+            IVault.RewardCompoundParams({
+                swapData0: "",
+                swapData1: "",
+                minAmount0: 0,
+                minAmount1: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp + 1 hours
+            })
         );
 
         assertEq(transformedTokenId, tokenId);
@@ -184,12 +186,14 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             tokenId,
             address(autoCompound),
             abi.encodeCall(AutoCompound.execute, (params)),
-            "",
-            "",
-            0,
-            0,
-            0,
-            block.timestamp + 1 hours
+            IVault.RewardCompoundParams({
+                swapData0: "",
+                swapData1: "",
+                minAmount0: 0,
+                minAmount1: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp + 1 hours
+            })
         );
 
         assertEq(transformedTokenId, tokenId);

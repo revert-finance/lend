@@ -41,16 +41,21 @@ interface IVault is IERC4626 {
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
+
+    struct RewardCompoundParams {
+        bytes swapData0;
+        bytes swapData1;
+        uint256 minAmount0;
+        uint256 minAmount1;
+        uint256 aeroSplitBps;
+        uint256 deadline;
+    }
+
     function transformWithRewardCompound(
         uint256 tokenId,
         address transformer,
         bytes calldata data,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1,
-        uint256 aeroSplitBps,
-        uint256 deadline
+        RewardCompoundParams calldata rewardParams
     ) external returns (uint256 newTokenId);
 
     function gaugeManager() external view returns (address);
