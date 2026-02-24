@@ -528,6 +528,37 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
         returns (uint256 newTokenId)
     {
+        return _transform(tokenId, transformer, data, false, new bytes(0), new bytes(0), 0, 0, 0, 0);
+    }
+
+    function transformWithRewardCompound(
+        uint256 tokenId,
+        address transformer,
+        bytes calldata data,
+        bytes calldata swapData0,
+        bytes calldata swapData1,
+        uint256 minAmount0,
+        uint256 minAmount1,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) external override returns (uint256 newTokenId) {
+        return _transform(
+            tokenId, transformer, data, true, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline
+        );
+    }
+
+    function _transform(
+        uint256 tokenId,
+        address transformer,
+        bytes calldata data,
+        bool compoundRewardsFirst,
+        bytes memory swapData0,
+        bytes memory swapData1,
+        uint256 minAmount0,
+        uint256 minAmount1,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
         }
@@ -545,6 +576,14 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // only the owner of the loan or any approved caller can call this
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
+        }
+
+        if (
+            compoundRewardsFirst && gaugeManager != address(0)
+                && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)
+        ) {
+            IGaugeManager(gaugeManager)
+                .compoundRewards(tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline);
         }
 
         bool wasStaked = _unstakeIfNeeded(tokenId);

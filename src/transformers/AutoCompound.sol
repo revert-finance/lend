@@ -96,6 +96,37 @@ contract AutoCompound is Transformer, Automator, Multicall, ReentrancyGuard {
     }
 
     /**
+     * @notice Adjust token in a vault and compound staked gauge rewards first (if position is currently staked)
+     * Can only be called from configured operator account - vault must be configured as well
+     */
+    function executeWithVaultAndRewardCompound(
+        ExecuteParams calldata params,
+        address vault,
+        bytes calldata rewardSwapData0,
+        bytes calldata rewardSwapData1,
+        uint256 rewardMinAmount0,
+        uint256 rewardMinAmount1,
+        uint256 rewardAeroSplitBps,
+        uint256 rewardDeadline
+    ) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault)
+            .transformWithRewardCompound(
+                params.tokenId,
+                address(this),
+                abi.encodeCall(AutoCompound.execute, (params)),
+                rewardSwapData0,
+                rewardSwapData1,
+                rewardMinAmount0,
+                rewardMinAmount1,
+                rewardAeroSplitBps,
+                rewardDeadline
+            );
+    }
+
+    /**
      * @notice Adjust token directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts

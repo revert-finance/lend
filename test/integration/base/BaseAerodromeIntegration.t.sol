@@ -51,8 +51,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant AERO = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
 
-    INonfungiblePositionManager constant NPM =
-        INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
+    INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
 
     V3Vault internal vault;
     V3Oracle internal oracle;
@@ -97,21 +96,10 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         oracle = new V3Oracle(NPM, USDC, address(0));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
-        oracle.setTokenConfig(
-            USDC, usdcUsdFeed, 30 days, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0
-        );
-        oracle.setTokenConfig(
-            WETH, wethUsdFeed, 30 days, wethUsdcPool, 60, V3Oracle.Mode.TWAP, 0
-        );
+        oracle.setTokenConfig(USDC, usdcUsdFeed, 30 days, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0);
+        oracle.setTokenConfig(WETH, wethUsdFeed, 30 days, wethUsdcPool, 60, V3Oracle.Mode.TWAP, 0);
 
-        vault = new V3Vault(
-            "Revert Lend Base USDC",
-            "rlBaseUSDC",
-            USDC,
-            NPM,
-            interestRateModel,
-            oracle
-        );
+        vault = new V3Vault("Revert Lend Base USDC", "rlBaseUSDC", USDC, NPM, interestRateModel, oracle);
         vault.setTokenConfig(USDC, uint32(Q32 * 9 / 10), type(uint32).max);
         vault.setTokenConfig(WETH, uint32(Q32 * 8 / 10), type(uint32).max);
         vault.setLimits(0, 20_000_000e6, 20_000_000e6, 20_000_000e6, 20_000_000e6);
@@ -153,7 +141,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         uint256 tokenId = TEST_NFT;
         _depositCollateral(tokenId, ALICE);
 
-        (, , uint256 collateralValue,,) = vault.loanInfo(tokenId);
+        (,, uint256 collateralValue,,) = vault.loanInfo(tokenId);
         assertGt(collateralValue, 0);
 
         uint256 borrowAmount = collateralValue * vault.BORROW_SAFETY_BUFFER_X32() / Q32 / 2;
@@ -265,8 +253,37 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         vm.prank(OPERATOR);
         autoCompound.executeWithVault(
-            AutoCompound.ExecuteParams({tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours}),
+            AutoCompound.ExecuteParams({
+                tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
+            }),
             address(vault)
+        );
+
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
+        assertEq(vault.ownerOf(tokenId), ALICE);
+    }
+
+    function testAutoCompoundExecuteWithVaultAndRewardCompoundOnStakedPosition() external {
+        uint256 tokenId = TEST_NFT;
+        _depositCollateral(tokenId, ALICE);
+
+        vm.startPrank(ALICE);
+        vault.stakePosition(tokenId);
+        vault.approveTransform(tokenId, address(autoCompound), true);
+        vm.stopPrank();
+
+        vm.prank(OPERATOR);
+        autoCompound.executeWithVaultAndRewardCompound(
+            AutoCompound.ExecuteParams({
+                tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
+            }),
+            address(vault),
+            "",
+            "",
+            0,
+            0,
+            0,
+            block.timestamp + 1 hours
         );
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
@@ -277,7 +294,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         uint256 tokenId = TEST_NFT;
         _depositCollateral(tokenId, ALICE);
 
-        (, , uint256 collateralValue,,) = vault.loanInfo(tokenId);
+        (,, uint256 collateralValue,,) = vault.loanInfo(tokenId);
         assertGt(collateralValue, 0);
 
         // Borrow close to the allowed buffer to make interest-driven unhealthy state reachable.

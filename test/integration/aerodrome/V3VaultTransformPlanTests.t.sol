@@ -124,6 +124,87 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
     }
 
+    function testTransformWithRewardCompoundCompoundsBeforeTransform() public {
+        AutoCompound autoCompound = _deployAutoCompound();
+
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+        vm.prank(alice);
+        vault.stakePosition(tokenId);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, admin, true);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, address(autoCompound), true);
+
+        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
+        });
+
+        usdcDaiGauge.setRewardRate(0);
+        usdcDaiGauge.setRewardForUser(address(gaugeManager), 7e18);
+        npm.setTokensOwed(tokenId, 0, 0);
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        uint256 aliceAeroBefore = aero.balanceOf(alice);
+
+        vm.prank(admin);
+        uint256 transformedTokenId = vault.transformWithRewardCompound(
+            tokenId,
+            address(autoCompound),
+            abi.encodeCall(AutoCompound.execute, (params)),
+            "",
+            "",
+            0,
+            0,
+            0,
+            block.timestamp + 1 hours
+        );
+
+        assertEq(transformedTokenId, tokenId);
+        assertEq(aero.balanceOf(alice) - aliceAeroBefore, 7e18);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+        assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
+    }
+
+    function testTransformWithRewardCompoundSkipsWhenUnstaked() public {
+        AutoCompound autoCompound = _deployAutoCompound();
+
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, admin, true);
+
+        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+            tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
+        });
+
+        npm.setTokensOwed(tokenId, 0, 0);
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        vm.prank(admin);
+        uint256 transformedTokenId = vault.transformWithRewardCompound(
+            tokenId,
+            address(autoCompound),
+            abi.encodeCall(AutoCompound.execute, (params)),
+            "",
+            "",
+            0,
+            0,
+            0,
+            block.timestamp + 1 hours
+        );
+
+        assertEq(transformedTokenId, tokenId);
+        assertEq(vault.ownerOf(tokenId), alice);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+    }
+
     function testTransformWorksForUnstakedPosition() public {
         AutoCompound autoCompound = _deployAutoCompound();
 
