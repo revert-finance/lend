@@ -2,15 +2,15 @@
 pragma solidity ^0.8.0;
 
 import "./AerodromeTestBase.sol";
-import "../../../src/transformers/AutoCompound.sol";
+import "../../../src/transformers/AutoRange.sol";
 
 /**
  * @title GaugeManagerAutoCompoundTest
- * @notice Tests AutoCompound integration through Vault->GM
+ * @notice Tests AutoRange auto-compound integration through Vault->GM
  * @dev This test validates staked-position auto-compound flow via Vault.transform.
  */
 contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
-    AutoCompound public autoCompound;
+    AutoRange public autoRange;
 
     // Position info
     uint256 public tokenId;
@@ -19,19 +19,19 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
     function setUp() public override {
         super.setUp();
 
-        // Deploy AutoCompound with proper router addresses
-        // Note: Using dummy addresses for routers since we don't test swap functionality
-        autoCompound = new AutoCompound(
+        autoRange = new AutoRange(
             INonfungiblePositionManager(address(npm)),
             admin, // operator
             admin, // withdrawer
             60, // TWAPSeconds
-            200 // maxTWAPTickDifference
+            200, // maxTWAPTickDifference
+            address(0),
+            address(0)
         );
 
-        // Configure AutoCompound in Vault and as a vault callback target.
-        vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault));
+        // Configure AutoRange in Vault and as a vault callback target.
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         // Fund alice with tokens
@@ -41,7 +41,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
     }
 
     /**
-     * @notice Test that verifies the GaugeManager->AutoCompound transform works correctly
+     * @notice Test that verifies the GaugeManager->AutoRange autocompound transform works correctly
      * @dev This test specifically exercises the code path where GaugeManager re-encodes
      *      the ExecuteGaugeParams struct. The test will FAIL if the encoding is wrong.
      */
@@ -67,8 +67,25 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         vm.prank(alice);
         vault.stakePosition(tokenId);
 
-        vm.prank(alice);
+        vm.startPrank(alice);
         vault.approveTransform(tokenId, admin, true);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        autoRange.configToken(
+            tokenId,
+            address(vault),
+            AutoRange.PositionConfig({
+                lowerTickLimit: 0,
+                upperTickLimit: 0,
+                lowerTickDelta: 0,
+                upperTickDelta: 0,
+                token0SlippageX64: 0,
+                token1SlippageX64: 0,
+                onlyFees: false,
+                autoCompound: true,
+                maxRewardX64: 0
+            })
+        );
+        vm.stopPrank();
 
         // 2. Simulate some time passing and rewards accumulating
         vm.warp(block.timestamp + 1 days);
@@ -77,17 +94,17 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         usdcDaiGauge.setRewardForUser(alice, 10e18); // 10 AERO earned
         npm.setTokensOwed(tokenId, 0, 0);
 
-        // 3. Prepare AutoCompound params (no swap, no new liquidity added)
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        // 3. Prepare AutoRange auto-compound params (no swap, no new liquidity added)
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
-        // 4. Call through Vault/GM as AutoCompound operator
+        // 4. Call through Vault/GM as AutoRange operator
         vm.prank(admin);
-        bytes memory transformData = abi.encodeCall(AutoCompound.execute, (params));
+        bytes memory transformData = abi.encodeCall(AutoRange.autoCompound, (params));
 
         // Execute transform - this will FAIL with "Transform failed" if encoding is wrong
-        uint256 newTokenId = vault.transform(tokenId, address(autoCompound), transformData);
+        uint256 newTokenId = vault.transform(tokenId, address(autoRange), transformData);
 
         // 5. Verify transform succeeded
         // If we get here without reverting, the encoding was correct!

@@ -8,7 +8,7 @@ import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 import "../src/GaugeManager.sol";
 import "../src/transformers/LeverageTransformer.sol";
-import "../src/transformers/AutoCompound.sol";
+import "../src/transformers/AutoRange.sol";
 import "../src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -67,12 +67,14 @@ contract DeployAerodromeProtocol is Script {
 
         LeverageTransformer leverageTransformer = new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
-        AutoCompound autoCompound = new AutoCompound(
+        AutoRange autoRange = new AutoRange(
             npm,
             deployer, // operator
             deployer, // withdrawer
             60, // TWAP seconds
-            200 // max TWAP tick diff
+            200, // max TWAP tick diff
+            UNIVERSAL_ROUTER,
+            ZEROX_ALLOWANCE_HOLDER
         );
 
         // Oracle config
@@ -112,10 +114,10 @@ contract DeployAerodromeProtocol is Script {
         vault.setGaugeManager(address(gaugeManager));
 
         leverageTransformer.setVault(address(vault));
-        autoCompound.setVault(address(vault));
+        autoRange.setVault(address(vault));
 
         vault.setTransformer(address(leverageTransformer), true);
-        vault.setTransformer(address(autoCompound), true);
+        vault.setTransformer(address(autoRange), true);
 
         vault.setLimits(
             1e6, // minLoanSize = 1 USDC
@@ -141,7 +143,7 @@ contract DeployAerodromeProtocol is Script {
         console2.log("VAULT", address(vault));
         console2.log("GAUGE_MANAGER", address(gaugeManager));
         console2.log("LEVERAGE_TRANSFORMER", address(leverageTransformer));
-        console2.log("AUTO_COMPOUND", address(autoCompound));
+        console2.log("AUTO_RANGE", address(autoRange));
     }
 
     function _validateDeploymentConfig() internal view {

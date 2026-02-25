@@ -13,7 +13,6 @@ import "../../../src/InterestRateModel.sol";
 import "../../../src/transformers/LeverageTransformer.sol";
 import "../../../src/transformers/V3Utils.sol";
 import "../../../src/transformers/AutoRange.sol";
-import "../../../src/transformers/AutoCompound.sol";
 
 import "../../../src/utils/FlashloanLiquidator.sol";
 
@@ -543,50 +542,57 @@ contract V3VaultIntegrationTest is Test {
     }
 
     function testTransformAutoCompoundOutsideVault() external {
-        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
+        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
 
         // test compounding when not in vault
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
+        vm.expectRevert(Constants.NotConfigured.selector);
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         vm.prank(TEST_NFT_ACCOUNT);
-        NPM.approve(address(autoCompound), TEST_NFT);
+        NPM.approve(address(autoRange), TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoRange.configToken(TEST_NFT, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
 
         vm.prank(WHALE_ACCOUNT);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
     }
 
     function testTransformAutoCompoundInsideVault() external {
-        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
-        vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault));
+        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
 
         _setupBasicLoan(true);
 
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp), address(vault));
+        autoRange.autoCompoundWithVault(
+            AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault)
+        );
 
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.approveTransform(TEST_NFT, address(autoCompound), true);
+        vault.approveTransform(TEST_NFT, address(autoRange), true);
 
         // repay partially
         _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
         // autocompound with swap
         vm.prank(WHALE_ACCOUNT);
-        autoCompound.executeWithVault(
-            AutoCompound.ExecuteParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
+        autoRange.autoCompoundWithVault(
+            AutoRange.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
         );
     }
 
@@ -658,7 +664,13 @@ contract V3VaultIntegrationTest is Test {
 
         // autorange
         vm.prank(WHALE_ACCOUNT);
-        autoRange.executeWithVault(params, address(vault));
+        autoRange.executeWithVaultAndRewardCompound(
+            params,
+            address(vault),
+            IVault.RewardCompoundParams({
+                swapData0: "", swapData1: "", minAmount0: 0, minAmount1: 0, aeroSplitBps: 0, deadline: block.timestamp
+            })
+        );
 
         // old token approval should be cleared even when tokenId gets replaced
         assertEq(NPM.getApproved(TEST_NFT), address(0));
@@ -1490,17 +1502,19 @@ contract V3VaultIntegrationTest is Test {
         uint256 EXPLOITER_NFT = TEST_NFT_2;
 
         // Set up an auto-compound transformer
-        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
-        vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault));
+        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
 
         // Set fee to 2%
-        autoCompound.setReward(uint64(Q64 / 50));
+        autoRange.setAutoCompoundReward(uint64(Q64 / 50));
 
         // Alice decides to delegate her position to
         // Revert bots (outside of vault) to be auto-compounded
-        vm.prank(ALICE_ACCOUNT);
-        NPM.approve(address(autoCompound), ALICE_NFT);
+        vm.startPrank(ALICE_ACCOUNT);
+        NPM.approve(address(autoRange), ALICE_NFT);
+        autoRange.configToken(ALICE_NFT, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        vm.stopPrank();
 
         // Exploiter opens a position in the Vault
         vm.startPrank(EXPLOITER_ACCOUNT);
@@ -1509,13 +1523,13 @@ contract V3VaultIntegrationTest is Test {
         vm.stopPrank();
 
         // Exploiter passes ALICE_NFT as param
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams(ALICE_NFT, false, 0, block.timestamp);
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams(ALICE_NFT, false, 0, block.timestamp);
 
         // Exploiter account uses his own token to pass validation
         // but transforms Alice position
         vm.expectRevert(Constants.TransformFailed.selector);
         vm.prank(EXPLOITER_ACCOUNT);
-        vault.transform(EXPLOITER_NFT, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+        vault.transform(EXPLOITER_NFT, address(autoRange), abi.encodeCall(AutoRange.autoCompound, (params)));
     }
 
     function testTransformBorrowIncreaseRequiresBorrowBuffer() external {

@@ -9,7 +9,6 @@ import "../src/V3Vault.sol";
 
 import "../src/transformers/V3Utils.sol";
 import "../src/transformers/AutoRange.sol";
-import "../src/transformers/AutoCompound.sol";
 import "../src/transformers/LeverageTransformer.sol";
 
 import "../src/automators/AutoExit.sol";
@@ -40,7 +39,7 @@ contract DeployArbitrum is Script {
 
     function run() external {
         vm.startBroadcast();
-        
+
         // 5% base rate - after 80% - 109% (like in compound v2 deployed)
         InterestRateModel interestRateModel = new InterestRateModel(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 * 80 / 100);
 
@@ -123,12 +122,13 @@ contract DeployArbitrum is Script {
             200
         );
 
-        V3Vault vault = new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle);
+        V3Vault vault =
+            new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDC_E, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value
         vault.setTokenConfig(DAI, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
-        vault.setTokenConfig(WETH, uint32(Q32 *  775 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WETH, uint32(Q32 * 775 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(WBTC, uint32(Q32 * 775 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(ARB, uint32(Q32 * 600 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value
         vault.setTokenConfig(WSTETH, uint32(Q32 * 725 / 1000), type(uint32).max); // max 100% collateral value
@@ -147,14 +147,10 @@ contract DeployArbitrum is Script {
         LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
-        
+
         AutoRange autoRange = AutoRange(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
- 
-        AutoCompound autoCompound = AutoCompound(payable(0x9D97c76102E72883CD25Fa60E0f4143516d5b6db));
-        autoCompound.setVault(address(vault));
-        vault.setTransformer(address(autoCompound), true);
 
         //AutoExit autoExit = AutoExit();
 

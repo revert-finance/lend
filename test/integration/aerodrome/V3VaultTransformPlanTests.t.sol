@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import "./AerodromeTestBase.sol";
 import "../../../src/V3Vault.sol";
-import "../../../src/transformers/AutoCompound.sol";
 import "../../../src/transformers/AutoRange.sol";
 import "./mocks/MockAerodromePositionManager.sol";
 import "../../../lib/AggregatorV3Interface.sol";
@@ -70,11 +69,31 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         }
     }
 
-    function _deployAutoCompound() internal returns (AutoCompound) {
-        AutoCompound autoCompound = new AutoCompound(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200);
-        vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault));
-        return autoCompound;
+    function _deployAutoRange() internal returns (AutoRange) {
+        AutoRange autoRange =
+            new AutoRange(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0), address(0));
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
+        return autoRange;
+    }
+
+    function _configureAutoRangeAutoCompound(uint256 tokenId, AutoRange autoRange) internal {
+        vm.prank(alice);
+        autoRange.configToken(
+            tokenId,
+            address(vault),
+            AutoRange.PositionConfig({
+                lowerTickLimit: 0,
+                upperTickLimit: 0,
+                lowerTickDelta: 0,
+                upperTickDelta: 0,
+                token0SlippageX64: 0,
+                token1SlippageX64: 0,
+                onlyFees: false,
+                autoCompound: true,
+                maxRewardX64: 0
+            })
+        );
     }
 
     function testCreateFlowAllowsRawVaultDeposit() public {
@@ -87,7 +106,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function testTransformForStakedPositionUnstakesAndRestakes() public {
-        AutoCompound autoCompound = _deployAutoCompound();
+        AutoRange autoRange = _deployAutoRange();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         vm.prank(alice);
@@ -99,9 +118,10 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vm.prank(alice);
         vault.approveTransform(tokenId, admin, true);
         vm.prank(alice);
-        vault.approveTransform(tokenId, address(autoCompound), true);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        _configureAutoRangeAutoCompound(tokenId, autoRange);
 
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
@@ -110,14 +130,14 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         vm.prank(admin);
-        vault.transform(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+        vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRange.autoCompound, (params)));
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
     }
 
     function testTransformWithRewardCompoundCompoundsBeforeTransform() public {
-        AutoCompound autoCompound = _deployAutoCompound();
+        AutoRange autoRange = _deployAutoRange();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         vm.prank(alice);
@@ -129,9 +149,10 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vm.prank(alice);
         vault.approveTransform(tokenId, admin, true);
         vm.prank(alice);
-        vault.approveTransform(tokenId, address(autoCompound), true);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        _configureAutoRangeAutoCompound(tokenId, autoRange);
 
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
@@ -145,8 +166,8 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vm.prank(admin);
         uint256 transformedTokenId = vault.transformWithRewardCompound(
             tokenId,
-            address(autoCompound),
-            abi.encodeCall(AutoCompound.execute, (params)),
+            address(autoRange),
+            abi.encodeCall(AutoRange.autoCompound, (params)),
             IVault.RewardCompoundParams({
                 swapData0: "",
                 swapData1: "",
@@ -164,7 +185,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function testTransformWithRewardCompoundSkipsWhenUnstaked() public {
-        AutoCompound autoCompound = _deployAutoCompound();
+        AutoRange autoRange = _deployAutoRange();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         vm.prank(alice);
@@ -173,8 +194,9 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.create(tokenId, alice);
         vm.prank(alice);
         vault.approveTransform(tokenId, admin, true);
+        _configureAutoRangeAutoCompound(tokenId, autoRange);
 
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
@@ -184,8 +206,8 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vm.prank(admin);
         uint256 transformedTokenId = vault.transformWithRewardCompound(
             tokenId,
-            address(autoCompound),
-            abi.encodeCall(AutoCompound.execute, (params)),
+            address(autoRange),
+            abi.encodeCall(AutoRange.autoCompound, (params)),
             IVault.RewardCompoundParams({
                 swapData0: "",
                 swapData1: "",
@@ -202,7 +224,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function testTransformWorksForUnstakedPosition() public {
-        AutoCompound autoCompound = _deployAutoCompound();
+        AutoRange autoRange = _deployAutoRange();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         vm.prank(alice);
@@ -211,8 +233,9 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.create(tokenId, alice);
         vm.prank(alice);
         vault.approveTransform(tokenId, admin, true);
+        _configureAutoRangeAutoCompound(tokenId, autoRange);
 
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
@@ -221,7 +244,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
 
         vm.prank(admin);
         uint256 transformedTokenId =
-            vault.transform(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+            vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRange.autoCompound, (params)));
 
         assertEq(transformedTokenId, tokenId);
         assertEq(vault.ownerOf(tokenId), alice);
@@ -229,7 +252,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function testDebtZeroTransformCanRunThroughTransform() public {
-        AutoCompound autoCompound = _deployAutoCompound();
+        AutoRange autoRange = _deployAutoRange();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         vm.prank(alice);
@@ -240,8 +263,9 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vault.stakePosition(tokenId);
         vm.prank(alice);
         vault.approveTransform(tokenId, admin, true);
+        _configureAutoRangeAutoCompound(tokenId, autoRange);
 
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
@@ -250,7 +274,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
 
         vm.prank(admin);
         uint256 transformedTokenId =
-            vault.transform(tokenId, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+            vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRange.autoCompound, (params)));
 
         assertEq(transformedTokenId, tokenId);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
@@ -286,7 +310,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function testExecuteWithVaultCanRunUnstakedToStakedCycle() public {
-        AutoCompound autoCompound = _deployAutoCompound();
+        AutoRange autoRange = _deployAutoRange();
 
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         vm.prank(alice);
@@ -298,9 +322,10 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         vm.prank(alice);
         vault.approveTransform(tokenId, admin, true);
         vm.prank(alice);
-        vault.approveTransform(tokenId, address(autoCompound), true);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        _configureAutoRangeAutoCompound(tokenId, autoRange);
 
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams({
+        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
@@ -308,7 +333,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         vm.prank(admin);
-        autoCompound.executeWithVault(params, address(vault));
+        autoRange.autoCompoundWithVault(params, address(vault));
 
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));

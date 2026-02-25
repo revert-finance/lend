@@ -48,7 +48,11 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         uint16 _maxTWAPTickDifference,
         address _universalRouter,
         address _zeroxAllowanceHolder
-    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {}
+    )
+        Automator(
+            _npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder
+        )
+    {}
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
@@ -127,6 +131,24 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
     }
 
     /**
+     * @notice Adjust token in a vault and compound staked gauge rewards first (if position is currently staked)
+     * Can only be called from configured operator account - vault must be configured as well
+     */
+    function executeWithVaultAndRewardCompound(
+        ExecuteParams calldata params,
+        address vault,
+        IVault.RewardCompoundParams calldata rewardParams
+    ) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault)
+            .transformWithRewardCompound(
+                params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)), rewardParams
+            );
+    }
+
+    /**
      * @notice Adjust token directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
@@ -168,7 +190,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             state.amount1 -= state.protocolReward1;
         }
 
-        if (params.amountIn > (params.swap0To1 ? state.amount0: state.amount1)) {
+        if (params.amountIn > (params.swap0To1 ? state.amount0 : state.amount1)) {
             revert SwapAmountTooLarge();
         }
 
@@ -183,15 +205,15 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             // check TWAP deviation (this is done for swap and non-swap operations)
             // operation is only allowed when price is close to TWAP price to prevent sandwich attacks
             state.amountOutMin = _validateSwap(
-                    params.swap0To1,
-                    params.amountIn,
-                    state.pool,
-                    state.currentTick,
-                    state.sqrtPriceX96,
-                    TWAPSeconds,
-                    maxTWAPTickDifference,
-                    params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
-                );
+                params.swap0To1,
+                params.amountIn,
+                state.pool,
+                state.currentTick,
+                state.sqrtPriceX96,
+                TWAPSeconds,
+                maxTWAPTickDifference,
+                params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
+            );
 
             if (params.amountIn != 0) {
                 (state.amountInDelta, state.amountOutDelta) = _routerSwap(
@@ -235,15 +257,19 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 SafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
                 state.maxAddAmount0,
                 state.maxAddAmount1,
-                params.amountAddMin0, 
-                params.amountAddMin1, 
+                params.amountAddMin0,
+                params.amountAddMin1,
                 address(this), // is sent to real recipient aftwards
                 params.deadline
             );
 
             // approve npm
-            SafeERC20.safeIncreaseAllowance(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
-            SafeERC20.safeIncreaseAllowance(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
+            SafeERC20.safeIncreaseAllowance(
+                IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0
+            );
+            SafeERC20.safeIncreaseAllowance(
+                IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1
+            );
 
             // mint is done to address(this) first - its not a safemint
             (state.newTokenId,, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.mint(mintParams);
@@ -352,7 +378,25 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)));
     }
 
-     /**
+    /**
+     * @notice Autocompound position in a vault and compound staked gauge rewards first (if position is currently staked)
+     * Can only be called from configured operator account - vault must be configured as well
+     */
+    function autoCompoundWithVaultAndRewardCompound(
+        AutoCompoundParams calldata params,
+        address vault,
+        IVault.RewardCompoundParams calldata rewardParams
+    ) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault)
+            .transformWithRewardCompound(
+                params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)), rewardParams
+            );
+    }
+
+    /**
      * @notice Autocompound position directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
@@ -365,7 +409,6 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 revert Unauthorized();
             }
         }
-
 
         PositionConfig memory config = positionConfigs[params.tokenId];
         if (!config.autoCompound) {
@@ -424,10 +467,13 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
 
             // deposit liquidity into tokenId
             if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
-                
                 // approve npm
-                SafeERC20.safeIncreaseAllowance(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
-                SafeERC20.safeIncreaseAllowance(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
+                SafeERC20.safeIncreaseAllowance(
+                    IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0
+                );
+                SafeERC20.safeIncreaseAllowance(
+                    IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1
+                );
 
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -451,7 +497,6 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             if (vaults[state.owner]) {
                 state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
             }
-
 
             // return remaining tokens for owner
             state.amount0 = state.amount0 - state.compounded0 - state.amount0Fees;
@@ -512,5 +557,4 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         totalRewardX64 = _totalRewardX64;
         emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
     }
-
 }

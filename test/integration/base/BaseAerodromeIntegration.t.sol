@@ -11,7 +11,7 @@ import "../../../src/GaugeManager.sol";
 import "../../../src/interfaces/IVault.sol";
 import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
-import "../../../src/transformers/AutoCompound.sol";
+import "../../../src/transformers/AutoRange.sol";
 import "../../../src/utils/FlashloanLiquidator.sol";
 import "../../../src/utils/Constants.sol";
 
@@ -57,7 +57,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     V3Oracle internal oracle;
     InterestRateModel internal interestRateModel;
     GaugeManager internal gaugeManager;
-    AutoCompound internal autoCompound;
+    AutoRange internal autoRange;
 
     MockChainlinkFeed internal usdcUsdFeed;
     MockChainlinkFeed internal wethUsdFeed;
@@ -109,9 +109,9 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         gaugeManager.setGauge(poolAddress, wethUsdcGauge);
         vault.setGaugeManager(address(gaugeManager));
 
-        autoCompound = new AutoCompound(NPM, OPERATOR, OPERATOR, 60, 200);
-        autoCompound.setVault(address(vault));
-        vault.setTransformer(address(autoCompound), true);
+        autoRange = new AutoRange(NPM, OPERATOR, OPERATOR, 60, 200, address(0), address(0));
+        autoRange.setVault(address(vault));
+        vault.setTransformer(address(autoRange), true);
 
         address owner = NPM.ownerOf(TEST_NFT);
         if (owner != ALICE) {
@@ -242,18 +242,33 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         assertEq(NPM.ownerOf(tokenId), wethUsdcGauge);
     }
 
-    function testAutoCompoundExecuteWithVaultOnStakedPosition() external {
+    function testAutoRangeAutoCompoundWithVaultOnStakedPosition() external {
         uint256 tokenId = TEST_NFT;
         _depositCollateral(tokenId, ALICE);
 
         vm.startPrank(ALICE);
         vault.stakePosition(tokenId);
-        vault.approveTransform(tokenId, address(autoCompound), true);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        autoRange.configToken(
+            tokenId,
+            address(vault),
+            AutoRange.PositionConfig({
+                lowerTickLimit: 0,
+                upperTickLimit: 0,
+                lowerTickDelta: 0,
+                upperTickDelta: 0,
+                token0SlippageX64: 0,
+                token1SlippageX64: 0,
+                onlyFees: false,
+                autoCompound: true,
+                maxRewardX64: 0
+            })
+        );
         vm.stopPrank();
 
         vm.prank(OPERATOR);
-        autoCompound.executeWithVault(
-            AutoCompound.ExecuteParams({
+        autoRange.autoCompoundWithVault(
+            AutoRange.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
             }),
             address(vault)
@@ -263,18 +278,33 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         assertEq(vault.ownerOf(tokenId), ALICE);
     }
 
-    function testAutoCompoundExecuteWithVaultAndRewardCompoundOnStakedPosition() external {
+    function testAutoRangeAutoCompoundWithVaultAndRewardCompoundOnStakedPosition() external {
         uint256 tokenId = TEST_NFT;
         _depositCollateral(tokenId, ALICE);
 
         vm.startPrank(ALICE);
         vault.stakePosition(tokenId);
-        vault.approveTransform(tokenId, address(autoCompound), true);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        autoRange.configToken(
+            tokenId,
+            address(vault),
+            AutoRange.PositionConfig({
+                lowerTickLimit: 0,
+                upperTickLimit: 0,
+                lowerTickDelta: 0,
+                upperTickDelta: 0,
+                token0SlippageX64: 0,
+                token1SlippageX64: 0,
+                onlyFees: false,
+                autoCompound: true,
+                maxRewardX64: 0
+            })
+        );
         vm.stopPrank();
 
         vm.prank(OPERATOR);
-        autoCompound.executeWithVaultAndRewardCompound(
-            AutoCompound.ExecuteParams({
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            AutoRange.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
             }),
             address(vault),
