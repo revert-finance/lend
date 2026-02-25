@@ -48,6 +48,7 @@ interface IVault is IERC4626 {
         uint256 minAmount0;
         uint256 minAmount1;
         uint256 aeroSplitBps;
+        address rewardRecipient;
         uint256 deadline;
     }
 

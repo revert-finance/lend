@@ -19,8 +19,11 @@ import "./utils/Swapper.sol";
 contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper, IGaugeManager {
     using SafeERC20 for IERC20;
 
+    uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
+
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
+    uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
 
     mapping(address => address) public override poolToGauge;
     mapping(uint256 => address) public override tokenIdToGauge;
@@ -34,8 +37,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 spentAero;
         uint256 amount0Out;
         uint256 amount1Out;
+        uint256 maxAddAmount0;
+        uint256 maxAddAmount1;
         uint256 amountAdded0;
         uint256 amountAdded1;
+        uint256 rewardAmount0;
+        uint256 rewardAmount1;
     }
 
     constructor(
@@ -152,6 +159,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 minAmount0,
         uint256 minAmount1,
         uint256 aeroSplitBps,
+        address rewardRecipient,
         uint256 deadline
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
         address owner = _requireVaultOrOwner(tokenId);
@@ -173,13 +181,21 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         state = _swapAeroForPosition(state, aeroSplitBps, swapData0, swapData1, minAmount0, minAmount1);
         state = _addLiquidity(state, tokenId, deadline);
-        _sendLeftovers(state);
+        _sendLeftoversAndRewards(state, rewardRecipient);
 
         nonfungiblePositionManager.approve(state.gauge, tokenId);
         IGauge(state.gauge).deposit(tokenId);
 
         emit RewardsCompounded(tokenId, state.owner, state.aeroAmount, state.amountAdded0, state.amountAdded1);
         return (state.aeroAmount, state.amountAdded0, state.amountAdded1);
+    }
+
+    function setCompoundReward(uint64 _totalRewardX64) external override onlyOwner {
+        if (_totalRewardX64 > totalRewardX64) {
+            revert InvalidConfig();
+        }
+        totalRewardX64 = _totalRewardX64;
+        emit CompoundRewardUpdated(msg.sender, _totalRewardX64);
     }
 
     function _claimAndSendRewards(address gauge, uint256 tokenId, address recipient)
@@ -281,44 +297,58 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         internal
         returns (CompoundState memory)
     {
-        if (state.amount0Out != 0) {
-            IERC20(state.token0).safeIncreaseAllowance(address(nonfungiblePositionManager), state.amount0Out);
+        uint256 rewardX64 = totalRewardX64;
+        state.maxAddAmount0 = state.amount0Out * Q64 / (rewardX64 + Q64);
+        state.maxAddAmount1 = state.amount1Out * Q64 / (rewardX64 + Q64);
+
+        if (state.maxAddAmount0 != 0) {
+            IERC20(state.token0).safeIncreaseAllowance(address(nonfungiblePositionManager), state.maxAddAmount0);
         }
-        if (state.amount1Out != 0) {
-            IERC20(state.token1).safeIncreaseAllowance(address(nonfungiblePositionManager), state.amount1Out);
+        if (state.maxAddAmount1 != 0) {
+            IERC20(state.token1).safeIncreaseAllowance(address(nonfungiblePositionManager), state.maxAddAmount1);
         }
 
-        if (state.amount0Out != 0 || state.amount1Out != 0) {
+        if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
             (, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
-                    tokenId, state.amount0Out, state.amount1Out, 0, 0, deadline
+                    tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, deadline
                 )
             );
+            state.rewardAmount0 = state.amountAdded0 * rewardX64 / Q64;
+            state.rewardAmount1 = state.amountAdded1 * rewardX64 / Q64;
         }
 
-        if (state.amount0Out != 0) {
+        if (state.maxAddAmount0 != 0) {
             IERC20(state.token0).safeApprove(address(nonfungiblePositionManager), 0);
         }
-        if (state.amount1Out != 0) {
+        if (state.maxAddAmount1 != 0) {
             IERC20(state.token1).safeApprove(address(nonfungiblePositionManager), 0);
         }
 
         return state;
     }
 
-    function _sendLeftovers(CompoundState memory state) internal {
+    function _sendLeftoversAndRewards(CompoundState memory state, address rewardRecipient) internal {
         uint256 leftoverAero = state.aeroAmount - state.spentAero;
         if (leftoverAero != 0) {
             aeroToken.safeTransfer(state.owner, leftoverAero);
         }
 
-        uint256 leftover0 = state.amount0Out - state.amountAdded0;
-        uint256 leftover1 = state.amount1Out - state.amountAdded1;
+        uint256 leftover0 = state.amount0Out - state.amountAdded0 - state.rewardAmount0;
+        uint256 leftover1 = state.amount1Out - state.amountAdded1 - state.rewardAmount1;
         if (leftover0 != 0) {
             IERC20(state.token0).safeTransfer(state.owner, leftover0);
         }
         if (leftover1 != 0) {
             IERC20(state.token1).safeTransfer(state.owner, leftover1);
+        }
+
+        address rewardTo = rewardRecipient == address(0) ? state.owner : rewardRecipient;
+        if (state.rewardAmount0 != 0) {
+            IERC20(state.token0).safeTransfer(rewardTo, state.rewardAmount0);
+        }
+        if (state.rewardAmount1 != 0) {
+            IERC20(state.token1).safeTransfer(rewardTo, state.rewardAmount1);
         }
     }
 

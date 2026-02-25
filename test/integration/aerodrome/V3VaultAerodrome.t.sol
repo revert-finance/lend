@@ -279,6 +279,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             0, // minAmount0
             0, // minAmount1
             10001, // aeroSplitBps > 10000 (invalid)
+            address(0), // rewardRecipient
             block.timestamp + 1000 // deadline
         );
 
@@ -290,6 +291,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             0, // minAmount0
             0, // minAmount1
             5000,
+            address(0),
             block.timestamp + 1000 // deadline
         );
 
@@ -303,6 +305,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             0, // minAmount0
             0, // minAmount1
             5000,
+            address(0),
             block.timestamp + 1000 // deadline
         );
 

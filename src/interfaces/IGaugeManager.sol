@@ -6,12 +6,9 @@ interface IGaugeManager {
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner, address indexed gauge);
     event RewardsClaimed(uint256 indexed tokenId, address indexed owner, uint256 aeroAmount);
     event RewardsCompounded(
-        uint256 indexed tokenId,
-        address indexed owner,
-        uint256 aeroAmount,
-        uint256 amountAdded0,
-        uint256 amountAdded1
+        uint256 indexed tokenId, address indexed owner, uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1
     );
+    event CompoundRewardUpdated(address account, uint64 totalRewardX64);
     event GaugeSet(address indexed pool, address indexed gauge);
 
     function poolToGauge(address pool) external view returns (address);
@@ -32,6 +29,9 @@ interface IGaugeManager {
         uint256 minAmount0,
         uint256 minAmount1,
         uint256 aeroSplitBps,
+        address rewardRecipient,
         uint256 deadline
     ) external returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1);
+
+    function setCompoundReward(uint64 _totalRewardX64) external;
 }
