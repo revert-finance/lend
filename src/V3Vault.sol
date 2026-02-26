@@ -514,7 +514,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
         returns (uint256 newTokenId)
     {
-        return _transform(tokenId, transformer, data, false, new bytes(0), new bytes(0), 0, 0, 0, address(0), 0);
+        return _transform(tokenId, transformer, data, false, new bytes(0), new bytes(0), 0, 0, 0, 0);
     }
 
     function transformWithRewardCompound(
@@ -533,7 +533,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             rewardParams.minAmount0,
             rewardParams.minAmount1,
             rewardParams.aeroSplitBps,
-            rewardParams.rewardRecipient,
             rewardParams.deadline
         );
     }
@@ -548,7 +547,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 minAmount0,
         uint256 minAmount1,
         uint256 aeroSplitBps,
-        address rewardRecipient,
         uint256 deadline
     ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
@@ -575,9 +573,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)
         ) {
             IGaugeManager(gaugeManager)
-                .compoundRewards(
-                    tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, rewardRecipient, deadline
-                );
+                .compoundRewards(tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline);
         }
 
         bool wasStaked = _unstakeIfNeeded(tokenId);

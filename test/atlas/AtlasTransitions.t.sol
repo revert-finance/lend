@@ -154,7 +154,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
 
         vm.prank(alice);
         (uint256 aeroAmt, uint256 added0, uint256 added1) =
-            gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 0, address(0), block.timestamp + 1 hours);
+            gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 0, block.timestamp + 1 hours);
 
         assertEq(aeroAmt, 0);
         assertEq(added0, 0);

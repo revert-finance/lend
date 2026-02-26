@@ -23,6 +23,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
+    address public override withdrawer;
     uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
 
     mapping(address => address) public override poolToGauge;
@@ -58,6 +59,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         aeroToken = _aeroToken;
         vault = _vault;
+        withdrawer = msg.sender;
+
+        emit WithdrawerChanged(msg.sender);
     }
 
     function setGauge(address pool, address gauge) external override onlyOwner {
@@ -73,6 +77,43 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         poolToGauge[pool] = gauge;
         emit GaugeSet(pool, gauge);
+    }
+
+    function setWithdrawer(address _withdrawer) external override onlyOwner {
+        withdrawer = _withdrawer;
+        emit WithdrawerChanged(_withdrawer);
+    }
+
+    function withdrawBalances(address[] calldata tokens, address to) external override {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+
+        uint256 i;
+        uint256 count = tokens.length;
+        address token;
+        uint256 balance;
+        for (; i < count; ++i) {
+            token = tokens[i];
+            balance = IERC20(token).balanceOf(address(this));
+            if (balance != 0) {
+                _transferToken(to, IERC20(token), balance, true);
+            }
+        }
+    }
+
+    function withdrawETH(address to) external override {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+
+        uint256 balance = address(this).balance;
+        if (balance != 0) {
+            (bool sent,) = to.call{value: balance}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        }
     }
 
     function stakePosition(uint256 tokenId) external override nonReentrant {
@@ -165,7 +206,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 minAmount0,
         uint256 minAmount1,
         uint256 aeroSplitBps,
-        address rewardRecipient,
         uint256 deadline
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
         address owner = _requireVaultOrOwner(tokenId);
@@ -187,7 +227,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         state = _swapAeroForPosition(state, aeroSplitBps, swapData0, swapData1, minAmount0, minAmount1);
         state = _addLiquidity(state, tokenId, deadline);
-        _sendLeftoversAndRewards(state, rewardRecipient);
+        _sendLeftoversAndRewards(state);
 
         nonfungiblePositionManager.approve(state.gauge, tokenId);
         IGauge(state.gauge).deposit(tokenId);
@@ -334,7 +374,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         return state;
     }
 
-    function _sendLeftoversAndRewards(CompoundState memory state, address rewardRecipient) internal {
+    function _sendLeftoversAndRewards(CompoundState memory state) internal {
         uint256 leftoverAero = state.aeroAmount - state.spentAero;
         if (leftoverAero != 0) {
             aeroToken.safeTransfer(state.owner, leftoverAero);
@@ -348,13 +388,26 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (leftover1 != 0) {
             IERC20(state.token1).safeTransfer(state.owner, leftover1);
         }
+        // protocol rewards (rewardAmount0/rewardAmount1) remain in this contract and can be collected
+        // through withdrawBalances/withdrawETH by the configured withdrawer.
+    }
 
-        address rewardTo = rewardRecipient == address(0) ? state.owner : rewardRecipient;
-        if (state.rewardAmount0 != 0) {
-            IERC20(state.token0).safeTransfer(rewardTo, state.rewardAmount0);
+    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
+        if (unwrap && address(weth) == address(token)) {
+            weth.withdraw(amount);
+            (bool sent,) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            token.safeTransfer(to, amount);
         }
-        if (state.rewardAmount1 != 0) {
-            IERC20(state.token1).safeTransfer(rewardTo, state.rewardAmount1);
+    }
+
+    // needed for WETH unwrapping
+    receive() external payable {
+        if (msg.sender != address(weth)) {
+            revert NotWETH();
         }
     }
 

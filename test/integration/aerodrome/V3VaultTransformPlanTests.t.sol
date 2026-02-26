@@ -174,7 +174,6 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
                 minAmount0: 0,
                 minAmount1: 0,
                 aeroSplitBps: 0,
-                rewardRecipient: address(0),
                 deadline: block.timestamp + 1 hours
             })
         );
@@ -215,7 +214,6 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
                 minAmount0: 0,
                 minAmount1: 0,
                 aeroSplitBps: 0,
-                rewardRecipient: address(0),
                 deadline: block.timestamp + 1 hours
             })
         );
