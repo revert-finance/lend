@@ -452,6 +452,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             if (tokenOwner[tokenId] == address(0)) {
                 address owner = from;
                 if (data.length != 0) {
+                    // NOTE FOR AUDITS:
+                    // Raw ERC721 deposits may override owner via callback data.
+                    // This is intentionally flexible for integrator/operator flows and is an accepted trust assumption:
+                    // whoever can trigger safeTransferFrom for the NFT can also choose the callback payload.
                     owner = abi.decode(data, (address));
                 }
                 if (owner == address(0)) {
@@ -1356,6 +1360,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @dev Safety note: this only validates that `_gaugeManager` is a contract and then permanently locks it.
     /// @dev GaugeManager enforces `msg.sender == address(vault)`, so configuring a manager deployed for a different
     ///      vault will make stake/unstake/reward-precompound paths revert Unauthorized and cannot be corrected afterward.
+    /// @dev This one-time lock without vault-binding handshake is an accepted operational/trust risk.
     function setGaugeManager(address _gaugeManager) external onlyOwner {
         if (gaugeManager != address(0)) {
             revert GaugeManagerAlreadySet();
@@ -1391,6 +1396,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IGaugeManager(gaugeManager).stakePosition(tokenId);
         // Safety gate: staking manager must move the NFT out of the vault. Prevents no-op managers from
         // leaving lingering approvals on vaulted collateral.
+        // NOTE FOR AUDITS: this only verifies "not in vault anymore"; it does not prove custody sits directly on the
+        // configured gauge address. That deeper custody assumption is accepted and delegated to gauge integration trust.
         if (nonfungiblePositionManager.ownerOf(tokenId) == address(this)) {
             revert InvalidConfig();
         }

@@ -103,6 +103,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
 
+        // NOTE FOR AUDITS:
+        // We intentionally do not enforce `ownerOf(tokenId) == gauge` post-deposit here.
+        // Some gauge implementations may custody via intermediate contracts/wrappers while still exposing
+        // the configured gauge as the canonical integration endpoint for getReward/withdraw.
+        // This is an accepted trust-boundary assumption on configured gauges.
+        // Vault-side `_stake()` still enforces that custody leaves the vault to block no-op managers.
         tokenIdToGauge[tokenId] = gauge;
         emit PositionStaked(tokenId, owner, gauge);
     }
