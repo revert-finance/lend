@@ -19,7 +19,6 @@ interface IGaugeManager {
     function setGauge(address pool, address gauge) external;
     function setWithdrawer(address _withdrawer) external;
     function withdrawBalances(address[] calldata tokens, address to) external;
-    function withdrawETH(address to) external;
 
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;

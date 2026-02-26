@@ -35,7 +35,7 @@ contract ConfigureGauges is Script {
             _requirePoolGaugeMatch(CBBTC_USDC_POOL, cbbtcUsdcGauge);
         }
 
-        GaugeManager gaugeManager = GaugeManager(payable(gaugeManagerAddress));
+        GaugeManager gaugeManager = GaugeManager(gaugeManagerAddress);
         require(gaugeManager.owner() == deployer, "ConfigureGauges: deployer is not gauge manager owner");
 
         vm.startBroadcast();

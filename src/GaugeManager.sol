@@ -97,21 +97,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             token = tokens[i];
             balance = IERC20(token).balanceOf(address(this));
             if (balance != 0) {
-                _transferToken(to, IERC20(token), balance, true);
-            }
-        }
-    }
-
-    function withdrawETH(address to) external override {
-        if (msg.sender != withdrawer) {
-            revert Unauthorized();
-        }
-
-        uint256 balance = address(this).balance;
-        if (balance != 0) {
-            (bool sent,) = to.call{value: balance}("");
-            if (!sent) {
-                revert EtherSendFailed();
+                IERC20(token).safeTransfer(to, balance);
             }
         }
     }
@@ -389,26 +375,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             IERC20(state.token1).safeTransfer(state.owner, leftover1);
         }
         // protocol rewards (rewardAmount0/rewardAmount1) remain in this contract and can be collected
-        // through withdrawBalances/withdrawETH by the configured withdrawer.
-    }
-
-    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
-        if (unwrap && address(weth) == address(token)) {
-            weth.withdraw(amount);
-            (bool sent,) = to.call{value: amount}("");
-            if (!sent) {
-                revert EtherSendFailed();
-            }
-        } else {
-            token.safeTransfer(to, amount);
-        }
-    }
-
-    // needed for WETH unwrapping
-    receive() external payable {
-        if (msg.sender != address(weth)) {
-            revert NotWETH();
-        }
+        // through withdrawBalances by the configured withdrawer.
     }
 
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata)
