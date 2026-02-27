@@ -637,6 +637,22 @@ contract GaugeManagerUnitTest is Test {
         assertEq(token1.balanceOf(address(gaugeManager)), 0);
     }
 
+    function testWithdrawETHOnlyAllowedForWithdrawer() external {
+        vm.deal(address(gaugeManager), 1 ether);
+
+        vm.prank(ALICE);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        gaugeManager.withdrawETH(ALICE);
+
+        uint256 aliceBefore = ALICE.balance;
+        gaugeManager.setWithdrawer(RECIPIENT);
+        vm.prank(RECIPIENT);
+        gaugeManager.withdrawETH(ALICE);
+
+        assertEq(ALICE.balance - aliceBefore, 1 ether);
+        assertEq(address(gaugeManager).balance, 0);
+    }
+
     function _stake() internal {
         vm.prank(address(vault));
         gaugeManager.stakePosition(TOKEN_ID);

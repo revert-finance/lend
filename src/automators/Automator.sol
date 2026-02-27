@@ -15,20 +15,20 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
+import "../interfaces/IProtocolFeeController.sol";
 
-abstract contract Automator is Ownable2Step, Swapper {
+abstract contract Automator is Ownable2Step, Swapper, IProtocolFeeController {
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
 
     // admin events
     event OperatorChanged(address newOperator, bool active);
-    event WithdrawerChanged(address newWithdrawer);
     event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
 
     // configurable by owner
     mapping(address => bool) public operators;
 
-    address public withdrawer;
+    address public override withdrawer;
     uint32 public TWAPSeconds;
     uint16 public maxTWAPTickDifference;
 
@@ -52,7 +52,7 @@ abstract contract Automator is Ownable2Step, Swapper {
      * @notice Owner controlled function to set withdrawer address
      * @param _withdrawer withdrawer
      */
-    function setWithdrawer(address _withdrawer) public onlyOwner {
+    function setWithdrawer(address _withdrawer) public virtual override onlyOwner {
         if (_withdrawer == address(0)) {
             revert InvalidConfig();
         }
@@ -90,7 +90,7 @@ abstract contract Automator is Ownable2Step, Swapper {
      * @param tokens Addresses of tokens to withdraw
      * @param to Address to send to
      */
-    function withdrawBalances(address[] calldata tokens, address to) external virtual {
+    function withdrawBalances(address[] calldata tokens, address to) external virtual override {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }
@@ -112,7 +112,7 @@ abstract contract Automator is Ownable2Step, Swapper {
      * @notice Withdraws ETH balance
      * @param to Address to send to
      */
-    function withdrawETH(address to) external {
+    function withdrawETH(address to) external override {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }

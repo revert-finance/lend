@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-interface IGaugeManager {
+import "./IProtocolFeeController.sol";
+
+interface IGaugeManager is IProtocolFeeController {
     event PositionStaked(uint256 indexed tokenId, address indexed owner, address indexed gauge);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner, address indexed gauge);
     event RewardsClaimed(uint256 indexed tokenId, address indexed owner, uint256 aeroAmount);
@@ -10,15 +12,11 @@ interface IGaugeManager {
     );
     event CompoundRewardUpdated(address account, uint64 totalRewardX64);
     event GaugeSet(address indexed pool, address indexed gauge);
-    event WithdrawerChanged(address newWithdrawer);
 
     function poolToGauge(address pool) external view returns (address);
     function tokenIdToGauge(uint256 tokenId) external view returns (address);
-    function withdrawer() external view returns (address);
 
     function setGauge(address pool, address gauge) external;
-    function setWithdrawer(address _withdrawer) external;
-    function withdrawBalances(address[] calldata tokens, address to) external;
 
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;

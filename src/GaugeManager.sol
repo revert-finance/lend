@@ -105,6 +105,20 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
+    function withdrawETH(address to) external override {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+
+        uint256 balance = address(this).balance;
+        if (balance != 0) {
+            (bool sent,) = to.call{value: balance}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        }
+    }
+
     function stakePosition(uint256 tokenId) external override nonReentrant {
         _requireVaultCaller();
         if (tokenIdToGauge[tokenId] != address(0)) {
