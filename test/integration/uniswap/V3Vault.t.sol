@@ -52,7 +52,7 @@ contract MockNoopGaugeManager {
         return 0;
     }
 
-    function compoundRewards(uint256, bytes calldata, bytes calldata, uint256, uint256, uint256, uint256)
+    function compoundRewards(uint256, bytes calldata, bytes calldata, uint256, uint256, uint256, uint256, uint256)
         external
         pure
         returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
@@ -552,7 +552,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(autoRange), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        autoRange.configToken(TEST_NFT, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
 
         vm.prank(WHALE_ACCOUNT);
         autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
@@ -569,7 +569,9 @@ contract V3VaultIntegrationTest is Test {
         autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        autoRange.configToken(
+            TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+        );
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
@@ -607,7 +609,9 @@ contract V3VaultIntegrationTest is Test {
         autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        autoRange.configToken(
+            TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+        );
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
@@ -657,7 +661,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0)
+            TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
         );
 
         uint256 previousDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
@@ -668,7 +672,13 @@ contract V3VaultIntegrationTest is Test {
             params,
             address(vault),
             IVault.RewardCompoundParams({
-                swapData0: "", swapData1: "", minAmount0: 0, minAmount1: 0, aeroSplitBps: 0, deadline: block.timestamp
+                swapData0: "",
+                swapData1: "",
+                minAmount0: 0,
+                minAmount1: 0,
+                minAeroReward: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp
             })
         );
 
@@ -1513,7 +1523,7 @@ contract V3VaultIntegrationTest is Test {
         // Revert bots (outside of vault) to be auto-compounded
         vm.startPrank(ALICE_ACCOUNT);
         NPM.approve(address(autoRange), ALICE_NFT);
-        autoRange.configToken(ALICE_NFT, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        autoRange.configToken(ALICE_NFT, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
         vm.stopPrank();
 
         // Exploiter opens a position in the Vault

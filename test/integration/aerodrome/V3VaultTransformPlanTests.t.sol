@@ -91,7 +91,10 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
                 token1SlippageX64: 0,
                 onlyFees: false,
                 autoCompound: true,
-                maxRewardX64: 0
+                maxRewardX64: 0,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
     }
@@ -173,6 +176,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
                 swapData1: "",
                 minAmount0: 0,
                 minAmount1: 0,
+                minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours
             })
@@ -213,6 +217,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
                 swapData1: "",
                 minAmount0: 0,
                 minAmount1: 0,
+                minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours
             })
@@ -443,7 +448,10 @@ contract V3VaultAutoRangeDebtZeroTests is AerodromeTestBase {
             token1SlippageX64: 0,
             onlyFees: false,
             autoCompound: false,
-            maxRewardX64: 0
+            maxRewardX64: 0,
+            autoCompoundMin0: 0,
+            autoCompoundMin1: 0,
+            autoCompoundRewardMin: 0
         });
 
         vm.prank(alice);

@@ -16,7 +16,7 @@ contract AutoRangeAutoCompoundTest is AutomatorIntegrationTestBase {
 
     function _configTokenForAutoCompound(uint256 tokenId, address owner) internal {
         vm.prank(owner);
-        autoRange.configToken(tokenId, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        autoRange.configToken(tokenId, address(0), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
     }
 
     function _approveAndConfig(uint256 tokenId, address owner) internal {

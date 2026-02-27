@@ -208,6 +208,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         bytes calldata swapData1,
         uint256 minAmount0,
         uint256 minAmount1,
+        uint256 minAeroReward,
         uint256 aeroSplitBps,
         uint256 deadline
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
@@ -221,6 +222,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         state.owner = owner;
         state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId);
+        if (state.aeroAmount < minAeroReward) {
+            revert NotEnoughReward();
+        }
         if (state.aeroAmount == 0) {
             return (0, 0, 0);
         }

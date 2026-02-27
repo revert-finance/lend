@@ -74,7 +74,7 @@ contract AutoRangeAerodromeTest is Test, Constants {
         vm.prank(POSITION_OWNER);
         autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
 
-        (int32 lowerTickLimit,,,,,,,,) = autoRange.positionConfigs(MOCK_TOKEN_ID);
+        (int32 lowerTickLimit,,,,,,,,,,,) = autoRange.positionConfigs(MOCK_TOKEN_ID);
         assertEq(lowerTickLimit, config.lowerTickLimit);
 
         AutoRange.PositionConfig memory cleared;
@@ -90,7 +90,10 @@ contract AutoRangeAerodromeTest is Test, Constants {
             uint64 cToken1SlippageX64,
             bool cOnlyFees,
             bool cAutoCompound,
-            uint64 cMaxRewardX64
+            uint64 cMaxRewardX64,
+            uint128 cAutoCompoundMin0,
+            uint128 cAutoCompoundMin1,
+            uint128 cAutoCompoundRewardMin
         ) = autoRange.positionConfigs(MOCK_TOKEN_ID);
         assertEq(cLowerTickLimit, 0);
         assertEq(cUpperTickLimit, 0);
@@ -101,6 +104,9 @@ contract AutoRangeAerodromeTest is Test, Constants {
         assertFalse(cOnlyFees);
         assertFalse(cAutoCompound);
         assertEq(cMaxRewardX64, 0);
+        assertEq(cAutoCompoundMin0, 0);
+        assertEq(cAutoCompoundMin1, 0);
+        assertEq(cAutoCompoundRewardMin, 0);
     }
 
     function testBasicConfiguration() external {
@@ -120,7 +126,10 @@ contract AutoRangeAerodromeTest is Test, Constants {
             token1SlippageX64: uint64(Q64 / 100),
             onlyFees: false,
             autoCompound: true,
-            maxRewardX64: uint64(Q64 / 400)
+            maxRewardX64: uint64(Q64 / 400),
+            autoCompoundMin0: 0,
+            autoCompoundMin1: 0,
+            autoCompoundRewardMin: 0
         });
     }
 

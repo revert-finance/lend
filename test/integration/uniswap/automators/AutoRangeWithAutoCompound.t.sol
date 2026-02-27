@@ -29,7 +29,7 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
     function testNoApprove() external {
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert("Not approved");
@@ -41,7 +41,7 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoRange), TEST_NFT_2);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
@@ -61,7 +61,7 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoRange), TEST_NFT_2);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
@@ -82,7 +82,7 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoRange), TEST_NFT_2);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
@@ -96,5 +96,37 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
 
         //_testWithdrawLeftover();
         //_testWithdrawProtocolFee(0, 1916359786106899);
+    }
+
+    function testCompoundRevertsWhenBelowAutoCompoundMin0() external {
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.approve(address(autoRange), TEST_NFT_2);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        autoRange.configToken(
+            TEST_NFT_2,
+            address(0),
+            AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, type(uint128).max, 0, 0)
+        );
+
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(Constants.NotEnoughReward.selector);
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+    }
+
+    function testCompoundRevertsWhenBelowAutoCompoundMin1() external {
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        NPM.approve(address(autoRange), TEST_NFT_2);
+
+        vm.prank(TEST_NFT_2_ACCOUNT);
+        autoRange.configToken(
+            TEST_NFT_2,
+            address(0),
+            AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, type(uint128).max, 0)
+        );
+
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(Constants.NotEnoughReward.selector);
+        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 }

@@ -47,6 +47,7 @@ interface IVault is IERC4626 {
         bytes swapData1;
         uint256 minAmount0;
         uint256 minAmount1;
+        uint256 minAeroReward;
         uint256 aeroSplitBps;
         uint256 deadline;
     }

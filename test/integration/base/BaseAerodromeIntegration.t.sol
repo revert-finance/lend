@@ -208,7 +208,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         vault.stakePosition(tokenId);
 
         vm.prank(ALICE);
-        gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 5_000, block.timestamp + 1 hours);
+        gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 0, 5_000, block.timestamp + 1 hours);
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
         assertEq(NPM.ownerOf(tokenId), wethUsdcGauge);
@@ -261,7 +261,10 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
                 token1SlippageX64: 0,
                 onlyFees: false,
                 autoCompound: true,
-                maxRewardX64: 0
+                maxRewardX64: 0,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         vm.stopPrank();
@@ -297,7 +300,10 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
                 token1SlippageX64: 0,
                 onlyFees: false,
                 autoCompound: true,
-                maxRewardX64: 0
+                maxRewardX64: 0,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         vm.stopPrank();
@@ -313,6 +319,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
                 swapData1: "",
                 minAmount0: 0,
                 minAmount1: 0,
+                minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours
             })
@@ -320,6 +327,52 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
         assertEq(vault.ownerOf(tokenId), ALICE);
+    }
+
+    function testAutoRangeRewardCompoundEnforcesConfigMinAeroReward() external {
+        uint256 tokenId = TEST_NFT;
+        _depositCollateral(tokenId, ALICE);
+
+        vm.startPrank(ALICE);
+        vault.stakePosition(tokenId);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        autoRange.configToken(
+            tokenId,
+            address(vault),
+            AutoRange.PositionConfig({
+                lowerTickLimit: 0,
+                upperTickLimit: 0,
+                lowerTickDelta: 0,
+                upperTickDelta: 0,
+                token0SlippageX64: 0,
+                token1SlippageX64: 0,
+                onlyFees: false,
+                autoCompound: true,
+                maxRewardX64: 0,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 1
+            })
+        );
+        vm.stopPrank();
+
+        vm.prank(OPERATOR);
+        vm.expectRevert(Constants.NotEnoughReward.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            AutoRange.AutoCompoundParams({
+                tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
+            }),
+            address(vault),
+            IVault.RewardCompoundParams({
+                swapData0: "",
+                swapData1: "",
+                minAmount0: 0,
+                minAmount1: 0,
+                minAeroReward: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp + 1 hours
+            })
+        );
     }
 
     function testFlashloanLiquidationHappyPath() external {

@@ -164,7 +164,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
                 token1SlippageX64: uint64(Q64 / 100), // 1% slippage
                 onlyFees: false, // Use both fees and principal
                 autoCompound: false, // Don't auto-compound
-                maxRewardX64: MAX_REWARD
+                maxRewardX64: MAX_REWARD,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         
@@ -178,7 +181,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
             uint64 token1SlippageX64,
             bool onlyFees,
             bool autoCompound,
-            uint64 maxRewardX64
+            uint64 maxRewardX64,
+            uint128 autoCompoundMin0,
+            uint128 autoCompoundMin1,
+            uint128 autoCompoundRewardMin
         ) = autoRange.positionConfigs(REAL_POSITION_ID);
         
         assertEq(lowerTickDelta, -600);
@@ -188,6 +194,9 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         assertFalse(onlyFees);
         assertFalse(autoCompound);
         assertEq(maxRewardX64, MAX_REWARD);
+        assertEq(autoCompoundMin0, 0);
+        assertEq(autoCompoundMin1, 0);
+        assertEq(autoCompoundRewardMin, 0);
         
         vm.stopPrank();
     }
@@ -210,7 +219,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
                 token1SlippageX64: uint64(Q64 / 100),
                 onlyFees: false,
                 autoCompound: false,
-                maxRewardX64: MAX_REWARD
+                maxRewardX64: MAX_REWARD,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         
@@ -304,7 +316,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
                 token1SlippageX64: uint64(Q64 / 100),
                 onlyFees: false,
                 autoCompound: false,
-                maxRewardX64: MAX_REWARD
+                maxRewardX64: MAX_REWARD,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         
@@ -377,7 +392,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
                 token1SlippageX64: uint64(Q64 / 100),
                 onlyFees: false,
                 autoCompound: false,
-                maxRewardX64: MAX_REWARD
+                maxRewardX64: MAX_REWARD,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         
@@ -394,7 +412,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
                 token1SlippageX64: uint64(Q64 / 200),
                 onlyFees: true, // Only use fees now
                 autoCompound: true, // Enable auto-compound
-                maxRewardX64: MAX_REWARD / 2
+                maxRewardX64: MAX_REWARD / 2,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         
@@ -408,7 +429,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
             uint64 token1SlippageX64,
             bool onlyFees,
             bool autoCompound,
-            uint64 maxRewardX64
+            uint64 maxRewardX64,
+            uint128 autoCompoundMin0,
+            uint128 autoCompoundMin1,
+            uint128 autoCompoundRewardMin
         ) = autoRange.positionConfigs(REAL_POSITION_ID);
         
         assertEq(lowerTickDelta, -300);
@@ -418,6 +442,9 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         assertTrue(onlyFees);
         assertTrue(autoCompound);
         assertEq(maxRewardX64, MAX_REWARD / 2);
+        assertEq(autoCompoundMin0, 0);
+        assertEq(autoCompoundMin1, 0);
+        assertEq(autoCompoundRewardMin, 0);
         
         vm.stopPrank();
     }
@@ -440,7 +467,10 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
                 token1SlippageX64: uint64(Q64 / 100),
                 onlyFees: false,
                 autoCompound: false,
-                maxRewardX64: MAX_REWARD
+                maxRewardX64: MAX_REWARD,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         

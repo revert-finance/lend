@@ -82,7 +82,10 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
                 token1SlippageX64: 0,
                 onlyFees: false,
                 autoCompound: true,
-                maxRewardX64: 0
+                maxRewardX64: 0,
+                autoCompoundMin0: 0,
+                autoCompoundMin1: 0,
+                autoCompoundRewardMin: 0
             })
         );
         vm.stopPrank();

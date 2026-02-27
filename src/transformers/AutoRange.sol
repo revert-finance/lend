@@ -25,7 +25,10 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         uint64 token1SlippageX64,
         bool onlyFees,
         bool autoCompound,
-        uint64 maxRewardX64
+        uint64 maxRewardX64,
+        uint128 autoCompoundMin0,
+        uint128 autoCompoundMin1,
+        uint128 autoCompoundRewardMin
     );
     event AutoCompounded(
         uint256 indexed tokenId,
@@ -67,6 +70,9 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         bool onlyFees; // if only fees maybe used for protocol reward
         bool autoCompound; // if this position can be autocompounded
         uint64 maxRewardX64; // max allowed reward percentage of fees or full position
+        uint128 autoCompoundMin0; // min amount0 to add in autoCompound increaseLiquidity
+        uint128 autoCompoundMin1; // min amount1 to add in autoCompound increaseLiquidity
+        uint128 autoCompoundRewardMin; // min claimed AERO when pre-compounding staked rewards
     }
 
     // configured tokens
@@ -317,12 +323,15 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 config.token1SlippageX64,
                 config.onlyFees,
                 config.autoCompound,
-                config.maxRewardX64
+                config.maxRewardX64,
+                config.autoCompoundMin0,
+                config.autoCompoundMin1,
+                config.autoCompoundRewardMin
             );
 
             // delete config for old position
             delete positionConfigs[params.tokenId];
-            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0);
+            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0);
 
             emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
@@ -390,9 +399,12 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
+        PositionConfig memory config = positionConfigs[params.tokenId];
+        IVault.RewardCompoundParams memory adjustedRewardParams = rewardParams;
+        adjustedRewardParams.minAeroReward = config.autoCompoundRewardMin;
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)), rewardParams
+                params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)), adjustedRewardParams
             );
     }
 
@@ -423,6 +435,11 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 params.tokenId, address(this), type(uint128).max, type(uint128).max
             )
         );
+
+        // Minimum fee thresholds gate autocompound execution.
+        if (state.amount0 < config.autoCompoundMin0 || state.amount1 < config.autoCompoundMin1) {
+            revert NotEnoughReward();
+        }
 
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
@@ -542,7 +559,10 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
             config.token1SlippageX64,
             config.onlyFees,
             config.autoCompound,
-            config.maxRewardX64
+            config.maxRewardX64,
+            config.autoCompoundMin0,
+            config.autoCompoundMin1,
+            config.autoCompoundRewardMin
         );
     }
 

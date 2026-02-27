@@ -278,6 +278,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             new bytes(0), // swapData1 missing
             0, // minAmount0
             0, // minAmount1
+            0, // minAeroReward
             10001, // aeroSplitBps > 10000 (invalid)
             block.timestamp + 1000 // deadline
         );
@@ -289,6 +290,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             new bytes(0), // swapData1
             0, // minAmount0
             0, // minAmount1
+            0, // minAeroReward
             5000,
             block.timestamp + 1000 // deadline
         );
@@ -302,6 +304,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             new bytes(0),
             0, // minAmount0
             0, // minAmount1
+            0, // minAeroReward
             5000,
             block.timestamp + 1000 // deadline
         );
