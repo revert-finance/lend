@@ -8,7 +8,7 @@ import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 import "../src/GaugeManager.sol";
 import "../src/transformers/LeverageTransformer.sol";
-import "../src/transformers/AutoRange.sol";
+import "../src/transformers/AutoRangeAndCompound.sol";
 import "../src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -67,7 +67,7 @@ contract DeployAerodromeProtocol is Script {
 
         LeverageTransformer leverageTransformer = new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
-        AutoRange autoRange = new AutoRange(
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(
             npm,
             deployer, // operator
             deployer, // withdrawer

@@ -7,13 +7,13 @@ import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 
-/// @title AutoRange
-/// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
+/// @title AutoRangeAndCompound
+/// @notice Allows operator of AutoRangeAndCompound contract (Revert controlled bot) to change range for configured positions
 /// And optionally to autocompound position (depending on configuration)
 /// Positions need to be approved (setApprovalForAll) for the contract and configured with configToken method
 /// When executed a new position is created and automatically configured the same way as the original position
 /// When position is inside Vault - transform is called
-contract AutoRange is Transformer, Automator, ReentrancyGuard {
+contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
     event PositionConfigured(
         uint256 indexed tokenId,
@@ -133,7 +133,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)));
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)));
     }
 
     /**
@@ -150,7 +150,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         }
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)), rewardParams
+                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)), rewardParams
             );
     }
 
@@ -384,7 +384,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)));
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
     }
 
     /**
@@ -404,7 +404,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         adjustedRewardParams.minAeroReward = config.autoCompoundRewardMin;
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)), adjustedRewardParams
+                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)), adjustedRewardParams
             );
     }
 

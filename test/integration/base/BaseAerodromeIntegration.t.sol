@@ -11,7 +11,7 @@ import "../../../src/GaugeManager.sol";
 import "../../../src/interfaces/IVault.sol";
 import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
-import "../../../src/transformers/AutoRange.sol";
+import "../../../src/transformers/AutoRangeAndCompound.sol";
 import "../../../src/utils/FlashloanLiquidator.sol";
 import "../../../src/utils/Constants.sol";
 
@@ -57,7 +57,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     V3Oracle internal oracle;
     InterestRateModel internal interestRateModel;
     GaugeManager internal gaugeManager;
-    AutoRange internal autoRange;
+    AutoRangeAndCompound internal autoRange;
 
     MockChainlinkFeed internal usdcUsdFeed;
     MockChainlinkFeed internal wethUsdFeed;
@@ -109,7 +109,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         gaugeManager.setGauge(poolAddress, wethUsdcGauge);
         vault.setGaugeManager(address(gaugeManager));
 
-        autoRange = new AutoRange(NPM, OPERATOR, OPERATOR, 60, 200, address(0), address(0));
+        autoRange = new AutoRangeAndCompound(NPM, OPERATOR, OPERATOR, 60, 200, address(0), address(0));
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
 
@@ -252,7 +252,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         autoRange.configToken(
             tokenId,
             address(vault),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: 0,
@@ -271,7 +271,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         vm.prank(OPERATOR);
         autoRange.autoCompoundWithVault(
-            AutoRange.AutoCompoundParams({
+            AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
             }),
             address(vault)
@@ -291,7 +291,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         autoRange.configToken(
             tokenId,
             address(vault),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: 0,
@@ -310,7 +310,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         vm.prank(OPERATOR);
         autoRange.autoCompoundWithVaultAndRewardCompound(
-            AutoRange.AutoCompoundParams({
+            AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
             }),
             address(vault),
@@ -339,7 +339,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         autoRange.configToken(
             tokenId,
             address(vault),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: 0,
@@ -359,7 +359,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         vm.prank(OPERATOR);
         vm.expectRevert(Constants.NotEnoughReward.selector);
         autoRange.autoCompoundWithVaultAndRewardCompound(
-            AutoRange.AutoCompoundParams({
+            AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: false, amountIn: 0, deadline: block.timestamp + 1 hours
             }),
             address(vault),

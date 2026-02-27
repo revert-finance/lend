@@ -2,15 +2,15 @@
 pragma solidity ^0.8.0;
 
 import "./AerodromeTestBase.sol";
-import "../../../src/transformers/AutoRange.sol";
+import "../../../src/transformers/AutoRangeAndCompound.sol";
 
 /**
  * @title GaugeManagerAutoCompoundTest
- * @notice Tests AutoRange auto-compound integration through Vault->GM
+ * @notice Tests AutoRangeAndCompound auto-compound integration through Vault->GM
  * @dev This test validates staked-position auto-compound flow via Vault.transform.
  */
 contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
-    AutoRange public autoRange;
+    AutoRangeAndCompound public autoRange;
 
     // Position info
     uint256 public tokenId;
@@ -19,7 +19,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
     function setUp() public override {
         super.setUp();
 
-        autoRange = new AutoRange(
+        autoRange = new AutoRangeAndCompound(
             INonfungiblePositionManager(address(npm)),
             admin, // operator
             admin, // withdrawer
@@ -29,7 +29,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
             address(0)
         );
 
-        // Configure AutoRange in Vault and as a vault callback target.
+        // Configure AutoRangeAndCompound in Vault and as a vault callback target.
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
@@ -41,7 +41,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
     }
 
     /**
-     * @notice Test that verifies the GaugeManager->AutoRange autocompound transform works correctly
+     * @notice Test that verifies the GaugeManager->AutoRangeAndCompound autocompound transform works correctly
      * @dev This test specifically exercises the code path where GaugeManager re-encodes
      *      the ExecuteGaugeParams struct. The test will FAIL if the encoding is wrong.
      */
@@ -73,7 +73,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         autoRange.configToken(
             tokenId,
             address(vault),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: 0,
@@ -97,14 +97,14 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         usdcDaiGauge.setRewardForUser(alice, 10e18); // 10 AERO earned
         npm.setTokensOwed(tokenId, 0, 0);
 
-        // 3. Prepare AutoRange auto-compound params (no swap, no new liquidity added)
-        AutoRange.AutoCompoundParams memory params = AutoRange.AutoCompoundParams({
+        // 3. Prepare AutoRangeAndCompound auto-compound params (no swap, no new liquidity added)
+        AutoRangeAndCompound.AutoCompoundParams memory params = AutoRangeAndCompound.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
-        // 4. Call through Vault/GM as AutoRange operator
+        // 4. Call through Vault/GM as AutoRangeAndCompound operator
         vm.prank(admin);
-        bytes memory transformData = abi.encodeCall(AutoRange.autoCompound, (params));
+        bytes memory transformData = abi.encodeCall(AutoRangeAndCompound.autoCompound, (params));
 
         // Execute transform - this will FAIL with "Transform failed" if encoding is wrong
         uint256 newTokenId = vault.transform(tokenId, address(autoRange), transformData);

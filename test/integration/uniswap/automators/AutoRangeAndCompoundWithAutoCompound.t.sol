@@ -3,37 +3,37 @@ pragma solidity ^0.8.0;
 
 import "./AutomatorIntegrationTestBase.sol";
 
-import "../../../../src/transformers/AutoRange.sol";
+import "../../../../src/transformers/AutoRangeAndCompound.sol";
 import "../../../../src/utils/Constants.sol";
 
-contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
-    AutoRange autoRange;
+contract AutoRangeAndCompoundWithAutoCompoundTest is AutomatorIntegrationTestBase {
+    AutoRangeAndCompound autoRange;
 
     function setUp() external {
         _setupBase();
-        autoRange = new AutoRange(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        autoRange = new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
     }
 
     function testNoAccess() external {
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
     function testNotConfigured() external {
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(Constants.NotConfigured.selector);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
 
     function testNoApprove() external {
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
     function testCompoundNoSwapAndLeftover() external {
@@ -41,13 +41,13 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoRange), TEST_NFT_2);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
 
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 99102324844935209920);
@@ -61,13 +61,13 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoRange), TEST_NFT_2);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, true, 123456789012345678, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, true, 123456789012345678, block.timestamp));
 
         // more liquidity than without swap
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
@@ -82,13 +82,13 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         NPM.approve(address(autoRange), TEST_NFT_2);
 
         vm.prank(TEST_NFT_2_ACCOUNT);
-        autoRange.configToken(TEST_NFT_2, address(0), AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, 0, 0));
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
         assertEq(liquidity, 80059851033970806503);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 1234567890123456, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 1234567890123456, block.timestamp));
 
         // less liquidity than without swap
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
@@ -106,12 +106,12 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         autoRange.configToken(
             TEST_NFT_2,
             address(0),
-            AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, type(uint128).max, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, type(uint128).max, 0, 0)
         );
 
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(Constants.NotEnoughReward.selector);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 
     function testCompoundRevertsWhenBelowAutoCompoundMin1() external {
@@ -122,11 +122,11 @@ contract AutoRangeWithAutoCompoundTest is AutomatorIntegrationTestBase {
         autoRange.configToken(
             TEST_NFT_2,
             address(0),
-            AutoRange.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, type(uint128).max, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, true, 0, 0, type(uint128).max, 0)
         );
 
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert(Constants.NotEnoughReward.selector);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
     }
 }

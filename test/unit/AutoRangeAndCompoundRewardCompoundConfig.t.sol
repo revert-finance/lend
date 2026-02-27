@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 
-import "../../src/transformers/AutoRange.sol";
+import "../../src/transformers/AutoRangeAndCompound.sol";
 import "../../src/interfaces/IVault.sol";
 
 contract MockPositionManagerOwnerOnly {
@@ -63,7 +63,7 @@ contract MockVaultRewardCapture {
     }
 }
 
-contract AutoRangeRewardCompoundConfigTest is Test {
+contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
     uint256 internal constant TOKEN_ID = 123;
     address internal constant OPERATOR = address(0xAA11);
     address internal constant WITHDRAWER = address(0xBB22);
@@ -71,13 +71,13 @@ contract AutoRangeRewardCompoundConfigTest is Test {
 
     MockPositionManagerOwnerOnly internal mockNpm;
     MockVaultRewardCapture internal mockVault;
-    AutoRange internal autoRange;
+    AutoRangeAndCompound internal autoRange;
 
     function setUp() external {
         mockNpm = new MockPositionManagerOwnerOnly(address(0x1111), address(0x2222));
         mockVault = new MockVaultRewardCapture();
 
-        autoRange = new AutoRange(
+        autoRange = new AutoRangeAndCompound(
             INonfungiblePositionManager(address(mockNpm)),
             OPERATOR,
             WITHDRAWER,
@@ -96,7 +96,7 @@ contract AutoRangeRewardCompoundConfigTest is Test {
         autoRange.configToken(
             TOKEN_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: 0,
@@ -124,7 +124,7 @@ contract AutoRangeRewardCompoundConfigTest is Test {
 
         vm.prank(OPERATOR);
         autoRange.autoCompoundWithVaultAndRewardCompound(
-            AutoRange.AutoCompoundParams({
+            AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: TOKEN_ID,
                 swap0To1: false,
                 amountIn: 0,
@@ -149,7 +149,7 @@ contract AutoRangeRewardCompoundConfigTest is Test {
         autoRange.configToken(
             TOKEN_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: 0,
@@ -177,7 +177,7 @@ contract AutoRangeRewardCompoundConfigTest is Test {
 
         vm.prank(OPERATOR);
         autoRange.autoCompoundWithVaultAndRewardCompound(
-            AutoRange.AutoCompoundParams({
+            AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: TOKEN_ID,
                 swap0To1: false,
                 amountIn: 0,

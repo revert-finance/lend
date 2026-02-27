@@ -3,11 +3,11 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 
-import "../../../../src/transformers/AutoRange.sol";
+import "../../../../src/transformers/AutoRangeAndCompound.sol";
 import "../../../../src/utils/Constants.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-contract AutoRangeAerodromeTest is Test, Constants {
+contract AutoRangeAndCompoundAerodromeTest is Test, Constants {
     INonfungiblePositionManager internal constant NPM =
         INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
     address internal constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
@@ -17,7 +17,7 @@ contract AutoRangeAerodromeTest is Test, Constants {
     address internal constant POSITION_OWNER = address(0x3333);
     uint256 internal constant MOCK_TOKEN_ID = 123_456;
 
-    AutoRange internal autoRange;
+    AutoRangeAndCompound internal autoRange;
     uint256 internal baseFork;
 
     function setUp() external {
@@ -30,7 +30,7 @@ contract AutoRangeAerodromeTest is Test, Constants {
         baseFork = vm.createFork(baseRpc);
         vm.selectFork(baseFork);
 
-        autoRange = new AutoRange(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
+        autoRange = new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
     }
 
     function testSetTWAPSeconds() external {
@@ -61,7 +61,7 @@ contract AutoRangeAerodromeTest is Test, Constants {
     function testUnauthorizedSetConfig() external {
         _mockNpmOwner(MOCK_TOKEN_ID, POSITION_OWNER);
 
-        AutoRange.PositionConfig memory config = _defaultConfig();
+        AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(OPERATOR_ACCOUNT);
         autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
@@ -70,14 +70,14 @@ contract AutoRangeAerodromeTest is Test, Constants {
     function testResetConfig() external {
         _mockNpmOwner(MOCK_TOKEN_ID, POSITION_OWNER);
 
-        AutoRange.PositionConfig memory config = _defaultConfig();
+        AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.prank(POSITION_OWNER);
         autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
 
         (int32 lowerTickLimit,,,,,,,,,,,) = autoRange.positionConfigs(MOCK_TOKEN_ID);
         assertEq(lowerTickLimit, config.lowerTickLimit);
 
-        AutoRange.PositionConfig memory cleared;
+        AutoRangeAndCompound.PositionConfig memory cleared;
         vm.prank(POSITION_OWNER);
         autoRange.configToken(MOCK_TOKEN_ID, address(0), cleared);
 
@@ -116,8 +116,8 @@ contract AutoRangeAerodromeTest is Test, Constants {
         assertEq(autoRange.withdrawer(), WITHDRAWER_ACCOUNT);
     }
 
-    function _defaultConfig() internal pure returns (AutoRange.PositionConfig memory config) {
-        config = AutoRange.PositionConfig({
+    function _defaultConfig() internal pure returns (AutoRangeAndCompound.PositionConfig memory config) {
+        config = AutoRangeAndCompound.PositionConfig({
             lowerTickLimit: -2000,
             upperTickLimit: 2000,
             lowerTickDelta: -120,

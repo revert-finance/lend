@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "../../../../src/transformers/AutoRange.sol";
+import "../../../../src/transformers/AutoRangeAndCompound.sol";
 import "../../../../src/transformers/V3Utils.sol";
 import "../../../../src/utils/Constants.sol";
 import "../../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -12,7 +12,7 @@ import "../../../../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
+contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
     uint64 constant MAX_REWARD = uint64(Q64 / 400); //0.25%
     uint64 constant MAX_FEE_REWARD = uint64(Q64 / 20); //5%
     
@@ -33,7 +33,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
     address constant OPERATOR_ACCOUNT = address(0x1111);
     address constant WITHDRAWER_ACCOUNT = address(0x2222);
     
-    AutoRange autoRange;
+    AutoRangeAndCompound autoRange;
     V3Utils v3utils;
     uint256 constant BASE_FORK_BLOCK = 17500000;
     uint256 baseFork;
@@ -66,7 +66,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         
         // Deploy contracts
         v3utils = new V3Utils(NPM, address(0), UNIVERSAL_ROUTER);
-        autoRange = new AutoRange(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, address(0), UNIVERSAL_ROUTER);
+        autoRange = new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, address(0), UNIVERSAL_ROUTER);
         
         // Get real position details
         _loadPositionDetails();
@@ -115,7 +115,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
 
                 isInRange = currentTick >= tickLower && currentTick <= tickUpper;
                 console.log("Is in range:", isInRange);
-                console.log("Position is out of range - perfect for testing AutoRange!");
+                console.log("Position is out of range - perfect for testing AutoRangeAndCompound!");
             }
         } catch {
             hasRealPosition = false;
@@ -141,7 +141,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         }
         // Test confirms position is out of range as expected
         assertFalse(isInRange, "Position should be out of range for testing");
-        console.log("Position confirmed out of range - perfect for AutoRange testing");
+        console.log("Position confirmed out of range - perfect for AutoRangeAndCompound testing");
     }
     
     function testConfigurePosition() external {
@@ -155,7 +155,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         autoRange.configToken(
             REAL_POSITION_ID,
             address(0), // No referrer
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0, // No limit
                 upperTickLimit: 0, // No limit
                 lowerTickDelta: -600, // 600 ticks below current
@@ -210,7 +210,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         autoRange.configToken(
             REAL_POSITION_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: -600,
@@ -244,7 +244,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         console.logInt(newTickUpper);
         
         // Prepare adjustment parameters
-        AutoRange.ExecuteParams memory params = AutoRange.ExecuteParams({
+        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
             tokenId: REAL_POSITION_ID,
             swap0To1: false,
             amountIn: 0, // No swap initially
@@ -307,7 +307,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         autoRange.configToken(
             REAL_POSITION_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: -600,
@@ -327,7 +327,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         address unauthorizedUser = address(0x9999);
         vm.startPrank(unauthorizedUser);
         
-        AutoRange.ExecuteParams memory params = AutoRange.ExecuteParams({
+        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
             tokenId: REAL_POSITION_ID,
             swap0To1: false,
             amountIn: 0,
@@ -353,7 +353,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         // Try to adjust a position that hasn't been configured
         vm.startPrank(OPERATOR_ACCOUNT);
         
-        AutoRange.ExecuteParams memory params = AutoRange.ExecuteParams({
+        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
             tokenId: REAL_POSITION_ID,
             swap0To1: false,
             amountIn: 0,
@@ -383,7 +383,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         autoRange.configToken(
             REAL_POSITION_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: -600,
@@ -403,7 +403,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         autoRange.configToken(
             REAL_POSITION_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: -300, // Tighter range
@@ -458,7 +458,7 @@ contract AutoRangeAerodromeComprehensiveTest is Test, Constants {
         autoRange.configToken(
             REAL_POSITION_ID,
             address(0),
-            AutoRange.PositionConfig({
+            AutoRangeAndCompound.PositionConfig({
                 lowerTickLimit: 0,
                 upperTickLimit: 0,
                 lowerTickDelta: -600,

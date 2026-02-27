@@ -8,7 +8,7 @@ import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 
 import "../src/transformers/V3Utils.sol";
-import "../src/transformers/AutoRange.sol";
+import "../src/transformers/AutoRangeAndCompound.sol";
 import "../src/transformers/LeverageTransformer.sol";
 
 import "../src/automators/AutoExit.sol";
@@ -148,7 +148,7 @@ contract DeployArbitrum is Script {
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
 
-        AutoRange autoRange = AutoRange(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
+        AutoRangeAndCompound autoRange = AutoRangeAndCompound(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
 
