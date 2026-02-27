@@ -80,6 +80,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     }
 
     function setWithdrawer(address _withdrawer) external override onlyOwner {
+        if (_withdrawer == address(0)) {
+            revert InvalidConfig();
+        }
         withdrawer = _withdrawer;
         emit WithdrawerChanged(_withdrawer);
     }

@@ -108,6 +108,11 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         assertEq(autoExit.operators(TEST_NFT_ACCOUNT), true);
     }
 
+    function testSetWithdrawerRejectsZeroAddress() external {
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        autoExit.setWithdrawer(address(0));
+    }
+
     function testUnauthorizedSetConfig() external {
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
@@ -180,8 +185,6 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
         autoExit.execute(AutoExit.ExecuteParams(TEST_NFT_2_A, "", 0, 0, block.timestamp, MAX_REWARD));
     }
 
-  
-
     // tests LimitOrder without adding to module
     function testLimitOrder(bool onlyFees) external {
         // using out of range position TEST_NFT_2
@@ -230,9 +233,7 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
 
         vm.prank(OPERATOR_ACCOUNT);
         autoExit.execute(
-            AutoExit.ExecuteParams(
-                TEST_NFT_2, "", 0, 0, block.timestamp, onlyFees ? MAX_FEE_REWARD : MAX_REWARD
-            )
+            AutoExit.ExecuteParams(TEST_NFT_2, "", 0, 0, block.timestamp, onlyFees ? MAX_FEE_REWARD : MAX_REWARD)
         ); // max fee with 1% is 7124618988448545
 
         (,,,,,,, liquidity,,,,) = NPM.positions(TEST_NFT_2);
@@ -261,5 +262,4 @@ contract AutoExitTest is AutomatorIntegrationTestBase {
             TEST_NFT_2_ACCOUNT.balance - ownerWETHBalanceBefore, onlyFees ? 501954614707533274 : 505635802905220511
         ); // all available
     }
-
 }

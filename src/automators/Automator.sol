@@ -17,7 +17,6 @@ import "../utils/Swapper.sol";
 import "../interfaces/IVault.sol";
 
 abstract contract Automator is Ownable2Step, Swapper {
-
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
 
@@ -54,6 +53,9 @@ abstract contract Automator is Ownable2Step, Swapper {
      * @param _withdrawer withdrawer
      */
     function setWithdrawer(address _withdrawer) public onlyOwner {
+        if (_withdrawer == address(0)) {
+            revert InvalidConfig();
+        }
         emit WithdrawerChanged(_withdrawer);
         withdrawer = _withdrawer;
     }

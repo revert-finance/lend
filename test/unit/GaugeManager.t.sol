@@ -610,6 +610,11 @@ contract GaugeManagerUnitTest is Test {
         assertEq(gaugeManager.totalRewardX64(), currentRewardX64 / 2);
     }
 
+    function testSetWithdrawerRevertsForZeroAddress() external {
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        gaugeManager.setWithdrawer(address(0));
+    }
+
     function testWithdrawBalancesOnlyAllowedForWithdrawer() external {
         token0.mint(address(gaugeManager), 7 ether);
         token1.mint(address(gaugeManager), 11 ether);
