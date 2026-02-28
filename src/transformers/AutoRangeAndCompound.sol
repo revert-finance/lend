@@ -278,7 +278,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             );
 
             // mint is done to address(this) first - its not a safemint
-            (state.newTokenId,, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.mint(mintParams);
+            (state.newTokenId,, state.amountAdded0, state.amountAdded1) = _mintPosition(mintParams);
 
             // remove remaining approval
             SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);

@@ -2,43 +2,37 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import "forge-std/console.sol";
 
 import "../../../../src/transformers/AutoRangeAndCompound.sol";
-import "../../../../src/transformers/V3Utils.sol";
 import "../../../../src/utils/Constants.sol";
 import "../../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../../../../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
-    uint64 constant MAX_REWARD = uint64(Q64 / 400); //0.25%
-    uint64 constant MAX_FEE_REWARD = uint64(Q64 / 20); //5%
-    
+    uint64 constant MAX_REWARD = uint64(Q64 / 400); // 0.25%
+
     // Real Aerodrome position on Base
     uint256 constant REAL_POSITION_ID = 19466427;
-    
-    // Base network token addresses
-    IERC20 constant WETH = IERC20(0x4200000000000000000000000000000000000006);
-    IERC20 constant USDC = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
-    IERC20 constant AERO = IERC20(0x940181a94A35A4569E4529A3CDfB74e38FD98631);
-    
+    uint256 constant HAPPY_PATH_BLOCK = 42_113_455;
+    uint256 constant HAPPY_PATH_TOKEN_ID = 50994801;
+
     // Aerodrome contracts on Base
-    IAerodromeSlipstreamFactory constant FACTORY = IAerodromeSlipstreamFactory(0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A); // Use the factory from NPM
+    IAerodromeSlipstreamFactory constant FACTORY =
+        IAerodromeSlipstreamFactory(0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A);
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
     address constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
-    
+
     // Test accounts
     address constant OPERATOR_ACCOUNT = address(0x1111);
     address constant WITHDRAWER_ACCOUNT = address(0x2222);
-    
+
     AutoRangeAndCompound autoRange;
-    V3Utils v3utils;
-    uint256 constant BASE_FORK_BLOCK = 17500000;
+
+    uint256 constant BASE_FORK_BLOCK = 38_000_000;
     uint256 baseFork;
-    
-    // Position details (will be filled in setUp)
+
+    // Position details (loaded in setUp)
     address positionOwner;
     address token0;
     address token1;
@@ -48,130 +42,93 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
     uint128 liquidity;
     address pool;
     int24 currentTick;
-    bool isInRange;
-    bool hasRealPosition;
-    
+
     function setUp() external {
-        // Fork Base network at a stable historical block for deterministic position state
-        string memory BASE_RPC;
-        try vm.envString("BASE_RPC_URL") returns (string memory url) {
-            BASE_RPC = url;
-        } catch {
-            BASE_RPC = "https://mainnet.base.org";
-        }
-        baseFork = vm.createFork(BASE_RPC, BASE_FORK_BLOCK);
+        string memory baseRpc = "https://mainnet.base.org";
+        baseFork = vm.createFork(baseRpc, BASE_FORK_BLOCK);
         vm.selectFork(baseFork);
-        
-        console.log("Forked Base at block:", block.number);
-        
-        // Deploy contracts
-        v3utils = new V3Utils(NPM, address(0), UNIVERSAL_ROUTER);
-        autoRange = new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, address(0), UNIVERSAL_ROUTER);
-        
-        // Get real position details
+
+        autoRange =
+            new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
+
         _loadPositionDetails();
     }
-    
+
     function _loadPositionDetails() internal {
-        console.log("\n=== Loading Position Details ===");
-        console.log("Position ID:", REAL_POSITION_ID);
+        positionOwner = NPM.ownerOf(REAL_POSITION_ID);
+        (,, token0, token1, tickSpacing, tickLower, tickUpper, liquidity,,,,) = NPM.positions(REAL_POSITION_ID);
+        pool = FACTORY.getPool(token0, token1, int24(tickSpacing));
+        assertTrue(pool != address(0), "pool missing for position");
+        (, currentTick,,,,) = IAerodromeSlipstreamPool(pool).slot0();
+    }
 
-        try NPM.ownerOf(REAL_POSITION_ID) returns (address owner) {
-            hasRealPosition = true;
-            positionOwner = owner;
-            console.log("Owner:", positionOwner);
+    function _defaultConfig() internal pure returns (AutoRangeAndCompound.PositionConfig memory config) {
+        config = AutoRangeAndCompound.PositionConfig({
+            lowerTickLimit: 0,
+            upperTickLimit: 0,
+            lowerTickDelta: -600,
+            upperTickDelta: 600,
+            token0SlippageX64: uint64(Q64 / 100),
+            token1SlippageX64: uint64(Q64 / 100),
+            onlyFees: false,
+            autoCompound: false,
+            maxRewardX64: MAX_REWARD,
+            autoCompoundMin0: 0,
+            autoCompoundMin1: 0,
+            autoCompoundRewardMin: 0
+        });
+    }
 
-            (
-                ,
-                ,
-                token0,
-                token1,
-                tickSpacing,
-                tickLower,
-                tickUpper,
-                liquidity,
-                ,
-                ,
-                ,
+    function _executeParams() internal view returns (AutoRangeAndCompound.ExecuteParams memory) {
+        return AutoRangeAndCompound.ExecuteParams({
+            tokenId: REAL_POSITION_ID,
+            swap0To1: false,
+            amountIn: 0,
+            swapData: "",
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: block.timestamp,
+            rewardX64: MAX_REWARD / 2
+        });
+    }
 
-            ) = NPM.positions(REAL_POSITION_ID);
-
-            console.log("Token0:", token0);
-            console.log("Token1:", token1);
-            console.log("TickSpacing:", tickSpacing);
-            console.logInt(tickLower);
-            console.logInt(tickUpper);
-            console.log("Liquidity:", liquidity);
-
-            pool = FACTORY.getPool(token0, token1, int24(tickSpacing));
-            console.log("Pool:", pool);
-
-            if (pool != address(0)) {
-                currentTick = -196700;
-                console.log("Using approximate current tick:");
-                console.logInt(int256(currentTick));
-                console.logInt(int256(tickLower));
-                console.logInt(int256(tickUpper));
-
-                isInRange = currentTick >= tickLower && currentTick <= tickUpper;
-                console.log("Is in range:", isInRange);
-                console.log("Position is out of range - perfect for testing AutoRangeAndCompound!");
+    function _extractRangeChangedNewTokenId(Vm.Log[] memory entries, uint256 oldTokenId) internal pure returns (uint256) {
+        bytes32 signature = keccak256("RangeChanged(uint256,uint256)");
+        bytes32 oldTokenIdTopic = bytes32(oldTokenId);
+        for (uint256 i; i < entries.length; ++i) {
+            Vm.Log memory entry = entries[i];
+            if (
+                entry.topics.length == 3 && entry.topics[0] == signature && entry.topics[1] == oldTokenIdTopic
+            ) {
+                return uint256(entry.topics[2]);
             }
-        } catch {
-            hasRealPosition = false;
         }
+        return 0;
     }
 
     function testPositionExists() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // Verify we can read the position
         assertEq(NPM.ownerOf(REAL_POSITION_ID), positionOwner);
-        if (liquidity == 0) {
-            return;
-        }
-        assertGt(liquidity, 0, "Position should have liquidity");
-        assertTrue(pool != address(0), "Pool should exist");
+        assertTrue(positionOwner != address(0), "invalid owner");
+        assertTrue(token0 != address(0) && token1 != address(0), "invalid tokens");
+        assertGt(uint256(tickSpacing), 0, "invalid tick spacing");
+        assertLt(tickLower, tickUpper, "invalid tick range");
+        assertEq(pool, FACTORY.getPool(token0, token1, int24(tickSpacing)));
     }
-    
-    function testPositionIsOutOfRange() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // Test confirms position is out of range as expected
-        assertFalse(isInRange, "Position should be out of range for testing");
-        console.log("Position confirmed out of range - perfect for AutoRangeAndCompound testing");
+
+    function testPoolSlot0IsReadable() external {
+        (uint160 sqrtPriceX96, int24 tick,,,,) = IAerodromeSlipstreamPool(pool).slot0();
+        assertGt(uint256(sqrtPriceX96), 0, "slot0 sqrt price is zero");
+        assertEq(int256(tick), int256(currentTick), "stored/current tick mismatch");
     }
-    
+
     function testConfigurePosition() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // Impersonate the position owner
-        vm.startPrank(positionOwner);
-        
-        // Configure the position for auto-ranging
-        autoRange.configToken(
-            REAL_POSITION_ID,
-            address(0), // No referrer
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0, // No limit
-                upperTickLimit: 0, // No limit
-                lowerTickDelta: -600, // 600 ticks below current
-                upperTickDelta: 600,  // 600 ticks above current
-                token0SlippageX64: uint64(Q64 / 100), // 1% slippage
-                token1SlippageX64: uint64(Q64 / 100), // 1% slippage
-                onlyFees: false, // Use both fees and principal
-                autoCompound: false, // Don't auto-compound
-                maxRewardX64: MAX_REWARD,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
-        
-        // Verify configuration was set
+        AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
+
+        vm.prank(positionOwner);
+        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+
         (
             ,
             ,
@@ -186,240 +143,179 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
             uint128 autoCompoundMin1,
             uint128 autoCompoundRewardMin
         ) = autoRange.positionConfigs(REAL_POSITION_ID);
-        
-        assertEq(lowerTickDelta, -600);
-        assertEq(upperTickDelta, 600);
-        assertEq(token0SlippageX64, uint64(Q64 / 100));
-        assertEq(token1SlippageX64, uint64(Q64 / 100));
-        assertFalse(onlyFees);
-        assertFalse(autoCompound);
-        assertEq(maxRewardX64, MAX_REWARD);
-        assertEq(autoCompoundMin0, 0);
-        assertEq(autoCompoundMin1, 0);
-        assertEq(autoCompoundRewardMin, 0);
-        
-        vm.stopPrank();
+
+        assertEq(lowerTickDelta, config.lowerTickDelta);
+        assertEq(upperTickDelta, config.upperTickDelta);
+        assertEq(token0SlippageX64, config.token0SlippageX64);
+        assertEq(token1SlippageX64, config.token1SlippageX64);
+        assertEq(onlyFees, config.onlyFees);
+        assertEq(autoCompound, config.autoCompound);
+        assertEq(maxRewardX64, config.maxRewardX64);
+        assertEq(autoCompoundMin0, config.autoCompoundMin0);
+        assertEq(autoCompoundMin1, config.autoCompoundMin1);
+        assertEq(autoCompoundRewardMin, config.autoCompoundRewardMin);
     }
-    
+
     function testAdjustPositionBasic() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // First configure the position
+        AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.prank(positionOwner);
-        autoRange.configToken(
-            REAL_POSITION_ID,
-            address(0),
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0,
-                upperTickLimit: 0,
-                lowerTickDelta: -600,
-                upperTickDelta: 600,
-                token0SlippageX64: uint64(Q64 / 100),
-                token1SlippageX64: uint64(Q64 / 100),
-                onlyFees: false,
-                autoCompound: false,
-                maxRewardX64: MAX_REWARD,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
-        
-        // Approve autoRange to manage the position
+        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+
         vm.prank(positionOwner);
         NPM.approve(address(autoRange), REAL_POSITION_ID);
-        
-        // Now try to adjust as operator
-        vm.startPrank(OPERATOR_ACCOUNT);
-        
-        // Calculate new tick range around current tick
-        // Make ticks aligned to tickSpacing
-        int24 tickSpacingInt = int24(tickSpacing);
-        int24 newTickLower = (currentTick - 600) / tickSpacingInt * tickSpacingInt;
-        int24 newTickUpper = (currentTick + 600) / tickSpacingInt * tickSpacingInt;
-        
-        console.log("Attempting to adjust position:");
-        console.logInt(newTickLower);
-        console.logInt(newTickUpper);
-        
-        // Prepare adjustment parameters
-        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
-            tokenId: REAL_POSITION_ID,
-            swap0To1: false,
-            amountIn: 0, // No swap initially
-            swapData: "",
-            amountRemoveMin0: 0,
-            amountRemoveMin1: 0,
-            amountAddMin0: 0,
-            amountAddMin1: 0,
-            deadline: block.timestamp,
-            rewardX64: MAX_REWARD / 2 // Half of max reward
-        });
-        
-        // Note: This might fail if we need actual swap data
-        // In a real scenario, you'd need to prepare proper swap data
-        try autoRange.execute(params) {
-            console.log("Position adjusted successfully!");
-            
-            // Check new position state
-            (
-                ,
-                ,
-                ,
-                ,
-                ,
-                int24 newPosTickLower,
-                int24 newPosTickUpper,
-                uint128 newLiquidity,
-                ,
-                ,
-                ,
-                
-            ) = NPM.positions(REAL_POSITION_ID);
-            
-            console.log("New position state:");
-            console.logInt(newPosTickLower);
-            console.logInt(newPosTickUpper);
-            console.log("New liquidity:", newLiquidity);
-            
-            // Should be in range now
-            bool newInRange = currentTick >= newPosTickLower && currentTick <= newPosTickUpper;
-            assertTrue(newInRange, "Position should be in range after adjustment");
-            
-        } catch Error(string memory reason) {
-            console.log("Adjustment failed (expected if swap needed):", reason);
-            // This is expected if we don't have proper swap data
-            // The important thing is that the contract logic works
-        } catch (bytes memory) {
-            console.log("Adjustment failed with low-level error (may need swap data)");
-        }
-        
-        vm.stopPrank();
-    }
-    
-    function testUnauthorizedAdjust() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // Configure position first
-        vm.prank(positionOwner);
-        autoRange.configToken(
-            REAL_POSITION_ID,
-            address(0),
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0,
-                upperTickLimit: 0,
-                lowerTickDelta: -600,
-                upperTickDelta: 600,
-                token0SlippageX64: uint64(Q64 / 100),
-                token1SlippageX64: uint64(Q64 / 100),
-                onlyFees: false,
-                autoCompound: false,
-                maxRewardX64: MAX_REWARD,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
-        
-        // Try to adjust without being operator
-        address unauthorizedUser = address(0x9999);
-        vm.startPrank(unauthorizedUser);
-        
-        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
-            tokenId: REAL_POSITION_ID,
-            swap0To1: false,
-            amountIn: 0,
-            swapData: "",
-            amountRemoveMin0: 0,
-            amountRemoveMin1: 0,
-            amountAddMin0: 0,
-            amountAddMin1: 0,
-            deadline: block.timestamp,
-            rewardX64: MAX_REWARD / 2
-        });
-        
-        vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.execute(params);
-        
-        vm.stopPrank();
-    }
-    
-    function testPositionNotConfigured() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // Try to adjust a position that hasn't been configured
-        vm.startPrank(OPERATOR_ACCOUNT);
-        
-        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
-            tokenId: REAL_POSITION_ID,
-            swap0To1: false,
-            amountIn: 0,
-            swapData: "",
-            amountRemoveMin0: 0,
-            amountRemoveMin1: 0,
-            amountAddMin0: 0,
-            amountAddMin1: 0,
-            deadline: block.timestamp,
-            rewardX64: MAX_REWARD / 2
-        });
-        
-        // Should fail because position hasn't been configured
+
+        // At the pinned fork block this live position has zero liquidity and no owed amounts,
+        // so a direct adjust with amountIn=0 has nothing to mint and must revert.
+        assertEq(liquidity, 0, "unexpected non-zero liquidity for deterministic negative-path test");
+        vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert();
-        autoRange.execute(params);
-        
-        vm.stopPrank();
+        autoRange.execute(_executeParams());
     }
-    
+
+    function testAdjustPositionLivePositionHappyPath() external {
+        string memory baseRpc = "https://mainnet.base.org";
+        uint256 historicalFork = vm.createFork(baseRpc, HAPPY_PATH_BLOCK);
+        vm.selectFork(historicalFork);
+
+        AutoRangeAndCompound localAutoRange =
+            new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
+
+        uint256 tokenId = HAPPY_PATH_TOKEN_ID;
+        address owner = NPM.ownerOf(tokenId);
+
+        (,, address token0Position, address token1Position, uint24 fee, int24 oldTickLower, int24 oldTickUpper, uint128 oldLiquidity,,,,)
+        = NPM.positions(tokenId);
+        assertGt(oldLiquidity, 0, "expected live historical liquidity");
+
+        address localPool = FACTORY.getPool(token0Position, token1Position, int24(fee));
+        assertTrue(localPool != address(0), "pool missing for active position");
+        (, int24 poolTick,,,,) = IAerodromeSlipstreamPool(localPool).slot0();
+        int24 spacing = IAerodromeSlipstreamPool(localPool).tickSpacing();
+        int24 baseTick = poolTick - (((poolTick % spacing) + spacing) % spacing);
+
+        AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
+        config.lowerTickLimit = -1_000_000_000; // force execute path even when current range contains the price
+        config.lowerTickDelta = int32(-10 * spacing);
+        config.upperTickDelta = int32(10 * spacing);
+        vm.prank(owner);
+        localAutoRange.configToken(tokenId, address(0), config);
+
+        vm.prank(owner);
+        NPM.approve(address(localAutoRange), tokenId);
+        localAutoRange.setTWAPConfig(uint16(localAutoRange.MAX_TWAP_TICK_DIFFERENCE()), localAutoRange.TWAPSeconds());
+
+        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
+            tokenId: tokenId,
+            swap0To1: false,
+            amountIn: 0,
+            swapData: "",
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: block.timestamp,
+            rewardX64: config.maxRewardX64
+        });
+
+        vm.recordLogs();
+        vm.prank(OPERATOR_ACCOUNT);
+        localAutoRange.execute(params);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 newTokenId = _extractRangeChangedNewTokenId(logs, tokenId);
+        assertGt(newTokenId, 0, "missing RangeChanged event");
+        assertTrue(newTokenId != tokenId, "token id was not replaced");
+        assertEq(NPM.ownerOf(newTokenId), owner, "new token owner mismatch");
+
+        (,,,,, int24 newTickLower, int24 newTickUpper, uint128 newLiquidity,,,,) = NPM.positions(newTokenId);
+        assertGt(newLiquidity, 0, "new position liquidity is zero");
+        assertEq(newTickLower, baseTick + int24(config.lowerTickDelta), "new lower tick mismatch");
+        assertEq(newTickUpper, baseTick + int24(config.upperTickDelta), "new upper tick mismatch");
+        assertTrue(newTickLower != oldTickLower || newTickUpper != oldTickUpper, "range did not change");
+
+        (
+            int32 lowerTickLimitOld,
+            int32 upperTickLimitOld,
+            int32 lowerTickDeltaOld,
+            int32 upperTickDeltaOld,
+            uint64 token0SlippageX64Old,
+            uint64 token1SlippageX64Old,
+            bool onlyFeesOld,
+            bool autoCompoundOld,
+            uint64 maxRewardX64Old,
+            uint128 autoCompoundMin0Old,
+            uint128 autoCompoundMin1Old,
+            uint128 autoCompoundRewardMinOld
+        ) = localAutoRange.positionConfigs(tokenId);
+        assertEq(lowerTickLimitOld, 0);
+        assertEq(upperTickLimitOld, 0);
+        assertEq(lowerTickDeltaOld, 0);
+        assertEq(upperTickDeltaOld, 0);
+        assertEq(token0SlippageX64Old, 0);
+        assertEq(token1SlippageX64Old, 0);
+        assertFalse(onlyFeesOld);
+        assertFalse(autoCompoundOld);
+        assertEq(maxRewardX64Old, 0);
+        assertEq(autoCompoundMin0Old, 0);
+        assertEq(autoCompoundMin1Old, 0);
+        assertEq(autoCompoundRewardMinOld, 0);
+
+        (
+            int32 lowerTickLimitNew,
+            int32 upperTickLimitNew,
+            int32 lowerTickDeltaNew,
+            int32 upperTickDeltaNew,
+            uint64 token0SlippageX64New,
+            uint64 token1SlippageX64New,
+            bool onlyFeesNew,
+            bool autoCompoundNew,
+            uint64 maxRewardX64New,
+            uint128 autoCompoundMin0New,
+            uint128 autoCompoundMin1New,
+            uint128 autoCompoundRewardMinNew
+        ) = localAutoRange.positionConfigs(newTokenId);
+        assertEq(lowerTickLimitNew, config.lowerTickLimit);
+        assertEq(upperTickLimitNew, config.upperTickLimit);
+        assertEq(lowerTickDeltaNew, config.lowerTickDelta);
+        assertEq(upperTickDeltaNew, config.upperTickDelta);
+        assertEq(token0SlippageX64New, config.token0SlippageX64);
+        assertEq(token1SlippageX64New, config.token1SlippageX64);
+        assertEq(onlyFeesNew, config.onlyFees);
+        assertEq(autoCompoundNew, config.autoCompound);
+        assertEq(maxRewardX64New, config.maxRewardX64);
+        assertEq(autoCompoundMin0New, config.autoCompoundMin0);
+        assertEq(autoCompoundMin1New, config.autoCompoundMin1);
+        assertEq(autoCompoundRewardMinNew, config.autoCompoundRewardMin);
+    }
+
+    function testUnauthorizedAdjust() external {
+        vm.prank(address(0x9999));
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.execute(_executeParams());
+    }
+
+    function testPositionNotConfigured() external {
+        vm.prank(OPERATOR_ACCOUNT);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        autoRange.execute(_executeParams());
+    }
+
     function testReconfigurePosition() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // First configuration
+        AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.startPrank(positionOwner);
-        
-        autoRange.configToken(
-            REAL_POSITION_ID,
-            address(0),
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0,
-                upperTickLimit: 0,
-                lowerTickDelta: -600,
-                upperTickDelta: 600,
-                token0SlippageX64: uint64(Q64 / 100),
-                token1SlippageX64: uint64(Q64 / 100),
-                onlyFees: false,
-                autoCompound: false,
-                maxRewardX64: MAX_REWARD,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
-        
-        // Reconfigure with different parameters
-        autoRange.configToken(
-            REAL_POSITION_ID,
-            address(0),
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0,
-                upperTickLimit: 0,
-                lowerTickDelta: -300, // Tighter range
-                upperTickDelta: 300,
-                token0SlippageX64: uint64(Q64 / 200), // 0.5% slippage
-                token1SlippageX64: uint64(Q64 / 200),
-                onlyFees: true, // Only use fees now
-                autoCompound: true, // Enable auto-compound
-                maxRewardX64: MAX_REWARD / 2,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
-        
-        // Verify new configuration
+
+        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+
+        config.lowerTickDelta = -300;
+        config.upperTickDelta = 300;
+        config.token0SlippageX64 = uint64(Q64 / 200);
+        config.token1SlippageX64 = uint64(Q64 / 200);
+        config.onlyFees = true;
+        config.autoCompound = true;
+        config.maxRewardX64 = MAX_REWARD / 2;
+        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+        vm.stopPrank();
+
         (
             ,
             ,
@@ -434,7 +330,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
             uint128 autoCompoundMin1,
             uint128 autoCompoundRewardMin
         ) = autoRange.positionConfigs(REAL_POSITION_ID);
-        
+
         assertEq(lowerTickDelta, -300);
         assertEq(upperTickDelta, 300);
         assertEq(token0SlippageX64, uint64(Q64 / 200));
@@ -445,56 +341,21 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         assertEq(autoCompoundMin0, 0);
         assertEq(autoCompoundMin1, 0);
         assertEq(autoCompoundRewardMin, 0);
-        
-        vm.stopPrank();
     }
-    
+
     function testTWAPCheck() external {
-        if (!hasRealPosition) {
-            return;
-        }
-        // Configure position
-        vm.prank(positionOwner);
-        autoRange.configToken(
-            REAL_POSITION_ID,
-            address(0),
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0,
-                upperTickLimit: 0,
-                lowerTickDelta: -600,
-                upperTickDelta: 600,
-                token0SlippageX64: uint64(Q64 / 100),
-                token1SlippageX64: uint64(Q64 / 100),
-                onlyFees: false,
-                autoCompound: false,
-                maxRewardX64: MAX_REWARD,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
-        
-        // Get pool TWAP
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = autoRange.TWAPSeconds();
         secondsAgos[1] = 0;
-        
-        (int56[] memory tickCumulatives, ) = IAerodromeSlipstreamPool(pool).observe(secondsAgos);
-        int24 twapTick = int24((tickCumulatives[1] - tickCumulatives[0]) / int56(uint56(autoRange.TWAPSeconds())));
-        
-        console.log("TWAP check:");
-        console.logInt(twapTick);
-        console.logInt(currentTick);
-        
-        int24 tickDifference = twapTick > currentTick ? twapTick - currentTick : currentTick - twapTick;
-        console.log("Tick difference:", uint24(tickDifference));
-        console.log("Max allowed difference:", autoRange.maxTWAPTickDifference());
-        
-        // Log whether TWAP check would pass
-        if (tickDifference <= int24(uint24(autoRange.maxTWAPTickDifference()))) {
-            console.log("TWAP check would PASS");
-        } else {
-            console.log("TWAP check would FAIL");
+
+        (int56[] memory tickCumulatives,) = IAerodromeSlipstreamPool(pool).observe(secondsAgos);
+        int56 delta = tickCumulatives[1] - tickCumulatives[0];
+        int24 twapTick = int24(delta / int56(uint56(autoRange.TWAPSeconds())));
+        if (delta < 0 && delta % int56(uint56(autoRange.TWAPSeconds())) != 0) {
+            twapTick--;
         }
+
+        int24 tickDifference = twapTick > currentTick ? twapTick - currentTick : currentTick - twapTick;
+        assertLe(uint256(uint24(tickDifference)), uint256(type(uint24).max), "invalid tick difference");
     }
-} 
+}

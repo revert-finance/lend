@@ -21,6 +21,10 @@ import "../utils/Constants.sol";
 abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
+    // Aerodrome Slipstream NPM mint selector:
+    // mint((address,address,int24,int24,int24,uint256,uint256,uint256,uint256,address,uint256,uint160))
+    bytes4 private constant AERODROME_MINT_SELECTOR = 0xb5007d1f;
+
     /// @notice Wrapped native token address
     IWETH9 public immutable weth;
 
@@ -128,6 +132,21 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         uint256 amountOutMin;
     }
 
+    struct AerodromeMintParams {
+        address token0;
+        address token1;
+        int24 tickSpacing;
+        int24 tickLower;
+        int24 tickUpper;
+        uint256 amount0Desired;
+        uint256 amount1Desired;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        address recipient;
+        uint256 deadline;
+        uint160 sqrtPriceX96;
+    }
+
     // execute swap directly on specified pool
     // amounts must be available on the contract for both tokens
     function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
@@ -156,6 +175,56 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             if (amountOutDelta < params.amountOutMin) {
                 revert SlippageError();
             }
+        }
+    }
+
+    function _mintPosition(INonfungiblePositionManager.MintParams memory params)
+        internal
+        returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
+    {
+        AerodromeMintParams memory aerodromeParams = AerodromeMintParams({
+            token0: params.token0,
+            token1: params.token1,
+            tickSpacing: _toTickSpacing(params.fee),
+            tickLower: params.tickLower,
+            tickUpper: params.tickUpper,
+            amount0Desired: params.amount0Desired,
+            amount1Desired: params.amount1Desired,
+            amount0Min: params.amount0Min,
+            amount1Min: params.amount1Min,
+            recipient: params.recipient,
+            deadline: params.deadline,
+            sqrtPriceX96: 0
+        });
+
+        // Try Aerodrome mint first. On Uniswap this selector is missing and call reverts.
+        (bool aerodromeSuccess, bytes memory aerodromeData) = address(nonfungiblePositionManager).call(
+            abi.encodeWithSelector(AERODROME_MINT_SELECTOR, aerodromeParams)
+        );
+        if (aerodromeSuccess) {
+            return abi.decode(aerodromeData, (uint256, uint128, uint256, uint256));
+        }
+
+        // Fallback to canonical Uniswap V3 mint.
+        (bool uniswapSuccess, bytes memory uniswapData) =
+            address(nonfungiblePositionManager).call(abi.encodeWithSelector(INonfungiblePositionManager.mint.selector, params));
+        if (uniswapSuccess) {
+            return abi.decode(uniswapData, (uint256, uint128, uint256, uint256));
+        }
+
+        // Bubble the most informative revert data.
+        if (uniswapData.length > 0) {
+            _revertWithData(uniswapData);
+        }
+        _revertWithData(aerodromeData);
+    }
+
+    function _revertWithData(bytes memory revertData) private pure {
+        if (revertData.length == 0) {
+            revert SwapFailed();
+        }
+        assembly ("memory-safe") {
+            revert(add(revertData, 32), mload(revertData))
         }
     }
 
