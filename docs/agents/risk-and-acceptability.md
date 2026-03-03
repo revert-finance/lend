@@ -151,7 +151,6 @@ Reviewer guidance:
 ## 9) Swap Infrastructure Trust Model (Accepted Deployment Trust)
 
 The `Swapper` contract relies on deployment-configured trusted addresses for swap execution:
-- `zeroxRouter` — the 0x exchange proxy address
 - `zeroxAllowanceHolder` — the 0x AllowanceHolder contract
 - `universalRouter` — the Uniswap Universal Router
 
@@ -170,13 +169,13 @@ The following are explicitly out of scope for this audit:
 
 The transformer set is closed and fully audited:
 
-- Only the contracts in `src/transformers/` (V3Utils, AutoRange, AutoCompound, LeverageTransformer) will ever be whitelisted.
+- Only the contracts in `src/transformers/` (V3Utils, AutoRangeAndCompound, LeverageTransformer) will ever be whitelisted.
 - Each transformer is included in the audit scope and individually reviewed as part of this codebase.
 - No third-party or future transformers will be added without a dedicated audit.
 - Transformers have high trust during transform mode: they can call `borrow()` on the vault for the currently transformed token, and health checks are deferred until the transform completes atomically.
 - This is by design. Findings premised on "an attacker whitelists a malicious transformer" are out of scope.
   Findings about bugs, unexpected interactions, or design flaws WITHIN the audited
-  transformers (V3Utils, AutoRange, AutoCompound, LeverageTransformer) remain fully in scope.
+  transformers (V3Utils, AutoRangeAndCompound, LeverageTransformer) remain fully in scope.
 
 Recommended high-signal test files:
 

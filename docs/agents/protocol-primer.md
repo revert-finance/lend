@@ -36,7 +36,7 @@ Implementation notes:
 
 Borrow flow is NFT-backed:
 
-1. Deposit NFT collateral (`create`, `createWithPermit`).
+1. Deposit NFT collateral (`create`).
 2. Borrow lending asset (`borrow`).
 3. Repay by assets or shares (`repay`).
 4. Withdraw collateral only when debt is zero (`remove`).
@@ -60,9 +60,9 @@ Transformers are protocol-allowlisted contracts that can mutate positions while 
 
 - Owner and approved delegates can trigger transforms (`approveTransform`, `transform`).
 - `transform()` handles both staked and unstaked positions: it auto-unstakes before the transform and restakes afterward if the position was originally staked.
-- Some transformers (e.g., AutoRange) replace the position NFT — the old token is burned and a new token ID is minted. When this happens through `V3Vault.transform()`, the vault updates its loan and ownership mappings to the new token ID. Any path that replaces a token without going through the vault (e.g., calling `GaugeManager.transform` directly) must either update vault state or be blocked, otherwise the vault's loan tracks a dead token.
+- Some transformers (e.g., `AutoRangeAndCompound`) replace the position NFT — the old token is burned and a new token ID is minted. When this happens through `V3Vault.transform()`, the vault updates its loan and ownership mappings to the new token ID. Any path that replaces a token without going through vault transform entrypoints (`transform` / `transformWithRewardCompound`) must either update vault state or be blocked, otherwise the vault's loan tracks a dead token.
 
-The transformer set is closed: only the contracts in `src/transformers/` (V3Utils, AutoRange, AutoCompound, LeverageTransformer) will ever be whitelisted. Each is included in audit scope and individually reviewed. No third-party or future transformers will be added without a dedicated audit.
+The transformer set is closed: only the contracts in `src/transformers/` (V3Utils, AutoRangeAndCompound, LeverageTransformer) will ever be whitelisted. Each is included in audit scope and individually reviewed. No third-party or future transformers will be added without a dedicated audit.
 
 See `docs/agents/aerodrome-staking-and-gauge-manager.md` for custody paths and state synchronization invariants.
 

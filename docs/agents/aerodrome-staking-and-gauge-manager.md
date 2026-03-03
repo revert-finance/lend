@@ -12,7 +12,7 @@ Aerodrome LP positions can be staked in gauges to earn AERO while still being ma
 
 Allowed custody paths:
 
-1. Wallet -> Vault (`create`, `createWithPermit`)
+1. Wallet -> Vault (`create`)
 2. Vault -> GaugeManager -> Gauge (`stakePosition`)
 3. Gauge -> GaugeManager -> Vault (`unstakePosition`)
 4. Vault -> Transformer -> Vault (`transform` — auto-unstakes and restakes if position was staked)
@@ -26,23 +26,23 @@ Important guardrails:
 
 Vault:
 
-- User-facing entrypoint for stake/unstake/compound.
+- User-facing entrypoint for stake/unstake and vault-managed transforms.
 - Owner/auth checks for token operations.
 - Auto-unstakes on critical paths that require vault custody (`remove`, `liquidate`, `transform`).
 
 GaugeManager:
 
-- `onlyVault` on NFT-touching functions (`stakePosition`, `unstakePosition`, `claimRewards`, `compoundRewards`).
-- `transform` is callable by position owner OR vault — it is NOT `onlyVault`.
+- `onlyVault` on NFT custody functions (`stakePosition`, `unstakePosition`, `unstakeIfStaked`).
+- Reward functions (`claimRewards`, `compoundRewards`) are callable by vault or position owner.
 - Maps pool -> gauge and tokenId -> active gauge.
 - Performs gauge deposit/withdraw/reward collection.
 - Compounds AERO back into position liquidity via swaps.
 
 State synchronization invariants:
 
-- **Loan-token binding:** For every active loan, `V3Vault.loans[tokenId]` must reference a token whose collateral value the vault can access for liquidation. Any operation that replaces a token ID (e.g., token-replacing transforms like AutoRange) must update the vault's loan mapping, or the operation must be blocked for vault positions.
+- **Loan-token binding:** For every active loan, `V3Vault.loans[tokenId]` must reference a token whose collateral value the vault can access for liquidation. Any operation that replaces a token ID (e.g., token-replacing transforms like AutoRangeAndCompound) must update the vault's loan mapping, or the operation must be blocked for vault positions.
 - **Ownership consistency:** `V3Vault.tokenOwner[tokenId]` and `V3Vault.ownedTokens` must stay synchronized with the actual NFT backing the loan. If a token ID changes, the vault's ownership records must be updated atomically.
-- **Single source of truth:** The vault is the authoritative record of loan state. Any external path that mutates token identity (GaugeManager.transform called by owner, not vault) without notifying the vault creates desynchronized state — the vault tracks a stale token while the real collateral is unreachable.
+- **Single source of truth:** The vault is the authoritative record of loan state. Any external path that mutates token identity without going through `V3Vault.transform*` creates desynchronized state — the vault tracks a stale token while the real collateral is unreachable.
 
 ## 4) Gauge Configuration Rules
 
@@ -64,7 +64,8 @@ Claim:
 
 Compound:
 
-- Vault position owner calls `vault.compoundRewards(tokenId, swapData0, swapData1, minAmount0, minAmount1, aeroSplitBps, deadline)`.
+- Position owner (or vault internal flow) calls `GaugeManager.compoundRewards(...)`.
+- Vault-managed transforms can pre-compound staked rewards through `V3Vault.transformWithRewardCompound(...)`, which calls `GaugeManager.compoundRewards(...)` before transform execution.
 - GaugeManager:
   1. claims AERO
   2. withdraws staked NFT temporarily
