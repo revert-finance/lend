@@ -5,7 +5,7 @@ interface IV3Oracle {
     // gets value and prices for a given v3 nft denominated in token
     // reverts if any involved token is not configured
     // reverts if prices are not valid given oracle configuration
-    function getValue(uint256 tokenId, address token)
+    function getValue(uint256 tokenId, address token, bool ignoreFees)
         external
         view
         returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96);

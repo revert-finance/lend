@@ -154,7 +154,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         vm.stopPrank();
     }
 
-    function testStakingDoesntAffectBorrowingPower() public {
+    function testStakingExcludesFeeComponentFromBorrowingPower() public {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
 
         vm.startPrank(alice);
@@ -167,10 +167,10 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         // Stake position
         vault.stakePosition(tokenId);
 
-        // Check borrowing power after staking (should be same)
+        // Borrowing power while staked excludes fee component valuation.
         (, uint256 borrowingPowerAfter,,,) = vault.loanInfo(tokenId);
 
-        assertEq(borrowingPowerBefore, borrowingPowerAfter);
+        assertLt(borrowingPowerAfter, borrowingPowerBefore);
         vm.stopPrank();
     }
 

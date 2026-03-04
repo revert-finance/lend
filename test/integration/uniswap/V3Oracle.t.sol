@@ -109,14 +109,29 @@ contract V3OracleIntegrationTest is Test {
     }
 
     function testConversionChainlink() external {
-        (uint256 valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC));
+        (uint256 valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC), false);
         assertEq(valueUSDC, 9829088);
 
-        (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
+        (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI), false);
         assertEq(valueDAI, 9830164473705245040);
 
-        (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
+        (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH), false);
         assertEq(valueWETH, 5264700508440484);
+    }
+
+    function testGetValueIgnoreFeesSkipsFeeValue() external {
+        (uint256 valueWithFees, uint256 feeValueWithFees, uint256 price0WithFees, uint256 price1WithFees) =
+            oracle.getValue(TEST_NFT, address(USDC), false);
+        (uint256 valueIgnoreFees, uint256 feeValueIgnoreFees, uint256 price0IgnoreFees, uint256 price1IgnoreFees) =
+            oracle.getValue(TEST_NFT, address(USDC), true);
+
+        assertEq(feeValueIgnoreFees, 0);
+        assertEq(price0IgnoreFees, price0WithFees);
+        assertEq(price1IgnoreFees, price1WithFees);
+        assertLe(valueIgnoreFees, valueWithFees);
+        if (feeValueWithFees != 0) {
+            assertLt(valueIgnoreFees, valueWithFees);
+        }
     }
 
     function testConversionTWAP() external {
@@ -124,16 +139,16 @@ contract V3OracleIntegrationTest is Test {
         oracle.setOracleMode(address(DAI), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
         oracle.setOracleMode(address(WETH), V3Oracle.Mode.TWAP_CHAINLINK_VERIFY);
 
-        (uint256 valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC));
+        (uint256 valueUSDC,,,) = oracle.getValue(TEST_NFT, address(USDC), false);
         assertEq(valueUSDC, 9829593);
 
-        (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI));
+        (uint256 valueDAI,,,) = oracle.getValue(TEST_NFT, address(DAI), false);
         assertEq(valueDAI, 9829567935538784710);
 
-        (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
+        (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH), false);
         assertEq(valueWETH, 5253670438160606);
 
-        (uint256 valueUSDC2,, uint256 price0, uint256 price1) = oracle.getValue(TEST_NFT_DAI_WETH, address(USDC));
+        (uint256 valueUSDC2,, uint256 price0, uint256 price1) = oracle.getValue(TEST_NFT_DAI_WETH, address(USDC), false);
         assertEq(valueUSDC2, 57217647627);
 
         assertEq(price0, 79228371980132557);
@@ -146,10 +161,10 @@ contract V3OracleIntegrationTest is Test {
 
     function testNonExistingToken() external {
         vm.expectRevert(Constants.NotConfigured.selector);
-        oracle.getValue(TEST_NFT, address(WBTC));
+        oracle.getValue(TEST_NFT, address(WBTC), false);
 
         vm.expectRevert(Constants.NotConfigured.selector);
-        oracle.getValue(TEST_NFT_UNI, address(WETH));
+        oracle.getValue(TEST_NFT_UNI, address(WETH), false);
     }
 
     function testInvalidPoolConfig() external {
@@ -182,7 +197,7 @@ contract V3OracleIntegrationTest is Test {
             abi.encode(uint80(0), int256(0), block.timestamp, block.timestamp, uint80(0))
         );
         vm.expectRevert(Constants.ChainlinkPriceError.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
 
         vm.mockCall(
             CHAINLINK_DAI_USD,
@@ -190,7 +205,7 @@ contract V3OracleIntegrationTest is Test {
             abi.encode(uint80(0), int256(1), uint256(0), uint256(0), uint80(0))
         );
         vm.expectRevert(Constants.ChainlinkPriceError.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
     }
 
     function testPriceDivergence() external {
@@ -202,11 +217,11 @@ contract V3OracleIntegrationTest is Test {
         );
 
         vm.expectRevert(Constants.PriceDifferenceExceeded.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
 
         // works with normal prices
         vm.clearMockedCalls();
-        (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH));
+        (uint256 valueWETH,,,) = oracle.getValue(TEST_NFT, address(WETH), false);
         assertEq(valueWETH, 5264700508440484);
 
         // change call to simulate oracle difference in univ3 twap
@@ -218,7 +233,7 @@ contract V3OracleIntegrationTest is Test {
             abi.encode(tickCumulatives, secondsPerLiquidityCumulativeX128s)
         );
         vm.expectRevert(Constants.PriceDifferenceExceeded.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
     }
 
     function testSequencerUptimeFeedChecks() external {
@@ -233,18 +248,18 @@ contract V3OracleIntegrationTest is Test {
 
         sequencerFeed.setStatus(1, block.timestamp - 1000);
         vm.expectRevert(Constants.SequencerDown.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
 
         sequencerFeed.setStatus(0, 0);
         vm.expectRevert(Constants.SequencerUptimeFeedInvalid.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
 
         sequencerFeed.setStatus(0, block.timestamp - 100);
         vm.expectRevert(Constants.SequencerGracePeriodNotOver.selector);
-        oracle.getValue(TEST_NFT, address(WETH));
+        oracle.getValue(TEST_NFT, address(WETH), false);
 
         sequencerFeed.setStatus(0, block.timestamp - 1000);
-        (uint256 value,,,) = oracle.getValue(TEST_NFT, address(WETH));
+        (uint256 value,,,) = oracle.getValue(TEST_NFT, address(WETH), false);
         assertGt(value, 0);
     }
 }

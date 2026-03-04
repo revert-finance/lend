@@ -108,10 +108,11 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         // Claim through gauge manager
         vm.prank(alice);
-        gaugeManager.claimRewards(tokenId, alice);
+        uint256 claimed = gaugeManager.claimRewards(tokenId, alice);
 
         uint256 balanceAfter = aero.balanceOf(alice);
-        assertGt(balanceAfter, balanceBefore);
+        assertGe(claimed, 100e18);
+        assertEq(balanceAfter - balanceBefore, claimed);
     }
 
     function testRemoveWithStakedPosition() public {
@@ -155,8 +156,18 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
 
-        // Should be able to borrow against staked position
-        vault.borrow(tokenId, 1e6); // Borrow only 1 USDC (reduced from 10 USDC)
+        (, uint256 fullValueAfterStake, uint256 collateralValueAfterStake,,) = vault.loanInfo(tokenId);
+        assertGt(fullValueAfterStake, 0, "staked full value should be non-zero");
+        assertGt(collateralValueAfterStake, 0, "staked collateral should be non-zero");
+
+        uint256 borrowAmount = collateralValueAfterStake * vault.BORROW_SAFETY_BUFFER_X32() / Q32 / 2;
+        if (borrowAmount > 1e6) {
+            borrowAmount = 1e6;
+        }
+        assertGt(borrowAmount, 0, "borrow amount should be non-zero");
+
+        // Should still be able to borrow against staked position, but using staked-aware valuation.
+        vault.borrow(tokenId, borrowAmount);
         vm.stopPrank();
 
         // Check loan exists

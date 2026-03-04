@@ -807,11 +807,22 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
 
+        // Freeze daily limit baseline for this timestamp so liquidation assertion is not affected by day-rollover reset.
+        vault.setLimits(
+            vault.minLoanSize(),
+            vault.globalLendLimit(),
+            vault.globalDebtLimit(),
+            vault.dailyLendIncreaseLimitMin(),
+            vault.dailyDebtIncreaseLimitMin()
+        );
+
         uint256 daiBalance = DAI.balanceOf(WHALE_ACCOUNT);
         uint256 usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
+        uint256 dailyDebtLimitBeforeLiquidation = vault.dailyDebtIncreaseLimitLeft();
 
         vm.prank(WHALE_ACCOUNT);
         vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, block.timestamp));
+        assertEq(vault.dailyDebtIncreaseLimitLeft(), dailyDebtLimitBeforeLiquidation + liquidationCost);
 
         // DAI and USDC were sent to liquidator
         assertEq(
@@ -903,6 +914,57 @@ contract V3VaultIntegrationTest is Test {
         // all debt is payed
         assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
         assertEq(vault.debtSharesTotal(), 0);
+    }
+
+    function testDailyDebtLimitRescalesAfterHaircut() external {
+        // lend 10 USDC
+        _deposit(10000000, WHALE_ACCOUNT);
+
+        // use a dynamic daily debt cap (10% of lent base) without min floor
+        vault.setLimits(0, 15000000, 15000000, 12000000, 0);
+
+        (, uint256 lentBeforeHaircut,,,,) = vault.vaultInfo();
+        uint256 preHaircutDailyCap = lentBeforeHaircut * vault.MAX_DAILY_DEBT_INCREASE_X32() / Q32;
+        uint256 borrowAmount = vault.dailyDebtIncreaseLimitLeft();
+        assertApproxEqAbs(borrowAmount, preHaircutDailyCap, 1);
+
+        // add collateral
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT_DAI_WETH);
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.create(TEST_NFT_DAI_WETH, TEST_NFT_DAI_WETH_ACCOUNT);
+
+        // consume full daily borrow cap
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.borrow(TEST_NFT_DAI_WETH, borrowAmount);
+        assertEq(vault.dailyDebtIncreaseLimitLeft(), 0);
+
+        // next day: liquidation resets daily cap first, then reserve socialization haircut is applied
+        vm.warp(block.timestamp + 1 days);
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+        vm.mockCall(
+            CHAINLINK_DAI_USD,
+            abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
+            abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
+        );
+        vm.mockCall(
+            CHAINLINK_ETH_USD,
+            abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
+            abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
+        );
+
+        (,,, uint256 liquidationCost,) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        assertEq(liquidationCost, 0);
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, block.timestamp));
+
+        (, uint256 lentAfterHaircut,,,,) = vault.vaultInfo();
+        uint256 postHaircutDailyCap = lentAfterHaircut * vault.MAX_DAILY_DEBT_INCREASE_X32() / Q32;
+        uint256 limitLeftAfterHaircut = vault.dailyDebtIncreaseLimitLeft();
+
+        assertLt(postHaircutDailyCap, preHaircutDailyCap);
+        assertApproxEqAbs(limitLeftAfterHaircut, postHaircutDailyCap, 1);
     }
 
     function testLiquidationWithZeroCollateralFactor() external {

@@ -93,11 +93,12 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
     /// @dev all involved tokens must be configured in oracle - otherwise reverts
     /// @param tokenId tokenId of position
     /// @param token address of token in which value and prices should be given
+    /// @param ignoreFees if true, skips fee-growth fee calculation and returns feeValue as 0
     /// @return value value of complete position at current oracle prices
     /// @return feeValue value of positions fees only at current oracle prices
     /// @return price0X96 price of token0
     /// @return price1X96 price of token1
-    function getValue(uint256 tokenId, address token)
+    function getValue(uint256 tokenId, address token, bool ignoreFees)
         external
         view
         override
@@ -106,7 +107,11 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         PositionState memory state = _loadPositionState(tokenId);
         _populatePrices(state);
         (uint256 amount0, uint256 amount1) = _getAmounts(state);
-        (uint128 fees0, uint128 fees1) = _getFees(state);
+        uint128 fees0;
+        uint128 fees1;
+        if (!ignoreFees) {
+            (fees0, fees1) = _getFees(state);
+        }
 
         // get price of quote token
         uint256 priceTokenX96;
@@ -122,7 +127,9 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint256 amount0WithFees = amount0 + fees0;
         uint256 amount1WithFees = amount1 + fees1;
         value = _sumMulDiv(state.price0X96, amount0WithFees, state.price1X96, amount1WithFees, priceTokenX96);
-        feeValue = _sumMulDiv(state.price0X96, fees0, state.price1X96, fees1, priceTokenX96);
+        if (!ignoreFees) {
+            feeValue = _sumMulDiv(state.price0X96, fees0, state.price1X96, fees1, priceTokenX96);
+        }
         price0X96 = FullMath.mulDiv(state.price0X96, Q96, priceTokenX96);
         price1X96 = FullMath.mulDiv(state.price1X96, Q96, priceTokenX96);
     }

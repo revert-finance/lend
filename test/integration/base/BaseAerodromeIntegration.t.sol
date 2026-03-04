@@ -130,7 +130,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     function testOracleGetValueForBasePosition() external {
         uint256 tokenId = TEST_NFT;
 
-        (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96) = oracle.getValue(tokenId, USDC);
+        (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96) = oracle.getValue(tokenId, USDC, false);
         assertGt(value, 0);
         assertGe(value, feeValue);
         assertGt(price0X96, 0);

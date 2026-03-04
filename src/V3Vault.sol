@@ -806,7 +806,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         debtSharesTotal = debtSharesTotal - debtShares;
 
-        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.debt;
+        // Replenish daily borrow headroom only by assets actually paid into the vault.
+        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.liquidatorCost;
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) = _sendPositionValue(
@@ -1225,10 +1226,32 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             missing = reserveCost - reserves;
 
             uint256 totalLent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
+            uint256 preHaircutDailyDebtCap = totalLent * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
+            if (dailyDebtIncreaseLimitMin > preHaircutDailyDebtCap) {
+                preHaircutDailyDebtCap = dailyDebtIncreaseLimitMin;
+            }
 
             // this lines distribute missing amount and remove it from all lent amount proportionally
             newLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
             lastLendExchangeRateX96 = newLendExchangeRateX96;
+
+            // A reserve socialization haircut reduces the lender base mid-day.
+            // Rescale remaining daily debt headroom so it tracks the post-haircut cap while preserving already-used budget.
+            uint256 postHaircutDailyDebtCap =
+                _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * MAX_DAILY_DEBT_INCREASE_X32
+                    / Q32;
+            if (dailyDebtIncreaseLimitMin > postHaircutDailyDebtCap) {
+                postHaircutDailyDebtCap = dailyDebtIncreaseLimitMin;
+            }
+            if (
+                dailyDebtIncreaseLimitLastReset == uint32(block.timestamp / 1 days)
+                    && postHaircutDailyDebtCap < preHaircutDailyDebtCap
+            ) {
+                uint256 capReduction = preHaircutDailyDebtCap - postHaircutDailyDebtCap;
+                dailyDebtIncreaseLimitLeft =
+                    capReduction >= dailyDebtIncreaseLimitLeft ? 0 : dailyDebtIncreaseLimitLeft - capReduction;
+            }
+
             emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
         }
     }
@@ -1414,10 +1437,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         view
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
     {
-        (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
+        // Staked Slipstream positions pass `ignoreFees=true` so oracle skips fee-growth math and excludes fee value.
+        bool ignoreFees = _isStaked(tokenId);
+        (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset), ignoreFees);
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
         isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
+    }
+
+    function _isStaked(uint256 tokenId) internal view returns (bool) {
+        address manager = gaugeManager;
+        return manager != address(0) && IGaugeManager(manager).tokenIdToGauge(tokenId) != address(0);
     }
 
     function _requireGaugeManagerSet() internal view {

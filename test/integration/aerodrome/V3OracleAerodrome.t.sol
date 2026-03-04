@@ -55,7 +55,7 @@ contract V3OracleAerodromeTest is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         
         // Get position value
-        (uint256 value, , uint256 price0X96, uint256 price1X96) = oracle.getValue(tokenId, address(usdc));
+        (uint256 value, , uint256 price0X96, uint256 price1X96) = oracle.getValue(tokenId, address(usdc), false);
         
         // Should have some value from tokensOwed
         assertGt(value, 0);
@@ -74,7 +74,7 @@ contract V3OracleAerodromeTest is AerodromeTestBase {
         // Set a very high maxPoolPriceDifference to bypass the price check
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         
-        (uint256 price, , , ) = oracle.getValue(tokenId, address(usdc));
+        (uint256 price, , , ) = oracle.getValue(tokenId, address(usdc), false);
         
         // Price should be greater than 0
         assertGt(price, 0);
@@ -134,7 +134,7 @@ contract V3OracleAerodromeTest is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         
         // Get value in USDC
-        (uint256 value, , , ) = oracle.getValue(tokenId, address(usdc));
+        (uint256 value, , , ) = oracle.getValue(tokenId, address(usdc), false);
         
         // Expected: 0.05 WETH * $2000 + 100 USDC = $100 + $100 = $200
         uint256 expectedValue = (wethAmount * 2000e6 / 1e18) + usdcAmount;

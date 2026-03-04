@@ -189,6 +189,12 @@ contract MockGauge is IGauge {
     mapping(uint256 => address) public staker;
     mapping(uint256 => uint256) public rewardPerTokenId;
     bool public revertOnGetReward;
+    address public payoutToken0;
+    address public payoutToken1;
+    uint256 public depositPayout0;
+    uint256 public depositPayout1;
+    uint256 public withdrawPayout0;
+    uint256 public withdrawPayout1;
 
     constructor(IERC721 _nft, IERC20 _rewardToken) {
         nft = _nft;
@@ -203,8 +209,32 @@ contract MockGauge is IGauge {
         revertOnGetReward = value;
     }
 
+    function setPayoutConfig(
+        address _payoutToken0,
+        address _payoutToken1,
+        uint256 _depositPayout0,
+        uint256 _depositPayout1,
+        uint256 _withdrawPayout0,
+        uint256 _withdrawPayout1
+    ) external {
+        payoutToken0 = _payoutToken0;
+        payoutToken1 = _payoutToken1;
+        depositPayout0 = _depositPayout0;
+        depositPayout1 = _depositPayout1;
+        withdrawPayout0 = _withdrawPayout0;
+        withdrawPayout1 = _withdrawPayout1;
+    }
+
     function deposit(uint256 tokenId) external override {
         nft.transferFrom(msg.sender, address(this), tokenId);
+
+        if (depositPayout0 != 0) {
+            IERC20(payoutToken0).transfer(msg.sender, depositPayout0);
+        }
+        if (depositPayout1 != 0) {
+            IERC20(payoutToken1).transfer(msg.sender, depositPayout1);
+        }
+
         staker[tokenId] = msg.sender;
     }
 
@@ -212,6 +242,14 @@ contract MockGauge is IGauge {
         if (staker[tokenId] != msg.sender) {
             revert("not staker");
         }
+
+        if (withdrawPayout0 != 0) {
+            IERC20(payoutToken0).transfer(msg.sender, withdrawPayout0);
+        }
+        if (withdrawPayout1 != 0) {
+            IERC20(payoutToken1).transfer(msg.sender, withdrawPayout1);
+        }
+
         delete staker[tokenId];
         nft.transferFrom(address(this), msg.sender, tokenId);
     }
@@ -504,6 +542,105 @@ contract GaugeManagerUnitTest is Test {
 
         assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(0));
         assertEq(npm.ownerOf(TOKEN_ID), address(vault));
+    }
+
+    function testStakeForwardsCollectedPairFeesToOwner() external {
+        uint256 payout0 = 7 ether;
+        uint256 payout1 = 11 ether;
+        gauge.setPayoutConfig(address(token0), address(token1), payout0, payout1, 0, 0);
+        token0.mint(address(gauge), payout0);
+        token1.mint(address(gauge), payout1);
+
+        uint256 owner0Before = token0.balanceOf(ALICE);
+        uint256 owner1Before = token1.balanceOf(ALICE);
+
+        vm.prank(address(vault));
+        gaugeManager.stakePosition(TOKEN_ID);
+
+        assertEq(token0.balanceOf(ALICE) - owner0Before, payout0);
+        assertEq(token1.balanceOf(ALICE) - owner1Before, payout1);
+        assertEq(token0.balanceOf(address(gaugeManager)), 0);
+        assertEq(token1.balanceOf(address(gaugeManager)), 0);
+    }
+
+    function testUnstakeDoesNotForwardCollectedPairFeesToOwner() external {
+        _stake();
+
+        uint256 payout0 = 5 ether;
+        uint256 payout1 = 9 ether;
+        gauge.setPayoutConfig(address(token0), address(token1), 0, 0, payout0, payout1);
+        token0.mint(address(gauge), payout0);
+        token1.mint(address(gauge), payout1);
+
+        uint256 owner0Before = token0.balanceOf(ALICE);
+        uint256 owner1Before = token1.balanceOf(ALICE);
+
+        vm.prank(address(vault));
+        gaugeManager.unstakePosition(TOKEN_ID);
+
+        assertEq(token0.balanceOf(ALICE) - owner0Before, 0);
+        assertEq(token1.balanceOf(ALICE) - owner1Before, 0);
+        assertEq(token0.balanceOf(address(gaugeManager)), payout0);
+        assertEq(token1.balanceOf(address(gaugeManager)), payout1);
+    }
+
+    function testCompoundRewardsDoesNotForwardGaugePairPayouts() external {
+        _stake();
+
+        uint256 claimedAero = 10 ether;
+        aero.mint(address(gauge), claimedAero);
+        gauge.setReward(TOKEN_ID, claimedAero);
+
+        uint256 withdraw0 = 3 ether;
+        uint256 withdraw1 = 4 ether;
+        uint256 deposit0 = 6 ether;
+        uint256 deposit1 = 8 ether;
+        gauge.setPayoutConfig(address(token0), address(token1), deposit0, deposit1, withdraw0, withdraw1);
+        token0.mint(address(gauge), withdraw0 + deposit0);
+        token1.mint(address(gauge), withdraw1 + deposit1);
+
+        uint256 owner0Before = token0.balanceOf(ALICE);
+        uint256 owner1Before = token1.balanceOf(ALICE);
+
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, "", "", 0, 0, 0, 0, block.timestamp + 1);
+
+        assertEq(token0.balanceOf(ALICE) - owner0Before, 0);
+        assertEq(token1.balanceOf(ALICE) - owner1Before, 0);
+        assertEq(token0.balanceOf(address(gaugeManager)), withdraw0 + deposit0);
+        assertEq(token1.balanceOf(address(gaugeManager)), withdraw1 + deposit1);
+    }
+
+    function testCompoundRewardsKeepsExistingProtocolBalances() external {
+        _stake();
+
+        uint256 existing0 = 2 ether;
+        uint256 existing1 = 3 ether;
+        token0.mint(address(gaugeManager), existing0);
+        token1.mint(address(gaugeManager), existing1);
+
+        uint256 claimedAero = 10 ether;
+        aero.mint(address(gauge), claimedAero);
+        gauge.setReward(TOKEN_ID, claimedAero);
+
+        uint256 withdraw0 = 4 ether;
+        uint256 withdraw1 = 6 ether;
+        uint256 deposit0 = 5 ether;
+        uint256 deposit1 = 7 ether;
+        gauge.setPayoutConfig(address(token0), address(token1), deposit0, deposit1, withdraw0, withdraw1);
+        token0.mint(address(gauge), withdraw0 + deposit0);
+        token1.mint(address(gauge), withdraw1 + deposit1);
+
+        uint256 owner0Before = token0.balanceOf(ALICE);
+        uint256 owner1Before = token1.balanceOf(ALICE);
+
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, "", "", 0, 0, 0, 0, block.timestamp + 1);
+
+        assertEq(token0.balanceOf(ALICE) - owner0Before, 0);
+        assertEq(token1.balanceOf(ALICE) - owner1Before, 0);
+        assertEq(token0.balanceOf(address(gaugeManager)), existing0 + withdraw0 + deposit0);
+        assertEq(token1.balanceOf(address(gaugeManager)), existing1 + withdraw1 + deposit1);
     }
 
     function testUnstakeRevertsWhenCallerIsNotVault() external {

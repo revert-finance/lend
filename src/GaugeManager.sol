@@ -143,9 +143,21 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             revert NotConfigured();
         }
 
+        uint256 token0Before = IERC20(token0).balanceOf(address(this));
+        uint256 token1Before = IERC20(token1).balanceOf(address(this));
         nonfungiblePositionManager.safeTransferFrom(address(vault), address(this), tokenId);
         nonfungiblePositionManager.approve(gauge, tokenId);
         IGauge(gauge).deposit(tokenId);
+        // Slipstream CLGauge.deposit triggers NPM.collect to msg.sender, so any pre-stake accrued token0/token1
+        // fees are realized during staking and forwarded here to the position owner.
+        uint256 token0After = IERC20(token0).balanceOf(address(this));
+        uint256 token1After = IERC20(token1).balanceOf(address(this));
+        if (token0After > token0Before) {
+            IERC20(token0).safeTransfer(owner, token0After - token0Before);
+        }
+        if (token1After > token1Before) {
+            IERC20(token1).safeTransfer(owner, token1After - token1Before);
+        }
 
         // NOTE FOR AUDITS:
         // We intentionally do not enforce `ownerOf(tokenId) == gauge` post-deposit here.
@@ -180,6 +192,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         address owner = vault.ownerOf(tokenId);
         _claimAndSendRewardsBestEffort(gauge, tokenId, owner);
         IGauge(gauge).withdraw(tokenId);
+        // Intentionally no token0/token1 forwarding on plain unstake:
+        // while staked in Slipstream gauge, swap fees accrue to gauge-side accounting (not as NFT collectable fees),
+        // and CLGauge.deposit already collects any pre-stake NFT fees when staking.
         nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
         delete tokenIdToGauge[tokenId];
         emit PositionUnstaked(tokenId, owner, gauge);
@@ -219,8 +234,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         CompoundState memory state;
         state.gauge = _requireStakedGauge(tokenId);
-
+        (,, state.token0, state.token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         state.owner = owner;
+
         state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId);
         if (state.aeroAmount < minAeroReward) {
             revert NotEnoughReward();
@@ -230,14 +246,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
 
         IGauge(state.gauge).withdraw(tokenId);
-        (,, state.token0, state.token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         state = _swapAeroForPosition(state, aeroSplitBps, swapData0, swapData1, minAmount0, minAmount1);
         state = _addLiquidity(state, tokenId, deadline);
-        _sendLeftoversAndRewards(state);
-
         nonfungiblePositionManager.approve(state.gauge, tokenId);
         IGauge(state.gauge).deposit(tokenId);
+        _sendLeftoversAndRewards(state);
 
         emit RewardsCompounded(tokenId, state.owner, state.aeroAmount, state.amountAdded0, state.amountAdded1);
         return (state.aeroAmount, state.amountAdded0, state.amountAdded1);
