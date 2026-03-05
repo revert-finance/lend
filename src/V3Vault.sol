@@ -281,7 +281,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC4626
 
     /// @inheritdoc IERC4626
-    function totalAssets() public view override returns (uint256) {
+    function totalAssets() external view override returns (uint256) {
         (uint256 debtExchangeRateX96,) = _calculateGlobalInterest();
         // Round debt up to avoid understating liabilities in share pricing/accounting.
         uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
@@ -303,86 +303,49 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @inheritdoc IERC4626
     function maxDeposit(address) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
-        if (value >= globalLendLimit) {
-            return 0;
-        } else {
-            uint256 maxGlobalDeposit = globalLendLimit - value;
-            if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
-                return dailyLendIncreaseLimitLeft;
-            } else {
-                return maxGlobalDeposit;
-            }
-        }
+        return _maxDepositAssets(lendExchangeRateX96);
     }
 
     /// @inheritdoc IERC4626
     function maxMint(address) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
-        if (value >= globalLendLimit) {
-            return 0;
-        } else {
-            uint256 maxGlobalDeposit = globalLendLimit - value;
-            if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
-                return _convertToShares(dailyLendIncreaseLimitLeft, lendExchangeRateX96, Math.Rounding.Down);
-            } else {
-                return _convertToShares(maxGlobalDeposit, lendExchangeRateX96, Math.Rounding.Down);
-            }
-        }
+        uint256 maxGlobalDeposit = _maxDepositAssets(lendExchangeRateX96);
+        return _convertToShares(maxGlobalDeposit, lendExchangeRateX96, Math.Rounding.Down);
     }
 
     /// @inheritdoc IERC4626
     function maxWithdraw(address owner) external view override returns (uint256) {
         (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-
-        uint256 ownerShareBalance = balanceOf(owner);
-        uint256 ownerAssetBalance = _convertToAssets(ownerShareBalance, lendExchangeRateX96, Math.Rounding.Down);
-
-        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
-        if (balance > ownerAssetBalance) {
-            return ownerAssetBalance;
-        } else {
-            return balance;
-        }
+        return _maxWithdrawAssets(owner, debtExchangeRateX96, lendExchangeRateX96);
     }
 
     /// @inheritdoc IERC4626
     function maxRedeem(address owner) external view override returns (uint256) {
         (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-
-        uint256 ownerShareBalance = balanceOf(owner);
-
-        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
-        uint256 shareBalance = _convertToShares(balance, lendExchangeRateX96, Math.Rounding.Down);
-
-        if (shareBalance > ownerShareBalance) {
-            return ownerShareBalance;
-        } else {
-            return shareBalance;
-        }
+        uint256 assets = _maxWithdrawAssets(owner, debtExchangeRateX96, lendExchangeRateX96);
+        return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
     }
 
     /// @inheritdoc IERC4626
-    function previewDeposit(uint256 assets) public view override returns (uint256) {
+    function previewDeposit(uint256 assets) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
     }
 
     /// @inheritdoc IERC4626
-    function previewMint(uint256 shares) public view override returns (uint256) {
+    function previewMint(uint256 shares) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Up);
     }
 
     /// @inheritdoc IERC4626
-    function previewWithdraw(uint256 assets) public view override returns (uint256) {
+    function previewWithdraw(uint256 assets) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Up);
     }
 
     /// @inheritdoc IERC4626
-    function previewRedeem(uint256 shares) public view override returns (uint256) {
+    function previewRedeem(uint256 shares) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
     }
@@ -505,7 +468,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
         transformApprovals[msg.sender][tokenId][target] = isActive;
-
         emit ApprovedTransform(tokenId, msg.sender, target, isActive);
     }
 
@@ -1101,6 +1063,32 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             return;
         }
         SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+    }
+
+    function _maxDepositAssets(uint256 lendExchangeRateX96) internal view returns (uint256) {
+        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+        if (value >= globalLendLimit) {
+            return 0;
+        }
+        uint256 maxGlobalDeposit = globalLendLimit - value;
+        if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
+            return dailyLendIncreaseLimitLeft;
+        }
+        return maxGlobalDeposit;
+    }
+
+    function _maxWithdrawAssets(address owner, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 ownerShareBalance = balanceOf(owner);
+        uint256 ownerAssetBalance = _convertToAssets(ownerShareBalance, lendExchangeRateX96, Math.Rounding.Down);
+        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+        if (balance > ownerAssetBalance) {
+            return ownerAssetBalance;
+        }
+        return balance;
     }
 
     // checks how much balance is available
