@@ -420,7 +420,7 @@ contract V3VaultIntegrationTest is Test {
         vault.repay(TEST_NFT, amount, isShare);
     }
 
-    function testTransformWithdrawCollect() external {
+    function testTransformWithdrawCollectRequiresBorrowBuffer() external {
         _setupBasicLoan(true);
 
         V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER);
@@ -456,6 +456,7 @@ contract V3VaultIntegrationTest is Test {
             ""
         );
 
+        vm.expectRevert(Constants.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeCall(V3Utils.execute, (TEST_NFT, inst)));
     }
@@ -513,6 +514,8 @@ contract V3VaultIntegrationTest is Test {
             "",
             abi.encode(true)
         );
+
+        _repay(500000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
         (uint256 oldDebt,,,,) = vault.loanInfo(TEST_NFT);
 
@@ -644,6 +647,7 @@ contract V3VaultIntegrationTest is Test {
         autoRange.setVault(address(vault));
 
         _setupBasicLoan(true);
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
 
         AutoRangeAndCompound.ExecuteParams memory params =
             AutoRangeAndCompound.ExecuteParams(TEST_NFT, false, 0, "", 0, 0, 0, 0, block.timestamp, 0);
@@ -663,6 +667,8 @@ contract V3VaultIntegrationTest is Test {
         autoRange.configToken(
             TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
         );
+
+        (uint256 oldDebt,,,,) = vault.loanInfo(TEST_NFT);
 
         uint256 previousDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
 
@@ -704,7 +710,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(newTokenId, 599811);
 
         (debt,,,,) = vault.loanInfo(newTokenId);
-        assertEq(debt, 8403870);
+        assertEq(debt, oldDebt);
         assertEq(NPM.ownerOf(newTokenId), address(vault));
         assertEq(vault.ownerOf(newTokenId), TEST_NFT_ACCOUNT);
     }
