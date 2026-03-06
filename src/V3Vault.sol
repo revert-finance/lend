@@ -229,7 +229,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @return liquidationCost If position is liquidatable - cost to liquidate position - otherwise 0
     /// @return liquidationValue If position is liquidatable - the value of the (partial) position which the liquidator recieves - otherwise 0
     function loanInfo(uint256 tokenId)
-        external
+        public
         view
         override
         returns (
@@ -1214,10 +1214,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             missing = reserveCost - reserves;
 
             uint256 totalLent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
-            uint256 preHaircutDailyDebtCap = totalLent * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
-            if (dailyDebtIncreaseLimitMin > preHaircutDailyDebtCap) {
-                preHaircutDailyDebtCap = dailyDebtIncreaseLimitMin;
-            }
+            uint256 preHaircutDailyDebtCap =
+                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
 
             // this lines distribute missing amount and remove it from all lent amount proportionally
             newLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
@@ -1226,11 +1224,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             // A reserve socialization haircut reduces the lender base mid-day.
             // Rescale remaining daily debt headroom so it tracks the post-haircut cap while preserving already-used budget.
             uint256 postHaircutDailyDebtCap =
-                _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * MAX_DAILY_DEBT_INCREASE_X32
-                    / Q32;
-            if (dailyDebtIncreaseLimitMin > postHaircutDailyDebtCap) {
-                postHaircutDailyDebtCap = dailyDebtIncreaseLimitMin;
-            }
+                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
             if (
                 dailyDebtIncreaseLimitLastReset == uint32(block.timestamp / 1 days)
                     && postHaircutDailyDebtCap < preHaircutDailyDebtCap
@@ -1347,10 +1341,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily lend limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyLendIncreaseLimitLastReset) {
-            uint256 lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-                * MAX_DAILY_LEND_INCREASE_X32 / Q32;
             dailyLendIncreaseLimitLeft =
-                dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
+                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyLendIncreaseLimitMin, MAX_DAILY_LEND_INCREASE_X32);
             dailyLendIncreaseLimitLastReset = time;
         }
     }
@@ -1359,12 +1351,19 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily debt limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyDebtIncreaseLimitLastReset) {
-            uint256 debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-                * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
             dailyDebtIncreaseLimitLeft =
-                dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
+                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
             dailyDebtIncreaseLimitLastReset = time;
         }
+    }
+
+    function _calculateDailyIncreaseLimit(uint256 lendExchangeRateX96, uint256 minLimit, uint256 limitFactorX32)
+        private
+        view
+        returns (uint256)
+    {
+        uint256 limit = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up) * limitFactorX32 / Q32;
+        return minLimit > limit ? minLimit : limit;
     }
 
     /// @notice Sets gauge manager address once (owner only)
@@ -1391,6 +1390,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         _stake(tokenId);
+        // Explicit user-initiated staking can realize pre-stake fees to the borrower, so open loans must remain
+        // healthy under the post-stake valuation model, which excludes fee collateral for staked positions.
+        if (loans[tokenId].debtShares != 0) {
+            (uint256 debt,,,,) = loanInfo(tokenId);
+            _requireLoanIsHealthy(tokenId, debt, true);
+        }
     }
 
     function unstakePosition(uint256 tokenId) external override {
@@ -1402,7 +1407,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
     }
 
-    function _stake(uint256 tokenId) internal {
+    function _stake(uint256 tokenId) private {
         nonfungiblePositionManager.approve(gaugeManager, tokenId);
         IGaugeManager(gaugeManager).stakePosition(tokenId);
         // Safety gate: staking manager must move the NFT out of the vault. Prevents no-op managers from
@@ -1433,12 +1438,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
     }
 
-    function _isStaked(uint256 tokenId) internal view returns (bool) {
+    function _isStaked(uint256 tokenId) private view returns (bool) {
         address manager = gaugeManager;
         return manager != address(0) && IGaugeManager(manager).tokenIdToGauge(tokenId) != address(0);
     }
 
-    function _requireGaugeManagerSet() internal view {
+    function _requireGaugeManagerSet() private view {
         if (gaugeManager == address(0)) {
             revert GaugeManagerNotSet();
         }

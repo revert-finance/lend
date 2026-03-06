@@ -48,14 +48,19 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, bob);
 
-        // 3. Borrow against position
-        uint256 borrowAmount = 10e6; // Borrow 10 USDC
-        vault.borrow(tokenId, borrowAmount);
-        assertEq(usdc.balanceOf(bob), 100000e6 + borrowAmount);
-
-        // 4. Stake position in gauge
+        // 3. Stake position in gauge before borrowing so the loan uses staked valuation.
         vault.stakePosition(tokenId);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+
+        (, uint256 fullValueAfterStake, uint256 collateralValueAfterStake,,) = vault.loanInfo(tokenId);
+        assertGt(fullValueAfterStake, 0, "staked full value should be non-zero");
+        assertGt(collateralValueAfterStake, 0, "staked collateral should be non-zero");
+
+        // 4. Borrow against the staked position
+        uint256 borrowAmount = collateralValueAfterStake * vault.BORROW_SAFETY_BUFFER_X32() / Q32 / 4;
+        assertGt(borrowAmount, 0, "borrow amount should be non-zero");
+        vault.borrow(tokenId, borrowAmount);
+        assertEq(usdc.balanceOf(bob), 100000e6 + borrowAmount);
 
         // 5. Accumulate some rewards
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 100e18);
@@ -131,14 +136,20 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, bob);
 
-        // Borrow some USDC
-        vault.borrow(tokenId, 5000e6); // Borrow 5k USDC
+        // Stake first so borrowing uses the staked-collateral valuation model.
+        vault.stakePosition(tokenId);
+
+        (, uint256 fullValueAfterStake, uint256 collateralValueAfterStake,,) = vault.loanInfo(tokenId);
+        assertGt(fullValueAfterStake, 0, "staked full value should be non-zero");
+        assertGt(collateralValueAfterStake, 0, "staked collateral should be non-zero");
+
+        // Borrow some USDC against the staked position.
+        uint256 borrowAmount = collateralValueAfterStake * vault.BORROW_SAFETY_BUFFER_X32() / Q32 / 4;
+        assertGt(borrowAmount, 0, "borrow amount should be non-zero");
+        vault.borrow(tokenId, borrowAmount);
 
         // Verify borrow succeeded
-        assertEq(usdc.balanceOf(bob), 100000e6 + 5000e6, "Should have received borrowed USDC");
-
-        // Stake the position
-        vault.stakePosition(tokenId);
+        assertEq(usdc.balanceOf(bob), 100000e6 + borrowAmount, "Should have received borrowed USDC");
 
         // Verify position is staked in correct gauge
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(wethUsdcGauge));

@@ -74,6 +74,40 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
     }
 
+    function testStakeRevertsWhenFeesAreRequiredForSolvency() public {
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            0,
+            100e6,
+            100e18
+        );
+
+        (uint256 fullValueWithFees, uint256 feeValue,,) = oracle.getValue(tokenId, address(usdc), false);
+        (uint256 fullValueIgnoringFees,,,) = oracle.getValue(tokenId, address(usdc), true);
+        assertEq(fullValueIgnoringFees, 0, "position should only be worth uncollected fees");
+        assertEq(fullValueWithFees, feeValue, "full value should come entirely from fees");
+        assertGt(feeValue, 0, "fee value should be non-zero");
+
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+        vault.borrow(tokenId, 1e6);
+
+        vm.expectRevert(CollateralFail.selector);
+        vault.stakePosition(tokenId);
+        vm.stopPrank();
+
+        assertEq(npm.ownerOf(tokenId), address(vault), "NFT should remain in vault after reverted stake");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0), "reverted stake must not mark token as staked");
+    }
+
     function testUnstakePosition() public {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000000);
 
@@ -213,7 +247,6 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
     }
 
     function testUnstakeOfStakedPositionWithDebt() public {
-        // Create position with smaller collateral to fit within limits
         uint256 tokenId = createPositionProper(
             alice,
             address(usdc),
@@ -235,15 +268,21 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
 
-        // Borrow against position (small amount to ensure it's safe initially)
-        vault.borrow(tokenId, 10e6); // Borrow 10 USDC
+        // Stake first so borrowing uses the staked-collateral valuation model.
+        vault.stakePosition(tokenId);
+
+        (, uint256 fullValueAfterStake, uint256 collateralValueAfterStake,,) = vault.loanInfo(tokenId);
+        assertGt(fullValueAfterStake, 0, "staked full value should be non-zero");
+        assertGt(collateralValueAfterStake, 0, "staked collateral should be non-zero");
+
+        // Borrow against the already-staked position.
+        uint256 borrowAmount = collateralValueAfterStake * vault.BORROW_SAFETY_BUFFER_X32() / Q32 / 4;
+        assertGt(borrowAmount, 0, "borrow amount should be non-zero");
+        vault.borrow(tokenId, borrowAmount);
 
         // Verify debt exists
         (uint256 debtBefore,,,,) = vault.loanInfo(tokenId);
         assertGt(debtBefore, 0, "Should have debt before staking");
-
-        // Stake the position
-        vault.stakePosition(tokenId);
 
         // Now unstake to trigger the bug
         vault.unstakePosition(tokenId);
@@ -324,13 +363,10 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
     }
 
     function testLiquidateStakedPosition() public {
-        // Set proper collateral factors using X32 scaling
-        // 80% CF = 0.80 * Q32 = 0.80 * 2^32 = 3,435,973,836
         uint32 cf80Percent = uint32(Q32 * 80 / 100);
-        vault.setTokenConfig(address(usdc), cf80Percent, type(uint32).max); // 80% CF, max limit
-        vault.setTokenConfig(address(dai), cf80Percent, type(uint32).max); // 80% CF, max limit
+        vault.setTokenConfig(address(usdc), cf80Percent, type(uint32).max);
+        vault.setTokenConfig(address(dai), cf80Percent, type(uint32).max);
 
-        // Create position with larger amounts to allow meaningful borrowing
         uint256 tokenId = createPositionProper(
             alice,
             address(usdc),
@@ -338,40 +374,33 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             1,
             -100,
             100,
-            0, // No liquidity - value comes only from tokensOwed
-            100e6, // 100 USDC
-            100e18 // 100 DAI
+            1e18,
+            100e6,
+            100e18
         );
 
-        // Set a very high maxPoolPriceDifference to bypass the price check
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         vm.startPrank(alice);
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
+        vault.stakePosition(tokenId);
 
-        // Borrow against the position
-        // 100 USDC + 100 DAI = ~$200 total value
-        // With 80% CF = $160 borrowing power, but vault may have additional safety buffer
-        // Borrow 140 USDC
-        vault.borrow(tokenId, 140e6);
+        (, uint256 fullValueAfterStake, uint256 collateralValueAfterStake,,) = vault.loanInfo(tokenId);
+        assertGt(fullValueAfterStake, 0, "staked full value should be non-zero");
+        assertGt(collateralValueAfterStake, 0, "staked collateral should be non-zero");
+
+        uint256 borrowAmount = collateralValueAfterStake * vault.BORROW_SAFETY_BUFFER_X32() / Q32 * 9 / 10;
+        vault.borrow(tokenId, borrowAmount);
+        vm.stopPrank();
+
         usdcDaiGauge.setRewardRate(0);
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 1e18);
-
-        // Stake the position
-        vault.stakePosition(tokenId);
-        vm.stopPrank();
 
         // Verify position is staked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
 
-        // Make position underwater by dropping collateral value
-        // Set USDC collateral value to lower (note: this affects collateral, not debt value)
-        // Since the oracle values positions in the base asset (USDC), we need to
-        // effectively reduce the total position value in USDC terms
-
-        // Drop DAI price to almost zero to reduce total collateral value
         daiFeed = new MockChainlinkAggregator(1, 8); // $0.00000001 with 8 decimals
         oracle.setTokenConfig(
             address(dai),
@@ -383,11 +412,8 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             type(uint16).max
         );
 
-        // Advance time to accrue interest
         vm.warp(block.timestamp + 1 days);
 
-        // Bob will liquidate Alice's position
-        // Debug: Check position values before liquidation to know how much Bob needs
         (uint256 debtCheck,,,,) = vault.loanInfo(tokenId);
 
         // Give Bob enough USDC to cover the debt (debt includes interest accrued)

@@ -122,8 +122,27 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         revert("Not implemented");
     }
 
-    function decreaseLiquidity(DecreaseLiquidityParams calldata) external payable override returns (uint256, uint256) {
-        revert("Not implemented");
+    function decreaseLiquidity(DecreaseLiquidityParams calldata params)
+        external
+        payable
+        override
+        returns (uint256 amount0, uint256 amount1)
+    {
+        Position storage position = _positions[params.tokenId];
+        uint128 currentLiquidity = position.liquidity;
+        if (params.liquidity > currentLiquidity) {
+            revert("Not implemented");
+        }
+        if (currentLiquidity == 0 || params.liquidity == 0) {
+            return (0, 0);
+        }
+
+        amount0 = uint256(position.tokensOwed0) * params.liquidity / currentLiquidity;
+        amount1 = uint256(position.tokensOwed1) * params.liquidity / currentLiquidity;
+
+        position.liquidity = currentLiquidity - params.liquidity;
+        position.tokensOwed0 += uint128(amount0);
+        position.tokensOwed1 += uint128(amount1);
     }
 
     function collect(CollectParams calldata params) external payable override returns (uint256, uint256) {
