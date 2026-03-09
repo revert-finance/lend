@@ -36,12 +36,13 @@ contract DeployAerodromeProtocol is Script {
     address internal constant CHAINLINK_ETH_USD = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
     address internal constant CHAINLINK_BTC_USD = 0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F;
     address internal constant CHAINLINK_USDC_USD = 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B;
-    address internal constant CHAINLINK_AERO_USD = 0x4EC5970fC728C5f65ba413992CD5fF6FD70fcfF0;
     address internal constant CHAINLINK_BASE_SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
 
     // Base Slipstream pools
     address internal constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;
     address internal constant CBBTC_USDC_POOL = 0x4e962BB3889Bf030368F56810A9c96B83CB3E778;
+    address internal constant AERO_USDC_POOL = 0xa4FDd479eda160671636e2eCF8f993Cbf86258a8;
+    address internal constant AERO_WETH_POOL = 0x82321f3BEB69f503380D6B233857d5C43562e2D0;
 
     function run() external {
         _validateDeploymentConfig();
@@ -66,6 +67,8 @@ contract DeployAerodromeProtocol is Script {
 
         GaugeManager gaugeManager =
             new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
+        gaugeManager.setRewardBasePool(USDC, AERO_USDC_POOL);
+        gaugeManager.setRewardBasePool(WETH, AERO_WETH_POOL);
 
         LeverageTransformer leverageTransformer = new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
@@ -113,16 +116,6 @@ contract DeployAerodromeProtocol is Script {
             200
         );
 
-        oracle.setTokenConfig(
-            AERO,
-            AggregatorV3Interface(CHAINLINK_AERO_USD),
-            3600,
-            IUniswapV3Pool(address(0)),
-            0,
-            V3Oracle.Mode.CHAINLINK,
-            0
-        );
-
         // Vault config
         vault.setGaugeManager(address(gaugeManager));
 
@@ -166,7 +159,6 @@ contract DeployAerodromeProtocol is Script {
         _requireCode(AERODROME_GAUGE_FACTORY, "DeployAerodromeProtocol: gauge factory missing code");
         _requireCode(UNIVERSAL_ROUTER, "DeployAerodromeProtocol: universal router missing code");
         _requireCode(ZEROX_ALLOWANCE_HOLDER, "DeployAerodromeProtocol: 0x allowance holder missing code");
-        _requireCode(CHAINLINK_AERO_USD, "DeployAerodromeProtocol: AERO/USD feed missing code");
         _requireCode(
             CHAINLINK_BASE_SEQUENCER_UPTIME_FEED, "DeployAerodromeProtocol: sequencer uptime feed missing code"
         );
@@ -175,6 +167,8 @@ contract DeployAerodromeProtocol is Script {
         require(npm.factory() == AERODROME_FACTORY, "DeployAerodromeProtocol: NPM factory mismatch");
         _validatePool(WETH_USDC_POOL, WETH, USDC);
         _validatePool(CBBTC_USDC_POOL, CBBTC, USDC);
+        _validatePool(AERO_USDC_POOL, AERO, USDC);
+        _validatePool(AERO_WETH_POOL, AERO, WETH);
     }
 
     function _validatePool(address pool, address tokenA, address tokenB) internal view {

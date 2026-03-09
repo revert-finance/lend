@@ -35,10 +35,6 @@ contract MockVaultRewardCapture {
     address public lastTransformer;
     bytes public lastData;
 
-    bytes public lastSwapData0;
-    bytes public lastSwapData1;
-    uint256 public lastMinAmount0;
-    uint256 public lastMinAmount1;
     uint256 public lastMinAeroReward;
     uint256 public lastAeroSplitBps;
     uint256 public lastDeadline;
@@ -52,10 +48,6 @@ contract MockVaultRewardCapture {
         lastTokenId = tokenId;
         lastTransformer = transformer;
         lastData = data;
-        lastSwapData0 = rewardParams.swapData0;
-        lastSwapData1 = rewardParams.swapData1;
-        lastMinAmount0 = rewardParams.minAmount0;
-        lastMinAmount1 = rewardParams.minAmount1;
         lastMinAeroReward = rewardParams.minAeroReward;
         lastAeroSplitBps = rewardParams.aeroSplitBps;
         lastDeadline = rewardParams.deadline;
@@ -91,7 +83,7 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
         mockNpm.setOwner(TOKEN_ID, USER);
     }
 
-    function testRewardCompoundMinAmountsArePassedThrough() external {
+    function testRewardCompoundParamsArePassedThrough() external {
         vm.prank(USER);
         autoRange.configToken(
             TOKEN_ID,
@@ -113,10 +105,6 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
         );
 
         IVault.RewardCompoundParams memory rewardParams = IVault.RewardCompoundParams({
-            swapData0: hex"01",
-            swapData1: hex"02",
-            minAmount0: 1,
-            minAmount1: 2,
             minAeroReward: 3,
             aeroSplitBps: 4_000,
             deadline: block.timestamp + 1 hours
@@ -136,12 +124,9 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
 
         assertEq(mockVault.lastTokenId(), TOKEN_ID);
         assertEq(mockVault.lastTransformer(), address(autoRange));
-        assertEq(mockVault.lastMinAmount0(), 1);
-        assertEq(mockVault.lastMinAmount1(), 2);
         assertEq(mockVault.lastMinAeroReward(), 33);
         assertEq(mockVault.lastAeroSplitBps(), 4_000);
-        assertEq(mockVault.lastSwapData0(), hex"01");
-        assertEq(mockVault.lastSwapData1(), hex"02");
+        assertEq(mockVault.lastDeadline(), block.timestamp + 1 hours);
     }
 
     function testRewardCompoundParamsUseConfiguredMinAeroRewardEvenWhenCallerProvidesHigherValue() external {
@@ -166,10 +151,6 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
         );
 
         IVault.RewardCompoundParams memory rewardParams = IVault.RewardCompoundParams({
-            swapData0: "",
-            swapData1: "",
-            minAmount0: 111,
-            minAmount1: 222,
             minAeroReward: 333,
             aeroSplitBps: 5_000,
             deadline: block.timestamp + 1 hours
@@ -187,8 +168,6 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
             rewardParams
         );
 
-        assertEq(mockVault.lastMinAmount0(), 111);
-        assertEq(mockVault.lastMinAmount1(), 222);
         assertEq(mockVault.lastMinAeroReward(), 33);
         assertEq(mockVault.lastAeroSplitBps(), 5_000);
     }

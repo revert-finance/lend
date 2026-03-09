@@ -103,6 +103,8 @@ abstract contract AerodromeTestBase is Test, Constants {
     // Mock pools and gauges
     address public usdcDaiPool;
     address public wethUsdcPool;
+    address public aeroUsdcPool;
+    address public aeroWethPool;
     MockGauge public usdcDaiGauge;
     MockGauge public wethUsdcGauge;
 
@@ -142,6 +144,18 @@ abstract contract AerodromeTestBase is Test, Constants {
             wethUsdcPool = address(new MockPool(address(usdc), address(weth), 10, 10));
         }
 
+        if (address(aero) < address(usdc)) {
+            aeroUsdcPool = address(new MockPool(address(aero), address(usdc), 100, 100));
+        } else {
+            aeroUsdcPool = address(new MockPool(address(usdc), address(aero), 100, 100));
+        }
+
+        if (address(aero) < address(weth)) {
+            aeroWethPool = address(new MockPool(address(aero), address(weth), 200, 200));
+        } else {
+            aeroWethPool = address(new MockPool(address(weth), address(aero), 200, 200));
+        }
+
         // Set pools in factory - always use sorted order (token0 < token1)
         if (address(usdc) < address(dai)) {
             factory.setPool(address(usdc), address(dai), 1, usdcDaiPool);
@@ -153,6 +167,18 @@ abstract contract AerodromeTestBase is Test, Constants {
             factory.setPool(address(weth), address(usdc), 10, wethUsdcPool);
         } else {
             factory.setPool(address(usdc), address(weth), 10, wethUsdcPool);
+        }
+
+        if (address(aero) < address(usdc)) {
+            factory.setPool(address(aero), address(usdc), 100, aeroUsdcPool);
+        } else {
+            factory.setPool(address(usdc), address(aero), 100, aeroUsdcPool);
+        }
+
+        if (address(aero) < address(weth)) {
+            factory.setPool(address(aero), address(weth), 200, aeroWethPool);
+        } else {
+            factory.setPool(address(weth), address(aero), 200, aeroWethPool);
         }
 
         // Deploy price feeds
@@ -218,6 +244,8 @@ abstract contract AerodromeTestBase is Test, Constants {
         // Configure gauge manager (will verify gauge matches pool)
         gaugeManager.setGauge(usdcDaiPool, address(usdcDaiGauge));
         gaugeManager.setGauge(wethUsdcPool, address(wethUsdcGauge));
+        gaugeManager.setRewardBasePool(address(usdc), aeroUsdcPool);
+        gaugeManager.setRewardBasePool(address(weth), aeroWethPool);
 
         // Set gauge manager in vault
         vault.setGaugeManager(address(gaugeManager));
@@ -237,6 +265,16 @@ abstract contract AerodromeTestBase is Test, Constants {
         dai.mint(bob, 100000e18);
         deal(address(weth), alice, 100 ether);
         deal(address(weth), bob, 100 ether);
+
+        // Pre-fund mock swap pools with output tokens.
+        usdc.mint(aeroUsdcPool, 1_000_000e18);
+        aero.mint(aeroUsdcPool, 1_000_000e18);
+        weth.mint(aeroWethPool, 1_000_000e18);
+        aero.mint(aeroWethPool, 1_000_000e18);
+        usdc.mint(usdcDaiPool, 1_000_000e18);
+        dai.mint(usdcDaiPool, 1_000_000e18);
+        usdc.mint(wethUsdcPool, 1_000_000e18);
+        weth.mint(wethUsdcPool, 1_000_000e18);
 
         // Fund gauges with AERO rewards
         aero.mint(address(usdcDaiGauge), 1000000e18);

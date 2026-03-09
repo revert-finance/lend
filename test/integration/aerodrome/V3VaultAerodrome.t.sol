@@ -322,42 +322,18 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         // Test 1: Try to compound with invalid split (> 10000 bps)
         vm.expectRevert(Constants.InvalidConfig.selector);
-        gaugeManager.compoundRewards(
-            tokenId,
-            new bytes(1), // swapData0 present
-            new bytes(0), // swapData1 missing
-            0, // minAmount0
-            0, // minAmount1
-            0, // minAeroReward
-            10001, // aeroSplitBps > 10000 (invalid)
-            block.timestamp + 1000 // deadline
-        );
+        gaugeManager.compoundRewards(tokenId, 0, 10001, block.timestamp + 1000);
 
-        // Test 2: Partial split without payloads is allowed (unswapped AERO is returned to owner).
-        gaugeManager.compoundRewards(
-            tokenId,
-            new bytes(0), // swapData0
-            new bytes(0), // swapData1
-            0, // minAmount0
-            0, // minAmount1
-            0, // minAeroReward
-            5000,
-            block.timestamp + 1000 // deadline
-        );
+        // Test 2: Valid split compounds through the configured AERO -> USDC base route.
+        gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000);
 
-        // Test 3: malformed swap payload still reverts (selector is not stable here).
+        // Test 3: Compounding reverts when the required AERO base pool is missing.
         usdcDaiGauge.setRewardForUser(address(gaugeManager), 10e18);
-        vm.expectRevert();
-        gaugeManager.compoundRewards(
-            tokenId,
-            new bytes(1), // invalid swapData0
-            new bytes(0),
-            0, // minAmount0
-            0, // minAmount1
-            0, // minAeroReward
-            5000,
-            block.timestamp + 1000 // deadline
-        );
+        vm.stopPrank();
+        gaugeManager.setRewardBasePool(address(usdc), address(0));
+        vm.startPrank(alice);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000);
 
         vm.stopPrank();
     }

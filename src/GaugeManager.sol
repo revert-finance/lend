@@ -6,31 +6,27 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
+import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./interfaces/IVault.sol";
-import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IGaugeManager.sol";
+import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./utils/Swapper.sol";
-
-interface IVaultOracleProvider {
-    function oracle() external view returns (IV3Oracle);
-}
 
 /// @notice Gauge helper for vaulted positions.
 contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper, IGaugeManager {
     using SafeERC20 for IERC20;
 
     uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
-    // NOTE FOR AUDITS:
-    // Reward-compound swap payloads remain operator-controlled. On oracle-supported pools, this validation only bounds
-    // operator extraction / poor execution to the configured slippage budget instead of enforcing exact recipients/routes.
-    // That residual up-to-2% value loss is an accepted trust assumption for automated reward compounding.
-    uint64 private constant REWARD_VALUE_VALIDATION_SLIPPAGE_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
+    // Reward compounding only sanity-checks that each route pool is near its TWAP before executing the fixed pool swap.
+    // It intentionally does not enforce an additional output-based slippage bound.
+    uint32 private constant REWARD_TWAP_SECONDS = 60;
+    uint16 private constant REWARD_MAX_TWAP_TICK_DIFFERENCE = 200;
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -39,12 +35,14 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     mapping(address => address) public override poolToGauge;
     mapping(uint256 => address) public override tokenIdToGauge;
+    mapping(address => address) public override rewardBasePools;
 
     struct CompoundState {
         address gauge;
         address owner;
         address token0;
         address token1;
+        IUniswapV3Pool positionPool;
         uint256 aeroAmount;
         uint256 spentAero;
         uint256 amount0Out;
@@ -88,6 +86,34 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         poolToGauge[pool] = gauge;
         emit GaugeSet(pool, gauge);
+    }
+
+    function setRewardBasePool(address baseToken, address pool) external override onlyOwner {
+        if (baseToken == address(0) || baseToken == address(aeroToken)) {
+            revert InvalidConfig();
+        }
+
+        if (pool == address(0)) {
+            delete rewardBasePools[baseToken];
+            emit RewardBasePoolSet(baseToken, address(0));
+            return;
+        }
+
+        IAerodromeSlipstreamPool slipstreamPool = IAerodromeSlipstreamPool(pool);
+        address token0 = slipstreamPool.token0();
+        address token1 = slipstreamPool.token1();
+        if (!(token0 == address(aeroToken) && token1 == baseToken || token0 == baseToken && token1 == address(aeroToken)))
+        {
+            revert InvalidPool();
+        }
+
+        address resolved = IAerodromeSlipstreamFactory(factory).getPool(token0, token1, slipstreamPool.tickSpacing());
+        if (resolved != pool) {
+            revert InvalidPool();
+        }
+
+        rewardBasePools[baseToken] = pool;
+        emit RewardBasePoolSet(baseToken, pool);
     }
 
     function setWithdrawer(address _withdrawer) external override onlyOwner {
@@ -230,10 +256,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     function compoundRewards(
         uint256 tokenId,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
         uint256 deadline
@@ -245,7 +267,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         CompoundState memory state;
         state.gauge = _requireStakedGauge(tokenId);
-        (,, state.token0, state.token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        uint24 feeOrTickSpacing;
+        (,, state.token0, state.token1, feeOrTickSpacing,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        state.positionPool = _getPool(state.token0, state.token1, feeOrTickSpacing);
         state.owner = owner;
 
         state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId);
@@ -257,9 +281,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
 
         IGauge(state.gauge).withdraw(tokenId);
-
-        state = _swapAeroForPosition(state, aeroSplitBps, swapData0, swapData1, minAmount0, minAmount1);
-        _validateRewardValueIfPossible(state);
+        state = _swapAeroForPosition(state, aeroSplitBps);
         state = _addLiquidity(state, tokenId, deadline);
         nonfungiblePositionManager.approve(state.gauge, tokenId);
         IGauge(state.gauge).deposit(tokenId);
@@ -335,81 +357,140 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     function _swapAeroForPosition(
         CompoundState memory state,
-        uint256 aeroSplitBps,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1
+        uint256 aeroSplitBps
     ) internal returns (CompoundState memory) {
-        if (swapData0.length != 0) {
-            uint256 requestedAero0 = state.aeroAmount * aeroSplitBps / 10_000;
-            (uint256 amountInDelta0, uint256 amountOutDelta0) =
-                _routerSwap(RouterSwapParams(aeroToken, IERC20(state.token0), requestedAero0, minAmount0, swapData0));
-            state.spentAero += amountInDelta0;
-            state.amount0Out += amountOutDelta0;
-        }
+        uint256 requestedAero0 = state.aeroAmount * aeroSplitBps / 10_000;
+        uint256 requestedAero1 = state.aeroAmount - requestedAero0;
 
-        if (swapData1.length != 0) {
-            uint256 remainingAero = state.aeroAmount - state.spentAero;
-            (uint256 amountInDelta1, uint256 amountOutDelta1) =
-                _routerSwap(RouterSwapParams(aeroToken, IERC20(state.token1), remainingAero, minAmount1, swapData1));
-            state.spentAero += amountInDelta1;
-            state.amount1Out += amountOutDelta1;
-        }
+        (uint256 spentAero0, uint256 amount0Out) =
+            _swapAeroToTarget(state.positionPool, state.token0, state.token1, requestedAero0);
+        (uint256 spentAero1, uint256 amount1Out) =
+            _swapAeroToTarget(state.positionPool, state.token1, state.token0, requestedAero1);
 
-        // If one side of the position is AERO itself, any unswapped rewards can be added directly as liquidity.
-        uint256 unswappedAero = state.aeroAmount - state.spentAero;
-        if (unswappedAero != 0) {
-            if (state.token0 == address(aeroToken)) {
-                state.amount0Out += unswappedAero;
-                state.spentAero += unswappedAero;
-            } else if (state.token1 == address(aeroToken)) {
-                state.amount1Out += unswappedAero;
-                state.spentAero += unswappedAero;
-            }
-        }
-
+        state.spentAero = spentAero0 + spentAero1;
+        state.amount0Out = amount0Out;
+        state.amount1Out = amount1Out;
         return state;
     }
 
-    function _validateRewardValueIfPossible(CompoundState memory state) internal view {
-        // Accepted trust boundary for long-tail pools: if the vault/oracle cannot price AERO or either output token,
-        // reward-compound validation is skipped and users rely on operator honesty for that pool.
-        IV3Oracle oracle = IVaultOracleProvider(address(vault)).oracle();
-
-        if (address(oracle) == address(0) || address(oracle).code.length == 0) {
-            return;
+    function _swapAeroToTarget(IUniswapV3Pool positionPool, address targetToken, address otherToken, uint256 amountIn)
+        internal
+        returns (uint256 spentAero, uint256 amountOut)
+    {
+        if (amountIn == 0) {
+            return (0, 0);
         }
 
-        if (!oracle.isTokenConfigured(address(aeroToken))) {
-            return;
-        }
-        if (!oracle.isTokenConfigured(state.token0)) {
-            return;
-        }
-        if (!oracle.isTokenConfigured(state.token1)) {
-            return;
+        if (targetToken == address(aeroToken)) {
+            return (amountIn, amountIn);
         }
 
-        uint256 aeroValue = state.aeroAmount;
-
-        uint256 returnedValue;
-        if (state.amount0Out != 0) {
-            returnedValue += oracle.getTokenValue(state.token0, state.amount0Out, address(aeroToken));
-        }
-        if (state.amount1Out != 0) {
-            returnedValue += oracle.getTokenValue(state.token1, state.amount1Out, address(aeroToken));
+        address directPool = rewardBasePools[targetToken];
+        if (directPool != address(0)) {
+            amountOut = _swapThroughPool(IUniswapV3Pool(directPool), address(aeroToken), targetToken, amountIn);
+            return (amountIn, amountOut);
         }
 
-        uint256 leftoverAero = state.aeroAmount - state.spentAero;
-        if (leftoverAero != 0 && state.token0 != address(aeroToken) && state.token1 != address(aeroToken)) {
-            returnedValue += leftoverAero;
+        address intermediatePool = rewardBasePools[otherToken];
+        if (intermediatePool == address(0)) {
+            revert NotConfigured();
         }
 
-        uint256 minReturnedValue =
-            Math.mulDiv(aeroValue, uint256(Q64) - REWARD_VALUE_VALIDATION_SLIPPAGE_X64, uint256(Q64));
-        if (returnedValue < minReturnedValue) {
-            revert SlippageError();
+        uint256 intermediateAmount =
+            _swapThroughPool(IUniswapV3Pool(intermediatePool), address(aeroToken), otherToken, amountIn);
+        amountOut = _swapThroughPool(positionPool, otherToken, targetToken, intermediateAmount);
+        return (amountIn, amountOut);
+    }
+
+    function _swapThroughPool(IUniswapV3Pool pool, address tokenIn, address tokenOut, uint256 amountIn)
+        internal
+        returns (uint256 amountOut)
+    {
+        if (amountIn == 0) {
+            return 0;
+        }
+
+        address poolToken0 = IAerodromeSlipstreamPool(address(pool)).token0();
+        address poolToken1 = IAerodromeSlipstreamPool(address(pool)).token1();
+        bool swap0For1;
+        if (poolToken0 == tokenIn && poolToken1 == tokenOut) {
+            swap0For1 = true;
+        } else if (poolToken0 == tokenOut && poolToken1 == tokenIn) {
+            swap0For1 = false;
+        } else {
+            revert InvalidPool();
+        }
+
+        if (!_hasMaxTWAPTickDifference(pool, REWARD_TWAP_SECONDS, _getPoolSlot0(pool), REWARD_MAX_TWAP_TICK_DIFFERENCE)) {
+            revert TWAPCheckFailed();
+        }
+        (, amountOut) = _poolSwap(
+            PoolSwapParams({
+                pool: pool,
+                token0: IERC20(poolToken0),
+                token1: IERC20(poolToken1),
+                fee: _poolFeeOrTickSpacing(pool),
+                swap0For1: swap0For1,
+                amountIn: amountIn,
+                amountOutMin: 0
+            })
+        );
+    }
+
+    function _poolFeeOrTickSpacing(IUniswapV3Pool pool) internal view returns (uint24 feeOrTickSpacing) {
+        int24 tickSpacing = IAerodromeSlipstreamPool(address(pool)).tickSpacing();
+        if (tickSpacing <= 0) {
+            revert InvalidPool();
+        }
+        assembly ("memory-safe") {
+            feeOrTickSpacing := tickSpacing
+        }
+    }
+
+    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference)
+        internal
+        view
+        returns (bool)
+    {
+        (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
+        if (!twapOk) {
+            return false;
+        }
+
+        int256 diff = twapTick - currentTick;
+        int256 maxDifferenceInt = int256(uint256(maxDifference));
+        return diff >= -maxDifferenceInt && diff <= maxDifferenceInt;
+    }
+
+    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (int24 tick, bool ok) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 0;
+        secondsAgos[1] = twapSeconds;
+
+        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
+            int56 delta = tickCumulatives[0] - tickCumulatives[1];
+            int256 twapSecondsInt = int256(uint256(twapSeconds));
+            tick = SafeCast.toInt24(int256(delta) / twapSecondsInt);
+            if (delta < 0 && int256(delta) % twapSecondsInt != 0) {
+                tick--;
+            }
+            ok = true;
+        } catch {}
+    }
+
+    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (int24 tick) {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
+        if (!success || data.length < 64) {
+            revert InvalidPool();
+        }
+
+        uint256 word1;
+        assembly ("memory-safe") {
+            word1 := mload(add(data, 64))
+        }
+
+        assembly ("memory-safe") {
+            tick := signextend(2, word1)
         }
     }
 

@@ -12,11 +12,14 @@ interface IGaugeManager is IProtocolFeeController {
     );
     event CompoundRewardUpdated(address account, uint64 totalRewardX64);
     event GaugeSet(address indexed pool, address indexed gauge);
+    event RewardBasePoolSet(address indexed baseToken, address indexed pool);
 
     function poolToGauge(address pool) external view returns (address);
     function tokenIdToGauge(uint256 tokenId) external view returns (address);
+    function rewardBasePools(address baseToken) external view returns (address pool);
 
     function setGauge(address pool, address gauge) external;
+    function setRewardBasePool(address baseToken, address pool) external;
 
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
@@ -26,10 +29,6 @@ interface IGaugeManager is IProtocolFeeController {
 
     function compoundRewards(
         uint256 tokenId,
-        bytes calldata swapData0,
-        bytes calldata swapData1,
-        uint256 minAmount0,
-        uint256 minAmount1,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
         uint256 deadline

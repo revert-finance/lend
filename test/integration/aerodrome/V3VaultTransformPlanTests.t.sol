@@ -172,10 +172,6 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             address(autoRange),
             abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
             IVault.RewardCompoundParams({
-                swapData0: "",
-                swapData1: "",
-                minAmount0: 0,
-                minAmount1: 0,
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours
@@ -183,7 +179,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         );
 
         assertEq(transformedTokenId, tokenId);
-        assertEq(aero.balanceOf(alice) - aliceAeroBefore, 7e18);
+        assertEq(aero.balanceOf(alice), aliceAeroBefore);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
     }
@@ -213,10 +209,6 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             address(autoRange),
             abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
             IVault.RewardCompoundParams({
-                swapData0: "",
-                swapData1: "",
-                minAmount0: 0,
-                minAmount1: 0,
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours

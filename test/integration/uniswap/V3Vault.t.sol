@@ -52,7 +52,7 @@ contract MockNoopGaugeManager {
         return 0;
     }
 
-    function compoundRewards(uint256, bytes calldata, bytes calldata, uint256, uint256, uint256, uint256, uint256)
+    function compoundRewards(uint256, uint256, uint256, uint256)
         external
         pure
         returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
@@ -678,10 +678,6 @@ contract V3VaultIntegrationTest is Test {
             params,
             address(vault),
             IVault.RewardCompoundParams({
-                swapData0: "",
-                swapData1: "",
-                minAmount0: 0,
-                minAmount1: 0,
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp

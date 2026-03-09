@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import "../../../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
+import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 
 contract MockPool is IAerodromeSlipstreamPool {
     address public immutable override token0;
@@ -11,10 +14,12 @@ contract MockPool is IAerodromeSlipstreamPool {
     
     uint160 public sqrtPriceX96;
     int24 public tick;
+    int24 public observedTick;
     uint16 public observationIndex;
     uint16 public observationCardinality;
     uint16 public observationCardinalityNext;
     bool public unlocked = true;
+    uint16 public outputBps = 10_000;
     
     uint256 public override feeGrowthGlobal0X128;
     uint256 public override feeGrowthGlobal1X128;
@@ -60,8 +65,34 @@ contract MockPool is IAerodromeSlipstreamPool {
         tick = _tick;
     }
 
+    function setObservedTick(int24 _tick) external {
+        observedTick = _tick;
+    }
+
     function setGauge(address _gauge) external {
         gauge = _gauge;
+    }
+
+    function setOutputBps(uint16 _outputBps) external {
+        outputBps = _outputBps;
+    }
+
+    function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160, bytes calldata data)
+        external
+        returns (int256 amount0, int256 amount1)
+    {
+        uint256 amountIn = uint256(amountSpecified);
+        uint256 amountOut = amountIn * outputBps / 10_000;
+
+        if (zeroForOne) {
+            IERC20(token1).transfer(recipient, amountOut);
+            IUniswapV3SwapCallback(msg.sender).uniswapV3SwapCallback(int256(amountIn), -int256(amountOut), data);
+            return (int256(amountIn), -int256(amountOut));
+        }
+
+        IERC20(token0).transfer(recipient, amountOut);
+        IUniswapV3SwapCallback(msg.sender).uniswapV3SwapCallback(-int256(amountOut), int256(amountIn), data);
+        return (-int256(amountOut), int256(amountIn));
     }
     
     // Implement required functions with minimal functionality
@@ -84,7 +115,7 @@ contract MockPool is IAerodromeSlipstreamPool {
         return (0, 0, 0, false);
     }
     
-    function observe(uint32[] calldata secondsAgos) external pure override returns (
+    function observe(uint32[] calldata secondsAgos) external view override returns (
         int56[] memory tickCumulatives,
         uint160[] memory secondsPerLiquidityPostWriteX128s
     ) {
@@ -92,9 +123,9 @@ contract MockPool is IAerodromeSlipstreamPool {
         tickCumulatives = new int56[](secondsAgos.length);
         secondsPerLiquidityPostWriteX128s = new uint160[](secondsAgos.length);
 
-        // Mock stable price: all tick cumulatives are 0 (price hasn't changed)
+        // Keep TWAP aligned with the current tick.
         for (uint i = 0; i < secondsAgos.length; i++) {
-            tickCumulatives[i] = 0;
+            tickCumulatives[i] = int56(observedTick) * int56(uint56(secondsAgos[i]));
             secondsPerLiquidityPostWriteX128s[i] = 0;
         }
 

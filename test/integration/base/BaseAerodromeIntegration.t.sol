@@ -65,6 +65,8 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     IUniswapV3Pool internal wethUsdcPool;
     IUniswapV3Pool internal wethUsdcFlashPool;
     address internal wethUsdcGauge;
+    address internal aeroUsdcPool;
+    address internal aeroWethPool;
 
     function setUp() external {
         uint256 forkId = vm.createFork(_baseRpc(), BASE_FORK_BLOCK);
@@ -94,6 +96,16 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         }
         wethUsdcFlashPool = IUniswapV3Pool(flashPoolAddress);
 
+        aeroUsdcPool = IAerodromeSlipstreamFactory(factory).getPool(AERO, USDC, 100);
+        if (aeroUsdcPool == address(0)) {
+            revert InvalidPool();
+        }
+
+        aeroWethPool = IAerodromeSlipstreamFactory(factory).getPool(AERO, WETH, 200);
+        if (aeroWethPool == address(0)) {
+            revert InvalidPool();
+        }
+
         oracle = new V3Oracle(NPM, USDC, address(0));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         oracle.setTokenConfig(USDC, usdcUsdFeed, 30 days, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.TWAP, 0);
@@ -107,6 +119,8 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
         gaugeManager = new GaugeManager(NPM, IERC20(AERO), IVault(address(vault)), address(0), address(0));
         gaugeManager.setGauge(poolAddress, wethUsdcGauge);
+        gaugeManager.setRewardBasePool(USDC, aeroUsdcPool);
+        gaugeManager.setRewardBasePool(WETH, aeroWethPool);
         vault.setGaugeManager(address(gaugeManager));
 
         autoRange = new AutoRangeAndCompound(NPM, OPERATOR, OPERATOR, 60, 200, address(0), address(0));
@@ -208,7 +222,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         vault.stakePosition(tokenId);
 
         vm.prank(ALICE);
-        gaugeManager.compoundRewards(tokenId, "", "", 0, 0, 0, 5_000, block.timestamp + 1 hours);
+        gaugeManager.compoundRewards(tokenId, 0, 5_000, block.timestamp + 1 hours);
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), wethUsdcGauge);
         assertEq(NPM.ownerOf(tokenId), wethUsdcGauge);
@@ -315,10 +329,6 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
             }),
             address(vault),
             IVault.RewardCompoundParams({
-                swapData0: "",
-                swapData1: "",
-                minAmount0: 0,
-                minAmount1: 0,
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours
@@ -364,10 +374,6 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
             }),
             address(vault),
             IVault.RewardCompoundParams({
-                swapData0: "",
-                swapData1: "",
-                minAmount0: 0,
-                minAmount1: 0,
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours
