@@ -576,6 +576,20 @@ contract GaugeManagerUnitTest is Test {
         gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
     }
 
+    function testCompoundRewardsRevertsWhenRoutePoolOutputFallsBelowValidatedMinimum() external {
+        _stake();
+        aeroUsdcPool.setTick(0);
+        aeroUsdcPool.setObservedTick(0);
+        aeroUsdcPool.setOutputBps(9_700);
+
+        aero.mint(address(gauge), 10 ether);
+        gauge.setReward(TOKEN_ID, 10 ether);
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.SlippageError.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+    }
+
     function testCompoundRewardsRevertsOnInvalidSplit() external {
         _stake();
 

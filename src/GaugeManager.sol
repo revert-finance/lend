@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
@@ -23,10 +22,11 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     using SafeERC20 for IERC20;
 
     uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
-    // Reward compounding only sanity-checks that each route pool is near its TWAP before executing the fixed pool swap.
-    // It intentionally does not enforce an additional output-based slippage bound.
+    // Reward compounding validates each fixed route hop against both TWAP deviation and a minimum output bound
+    // derived from the current pool price before executing the swap.
     uint32 private constant REWARD_TWAP_SECONDS = 60;
     uint16 private constant REWARD_MAX_TWAP_TICK_DIFFERENCE = 200;
+    uint64 private constant REWARD_MAX_PRICE_DIFFERENCE_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -421,9 +421,17 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             revert InvalidPool();
         }
 
-        if (!_hasMaxTWAPTickDifference(pool, REWARD_TWAP_SECONDS, _getPoolSlot0(pool), REWARD_MAX_TWAP_TICK_DIFFERENCE)) {
-            revert TWAPCheckFailed();
-        }
+        (uint160 sqrtPriceX96, int24 currentTick) = _getPoolSlot0(pool);
+        uint256 amountOutMin = _validateSwap(
+            swap0For1,
+            amountIn,
+            pool,
+            currentTick,
+            sqrtPriceX96,
+            REWARD_TWAP_SECONDS,
+            REWARD_MAX_TWAP_TICK_DIFFERENCE,
+            REWARD_MAX_PRICE_DIFFERENCE_X64
+        );
         (, amountOut) = _poolSwap(
             PoolSwapParams({
                 pool: pool,
@@ -432,7 +440,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
                 fee: _poolFeeOrTickSpacing(pool),
                 swap0For1: swap0For1,
                 amountIn: amountIn,
-                amountOutMin: 0
+                amountOutMin: amountOutMin
             })
         );
     }
@@ -444,53 +452,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
         assembly ("memory-safe") {
             feeOrTickSpacing := tickSpacing
-        }
-    }
-
-    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference)
-        internal
-        view
-        returns (bool)
-    {
-        (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
-        if (!twapOk) {
-            return false;
-        }
-
-        int256 diff = twapTick - currentTick;
-        int256 maxDifferenceInt = int256(uint256(maxDifference));
-        return diff >= -maxDifferenceInt && diff <= maxDifferenceInt;
-    }
-
-    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (int24 tick, bool ok) {
-        uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = 0;
-        secondsAgos[1] = twapSeconds;
-
-        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
-            int56 delta = tickCumulatives[0] - tickCumulatives[1];
-            int256 twapSecondsInt = int256(uint256(twapSeconds));
-            tick = SafeCast.toInt24(int256(delta) / twapSecondsInt);
-            if (delta < 0 && int256(delta) % twapSecondsInt != 0) {
-                tick--;
-            }
-            ok = true;
-        } catch {}
-    }
-
-    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (int24 tick) {
-        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
-        if (!success || data.length < 64) {
-            revert InvalidPool();
-        }
-
-        uint256 word1;
-        assembly ("memory-safe") {
-            word1 := mload(add(data, 64))
-        }
-
-        assembly ("memory-safe") {
-            tick := signextend(2, word1)
         }
     }
 

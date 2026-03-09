@@ -8,6 +8,7 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
+import "v3-core/libraries/FullMath.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
@@ -175,6 +176,80 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             if (amountOutDelta < params.amountOutMin) {
                 revert SlippageError();
             }
+        }
+    }
+
+    // validate if swap can be done with specified oracle parameters - if not possible reverts
+    // if possible returns minAmountOut
+    function _validateSwap(
+        bool swap0For1,
+        uint256 amountIn,
+        IUniswapV3Pool pool,
+        int24 currentTick,
+        uint160 sqrtPriceX96,
+        uint32 twapPeriod,
+        uint16 maxTickDifference,
+        uint64 maxPriceDifferenceX64
+    ) internal view returns (uint256 amountOutMin) {
+        if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
+            revert TWAPCheckFailed();
+        }
+
+        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        if (swap0For1) {
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q160);
+        } else {
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q32, priceX96);
+        }
+    }
+
+    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference)
+        internal
+        view
+        returns (bool)
+    {
+        (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
+        if (twapOk) {
+            int256 res = twapTick - currentTick;
+            int256 maxDifferenceInt = int256(uint256(maxDifference));
+            return res >= -maxDifferenceInt && res <= maxDifferenceInt;
+        } else {
+            return false;
+        }
+    }
+
+    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (int24, bool) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 0;
+        secondsAgos[1] = twapSeconds;
+
+        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
+            int56 delta = tickCumulatives[0] - tickCumulatives[1];
+            int256 twapSecondsInt = int256(uint256(twapSeconds));
+            int24 tick = SafeCast.toInt24(int256(delta) / twapSecondsInt);
+            if (delta < 0 && int256(delta) % twapSecondsInt != 0) tick--;
+            return (tick, true);
+        } catch {
+            return (0, false);
+        }
+    }
+
+    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (uint160 sqrtPriceX96, int24 tick) {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
+        if (!success || data.length < 64) {
+            revert InvalidPool();
+        }
+
+        uint256 word0;
+        uint256 word1;
+        assembly ("memory-safe") {
+            word0 := mload(add(data, 32))
+            word1 := mload(add(data, 64))
+        }
+
+        sqrtPriceX96 = SafeCast.toUint160(word0);
+        assembly ("memory-safe") {
+            tick := signextend(2, word1)
         }
     }
 
