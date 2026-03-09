@@ -134,6 +134,31 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         price1X96 = FullMath.mulDiv(state.price1X96, Q96, priceTokenX96);
     }
 
+    /// @notice Quotes an arbitrary token amount into another configured token
+    /// @dev Reverts when either token lacks usable oracle configuration
+    function getTokenValue(address tokenIn, uint256 amountIn, address tokenOut)
+        external
+        view
+        override
+        returns (uint256 value)
+    {
+        if (amountIn == 0 || tokenIn == tokenOut) {
+            return amountIn;
+        }
+
+        uint256 cachedChainlinkReferencePriceX96;
+        uint256 priceInX96;
+        uint256 priceOutX96;
+        (priceInX96, cachedChainlinkReferencePriceX96) =
+            _getReferenceTokenPriceX96(tokenIn, cachedChainlinkReferencePriceX96);
+        (priceOutX96,) = _getReferenceTokenPriceX96(tokenOut, cachedChainlinkReferencePriceX96);
+        value = FullMath.mulDiv(amountIn, priceInX96, priceOutX96);
+    }
+
+    function isTokenConfigured(address token) external view override returns (bool configured) {
+        configured = token == referenceToken || feedConfigs[token].mode != Mode.NOT_SET;
+    }
+
     function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000)
         internal
         pure
@@ -234,15 +259,21 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         TokenConfig memory config;
 
         if (token != referenceToken) {
-            address token0 = pool.token0();
-            address token1 = pool.token1();
-            if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {
-                revert InvalidPool();
+            if (mode == Mode.CHAINLINK) {
+                config = TokenConfig(
+                    feed, maxFeedAge, feedDecimals, tokenDecimals, 0, IUniswapV3Pool(address(0)), false, mode, 0
+                );
+            } else {
+                address token0 = pool.token0();
+                address token1 = pool.token1();
+                if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {
+                    revert InvalidPool();
+                }
+                bool isToken0 = token0 == token;
+                config = TokenConfig(
+                    feed, maxFeedAge, feedDecimals, tokenDecimals, twapSeconds, pool, isToken0, mode, maxDifference
+                );
             }
-            bool isToken0 = token0 == token;
-            config = TokenConfig(
-                feed, maxFeedAge, feedDecimals, tokenDecimals, twapSeconds, pool, isToken0, mode, maxDifference
-            );
         } else {
             config = TokenConfig(
                 feed, maxFeedAge, feedDecimals, tokenDecimals, 0, IUniswapV3Pool(address(0)), false, Mode.CHAINLINK, 0

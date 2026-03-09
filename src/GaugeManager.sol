@@ -6,20 +6,27 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./interfaces/IVault.sol";
+import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IGaugeManager.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aerodrome/IGauge.sol";
 import "./utils/Swapper.sol";
+
+interface IVaultOracleProvider {
+    function oracle() external view returns (IV3Oracle);
+}
 
 /// @notice Gauge helper for vaulted positions.
 contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper, IGaugeManager {
     using SafeERC20 for IERC20;
 
     uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
+    uint64 private constant REWARD_VALUE_VALIDATION_SLIPPAGE_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
 
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
@@ -248,6 +255,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IGauge(state.gauge).withdraw(tokenId);
 
         state = _swapAeroForPosition(state, aeroSplitBps, swapData0, swapData1, minAmount0, minAmount1);
+        _validateRewardValueIfPossible(state);
         state = _addLiquidity(state, tokenId, deadline);
         nonfungiblePositionManager.approve(state.gauge, tokenId);
         IGauge(state.gauge).deposit(tokenId);
@@ -358,6 +366,47 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
 
         return state;
+    }
+
+    function _validateRewardValueIfPossible(CompoundState memory state) internal view {
+        // Accepted trust boundary for long-tail pools: if the vault/oracle cannot price AERO or either output token,
+        // reward-compound validation is skipped and users rely on operator honesty for that pool.
+        IV3Oracle oracle = IVaultOracleProvider(address(vault)).oracle();
+
+        if (address(oracle) == address(0) || address(oracle).code.length == 0) {
+            return;
+        }
+
+        if (!oracle.isTokenConfigured(address(aeroToken))) {
+            return;
+        }
+        if (!oracle.isTokenConfigured(state.token0)) {
+            return;
+        }
+        if (!oracle.isTokenConfigured(state.token1)) {
+            return;
+        }
+
+        uint256 aeroValue = state.aeroAmount;
+
+        uint256 returnedValue;
+        if (state.amount0Out != 0) {
+            returnedValue += oracle.getTokenValue(state.token0, state.amount0Out, address(aeroToken));
+        }
+        if (state.amount1Out != 0) {
+            returnedValue += oracle.getTokenValue(state.token1, state.amount1Out, address(aeroToken));
+        }
+
+        uint256 leftoverAero = state.aeroAmount - state.spentAero;
+        if (leftoverAero != 0 && state.token0 != address(aeroToken) && state.token1 != address(aeroToken)) {
+            returnedValue += leftoverAero;
+        }
+
+        uint256 minReturnedValue =
+            Math.mulDiv(aeroValue, uint256(Q64) - REWARD_VALUE_VALIDATION_SLIPPAGE_X64, uint256(Q64));
+        if (returnedValue < minReturnedValue) {
+            revert SlippageError();
+        }
     }
 
     function _addLiquidity(CompoundState memory state, uint256 tokenId, uint256 deadline)

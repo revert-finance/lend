@@ -119,6 +119,31 @@ contract V3OracleIntegrationTest is Test {
         assertEq(valueWETH, 5264700508440484);
     }
 
+    function testChainlinkOnlyConfigSupportsTokenValueWithoutPool() external {
+        V3Oracle chainlinkOnlyOracle = new V3Oracle(NPM, address(USDC), address(0));
+        chainlinkOnlyOracle.setTokenConfig(
+            address(USDC),
+            AggregatorV3Interface(CHAINLINK_USDC_USD),
+            3600 * 24 * 30,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+        chainlinkOnlyOracle.setTokenConfig(
+            address(DAI),
+            AggregatorV3Interface(CHAINLINK_DAI_USD),
+            3600 * 24 * 30,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+
+        uint256 daiValueInUsdc = chainlinkOnlyOracle.getTokenValue(address(DAI), 1e18, address(USDC));
+        assertGt(daiValueInUsdc, 0);
+    }
+
     function testGetValueIgnoreFeesSkipsFeeValue() external {
         (uint256 valueWithFees, uint256 feeValueWithFees, uint256 price0WithFees, uint256 price1WithFees) =
             oracle.getValue(TEST_NFT, address(USDC), false);

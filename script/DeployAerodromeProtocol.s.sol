@@ -36,6 +36,7 @@ contract DeployAerodromeProtocol is Script {
     address internal constant CHAINLINK_ETH_USD = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
     address internal constant CHAINLINK_BTC_USD = 0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F;
     address internal constant CHAINLINK_USDC_USD = 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B;
+    address internal constant CHAINLINK_AERO_USD = 0x4EC5970fC728C5f65ba413992CD5fF6FD70fcfF0;
     address internal constant CHAINLINK_BASE_SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
 
     // Base Slipstream pools
@@ -112,6 +113,16 @@ contract DeployAerodromeProtocol is Script {
             200
         );
 
+        oracle.setTokenConfig(
+            AERO,
+            AggregatorV3Interface(CHAINLINK_AERO_USD),
+            3600,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+
         // Vault config
         vault.setGaugeManager(address(gaugeManager));
 
@@ -155,6 +166,7 @@ contract DeployAerodromeProtocol is Script {
         _requireCode(AERODROME_GAUGE_FACTORY, "DeployAerodromeProtocol: gauge factory missing code");
         _requireCode(UNIVERSAL_ROUTER, "DeployAerodromeProtocol: universal router missing code");
         _requireCode(ZEROX_ALLOWANCE_HOLDER, "DeployAerodromeProtocol: 0x allowance holder missing code");
+        _requireCode(CHAINLINK_AERO_USD, "DeployAerodromeProtocol: AERO/USD feed missing code");
         _requireCode(
             CHAINLINK_BASE_SEQUENCER_UPTIME_FEED, "DeployAerodromeProtocol: sequencer uptime feed missing code"
         );

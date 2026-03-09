@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../../src/GaugeManager.sol";
+import "../../src/interfaces/IV3Oracle.sol";
 import "../../src/utils/Constants.sol";
 
 contract MockERC20Token is ERC20 {
@@ -49,17 +50,87 @@ contract MockPool {
 
 contract MockVault is IERC721Receiver {
     mapping(uint256 => address) public owners;
+    address public assetToken;
+    IV3Oracle public oracle;
 
     function setOwner(uint256 tokenId, address owner) external {
         owners[tokenId] = owner;
+    }
+
+    function setAsset(address _asset) external {
+        assetToken = _asset;
+    }
+
+    function setOracle(IV3Oracle _oracle) external {
+        oracle = _oracle;
     }
 
     function ownerOf(uint256 tokenId) external view returns (address) {
         return owners[tokenId];
     }
 
+    function asset() external view returns (address) {
+        return assetToken;
+    }
+
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
         return IERC721Receiver.onERC721Received.selector;
+    }
+}
+
+contract MockOracle is IV3Oracle {
+    mapping(address => uint256) public pricesX18;
+
+    function setPrice(address token, uint256 priceX18) external {
+        pricesX18[token] = priceX18;
+    }
+
+    function isTokenConfigured(address token) external view returns (bool configured) {
+        configured = pricesX18[token] != 0;
+    }
+
+    function getTokenValue(address tokenIn, uint256 amountIn, address tokenOut) external view returns (uint256 value) {
+        if (amountIn == 0 || tokenIn == tokenOut) {
+            return amountIn;
+        }
+
+        uint256 priceIn = pricesX18[tokenIn];
+        uint256 priceOut = pricesX18[tokenOut];
+        require(priceIn != 0 && priceOut != 0, "not configured");
+        value = amountIn * priceIn / priceOut;
+    }
+
+    function getValue(uint256, address, bool)
+        external
+        pure
+        returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96)
+    {
+        return (value, feeValue, price0X96, price1X96);
+    }
+
+    function getPositionBreakdown(uint256)
+        external
+        pure
+        returns (
+            address token0,
+            address token1,
+            uint24 fee,
+            uint128 liquidity,
+            uint256 amount0,
+            uint256 amount1,
+            uint128 fees0,
+            uint128 fees1
+        )
+    {
+        return (token0, token1, fee, liquidity, amount0, amount1, fees0, fees1);
+    }
+
+    function getLiquidityAndFees(uint256)
+        external
+        pure
+        returns (uint128 liquidity, uint128 fees0, uint128 fees1)
+    {
+        return (liquidity, fees0, fees1);
     }
 }
 
@@ -282,6 +353,7 @@ contract GaugeManagerUnitTest is Test {
     MockNPM internal npm;
     MockGauge internal gauge;
     MockVault internal vault;
+    MockOracle internal oracle;
     MockAllowanceHolder internal allowanceHolder;
     GaugeManager internal gaugeManager;
 
@@ -295,6 +367,7 @@ contract GaugeManagerUnitTest is Test {
         npm = new MockNPM(address(factory), address(0xC0FFEE));
         gauge = new MockGauge(IERC721(address(npm)), IERC20(address(aero)));
         vault = new MockVault();
+        oracle = new MockOracle();
         allowanceHolder = new MockAllowanceHolder();
 
         pool.setGauge(address(gauge));
@@ -313,6 +386,7 @@ contract GaugeManagerUnitTest is Test {
         npm.setPosition(TOKEN_ID, address(token0), address(token1), 100, -60, 60, 10);
         npm.mint(address(vault), TOKEN_ID);
         vault.setOwner(TOKEN_ID, ALICE);
+        vault.setAsset(address(token0));
 
         vm.prank(address(vault));
         npm.approve(address(gaugeManager), TOKEN_ID);
@@ -609,6 +683,47 @@ contract GaugeManagerUnitTest is Test {
         assertEq(token1.balanceOf(ALICE) - owner1Before, 0);
         assertEq(token0.balanceOf(address(gaugeManager)), withdraw0 + deposit0);
         assertEq(token1.balanceOf(address(gaugeManager)), withdraw1 + deposit1);
+    }
+
+    function testCompoundRewardsRevertsWhenOracleValidationDetectsRewardSiphon() external {
+        _stake();
+
+        oracle.setPrice(address(aero), 1e18);
+        oracle.setPrice(address(token0), 1e18);
+        oracle.setPrice(address(token1), 1e18);
+        vault.setOracle(oracle);
+
+        uint256 claimedAero = 100 ether;
+        aero.mint(address(gauge), claimedAero);
+        gauge.setReward(TOKEN_ID, claimedAero);
+
+        bytes memory swapData0 =
+            abi.encodeCall(MockAllowanceHolder.executeSwap, (address(aero), address(token0), claimedAero, 0));
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.SlippageError.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, swapData0, "", 0, 0, 0, 10_000, block.timestamp + 1);
+    }
+
+    function testCompoundRewardsSkipsOracleValidationWhenPairTokenUnsupported() external {
+        _stake();
+
+        oracle.setPrice(address(aero), 1e18);
+        vault.setOracle(oracle);
+
+        uint256 claimedAero = 100 ether;
+        aero.mint(address(gauge), claimedAero);
+        gauge.setReward(TOKEN_ID, claimedAero);
+        token0.mint(address(allowanceHolder), 50 ether);
+
+        bytes memory swapData0 =
+            abi.encodeCall(MockAllowanceHolder.executeSwap, (address(aero), address(token0), claimedAero, 50 ether));
+
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, swapData0, "", 0, 0, 0, 10_000, block.timestamp + 1);
+
+        assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
+        assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
 
     function testCompoundRewardsKeepsExistingProtocolBalances() external {
