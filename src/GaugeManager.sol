@@ -26,6 +26,10 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     using SafeERC20 for IERC20;
 
     uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
+    // NOTE FOR AUDITS:
+    // Reward-compound swap payloads remain operator-controlled. On oracle-supported pools, this validation only bounds
+    // operator extraction / poor execution to the configured slippage budget instead of enforcing exact recipients/routes.
+    // That residual up-to-2% value loss is an accepted trust assumption for automated reward compounding.
     uint64 private constant REWARD_VALUE_VALIDATION_SLIPPAGE_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
 
     IERC20 public immutable aeroToken;
