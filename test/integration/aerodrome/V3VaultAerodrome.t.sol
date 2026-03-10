@@ -5,6 +5,18 @@ import "forge-std/console.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "./AerodromeTestBase.sol";
 
+contract MockLiquidityStripTransformer {
+    MockAerodromePositionManager public immutable npm;
+
+    constructor(MockAerodromePositionManager _npm) {
+        npm = _npm;
+    }
+
+    function execute(uint256 tokenId) external {
+        npm.setLiquidity(tokenId, 0);
+    }
+}
+
 contract V3VaultAerodromeTest is AerodromeTestBase {
     event DebugUint(string label, uint256 value);
 
@@ -106,6 +118,49 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         assertEq(npm.ownerOf(tokenId), address(vault), "NFT should remain in vault after reverted stake");
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0), "reverted stake must not mark token as staked");
+    }
+
+    function testTransformRevertsWhenRestakeWouldInvalidateHealth() public {
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        MockLiquidityStripTransformer transformer = new MockLiquidityStripTransformer(npm);
+        vault.setTransformer(address(transformer), true);
+
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            0,
+            0
+        );
+
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+        vault.stakePosition(tokenId);
+        vault.borrow(tokenId, 5_000);
+        vault.approveTransform(tokenId, address(transformer), true);
+        vm.stopPrank();
+
+        npm.setTokensOwed(tokenId, 100e6, 100e18);
+
+        (uint256 fullValueIgnoringFees,,,) = oracle.getValue(tokenId, address(usdc), true);
+        (uint256 fullValueWithFees, uint256 feeValue,,) = oracle.getValue(tokenId, address(usdc), false);
+        assertGt(fullValueIgnoringFees, 0, "position should have non-fee collateral before transform");
+        assertEq(fullValueIgnoringFees + feeValue, fullValueWithFees, "fees should be additive before transform");
+        assertGt(feeValue, 0, "position should have accrued fees before transform");
+
+        vm.startPrank(alice);
+        vm.expectRevert(CollateralFail.selector);
+        vault.transform(tokenId, address(transformer), abi.encodeCall(MockLiquidityStripTransformer.execute, (tokenId)));
+        vm.stopPrank();
+
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "failed transform must leave stake intact");
+        assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge), "failed transform must revert NFT custody changes");
     }
 
     function testUnstakePosition() public {

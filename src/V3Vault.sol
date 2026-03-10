@@ -566,13 +566,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
+        if (wasStaked) {
+            // Re-check health in the final staked custody state because staking realizes pre-stake fees.
+            _stake(newTokenId);
+        }
         _requireLoanIsHealthy(newTokenId, debt);
 
         transformedTokenId = 0;
-
-        if (wasStaked) {
-            _stake(newTokenId);
-        }
     }
 
     /// @notice Borrows specified amount using token as collateral
@@ -672,12 +672,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
 
-        uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(params.tokenId, debt);
-
         if (wasStaked) {
+            // Re-check health in the final staked custody state because staking realizes pre-stake fees.
             _stake(params.tokenId);
         }
+
+        uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+        _requireLoanIsHealthy(params.tokenId, debt);
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
