@@ -187,14 +187,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IGauge(gauge).deposit(tokenId);
         // Slipstream CLGauge.deposit triggers NPM.collect to msg.sender, so any pre-stake accrued token0/token1
         // fees are realized during staking and forwarded here to the position owner.
-        uint256 token0After = IERC20(token0).balanceOf(address(this));
-        uint256 token1After = IERC20(token1).balanceOf(address(this));
-        if (token0After > token0Before) {
-            IERC20(token0).safeTransfer(owner, token0After - token0Before);
-        }
-        if (token1After > token1Before) {
-            IERC20(token1).safeTransfer(owner, token1After - token1Before);
-        }
+        _sendDepositDeltas(token0, token1, owner, token0Before, token1Before);
 
         // NOTE FOR AUDITS:
         // We intentionally do not enforce `ownerOf(tokenId) == gauge` post-deposit here.
@@ -283,8 +276,13 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IGauge(state.gauge).withdraw(tokenId);
         state = _swapAeroForPosition(state, aeroSplitBps);
         state = _addLiquidity(state, tokenId, deadline);
+        uint256 token0BeforeDeposit = IERC20(state.token0).balanceOf(address(this));
+        uint256 token1BeforeDeposit = IERC20(state.token1).balanceOf(address(this));
         nonfungiblePositionManager.approve(state.gauge, tokenId);
         IGauge(state.gauge).deposit(tokenId);
+        // Aerodrome deposit can realize NFT fees to msg.sender; forward those user-owned proceeds before
+        // accounting for compounding leftovers so they do not become protocol-withdrawable dust.
+        _sendDepositDeltas(state.token0, state.token1, state.owner, token0BeforeDeposit, token1BeforeDeposit);
         _sendLeftoversAndRewards(state);
 
         emit RewardsCompounded(tokenId, state.owner, state.aeroAmount, state.amountAdded0, state.amountAdded1);
@@ -352,6 +350,23 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     function _sendAeroIfAny(address recipient, uint256 amount) internal {
         if (amount != 0) {
             aeroToken.safeTransfer(recipient, amount);
+        }
+    }
+
+    function _sendDepositDeltas(
+        address token0,
+        address token1,
+        address recipient,
+        uint256 token0Before,
+        uint256 token1Before
+    ) internal {
+        uint256 token0After = IERC20(token0).balanceOf(address(this));
+        uint256 token1After = IERC20(token1).balanceOf(address(this));
+        if (token0After > token0Before) {
+            IERC20(token0).safeTransfer(recipient, token0After - token0Before);
+        }
+        if (token1After > token1Before) {
+            IERC20(token1).safeTransfer(recipient, token1After - token1Before);
         }
     }
 

@@ -521,6 +521,36 @@ contract GaugeManagerUnitTest is Test {
         assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
 
+    function testCompoundRewardsForwardsDepositRealizedFeesToOwner() external {
+        _stake();
+
+        // USDC routes directly through AERO/USDC; DAI routes through the position pool (USDC/DAI).
+        gauge.setPayoutConfig(address(usdc), address(dai), 7 ether, 11 ether, 0, 0);
+        usdc.mint(address(gauge), 7 ether);
+        dai.mint(address(gauge), 11 ether);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        npm.setNextIncreaseLiquidityResult(30 ether, 40 ether);
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1);
+
+        uint256 rewardX64 = gaugeManager.totalRewardX64();
+        uint256 q64 = 2 ** 64;
+        uint256 rewardAmount0 = amountAdded0 * rewardX64 / q64;
+        uint256 rewardAmount1 = amountAdded1 * rewardX64 / q64;
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(amountAdded0, 30 ether);
+        assertEq(amountAdded1, 40 ether);
+        assertEq(usdc.balanceOf(ALICE), 7 ether + 40 ether - amountAdded0 - rewardAmount0);
+        assertEq(dai.balanceOf(ALICE), 11 ether + 60 ether - amountAdded1 - rewardAmount1);
+        assertEq(usdc.balanceOf(address(gaugeManager)), rewardAmount0);
+        assertEq(dai.balanceOf(address(gaugeManager)), rewardAmount1);
+    }
+
     function testCompoundRewardsUsesDirectRouteWhenTargetHasConfiguredBasePool() external {
         uint256 tokenId = 2;
         npm.setPosition(tokenId, address(usdc), address(weth), 100, -60, 60, 10);
