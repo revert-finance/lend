@@ -49,6 +49,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
 
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant WETH = 0x4200000000000000000000000000000000000006;
+    address constant CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
     address constant AERO = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
 
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
@@ -67,6 +68,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     address internal wethUsdcGauge;
     address internal aeroUsdcPool;
     address internal aeroWethPool;
+    address internal aeroCbbtcPool;
 
     function setUp() external {
         uint256 forkId = vm.createFork(_baseRpc(), BASE_FORK_BLOCK);
@@ -96,13 +98,18 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         }
         wethUsdcFlashPool = IUniswapV3Pool(flashPoolAddress);
 
-        aeroUsdcPool = IAerodromeSlipstreamFactory(factory).getPool(AERO, USDC, 100);
+        aeroUsdcPool = IAerodromeSlipstreamFactory(factory).getPool(AERO, USDC, 2000);
         if (aeroUsdcPool == address(0)) {
             revert InvalidPool();
         }
 
         aeroWethPool = IAerodromeSlipstreamFactory(factory).getPool(AERO, WETH, 200);
         if (aeroWethPool == address(0)) {
+            revert InvalidPool();
+        }
+
+        aeroCbbtcPool = IAerodromeSlipstreamFactory(factory).getPool(AERO, CBBTC, 200);
+        if (aeroCbbtcPool == address(0)) {
             revert InvalidPool();
         }
 
@@ -121,6 +128,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         gaugeManager.setGauge(poolAddress, wethUsdcGauge);
         gaugeManager.setRewardBasePool(USDC, aeroUsdcPool);
         gaugeManager.setRewardBasePool(WETH, aeroWethPool);
+        gaugeManager.setRewardBasePool(CBBTC, aeroCbbtcPool);
         vault.setGaugeManager(address(gaugeManager));
 
         autoRange = new AutoRangeAndCompound(NPM, OPERATOR, OPERATOR, 60, 200, address(0), address(0));

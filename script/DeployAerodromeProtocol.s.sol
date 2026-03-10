@@ -41,8 +41,9 @@ contract DeployAerodromeProtocol is Script {
     // Base Slipstream pools
     address internal constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;
     address internal constant CBBTC_USDC_POOL = 0x4e962BB3889Bf030368F56810A9c96B83CB3E778;
-    address internal constant AERO_USDC_POOL = 0xa4FDd479eda160671636e2eCF8f993Cbf86258a8;
+    address internal constant AERO_USDC_POOL = 0xBE00fF35AF70E8415D0eB605a286D8A45466A4c1;
     address internal constant AERO_WETH_POOL = 0x82321f3BEB69f503380D6B233857d5C43562e2D0;
+    address internal constant AERO_CBBTC_POOL = 0xdFe5F275020def30993f042174Fc2D335678b626;
 
     function run() external {
         _validateDeploymentConfig();
@@ -69,6 +70,7 @@ contract DeployAerodromeProtocol is Script {
             new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
         gaugeManager.setRewardBasePool(USDC, AERO_USDC_POOL);
         gaugeManager.setRewardBasePool(WETH, AERO_WETH_POOL);
+        gaugeManager.setRewardBasePool(CBBTC, AERO_CBBTC_POOL);
 
         LeverageTransformer leverageTransformer = new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
@@ -169,6 +171,7 @@ contract DeployAerodromeProtocol is Script {
         _validatePool(CBBTC_USDC_POOL, CBBTC, USDC);
         _validatePool(AERO_USDC_POOL, AERO, USDC);
         _validatePool(AERO_WETH_POOL, AERO, WETH);
+        _validatePool(AERO_CBBTC_POOL, AERO, CBBTC);
     }
 
     function _validatePool(address pool, address tokenA, address tokenB) internal view {
