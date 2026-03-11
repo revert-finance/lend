@@ -435,6 +435,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             // would break supported integrations. Safety relies on transform-mode scoping + final custody checks.
             // if in transform mode - and a new position is sent - current position is replaced and returned
             if (tokenId != oldTokenId) {
+                // Replacement migrations are only safe for freshly introduced tokenIds. Reusing a token that already
+                // has vault ownership or debt state would overwrite its live loan accounting.
+                if (tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0) {
+                    revert Unauthorized();
+                }
+
                 address owner = tokenOwner[oldTokenId];
 
                 // set transformed token to new one

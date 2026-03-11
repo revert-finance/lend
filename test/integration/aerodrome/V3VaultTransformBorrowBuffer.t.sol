@@ -42,10 +42,45 @@ contract DirectNFTTransferTransformer {
     }
 }
 
+contract TransformUnstakeExistingLoanTransformer {
+    function execute(address attacker, uint256 tokenIdToUnstake) external {
+        ReplacementDebtOverwriteAttacker(attacker).onTransformCallback(tokenIdToUnstake);
+    }
+}
+
+contract ReplacementDebtOverwriteAttacker {
+    V3Vault internal immutable vault;
+
+    constructor(V3Vault _vault) {
+        vault = _vault;
+    }
+
+    function borrow(uint256 tokenId, uint256 amount) external {
+        vault.borrow(tokenId, amount);
+    }
+
+    function stake(uint256 tokenId) external {
+        vault.stakePosition(tokenId);
+    }
+
+    function transform(uint256 tokenId, address transformer, bytes calldata data) external {
+        vault.transform(tokenId, transformer, data);
+    }
+
+    function remove(uint256 tokenId, address recipient) external {
+        vault.remove(tokenId, recipient, "");
+    }
+
+    function onTransformCallback(uint256 tokenIdToUnstake) external {
+        vault.unstakePosition(tokenIdToUnstake);
+    }
+}
+
 contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
     BorrowDuringTransformTransformer internal transformer;
     UnexpectedNFTTransferTransformer internal unexpectedNftTransformer;
     DirectNFTTransferTransformer internal directNftTransformer;
+    TransformUnstakeExistingLoanTransformer internal unstakeExistingLoanTransformer;
 
     function setUp() public override {
         super.setUp();
@@ -58,6 +93,9 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
 
         directNftTransformer = new DirectNFTTransferTransformer(npm);
         vault.setTransformer(address(directNftTransformer), true);
+
+        unstakeExistingLoanTransformer = new TransformUnstakeExistingLoanTransformer();
+        vault.setTransformer(address(unstakeExistingLoanTransformer), true);
 
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
@@ -185,5 +223,73 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(npm.ownerOf(newTokenId), address(vault));
         assertEq(npm.ownerOf(tokenId), address(vault));
+    }
+
+    function testTransformCannotReplaceWithExistingIndebtedToken() external {
+        vm.warp(block.timestamp + 1);
+        uint256 tokenIdA = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50000e6,
+            50000e18
+        );
+
+        vm.warp(block.timestamp + 1);
+        uint256 tokenIdX = createPositionProper(
+            bob,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50000e6,
+            50000e18
+        );
+
+        ReplacementDebtOverwriteAttacker attacker = new ReplacementDebtOverwriteAttacker(vault);
+
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenIdA);
+        vault.create(tokenIdA, address(attacker));
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        npm.approve(address(vault), tokenIdX);
+        vault.create(tokenIdX, address(attacker));
+        vm.stopPrank();
+
+        attacker.stake(tokenIdX);
+        assertEq(gaugeManager.tokenIdToGauge(tokenIdX), address(usdcDaiGauge));
+        assertEq(npm.ownerOf(tokenIdX), address(usdcDaiGauge));
+
+        (, , uint256 collateralValue, ,) = vault.loanInfo(tokenIdX);
+        uint256 borrowAmount = collateralValue * uint256(vault.BORROW_SAFETY_BUFFER_X32()) / Q32 / 2;
+        assertGt(borrowAmount, 0);
+
+        attacker.borrow(tokenIdX, borrowAmount);
+        uint256 debtSharesBefore = vault.loans(tokenIdX);
+        uint256 debtSharesTotalBefore = vault.debtSharesTotal();
+        assertGt(debtSharesBefore, 0);
+
+        vm.expectRevert(Constants.TransformFailed.selector);
+        attacker.transform(
+            tokenIdA,
+            address(unstakeExistingLoanTransformer),
+            abi.encodeCall(TransformUnstakeExistingLoanTransformer.execute, (address(attacker), tokenIdX))
+        );
+
+        assertEq(vault.loans(tokenIdX), debtSharesBefore, "existing debt must remain attached to X");
+        assertEq(vault.debtSharesTotal(), debtSharesTotalBefore, "global debt accounting must remain unchanged");
+        assertEq(gaugeManager.tokenIdToGauge(tokenIdX), address(usdcDaiGauge), "X should remain staked after revert");
+        assertEq(npm.ownerOf(tokenIdX), address(usdcDaiGauge), "X custody should remain in the gauge after revert");
+
+        vm.expectRevert(Constants.NeedsRepay.selector);
+        attacker.remove(tokenIdX, alice);
     }
 }
