@@ -5,19 +5,61 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 // base contracts
-import "../../src/V3Oracle.sol";
-import "../../src/V3Vault.sol";
-import "../../src/InterestRateModel.sol";
+import "../../../src/V3Oracle.sol";
+import "../../../src/V3Vault.sol";
+import "../../../src/InterestRateModel.sol";
 
 // transformers
-import "../../src/transformers/LeverageTransformer.sol";
-import "../../src/transformers/V3Utils.sol";
-import "../../src/transformers/AutoRange.sol";
-import "../../src/transformers/AutoCompound.sol";
+import "../../../src/transformers/LeverageTransformer.sol";
+import "../../../src/transformers/V3Utils.sol";
+import "../../../src/transformers/AutoRangeAndCompound.sol";
 
-import "../../src/utils/FlashloanLiquidator.sol";
+import "../../../src/utils/FlashloanLiquidator.sol";
 
-import "../../src/utils/Constants.sol";
+import "../../../src/utils/Constants.sol";
+
+contract MockFlashPoolInfo {
+    address public immutable token0;
+    address public immutable token1;
+    uint24 public immutable fee;
+
+    constructor(address _token0, address _token1, uint24 _fee) {
+        token0 = _token0;
+        token1 = _token1;
+        fee = _fee;
+    }
+}
+
+contract BorrowDuringTransformTransformer {
+    function execute(address vault, uint256 tokenId, uint256 amount) external {
+        IVault(vault).borrow(tokenId, amount);
+    }
+}
+
+contract MockNoopGaugeManager {
+    mapping(address => address) public poolToGauge;
+    mapping(uint256 => address) public tokenIdToGauge;
+
+    function setGauge(address, address) external {}
+    function stakePosition(uint256) external {}
+    function unstakePosition(uint256) external {}
+
+    function unstakeIfStaked(uint256) external pure returns (bool wasStaked) {
+        return false;
+    }
+
+    function claimRewards(uint256, address) external pure returns (uint256 aeroAmount) {
+        return 0;
+    }
+
+    function compoundRewards(uint256, uint256, uint256, uint256)
+        external
+        pure
+        returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
+    {
+        return (0, 0, 0);
+    }
+}
 
 contract V3VaultIntegrationTest is Test {
     uint256 constant Q32 = 2 ** 32;
@@ -35,7 +77,6 @@ contract V3VaultIntegrationTest is Test {
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
     address UNIVERSAL_ROUTER = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD;
-    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     address constant CHAINLINK_USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address constant CHAINLINK_DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
@@ -44,9 +85,11 @@ contract V3VaultIntegrationTest is Test {
     address constant UNISWAP_DAI_USDC = 0x5777d92f208679DB4b9778590Fa3CAB3aC9e2168; // 0.01% pool
     address constant UNISWAP_ETH_USDC = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640; // 0.05% pool
     address constant UNISWAP_DAI_USDC_005 = 0x6c6Bc977E13Df9b0de53b251522280BB72383700; // 0.05% pool
+    address constant UNISWAP_DAI_WETH_03 = 0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8; // 0.3% pool
 
     address constant TEST_NFT_ACCOUNT = 0x3b8ccaa89FcD432f1334D35b10fF8547001Ce3e5;
     uint256 constant TEST_NFT = 126; // DAI/USDC 0.05% - in range (-276330/-276320)
+    uint256 constant TEST_NFT_USDC_WETH = 37; // USDC/WETH 0.3% - out of range (192180/193380)
 
     address constant TEST_NFT_ACCOUNT_2 = 0x454CE089a879F7A0d0416eddC770a47A1F47Be99;
     uint256 constant TEST_NFT_2 = 1047; // DAI/USDC 0.05% - in range (-276330/-276320)
@@ -64,10 +107,7 @@ contract V3VaultIntegrationTest is Test {
     V3Oracle oracle;
 
     function setUp() external {
-        string memory ANKR_RPC = string.concat(
-            "https://rpc.ankr.com/eth/",
-            vm.envString("ANKR_API_KEY")
-        );
+        string memory ANKR_RPC = string.concat("https://rpc.ankr.com/eth/", vm.envString("ANKR_API_KEY"));
         mainnetFork = vm.createFork(ANKR_RPC, 18521658);
         vm.selectFork(mainnetFork);
 
@@ -105,8 +145,7 @@ contract V3VaultIntegrationTest is Test {
             50000
         );
 
-        vault =
-            new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
+        vault = new V3Vault("Revert Lend USDC", "rlUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(address(USDC), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor / max 100% collateral value
         vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor / max 100% collateral value
         vault.setTokenConfig(address(WETH), uint32(Q32 * 9 / 10), type(uint32).max); // 90% collateral factor / max 100% collateral value
@@ -220,6 +259,47 @@ contract V3VaultIntegrationTest is Test {
         assertEq(vault.lendInfo(TEST_NFT_ACCOUNT), assets);
     }
 
+    function testERC4626ViewsAndMintPaths() external {
+        uint256 initialDeposit = 1_000_000;
+        uint256 mintShares = 200_000;
+
+        _deposit(initialDeposit, WHALE_ACCOUNT);
+
+        assertEq(vault.decimals(), IERC20Metadata(address(USDC)).decimals());
+        assertEq(vault.totalAssets(), initialDeposit);
+        assertEq(vault.convertToShares(500_000), 500_000);
+        assertEq(vault.convertToAssets(500_000), 500_000);
+        assertEq(vault.previewDeposit(123_456), 123_456);
+        assertEq(vault.previewMint(123_456), 123_456);
+        assertEq(vault.previewWithdraw(123_456), 123_456);
+        assertEq(vault.previewRedeem(123_456), 123_456);
+        assertGt(vault.maxDeposit(WHALE_ACCOUNT), 0);
+        assertGt(vault.maxMint(WHALE_ACCOUNT), 0);
+        assertEq(vault.maxWithdraw(WHALE_ACCOUNT), initialDeposit);
+        assertEq(vault.maxRedeem(WHALE_ACCOUNT), initialDeposit);
+
+        vm.prank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), mintShares);
+        vm.prank(WHALE_ACCOUNT);
+        uint256 assetsIn = vault.mint(mintShares, WHALE_ACCOUNT);
+        assertEq(assetsIn, mintShares);
+        assertEq(vault.balanceOf(WHALE_ACCOUNT), initialDeposit + mintShares);
+    }
+
+    function testWithdrawRevertsWhenExceedingOwnerAssets() external {
+        uint256 amount = 1_000_000;
+
+        vm.startPrank(WHALE_ACCOUNT);
+        USDC.approve(address(vault), amount * 2);
+        vault.deposit(amount, WHALE_ACCOUNT);
+        vault.deposit(amount, TEST_NFT_ACCOUNT_2);
+        vm.stopPrank();
+
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert();
+        vault.withdraw(amount + 1, WHALE_ACCOUNT, WHALE_ACCOUNT);
+    }
+
     // fuzz testing deposit amount
     function testDeposit(uint256 amount) external {
         uint256 balance = USDC.balanceOf(WHALE_ACCOUNT);
@@ -245,7 +325,6 @@ contract V3VaultIntegrationTest is Test {
 
     // fuzz testing withdraw amount
     function testWithdraw(uint256 amount) external {
-
         // 0 borrow loan
         _setupBasicLoan(false);
 
@@ -340,11 +419,11 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         vault.repay(TEST_NFT, amount, isShare);
     }
-    
-    function testTransformWithdrawCollect() external {
+
+    function testTransformWithdrawCollectRequiresBorrowBuffer() external {
         _setupBasicLoan(true);
 
-        V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
+        V3Utils v3Utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(v3Utils), true);
         v3Utils.setVault(address(vault));
 
@@ -377,6 +456,7 @@ contract V3VaultIntegrationTest is Test {
             ""
         );
 
+        vm.expectRevert(Constants.CollateralFail.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         vault.transform(TEST_NFT, address(v3Utils), abi.encodeCall(V3Utils.execute, (TEST_NFT, inst)));
     }
@@ -384,7 +464,7 @@ contract V3VaultIntegrationTest is Test {
     function testTransformChangeRange() external {
         _setupBasicLoan(true);
 
-        V3Utils v3Utils = new V3Utils(NPM, UNIVERSAL_ROUTER, EX0x, PERMIT2);
+        V3Utils v3Utils = new V3Utils(NPM, UNIVERSAL_ROUTER, EX0x);
         vault.setTransformer(address(v3Utils), true);
         v3Utils.setVault(address(vault));
 
@@ -435,6 +515,8 @@ contract V3VaultIntegrationTest is Test {
             abi.encode(true)
         );
 
+        _repay(500000, TEST_NFT_ACCOUNT, TEST_NFT, false);
+
         (uint256 oldDebt,,,,) = vault.loanInfo(TEST_NFT);
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -463,75 +545,48 @@ contract V3VaultIntegrationTest is Test {
     }
 
     function testTransformAutoCompoundOutsideVault() external {
-        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
 
         // test compounding when not in vault
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
+        vm.expectRevert(Constants.NotConfigured.selector);
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         vm.prank(TEST_NFT_ACCOUNT);
-        NPM.approve(address(autoCompound), TEST_NFT);
+        NPM.approve(address(autoRange), TEST_NFT);
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoRange.configToken(TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
 
         vm.prank(WHALE_ACCOUNT);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
     }
 
     function testTransformAutoCompoundInsideVault() external {
-        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
-        vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault));
-
-        _setupBasicLoan(true);
-
-        vm.expectRevert(Constants.Unauthorized.selector);
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
-
-        // direct auto-compound when in vault fails
-        vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert("Not approved");
-        autoCompound.execute(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp));
-
-        // user hasnt approved automator
-        vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(Constants.Unauthorized.selector);
-        autoCompound.executeWithVault(AutoCompound.ExecuteParams(TEST_NFT, false, 0, block.timestamp), address(vault));
-
-        vm.prank(TEST_NFT_ACCOUNT);
-        vault.approveTransform(TEST_NFT, address(autoCompound), true);
-
-        // repay partially
-        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
-
-        // autocompound with swap
-        vm.prank(WHALE_ACCOUNT);
-        autoCompound.executeWithVault(
-            AutoCompound.ExecuteParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
-        );
-    }
-
-    function testTransformAutoRangeAutoCompoundInsideVault() external {
-        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
 
         _setupBasicLoan(true);
 
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0));
+        autoRange.configToken(
+            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+        );
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompoundWithVault(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault));
+        autoRange.autoCompoundWithVault(
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault)
+        );
 
         vm.prank(TEST_NFT_ACCOUNT);
         vault.approveTransform(TEST_NFT, address(autoRange), true);
@@ -542,19 +597,60 @@ contract V3VaultIntegrationTest is Test {
         // autocompound with swap
         vm.prank(WHALE_ACCOUNT);
         autoRange.autoCompoundWithVault(
-            AutoRange.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
         );
     }
 
-    function testTransformAutoRangeInsideVault() external {
-        AutoRange autoRange = new AutoRange(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+    function testTransformAutoRangeAutoCompoundInsideVault() external {
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
 
         _setupBasicLoan(true);
 
-        AutoRange.ExecuteParams memory params =
-            AutoRange.ExecuteParams(TEST_NFT, false, 0, "", 0, 0, 0, 0, block.timestamp, 0);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        autoRange.configToken(
+            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+        );
+
+        // direct auto-compound when in vault fails
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert("Not approved");
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+
+        // user hasnt approved automator
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.autoCompoundWithVault(
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault)
+        );
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.approveTransform(TEST_NFT, address(autoRange), true);
+
+        // repay partially
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
+
+        // autocompound with swap
+        vm.prank(WHALE_ACCOUNT);
+        autoRange.autoCompoundWithVault(
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
+        );
+    }
+
+    function testTransformAutoRangeInsideVault() external {
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
+
+        _setupBasicLoan(true);
+        _repay(1000000, TEST_NFT_ACCOUNT, TEST_NFT, false);
+
+        AutoRangeAndCompound.ExecuteParams memory params =
+            AutoRangeAndCompound.ExecuteParams(TEST_NFT, false, 0, "", 0, 0, 0, 0, block.timestamp, 0);
 
         vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.execute(params);
@@ -568,13 +664,28 @@ contract V3VaultIntegrationTest is Test {
         vault.approveTransform(TEST_NFT, address(autoRange), true);
 
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(vault), AutoRange.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0));
+        autoRange.configToken(
+            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
+        );
+
+        (uint256 oldDebt,,,,) = vault.loanInfo(TEST_NFT);
 
         uint256 previousDAI = DAI.balanceOf(TEST_NFT_ACCOUNT);
 
         // autorange
         vm.prank(WHALE_ACCOUNT);
-        autoRange.executeWithVault(params, address(vault));
+        autoRange.executeWithVaultAndRewardCompound(
+            params,
+            address(vault),
+            IVault.RewardCompoundParams({
+                minAeroReward: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp
+            })
+        );
+
+        // old token approval should be cleared even when tokenId gets replaced
+        assertEq(NPM.getApproved(TEST_NFT), address(0));
 
         // check leftover tokens were sent to real owner
         assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - previousDAI, 299539766920961007);
@@ -595,7 +706,7 @@ contract V3VaultIntegrationTest is Test {
         assertEq(newTokenId, 599811);
 
         (debt,,,,) = vault.loanInfo(newTokenId);
-        assertEq(debt, 8403870);
+        assertEq(debt, oldDebt);
         assertEq(NPM.ownerOf(newTokenId), address(vault));
         assertEq(vault.ownerOf(newTokenId), TEST_NFT_ACCOUNT);
     }
@@ -693,16 +804,27 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, block.timestamp));
 
         vm.prank(WHALE_ACCOUNT);
         USDC.approve(address(vault), liquidationCost);
 
+        // Freeze daily limit baseline for this timestamp so liquidation assertion is not affected by day-rollover reset.
+        vault.setLimits(
+            vault.minLoanSize(),
+            vault.globalLendLimit(),
+            vault.globalDebtLimit(),
+            vault.dailyLendIncreaseLimitMin(),
+            vault.dailyDebtIncreaseLimitMin()
+        );
+
         uint256 daiBalance = DAI.balanceOf(WHALE_ACCOUNT);
         uint256 usdcBalance = USDC.balanceOf(WHALE_ACCOUNT);
+        uint256 dailyDebtLimitBeforeLiquidation = vault.dailyDebtIncreaseLimitLeft();
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT, 0, 0, WHALE_ACCOUNT, block.timestamp));
+        assertEq(vault.dailyDebtIncreaseLimitLeft(), dailyDebtLimitBeforeLiquidation + liquidationCost);
 
         // DAI and USDC were sent to liquidator
         assertEq(
@@ -789,11 +911,62 @@ contract V3VaultIntegrationTest is Test {
         assertEq(liquidationValue, 2);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, block.timestamp));
 
         // all debt is payed
         assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
         assertEq(vault.debtSharesTotal(), 0);
+    }
+
+    function testDailyDebtLimitRescalesAfterHaircut() external {
+        // lend 10 USDC
+        _deposit(10000000, WHALE_ACCOUNT);
+
+        // use a dynamic daily debt cap (10% of lent base) without min floor
+        vault.setLimits(0, 15000000, 15000000, 12000000, 0);
+
+        (, uint256 lentBeforeHaircut,,,,) = vault.vaultInfo();
+        uint256 preHaircutDailyCap = lentBeforeHaircut * vault.MAX_DAILY_DEBT_INCREASE_X32() / Q32;
+        uint256 borrowAmount = vault.dailyDebtIncreaseLimitLeft();
+        assertApproxEqAbs(borrowAmount, preHaircutDailyCap, 1);
+
+        // add collateral
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT_DAI_WETH);
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.create(TEST_NFT_DAI_WETH, TEST_NFT_DAI_WETH_ACCOUNT);
+
+        // consume full daily borrow cap
+        vm.prank(TEST_NFT_DAI_WETH_ACCOUNT);
+        vault.borrow(TEST_NFT_DAI_WETH, borrowAmount);
+        assertEq(vault.dailyDebtIncreaseLimitLeft(), 0);
+
+        // next day: liquidation resets daily cap first, then reserve socialization haircut is applied
+        vm.warp(block.timestamp + 1 days);
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+        vm.mockCall(
+            CHAINLINK_DAI_USD,
+            abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
+            abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
+        );
+        vm.mockCall(
+            CHAINLINK_ETH_USD,
+            abi.encodeWithSelector(AggregatorV3Interface.latestRoundData.selector),
+            abi.encode(uint80(0), int256(1), block.timestamp, block.timestamp, uint80(0))
+        );
+
+        (,,, uint256 liquidationCost,) = vault.loanInfo(TEST_NFT_DAI_WETH);
+        assertEq(liquidationCost, 0);
+
+        vm.prank(WHALE_ACCOUNT);
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, block.timestamp));
+
+        (, uint256 lentAfterHaircut,,,,) = vault.vaultInfo();
+        uint256 postHaircutDailyCap = lentAfterHaircut * vault.MAX_DAILY_DEBT_INCREASE_X32() / Q32;
+        uint256 limitLeftAfterHaircut = vault.dailyDebtIncreaseLimitLeft();
+
+        assertLt(postHaircutDailyCap, preHaircutDailyCap);
+        assertApproxEqAbs(limitLeftAfterHaircut, postHaircutDailyCap, 1);
     }
 
     function testLiquidationWithZeroCollateralFactor() external {
@@ -833,7 +1006,7 @@ contract V3VaultIntegrationTest is Test {
         USDC.approve(address(vault), liquidationCost);
 
         vm.prank(WHALE_ACCOUNT);
-        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, "", block.timestamp));
+        vault.liquidate(IVault.LiquidateParams(TEST_NFT_DAI_WETH, 0, 0, WHALE_ACCOUNT, block.timestamp));
 
         // all debt is payed
         assertEq(vault.loans(TEST_NFT_DAI_WETH), 0);
@@ -906,6 +1079,112 @@ contract V3VaultIntegrationTest is Test {
 
         //  NFT was returned to owner
         assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+    }
+
+    function testFlashloanCallbackUnauthorized() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(UNISWAP_DAI_USDC),
+            USDC,
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+
+        vm.expectRevert(Constants.Unauthorized.selector);
+        liquidator.uniswapV3FlashCallback(0, 0, abi.encode(data));
+    }
+
+    function testFlashloanPoolInitiatedCallbackUnauthorized() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(UNISWAP_DAI_USDC),
+            USDC,
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+
+        vm.expectRevert();
+        IUniswapV3Pool(UNISWAP_DAI_USDC).flash(address(liquidator), 0, 0, abi.encode(data));
+    }
+
+    function testFlashloanCallbackRejectsInvalidAssetInPoolContext() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(UNISWAP_DAI_USDC),
+            WETH, // not part of DAI/USDC flash pool
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+        bytes memory callbackData = abi.encode(data);
+
+        vm.store(address(liquidator), bytes32(uint256(0)), bytes32(uint256(uint160(UNISWAP_DAI_USDC))));
+        vm.store(address(liquidator), bytes32(uint256(1)), keccak256(callbackData));
+
+        vm.prank(UNISWAP_DAI_USDC);
+        vm.expectRevert(Constants.InvalidPool.selector);
+        liquidator.uniswapV3FlashCallback(0, 0, callbackData);
+    }
+
+    function testFlashloanCallbackRejectsPoolNotFromFactory() external {
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+        MockFlashPoolInfo fakePool = new MockFlashPoolInfo(address(DAI), address(USDC), 500);
+
+        FlashloanLiquidator.FlashCallbackData memory data = FlashloanLiquidator.FlashCallbackData(
+            TEST_NFT,
+            0,
+            vault,
+            IUniswapV3Pool(address(fakePool)),
+            USDC,
+            Swapper.RouterSwapParams(DAI, USDC, 0, 0, ""),
+            Swapper.RouterSwapParams(WETH, USDC, 0, 0, ""),
+            address(this),
+            0,
+            block.timestamp
+        );
+        bytes memory callbackData = abi.encode(data);
+
+        vm.store(address(liquidator), bytes32(uint256(0)), bytes32(uint256(uint160(address(fakePool)))));
+        vm.store(address(liquidator), bytes32(uint256(1)), keccak256(callbackData));
+
+        vm.prank(address(fakePool));
+        vm.expectRevert(Constants.Unauthorized.selector);
+        liquidator.uniswapV3FlashCallback(0, 0, callbackData);
+    }
+
+    function testLiquidationWithFlashloanRevertsForInvalidFlashPool() external {
+        _setupBasicLoan(true);
+        interestRateModel.setValues(Q64 / 10, Q64 * 2, Q64 * 2, 0);
+        vm.warp(block.timestamp + 15 days);
+
+        FlashloanLiquidator liquidator = new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
+
+        vm.expectRevert(Constants.InvalidPool.selector);
+        liquidator.liquidate(
+            FlashloanLiquidator.LiquidateParams(
+                TEST_NFT, vault, IUniswapV3Pool(UNISWAP_DAI_WETH_03), 0, "", 0, "", 0, block.timestamp
+            )
+        );
     }
 
     function testCollateralValueLimit() external {
@@ -1102,6 +1381,34 @@ contract V3VaultIntegrationTest is Test {
         vault.setLimits(0, 0, 0, 0, 0);
     }
 
+    function testSetGaugeManagerOnlyOnce() external {
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vault.setGaugeManager(address(0));
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vault.setGaugeManager(address(0x123456));
+
+        address firstManager = address(new MockNoopGaugeManager());
+        vault.setGaugeManager(firstManager);
+        assertEq(vault.gaugeManager(), firstManager);
+
+        vm.expectRevert(Constants.GaugeManagerAlreadySet.selector);
+        vault.setGaugeManager(address(0x789ABC));
+    }
+
+    function testSetReserveFactorMaxValueKeepsInterestMathHealthy() external {
+        vault.setReserveFactor(type(uint32).max);
+        assertEq(vault.reserveFactorX32(), type(uint32).max);
+
+        _setupBasicLoan(true);
+        vm.warp(block.timestamp + 3 days);
+
+        (uint256 debt, uint256 lent, uint256 balance,,,) = vault.vaultInfo();
+        assertGt(debt, 0);
+        assertGt(lent, 0);
+        assertGt(balance, 0);
+    }
+
     function testReserves() external {
         vault.setReserveFactor(uint32(Q32 / 10)); // 10%
         vault.setReserveProtectionFactor(uint32(Q32 / 100)); // 1%
@@ -1226,84 +1533,37 @@ contract V3VaultIntegrationTest is Test {
 
         vaultBalance = USDC.balanceOf(address(vault));
         lent = vault.lendInfo(WHALE_ACCOUNT);
-        
-        if (lent > vaultBalance && withdraw > vaultBalance && lent > 0) {
+
+        if (withdraw > vaultBalance) {
             vm.expectRevert(Constants.InsufficientLiquidity.selector);
+        } else if (withdraw > lent) {
+            vm.expectRevert();
         }
         vm.prank(WHALE_ACCOUNT);
         vault.withdraw(withdraw, WHALE_ACCOUNT, WHALE_ACCOUNT);
     }
 
-    function testDepositAndRepayWithPermit2() external {
-        uint256 amount = 1000000;
-        uint256 privateKey = 123;
-        address addr = vm.addr(privateKey);
-
-        // give coins
-        vm.deal(addr, 1 ether);
-        vm.prank(WHALE_ACCOUNT);
-        USDC.transfer(addr, amount * 2);
-
-        vm.prank(addr);
-        USDC.approve(PERMIT2, type(uint256).max);
-
-        ISignatureTransfer.PermitTransferFrom memory tf = ISignatureTransfer.PermitTransferFrom(
-            ISignatureTransfer.TokenPermissions(address(USDC), amount), 1, block.timestamp
-        );
-        bytes memory signature = _getPermitTransferFromSignature(tf, privateKey, address(vault));
-        bytes memory permitData = abi.encode(tf, signature);
-
-        assertEq(vault.lendInfo(addr), 0);
-
-        vm.prank(addr);
-        vault.deposit(amount, addr, permitData);
-        assertEq(vault.lendInfo(addr), 1000000);
-
+    function testCreateRevertsWithZeroRecipient() external {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(vault), TEST_NFT);
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
-        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
-        vm.prank(TEST_NFT_ACCOUNT);
-        vault.borrow(TEST_NFT, amount);
-
-        (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, 1000000);
-
-        tf = ISignatureTransfer.PermitTransferFrom(
-            ISignatureTransfer.TokenPermissions(address(USDC), amount), 2, block.timestamp
-        );
-        signature = _getPermitTransferFromSignature(tf, privateKey, address(vault));
-        permitData = abi.encode(tf, signature);
-
-        vm.prank(addr);
-        vault.repay(TEST_NFT, amount, false, permitData);
-
-        (debt,,,,) = vault.loanInfo(TEST_NFT);
-        assertEq(debt, 0);
+        vault.create(TEST_NFT, address(0));
     }
 
-    function _getPermitTransferFromSignature(
-        ISignatureTransfer.PermitTransferFrom memory permit,
-        uint256 privateKey,
-        address to
-    ) internal returns (bytes memory sig) {
-        bytes32 _PERMIT_TRANSFER_FROM_TYPEHASH = keccak256(
-            "PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
-        );
-        bytes32 _TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
-        bytes32 tokenPermissions = keccak256(abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted));
-        bytes32 msgHash = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                IPermit2(PERMIT2).DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(_PERMIT_TRANSFER_FROM_TYPEHASH, tokenPermissions, to, permit.nonce, permit.deadline)
-                )
-            )
-        );
+    function testStakeRevertsIfGaugeManagerDidNotTakeCustody() external {
+        _setupBasicLoan(false);
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, msgHash);
-        return bytes.concat(r, s, bytes1(v));
+        MockNoopGaugeManager noopGaugeManager = new MockNoopGaugeManager();
+        vault.setGaugeManager(address(noopGaugeManager));
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.stakePosition(TEST_NFT);
+
+        assertEq(NPM.ownerOf(TEST_NFT), address(vault));
+        assertEq(NPM.getApproved(TEST_NFT), address(0));
     }
 
     function testTransformExploit() external {
@@ -1316,17 +1576,19 @@ contract V3VaultIntegrationTest is Test {
         uint256 EXPLOITER_NFT = TEST_NFT_2;
 
         // Set up an auto-compound transformer
-        AutoCompound autoCompound = new AutoCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100);
-        vault.setTransformer(address(autoCompound), true);
-        autoCompound.setVault(address(vault));
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        vault.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vault));
 
         // Set fee to 2%
-        autoCompound.setReward(uint64(Q64 / 50));
+        autoRange.setAutoCompoundReward(uint64(Q64 / 50));
 
         // Alice decides to delegate her position to
         // Revert bots (outside of vault) to be auto-compounded
-        vm.prank(ALICE_ACCOUNT);
-        NPM.approve(address(autoCompound), ALICE_NFT);
+        vm.startPrank(ALICE_ACCOUNT);
+        NPM.approve(address(autoRange), ALICE_NFT);
+        autoRange.configToken(ALICE_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
+        vm.stopPrank();
 
         // Exploiter opens a position in the Vault
         vm.startPrank(EXPLOITER_ACCOUNT);
@@ -1335,13 +1597,32 @@ contract V3VaultIntegrationTest is Test {
         vm.stopPrank();
 
         // Exploiter passes ALICE_NFT as param
-        AutoCompound.ExecuteParams memory params = AutoCompound.ExecuteParams(ALICE_NFT, false, 0, block.timestamp);
+        AutoRangeAndCompound.AutoCompoundParams memory params = AutoRangeAndCompound.AutoCompoundParams(ALICE_NFT, false, 0, block.timestamp);
 
         // Exploiter account uses his own token to pass validation
         // but transforms Alice position
         vm.expectRevert(Constants.TransformFailed.selector);
         vm.prank(EXPLOITER_ACCOUNT);
-        vault.transform(EXPLOITER_NFT, address(autoCompound), abi.encodeCall(AutoCompound.execute, (params)));
+        vault.transform(EXPLOITER_NFT, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+    }
+
+    function testTransformBorrowIncreaseRequiresBorrowBuffer() external {
+        BorrowDuringTransformTransformer transformer = new BorrowDuringTransformTransformer();
+        vault.setTransformer(address(transformer), true);
+
+        _setupBasicLoan(false);
+
+        // Collateral value for TEST_NFT is ~8.846179 USDC at this fork block.
+        // 8.5 USDC would be healthy without buffer, but exceeds the 95% borrow safety buffer.
+        uint256 riskyBorrowAmount = 8_500_000;
+
+        vm.expectRevert(Constants.CollateralFail.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.transform(
+            TEST_NFT,
+            address(transformer),
+            abi.encodeCall(BorrowDuringTransformTransformer.execute, (address(vault), TEST_NFT, riskyBorrowAmount))
+        );
     }
 
     function test_LeverageDown() public {
@@ -1384,5 +1665,107 @@ contract V3VaultIntegrationTest is Test {
 
         vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
         vm.stopPrank();
+    }
+
+    function test_LeverageUp() public {
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
+        vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
+
+        _deposit(10_000_000, WHALE_ACCOUNT);
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT);
+        vault.create(TEST_NFT, TEST_NFT_ACCOUNT);
+
+        uint256 amountIn0 = 500_000;
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(
+            address(leverageTransformer),
+            amountIn0,
+            1,
+            abi.encodePacked(address(USDC), uint24(500), address(DAI)),
+            false
+        );
+        inputs[1] = abi.encode(address(USDC), address(leverageTransformer), 0);
+        bytes memory swapData0 =
+            abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
+
+        LeverageTransformer.LeverageUpParams memory params = LeverageTransformer.LeverageUpParams({
+            tokenId: TEST_NFT,
+            borrowAmount: 1_000_000,
+            amountIn0: amountIn0,
+            amountOut0Min: 1,
+            swapData0: swapData0,
+            amountIn1: 0,
+            amountOut1Min: 0,
+            swapData1: "",
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            recipient: TEST_NFT_ACCOUNT,
+            deadline: block.timestamp
+        });
+
+        vault.transform(
+            TEST_NFT,
+            address(leverageTransformer),
+            abi.encodeWithSelector(LeverageTransformer.leverageUp.selector, params)
+        );
+        vm.stopPrank();
+
+        (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
+        assertGt(debt, 0);
+        assertEq(vault.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+    }
+
+    function test_LeverageUpWithAssetAsToken0() public {
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
+        vault.setTransformer(address(leverageTransformer), true);
+        leverageTransformer.setVault(address(vault));
+
+        _deposit(10_000_000, WHALE_ACCOUNT);
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        NPM.approve(address(vault), TEST_NFT_USDC_WETH);
+        vault.create(TEST_NFT_USDC_WETH, TEST_NFT_ACCOUNT);
+
+        uint256 amountIn1 = 500_000;
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(
+            address(leverageTransformer),
+            amountIn1,
+            1,
+            abi.encodePacked(address(USDC), uint24(500), address(WETH)),
+            false
+        );
+        inputs[1] = abi.encode(address(USDC), address(leverageTransformer), 0);
+        bytes memory swapData1 =
+            abi.encode(UNIVERSAL_ROUTER, abi.encode(Swapper.UniversalRouterData(hex"0004", inputs, block.timestamp)));
+
+        LeverageTransformer.LeverageUpParams memory params = LeverageTransformer.LeverageUpParams({
+            tokenId: TEST_NFT_USDC_WETH,
+            borrowAmount: 1_000_000,
+            amountIn0: 0,
+            amountOut0Min: 0,
+            swapData0: "",
+            amountIn1: amountIn1,
+            amountOut1Min: 1,
+            swapData1: swapData1,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            recipient: TEST_NFT_ACCOUNT,
+            deadline: block.timestamp
+        });
+
+        vault.transform(
+            TEST_NFT_USDC_WETH,
+            address(leverageTransformer),
+            abi.encodeWithSelector(LeverageTransformer.leverageUp.selector, params)
+        );
+        vm.stopPrank();
+
+        (uint256 debt,,,,) = vault.loanInfo(TEST_NFT_USDC_WETH);
+        assertGt(debt, 0);
+        assertEq(vault.ownerOf(TEST_NFT_USDC_WETH), TEST_NFT_ACCOUNT);
     }
 }

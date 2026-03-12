@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../../lib/AggregatorV3Interface.sol";
 import "v3-core/libraries/FullMath.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title Helper contract which allows to combine 2 chainlink feeds into 1 like wstETH/ETH and ETH/USD
 contract ChainlinkFeedCombinator is AggregatorV3Interface {
@@ -41,7 +42,9 @@ contract ChainlinkFeedCombinator is AggregatorV3Interface {
 
         // only do calculation with valid values - otherwise returns 0
         if (firstAnswer > 0 && secondAnswer > 0) {
-            answer = int256(FullMath.mulDiv(uint256(firstAnswer), uint256(secondAnswer), firstDecimalsDivisor));
+            answer = SafeCast.toInt256(
+                FullMath.mulDiv(SafeCast.toUint256(firstAnswer), SafeCast.toUint256(secondAnswer), firstDecimalsDivisor)
+            );
         }
     }
 

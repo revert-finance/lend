@@ -8,8 +8,7 @@ import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 
 import "../src/transformers/V3Utils.sol";
-import "../src/transformers/AutoRange.sol";
-import "../src/transformers/AutoCompound.sol";
+import "../src/transformers/AutoRangeAndCompound.sol";
 import "../src/transformers/LeverageTransformer.sol";
 
 import "../src/automators/AutoExit.sol";
@@ -24,7 +23,6 @@ contract DeployArbitrum is Script {
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
     address UNIVERSAL_ROUTER = 0x5E325eDA8064b456f4781070C0738d849c824258;
-    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // initially supported coins
     address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
@@ -41,7 +39,7 @@ contract DeployArbitrum is Script {
 
     function run() external {
         vm.startBroadcast();
-        
+
         // 5% base rate - after 80% - 109% (like in compound v2 deployed)
         InterestRateModel interestRateModel = new InterestRateModel(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 * 80 / 100);
 
@@ -124,12 +122,13 @@ contract DeployArbitrum is Script {
             200
         );
 
-        V3Vault vault = new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle, IPermit2(PERMIT2));
+        V3Vault vault =
+            new V3Vault("Revert Lend Arbitrum USDC", "rlArbUSDC", address(USDC), NPM, interestRateModel, oracle);
         vault.setTokenConfig(USDC, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDC_E, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(USDT, uint32(Q32 * 850 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value
         vault.setTokenConfig(DAI, uint32(Q32 * 850 / 1000), type(uint32).max); // max 100% collateral value
-        vault.setTokenConfig(WETH, uint32(Q32 *  775 / 1000), type(uint32).max); // max 100% collateral value
+        vault.setTokenConfig(WETH, uint32(Q32 * 775 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(WBTC, uint32(Q32 * 775 / 1000), type(uint32).max); // max 100% collateral value
         vault.setTokenConfig(ARB, uint32(Q32 * 600 / 1000), uint32(Q32 * 20 / 100)); // max 20% collateral value
         vault.setTokenConfig(WSTETH, uint32(Q32 * 725 / 1000), type(uint32).max); // max 100% collateral value
@@ -138,24 +137,20 @@ contract DeployArbitrum is Script {
         vault.setReserveFactor(uint32(Q32 * 10 / 100));
         vault.setReserveProtectionFactor(uint32(Q32 * 5 / 100));
 
-        new FlashloanLiquidator(NPM, EX0x, UNIVERSAL_ROUTER);
+        new FlashloanLiquidator(NPM, UNIVERSAL_ROUTER, EX0x);
 
         // deploy transformers and automators
         V3Utils v3Utils = V3Utils(payable(0xcfd55ac7647454Ea0F7C4c9eC231e0A282B30980));
         v3Utils.setVault(address(vault));
         vault.setTransformer(address(v3Utils), true);
 
-        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, EX0x, UNIVERSAL_ROUTER);
+        LeverageTransformer leverageTransformer = new LeverageTransformer(NPM, UNIVERSAL_ROUTER, EX0x);
         leverageTransformer.setVault(address(vault));
         vault.setTransformer(address(leverageTransformer), true);
-        
-        AutoRange autoRange = AutoRange(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
+
+        AutoRangeAndCompound autoRange = AutoRangeAndCompound(payable(0x5ff2195BA28d2544AeD91e30e5f74B87d4F158dE));
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
- 
-        AutoCompound autoCompound = AutoCompound(payable(0x9D97c76102E72883CD25Fa60E0f4143516d5b6db));
-        autoCompound.setVault(address(vault));
-        vault.setTransformer(address(autoCompound), true);
 
         //AutoExit autoExit = AutoExit();
 

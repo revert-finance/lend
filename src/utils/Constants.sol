@@ -63,4 +63,9 @@ abstract contract Constants {
     error NotEnoughReward();
     error SameRange();
     error NotSupportedFeeTier();
+
+    error GaugeManagerNotSet();
+    error GaugeManagerAlreadySet();
+    error NotDepositor();
+    error NotStaked();
 }

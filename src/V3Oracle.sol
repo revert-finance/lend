@@ -7,7 +7,6 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
 import "v3-core/libraries/TickMath.sol";
 
-import "v3-periphery/libraries/PoolAddress.sol";
 import "v3-periphery/libraries/LiquidityAmounts.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
@@ -20,6 +19,7 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
+import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./utils/Constants.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
@@ -93,11 +93,12 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
     /// @dev all involved tokens must be configured in oracle - otherwise reverts
     /// @param tokenId tokenId of position
     /// @param token address of token in which value and prices should be given
+    /// @param ignoreFees if true, skips fee-growth fee calculation and returns feeValue as 0
     /// @return value value of complete position at current oracle prices
     /// @return feeValue value of positions fees only at current oracle prices
     /// @return price0X96 price of token0
     /// @return price1X96 price of token1
-    function getValue(uint256 tokenId, address token)
+    function getValue(uint256 tokenId, address token, bool ignoreFees)
         external
         view
         override
@@ -106,7 +107,11 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         PositionState memory state = _loadPositionState(tokenId);
         _populatePrices(state);
         (uint256 amount0, uint256 amount1) = _getAmounts(state);
-        (uint128 fees0, uint128 fees1) = _getFees(state);
+        uint128 fees0;
+        uint128 fees1;
+        if (!ignoreFees) {
+            (fees0, fees1) = _getFees(state);
+        }
 
         // get price of quote token
         uint256 priceTokenX96;
@@ -119,10 +124,39 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
 
         // calculate outputs
-        value = (state.price0X96 * (amount0 + fees0) + state.price1X96 * (amount1 + fees1)) / priceTokenX96;
-        feeValue = (state.price0X96 * fees0 + state.price1X96 * fees1) / priceTokenX96;
-        price0X96 = state.price0X96 * Q96 / priceTokenX96;
-        price1X96 = state.price1X96 * Q96 / priceTokenX96;
+        uint256 amount0WithFees = amount0 + fees0;
+        uint256 amount1WithFees = amount1 + fees1;
+        value = _sumMulDiv(state.price0X96, amount0WithFees, state.price1X96, amount1WithFees, priceTokenX96);
+        if (!ignoreFees) {
+            feeValue = _sumMulDiv(state.price0X96, fees0, state.price1X96, fees1, priceTokenX96);
+        }
+        price0X96 = FullMath.mulDiv(state.price0X96, Q96, priceTokenX96);
+        price1X96 = FullMath.mulDiv(state.price1X96, Q96, priceTokenX96);
+    }
+
+    /// @notice Quotes an arbitrary token amount into another configured token
+    /// @dev Reverts when either token lacks usable oracle configuration
+    function getTokenValue(address tokenIn, uint256 amountIn, address tokenOut)
+        external
+        view
+        override
+        returns (uint256 value)
+    {
+        if (amountIn == 0 || tokenIn == tokenOut) {
+            return amountIn;
+        }
+
+        uint256 cachedChainlinkReferencePriceX96;
+        uint256 priceInX96;
+        uint256 priceOutX96;
+        (priceInX96, cachedChainlinkReferencePriceX96) =
+            _getReferenceTokenPriceX96(tokenIn, cachedChainlinkReferencePriceX96);
+        (priceOutX96,) = _getReferenceTokenPriceX96(tokenOut, cachedChainlinkReferencePriceX96);
+        value = FullMath.mulDiv(amountIn, priceInX96, priceOutX96);
+    }
+
+    function isTokenConfigured(address token) external view override returns (bool configured) {
+        configured = token == referenceToken || feedConfigs[token].mode != Mode.NOT_SET;
     }
 
     function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000)
@@ -225,15 +259,21 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         TokenConfig memory config;
 
         if (token != referenceToken) {
-            address token0 = pool.token0();
-            address token1 = pool.token1();
-            if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {
-                revert InvalidPool();
+            if (mode == Mode.CHAINLINK) {
+                config = TokenConfig(
+                    feed, maxFeedAge, feedDecimals, tokenDecimals, 0, IUniswapV3Pool(address(0)), false, mode, 0
+                );
+            } else {
+                address token0 = pool.token0();
+                address token1 = pool.token1();
+                if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {
+                    revert InvalidPool();
+                }
+                bool isToken0 = token0 == token;
+                config = TokenConfig(
+                    feed, maxFeedAge, feedDecimals, tokenDecimals, twapSeconds, pool, isToken0, mode, maxDifference
+                );
             }
-            bool isToken0 = token0 == token;
-            config = TokenConfig(
-                feed, maxFeedAge, feedDecimals, tokenDecimals, twapSeconds, pool, isToken0, mode, maxDifference
-            );
         } else {
             config = TokenConfig(
                 feed, maxFeedAge, feedDecimals, tokenDecimals, 0, IUniswapV3Pool(address(0)), false, Mode.CHAINLINK, 0
@@ -381,7 +421,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
             revert ChainlinkPriceError();
         }
 
-        return uint256(answer) * Q96 / (10 ** feedConfig.feedDecimals);
+        return SafeCast.toUint256(answer) * Q96 / (10 ** feedConfig.feedDecimals);
     }
 
     // calculates TWAP price given feedConfig
@@ -402,17 +442,16 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint160 sqrtPriceX96;
         // if twap seconds set to 0 just use pool price
         if (twapSeconds == 0) {
-            (sqrtPriceX96,,,,,,) = pool.slot0();
+            (sqrtPriceX96,) = _getPoolSlot0(pool);
         } else {
             uint32[] memory secondsAgos = new uint32[](2);
             secondsAgos[0] = 0; // from (before)
             secondsAgos[1] = twapSeconds; // from (before)
             (int56[] memory tickCumulatives,) = pool.observe(secondsAgos); // pool observe may fail when there is not enough history available (only use pool with enough history!)
-            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
-            if (
-                tickCumulatives[0] - tickCumulatives[1] < 0
-                    && (tickCumulatives[0] - tickCumulatives[1]) % int32(twapSeconds) != 0
-            ) tick--;
+            int56 delta = tickCumulatives[0] - tickCumulatives[1];
+            int256 twapSecondsInt = int256(uint256(twapSeconds));
+            int24 tick = SafeCast.toInt24(int256(delta) / twapSecondsInt);
+            if (delta < 0 && int256(delta) % twapSecondsInt != 0) tick--;
             sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
         }
 
@@ -469,7 +508,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         state.tokensOwed0 = tokensOwed0;
         state.tokensOwed1 = tokensOwed1;
         state.pool = _getPool(token0, token1, fee);
-        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
+        (state.sqrtPriceX96, state.tick) = _getPoolSlot0(state.pool);
     }
 
     // gets prices according to oracle configuration (this reverts if any price is configured wrongly)
@@ -483,7 +522,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         // this prevents manipulations of pool to get distorted proportions of collateral tokens - for borrowing
         // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
         // will move price back to reasonable range and enable liquidation
-        uint256 derivedPoolPriceX96 = state.price0X96 * Q96 / state.price1X96;
+        uint256 derivedPoolPriceX96 = FullMath.mulDiv(state.price0X96, Q96, state.price1X96);
 
         // current pool price
         uint256 priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
@@ -491,6 +530,19 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
         // calculate derived sqrt price
         state.derivedSqrtPriceX96 = SafeCast.toUint160(Math.sqrt(derivedPoolPriceX96) * (2 ** 48));
+    }
+
+    function _sumMulDiv(uint256 a, uint256 b, uint256 c, uint256 d, uint256 denominator)
+        internal
+        pure
+        returns (uint256 result)
+    {
+        uint256 q1 = FullMath.mulDiv(a, b, denominator);
+        uint256 q2 = FullMath.mulDiv(c, d, denominator);
+        uint256 r1 = mulmod(a, b, denominator);
+        uint256 r2 = mulmod(c, d, denominator);
+
+        result = q1 + q2 + (r1 + r2) / denominator;
     }
 
     // calculate position amounts given derived price from oracle
@@ -547,8 +599,10 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint256 feeGrowthGlobal0X128,
         uint256 feeGrowthGlobal1X128
     ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
-        (,, uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128,,,,) = pool.ticks(tickLower);
-        (,, uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128,,,,) = pool.ticks(tickUpper);
+        (uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128) =
+            _getFeeGrowthOutside(pool, tickLower);
+        (uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128) =
+            _getFeeGrowthOutside(pool, tickUpper);
 
         // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
         unchecked {
@@ -565,8 +619,80 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         }
     }
 
+    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (uint160 sqrtPriceX96, int24 tick) {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
+        if (!success || data.length < 64) {
+            revert InvalidPool();
+        }
+
+        uint256 word0;
+        uint256 word1;
+        assembly ("memory-safe") {
+            word0 := mload(add(data, 32))
+            word1 := mload(add(data, 64))
+        }
+
+        sqrtPriceX96 = SafeCast.toUint160(word0);
+        // slot0() ABI-encodes signed int24 as a sign-extended 32-byte word.
+        assembly ("memory-safe") {
+            tick := signextend(2, word1)
+        }
+    }
+
+    function _getFeeGrowthOutside(IUniswapV3Pool pool, int24 tick)
+        internal
+        view
+        returns (uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128)
+    {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.ticks.selector, tick));
+        if (!success) {
+            revert InvalidPool();
+        }
+
+        // Uniswap v3 ticks() => 8 outputs.
+        if (data.length == 256) {
+            (, , feeGrowthOutside0X128, feeGrowthOutside1X128,,,,) =
+                abi.decode(data, (uint128, int128, uint256, uint256, int56, uint160, uint32, bool));
+            return (feeGrowthOutside0X128, feeGrowthOutside1X128);
+        }
+
+        // Aerodrome Slipstream ticks() => 10 outputs (extra staked/reward fields).
+        if (data.length == 320) {
+            (, , , feeGrowthOutside0X128, feeGrowthOutside1X128,,,,,) =
+                abi.decode(data, (uint128, int128, int128, uint256, uint256, uint256, int56, uint160, uint32, bool));
+            return (feeGrowthOutside0X128, feeGrowthOutside1X128);
+        }
+
+        revert InvalidPool();
+    }
+
     // helper method to get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(factory, PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+        // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in positions().fee.
+        (bool success, bytes memory data) = factory.staticcall(
+            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, _toTickSpacing(fee))
+        );
+        if (success && data.length >= 32) {
+            address poolAddress = abi.decode(data, (address));
+            if (poolAddress != address(0)) {
+                return IUniswapV3Pool(poolAddress);
+            }
+        }
+
+        // Uniswap v3 uses getPool(tokenA, tokenB, fee).
+        (success, data) = factory.staticcall(
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee)
+        );
+        if (success && data.length >= 32) {
+            return IUniswapV3Pool(abi.decode(data, (address)));
+        }
+
+        return IUniswapV3Pool(address(0));
+    }
+
+    function _toTickSpacing(uint24 fee) internal pure returns (int24 tickSpacing) {
+        assembly ("memory-safe") {
+            tickSpacing := fee
+        }
     }
 }
