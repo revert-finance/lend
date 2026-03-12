@@ -3,17 +3,16 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 
-/// @title AutoRangeAndCompound
-/// @notice Allows operator of AutoRangeAndCompound contract (Revert controlled bot) to change range for configured positions
+/// @title AutoRange
+/// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
 /// And optionally to autocompound position (depending on configuration)
 /// Positions need to be approved (setApprovalForAll) for the contract and configured with configToken method
 /// When executed a new position is created and automatically configured the same way as the original position
 /// When position is inside Vault - transform is called
-contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
+contract AutoRange is Transformer, Automator, ReentrancyGuard {
     event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
     event PositionConfigured(
         uint256 indexed tokenId,
@@ -25,10 +24,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         uint64 token1SlippageX64,
         bool onlyFees,
         bool autoCompound,
-        uint64 maxRewardX64,
-        uint128 autoCompoundMin0,
-        uint128 autoCompoundMin1,
-        uint128 autoCompoundRewardMin
+        uint64 maxRewardX64
     );
     event AutoCompounded(
         uint256 indexed tokenId,
@@ -51,11 +47,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         uint16 _maxTWAPTickDifference,
         address _universalRouter,
         address _zeroxAllowanceHolder
-    )
-        Automator(
-            _npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder
-        )
-    {}
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {}
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
@@ -70,9 +62,6 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         bool onlyFees; // if only fees maybe used for protocol reward
         bool autoCompound; // if this position can be autocompounded
         uint64 maxRewardX64; // max allowed reward percentage of fees or full position
-        uint128 autoCompoundMin0; // min amount0 to add in autoCompound increaseLiquidity
-        uint128 autoCompoundMin1; // min amount1 to add in autoCompound increaseLiquidity
-        uint128 autoCompoundRewardMin; // min claimed AERO when pre-compounding staked rewards
     }
 
     // configured tokens
@@ -121,7 +110,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     // reward handling for autocompound
-    uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
+    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
     uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
 
     /**
@@ -133,25 +122,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)));
-    }
-
-    /**
-     * @notice Adjust token in a vault and compound staked gauge rewards first (if position is currently staked)
-     * Can only be called from configured operator account - vault must be configured as well
-     */
-    function executeWithVaultAndRewardCompound(
-        ExecuteParams calldata params,
-        address vault,
-        IVault.RewardCompoundParams calldata rewardParams
-    ) external {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
-        IVault(vault)
-            .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)), rewardParams
-            );
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.execute, (params)));
     }
 
     /**
@@ -196,13 +167,13 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             state.amount1 -= state.protocolReward1;
         }
 
-        if (params.amountIn > (params.swap0To1 ? state.amount0 : state.amount1)) {
+        if (params.amountIn > (params.swap0To1 ? state.amount0: state.amount1)) {
             revert SwapAmountTooLarge();
         }
 
         // get pool info
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
+        (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
 
         if (
             state.currentTick < state.tickLower - config.lowerTickLimit
@@ -211,15 +182,15 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             // check TWAP deviation (this is done for swap and non-swap operations)
             // operation is only allowed when price is close to TWAP price to prevent sandwich attacks
             state.amountOutMin = _validateSwap(
-                params.swap0To1,
-                params.amountIn,
-                state.pool,
-                state.currentTick,
-                state.sqrtPriceX96,
-                TWAPSeconds,
-                maxTWAPTickDifference,
-                params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
-            );
+                    params.swap0To1,
+                    params.amountIn,
+                    state.pool,
+                    state.currentTick,
+                    state.sqrtPriceX96,
+                    TWAPSeconds,
+                    maxTWAPTickDifference,
+                    params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
+                );
 
             if (params.amountIn != 0) {
                 (state.amountInDelta, state.amountOutDelta) = _routerSwap(
@@ -238,10 +209,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                     params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
 
                 // update tick
-                (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
+                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
             }
 
-            int24 tickSpacing = IAerodromeSlipstreamPool(address(state.pool)).tickSpacing();
+            int24 tickSpacing = _getTickSpacing(state.fee);
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             if (
@@ -263,22 +234,18 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 SafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
                 state.maxAddAmount0,
                 state.maxAddAmount1,
-                params.amountAddMin0,
-                params.amountAddMin1,
+                params.amountAddMin0, 
+                params.amountAddMin1, 
                 address(this), // is sent to real recipient aftwards
                 params.deadline
             );
 
             // approve npm
-            SafeERC20.safeIncreaseAllowance(
-                IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0
-            );
-            SafeERC20.safeIncreaseAllowance(
-                IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1
-            );
+            SafeERC20.safeIncreaseAllowance(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
+            SafeERC20.safeIncreaseAllowance(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
 
             // mint is done to address(this) first - its not a safemint
-            (state.newTokenId,, state.amountAdded0, state.amountAdded1) = _mintPosition(mintParams);
+            (state.newTokenId,, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.mint(mintParams);
 
             // remove remaining approval
             SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
@@ -323,15 +290,12 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 config.token1SlippageX64,
                 config.onlyFees,
                 config.autoCompound,
-                config.maxRewardX64,
-                config.autoCompoundMin0,
-                config.autoCompoundMin1,
-                config.autoCompoundRewardMin
+                config.maxRewardX64
             );
 
             // delete config for old position
             delete positionConfigs[params.tokenId];
-            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0);
+            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0);
 
             emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
@@ -384,31 +348,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRange.autoCompound, (params)));
     }
 
-    /**
-     * @notice Autocompound position in a vault and compound staked gauge rewards first (if position is currently staked)
-     * Can only be called from configured operator account - vault must be configured as well
-     */
-    function autoCompoundWithVaultAndRewardCompound(
-        AutoCompoundParams calldata params,
-        address vault,
-        IVault.RewardCompoundParams calldata rewardParams
-    ) external {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
-        PositionConfig memory config = positionConfigs[params.tokenId];
-        IVault.RewardCompoundParams memory adjustedRewardParams = rewardParams;
-        adjustedRewardParams.minAeroReward = config.autoCompoundRewardMin;
-        IVault(vault)
-            .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)), adjustedRewardParams
-            );
-    }
-
-    /**
+     /**
      * @notice Autocompound position directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
@@ -421,6 +364,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 revert Unauthorized();
             }
         }
+
 
         PositionConfig memory config = positionConfigs[params.tokenId];
         if (!config.autoCompound) {
@@ -436,11 +380,6 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             )
         );
 
-        // Minimum fee thresholds gate autocompound execution.
-        if (state.amount0 < config.autoCompoundMin0 || state.amount1 < config.autoCompoundMin1) {
-            revert NotEnoughReward();
-        }
-
         // get position info
         (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
             nonfungiblePositionManager.positions(params.tokenId);
@@ -452,7 +391,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             // if a swap is requested - check TWAP oracle
             if (amountIn != 0) {
                 IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
-                (state.sqrtPriceX96, state.tick) = _getPoolSlot0(pool);
+                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
 
                 // how many seconds are needed for TWAP protection
                 uint32 tSecs = TWAPSeconds;
@@ -484,13 +423,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
             // deposit liquidity into tokenId
             if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
+                
                 // approve npm
-                SafeERC20.safeIncreaseAllowance(
-                    IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0
-                );
-                SafeERC20.safeIncreaseAllowance(
-                    IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1
-                );
+                SafeERC20.safeIncreaseAllowance(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
+                SafeERC20.safeIncreaseAllowance(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
 
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -514,6 +450,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             if (vaults[state.owner]) {
                 state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
             }
+
 
             // return remaining tokens for owner
             state.amount0 = state.amount0 - state.compounded0 - state.amount0Fees;
@@ -559,10 +496,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             config.token1SlippageX64,
             config.onlyFees,
             config.autoCompound,
-            config.maxRewardX64,
-            config.autoCompoundMin0,
-            config.autoCompoundMin1,
-            config.autoCompoundRewardMin
+            config.maxRewardX64
         );
     }
 
@@ -576,5 +510,22 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         }
         totalRewardX64 = _totalRewardX64;
         emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
+    }
+
+    // get tick spacing for fee tier (cached when possible)
+    function _getTickSpacing(uint24 fee) internal view returns (int24) {
+        if (fee == 10000) {
+            return 200;
+        } else if (fee == 3000) {
+            return 60;
+        } else if (fee == 500) {
+            return 10;
+        } else {
+            int24 spacing = IUniswapV3Factory(factory).feeAmountTickSpacing(fee);
+            if (spacing <= 0) {
+                revert NotSupportedFeeTier();
+            }
+            return spacing;
+        }
     }
 }

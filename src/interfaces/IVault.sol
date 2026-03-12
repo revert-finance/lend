@@ -38,27 +38,11 @@ interface IVault is IERC4626 {
     function loanAtIndex(address owner, uint256 index) external view returns (uint256);
 
     function create(uint256 tokenId, address recipient) external;
+    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external;
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
-
-    struct RewardCompoundParams {
-        uint256 minAeroReward;
-        uint256 aeroSplitBps;
-        uint256 deadline;
-    }
-
-    function transformWithRewardCompound(
-        uint256 tokenId,
-        address transformer,
-        bytes calldata data,
-        RewardCompoundParams calldata rewardParams
-    ) external returns (uint256 newTokenId);
-
-    function gaugeManager() external view returns (address);
-    function setGaugeManager(address _gaugeManager) external;
-    function stakePosition(uint256 tokenId) external;
-    function unstakePosition(uint256 tokenId) external;
 
     // params for decreasing liquidity of collateralized position
     struct DecreaseLiquidityAndCollectParams {
@@ -80,6 +64,9 @@ interface IVault is IERC4626 {
 
     function borrow(uint256 tokenId, uint256 amount) external;
     function repay(uint256 tokenId, uint256 amount, bool isShare) external returns (uint256 assets, uint256 shares);
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
+        external
+        returns (uint256 assets, uint256 shares);
 
     struct LiquidateParams {
         // token to liquidate
@@ -89,9 +76,15 @@ interface IVault is IERC4626 {
         uint256 amount1Min;
         // recipient of rewarded tokens
         address recipient;
+        // if permit2 signatures are used - set this
+        bytes permitData;
         // for uniswap functions
         uint256 deadline;
     }
 
     function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);
+
+    // deposit functions with permit2
+    function deposit(uint256 assets, address receiver, bytes calldata permitData) external returns (uint256);
+    function mint(uint256 shares, address receiver, bytes calldata permitData) external returns (uint256);
 }

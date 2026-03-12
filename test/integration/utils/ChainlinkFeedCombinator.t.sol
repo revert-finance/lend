@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "../../../../src/utils/ChainlinkFeedCombinator.sol";
-import "../../../../lib/AggregatorV3Interface.sol";
+import "../../../src/utils/ChainlinkFeedCombinator.sol";
+import "../../../lib/AggregatorV3Interface.sol";
 
 
 contract ChainlinkFeedCombinatorTest is Test {
@@ -36,9 +36,5 @@ contract ChainlinkFeedCombinatorTest is Test {
 
         (, answer, , , ) = combinator.latestRoundData();
         assertEq(answer, 352030917342);
-    }
-
-    function testDecimals() external {
-        assertEq(combinator.decimals(), ETH_USD_FEED.decimals());
     }
 }

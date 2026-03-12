@@ -18,10 +18,11 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/utils/Multicall.sol";
 
+import "permit2/interfaces/IPermit2.sol";
+
 import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
-import "./interfaces/IGaugeManager.sol";
 import "./utils/Constants.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
@@ -30,17 +31,17 @@ import "./utils/Constants.sol";
 contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Constants {
     using Math for uint256;
 
-    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = 3_865_470_566; // floor(Q32 * 90 / 100)
+    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); // 90%
 
-    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = 85_899_345; // floor(Q32 * 2 / 100)
-    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = 429_496_729; // floor(Q32 * 10 / 100)
+    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100); // 2%
+    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 10 / 100); // 10%
 
-    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = 42_949_672; // floor(Q32 / 100)
+    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
 
-    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = 429_496_729; // floor(Q32 / 10)
-    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = 429_496_729; // floor(Q32 / 10)
+    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); //10%
+    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
 
-    uint256 public constant BORROW_SAFETY_BUFFER_X32 = 4_080_218_931; // floor(Q32 * 95 / 100)
+    uint256 public constant BORROW_SAFETY_BUFFER_X32 = uint32(Q32 * 95 / 100); //95% of collateral value
 
     /// @notice Uniswap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
@@ -53,6 +54,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @notice oracle implementation
     IV3Oracle public immutable oracle;
+
+    /// @notice permit2 contract
+    IPermit2 public immutable permit2;
 
     /// @notice underlying asset for lending / borrowing
     address public immutable override asset;
@@ -100,7 +104,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
 
     event SetEmergencyAdmin(address emergencyAdmin);
-    event SetGaugeManager(address indexed gaugeManager);
 
     // configured tokens
     struct TokenConfig {
@@ -146,12 +149,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list (for removal without loop)
     mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
 
-    // transform-mode sentinel. Intentionally used instead of a global nonReentrant modifier so trusted transformers
-    // can call back into borrow() for the same token during transform in a single transaction.
     uint256 public override transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
-    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRangeAndCompound contract)
+    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
 
     // last time exchange rate was updated
     uint64 public lastExchangeRateUpdate;
@@ -168,7 +169,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
-    address public gaugeManager;
 
     constructor(
         string memory name,
@@ -176,7 +176,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         address _asset,
         INonfungiblePositionManager _nonfungiblePositionManager,
         IInterestRateModel _interestRateModel,
-        IV3Oracle _oracle
+        IV3Oracle _oracle,
+        IPermit2 _permit2
     ) ERC20(name, symbol) {
         asset = _asset;
         assetDecimals = IERC20Metadata(_asset).decimals();
@@ -184,6 +185,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
         interestRateModel = _interestRateModel;
         oracle = _oracle;
+        permit2 = _permit2;
     }
 
     ////////////////// EXTERNAL VIEW FUNCTIONS
@@ -229,7 +231,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @return liquidationCost If position is liquidatable - cost to liquidate position - otherwise 0
     /// @return liquidationValue If position is liquidatable - the value of the (partial) position which the liquidator recieves - otherwise 0
     function loanInfo(uint256 tokenId)
-        public
+        external
         view
         override
         returns (
@@ -281,11 +283,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC4626
 
     /// @inheritdoc IERC4626
-    function totalAssets() external view override returns (uint256) {
-        (uint256 debtExchangeRateX96,) = _calculateGlobalInterest();
-        // Round debt up to avoid understating liabilities in share pricing/accounting.
-        uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
-        return IERC20(asset).balanceOf(address(this)) + debt;
+    function totalAssets() public view override returns (uint256) {
+        return IERC20(asset).balanceOf(address(this));
     }
 
     /// @inheritdoc IERC4626
@@ -303,49 +302,86 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @inheritdoc IERC4626
     function maxDeposit(address) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        return _maxDepositAssets(lendExchangeRateX96);
+        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+        if (value >= globalLendLimit) {
+            return 0;
+        } else {
+            uint256 maxGlobalDeposit = globalLendLimit - value;
+            if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
+                return dailyLendIncreaseLimitLeft;
+            } else {
+                return maxGlobalDeposit;
+            }
+        }
     }
 
     /// @inheritdoc IERC4626
     function maxMint(address) external view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        uint256 maxGlobalDeposit = _maxDepositAssets(lendExchangeRateX96);
-        return _convertToShares(maxGlobalDeposit, lendExchangeRateX96, Math.Rounding.Down);
+        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+        if (value >= globalLendLimit) {
+            return 0;
+        } else {
+            uint256 maxGlobalDeposit = globalLendLimit - value;
+            if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
+                return _convertToShares(dailyLendIncreaseLimitLeft, lendExchangeRateX96, Math.Rounding.Down);
+            } else {
+                return _convertToShares(maxGlobalDeposit, lendExchangeRateX96, Math.Rounding.Down);
+            }
+        }
     }
 
     /// @inheritdoc IERC4626
     function maxWithdraw(address owner) external view override returns (uint256) {
         (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        return _maxWithdrawAssets(owner, debtExchangeRateX96, lendExchangeRateX96);
+
+        uint256 ownerShareBalance = balanceOf(owner);
+        uint256 ownerAssetBalance = _convertToAssets(ownerShareBalance, lendExchangeRateX96, Math.Rounding.Down);
+
+        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+        if (balance > ownerAssetBalance) {
+            return ownerAssetBalance;
+        } else {
+            return balance;
+        }
     }
 
     /// @inheritdoc IERC4626
     function maxRedeem(address owner) external view override returns (uint256) {
         (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
-        uint256 assets = _maxWithdrawAssets(owner, debtExchangeRateX96, lendExchangeRateX96);
-        return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
+
+        uint256 ownerShareBalance = balanceOf(owner);
+
+        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
+        uint256 shareBalance = _convertToShares(balance, lendExchangeRateX96, Math.Rounding.Down);
+
+        if (shareBalance > ownerShareBalance) {
+            return ownerShareBalance;
+        } else {
+            return shareBalance;
+        }
     }
 
     /// @inheritdoc IERC4626
-    function previewDeposit(uint256 assets) external view override returns (uint256) {
+    function previewDeposit(uint256 assets) public view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
     }
 
     /// @inheritdoc IERC4626
-    function previewMint(uint256 shares) external view override returns (uint256) {
+    function previewMint(uint256 shares) public view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Up);
     }
 
     /// @inheritdoc IERC4626
-    function previewWithdraw(uint256 assets) external view override returns (uint256) {
+    function previewWithdraw(uint256 assets) public view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Up);
     }
 
     /// @inheritdoc IERC4626
-    function previewRedeem(uint256 shares) external view override returns (uint256) {
+    function previewRedeem(uint256 shares) public view override returns (uint256) {
         (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
         return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
     }
@@ -354,13 +390,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @inheritdoc IERC4626
     function deposit(uint256 assets, address receiver) external override returns (uint256) {
-        (, uint256 shares) = _deposit(receiver, assets, false);
+        (, uint256 shares) = _deposit(receiver, assets, false, "");
         return shares;
     }
 
     /// @inheritdoc IERC4626
     function mint(uint256 shares, address receiver) external override returns (uint256) {
-        (uint256 assets,) = _deposit(receiver, shares, true);
+        (uint256 assets,) = _deposit(receiver, shares, true, "");
         return assets;
     }
 
@@ -376,27 +412,45 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         return assets;
     }
 
+    // deposit using permit2 data
+    function deposit(uint256 assets, address receiver, bytes calldata permitData) external override returns (uint256) {
+        (, uint256 shares) = _deposit(receiver, assets, false, permitData);
+        return shares;
+    }
+
+    // mint using permit2 data
+    function mint(uint256 shares, address receiver, bytes calldata permitData) external override returns (uint256) {
+        (uint256 assets,) = _deposit(receiver, shares, true, permitData);
+        return assets;
+    }
+
     ////////////////// EXTERNAL FUNCTIONS
 
     /// @notice Creates a new collateralized position (transfer approved position)
     /// @param tokenId The token ID associated with the new position.
     /// @param recipient Address to recieve the position in the vault
     function create(uint256 tokenId, address recipient) external override {
-        if (recipient == address(0)) {
-            revert InvalidConfig();
-        }
+        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
+    }
+
+    /// @notice Creates a new collateralized position with a permit for token spending (transfer position with permit)
+    /// @param tokenId The token ID associated with the new position.
+    /// @param recipient Address to recieve the position in the vault
+    /// @param deadline Timestamp until which the permit is valid.
+    /// @param v Components of the signature for the permit.
+    /// @param r Components of the signature for the permit.
+    /// @param s Components of the signature for the permit.
+    function createWithPermit(uint256 tokenId, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        override
+    {
+        nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
         nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
     }
 
     /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
     /// @inheritdoc IERC721Receiver
-    function onERC721Received(
-        address,
-        /*operator*/
-        address from,
-        uint256 tokenId,
-        bytes calldata data
-    )
+    function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
         external
         override
         returns (bytes4)
@@ -411,36 +465,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 oldTokenId = transformedTokenId;
 
         if (oldTokenId == 0) {
-            // New deposit path.
-            if (tokenOwner[tokenId] == address(0)) {
-                address owner = from;
-                if (data.length != 0) {
-                    // NOTE FOR AUDITS:
-                    // Raw ERC721 deposits may override owner via callback data.
-                    // This is intentionally flexible for integrator/operator flows and is an accepted trust assumption:
-                    // whoever can trigger safeTransferFrom for the NFT can also choose the callback payload.
-                    owner = abi.decode(data, (address));
-                }
-                if (owner == address(0)) {
-                    revert InvalidConfig();
-                }
-                loans[tokenId] = Loan(0);
-                _addTokenToOwner(owner, tokenId);
-                emit Add(tokenId, owner, 0);
+            address owner = from;
+            if (data.length != 0) {
+                owner = abi.decode(data, (address));
             }
+            loans[tokenId] = Loan(0);
+
+            _addTokenToOwner(owner, tokenId);
+            emit Add(tokenId, owner, 0);
         } else {
-            // NOTE FOR AUDITS:
-            // We intentionally do not bind replacement-NFT migration to a specific operator contract here.
-            // Some valid transformers route NFT moves through helper/proxy contracts, so strict operator pinning
-            // would break supported integrations. Safety relies on transform-mode scoping + final custody checks.
             // if in transform mode - and a new position is sent - current position is replaced and returned
             if (tokenId != oldTokenId) {
-                // Replacement migrations are only safe for freshly introduced tokenIds. Reusing a token that already
-                // has vault ownership or debt state would overwrite its live loan accounting.
-                if (tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0) {
-                    revert Unauthorized();
-                }
-
                 address owner = tokenOwner[oldTokenId];
 
                 // set transformed token to new one
@@ -458,7 +493,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96);
 
                 // sets data of new loan
-                _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, debtShares);
+                _updateAndCheckCollateral(
+                    tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, debtShares
+                );
             }
         }
 
@@ -474,50 +511,26 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
         transformApprovals[msg.sender][tokenId][target] = isActive;
+
         emit ApprovedTransform(tokenId, msg.sender, target, isActive);
     }
 
+    /// @notice Method which allows a contract to transform a loan by changing it (and only at the end checking collateral)
+    /// @param tokenId The token ID to be processed
+    /// @param transformer The address of a whitelisted transformer contract
+    /// @param data Encoded transformation params
+    /// @return newTokenId Final token ID (may be different than input token ID when the position was replaced by transformation)
     function transform(uint256 tokenId, address transformer, bytes calldata data)
         external
         override
         returns (uint256 newTokenId)
     {
-        return _transform(tokenId, transformer, data, false, 0, 0, 0);
-    }
-
-    function transformWithRewardCompound(
-        uint256 tokenId,
-        address transformer,
-        bytes calldata data,
-        RewardCompoundParams calldata rewardParams
-    ) external override returns (uint256 newTokenId) {
-        return _transform(
-            tokenId,
-            transformer,
-            data,
-            true,
-            rewardParams.minAeroReward,
-            rewardParams.aeroSplitBps,
-            rewardParams.deadline
-        );
-    }
-
-    function _transform(
-        uint256 tokenId,
-        address transformer,
-        bytes calldata data,
-        bool compoundRewardsFirst,
-        uint256 minAeroReward,
-        uint256 aeroSplitBps,
-        uint256 deadline
-    ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
         }
         if (transformedTokenId != 0) {
             revert Reentrancy();
         }
-        // Enter scoped transform mode and block unrelated state-changing paths until reset below.
         transformedTokenId = tokenId;
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
@@ -528,15 +541,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
         }
-
-        if (
-            compoundRewardsFirst && gaugeManager != address(0)
-                && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)
-        ) {
-            IGaugeManager(gaugeManager).compoundRewards(tokenId, minAeroReward, aeroSplitBps, deadline);
-        }
-
-        bool wasStaked = _unstakeIfNeeded(tokenId);
 
         // give access to transformer
         nonfungiblePositionManager.approve(transformer, tokenId);
@@ -552,11 +556,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // if token has changed - and operator was approved for old token - take over for new token
         if (tokenId != newTokenId && transformApprovals[loanOwner][tokenId][msg.sender]) {
             transformApprovals[loanOwner][newTokenId][msg.sender] = true;
-            delete transformApprovals[loanOwner][tokenId][msg.sender];
         }
 
-        // NOTE FOR AUDITS:
-        // No operator-pinning is enforced by design for transformer flexibility; custody is enforced here.
         // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
         address owner = nonfungiblePositionManager.ownerOf(newTokenId);
         if (owner != address(this)) {
@@ -565,18 +566,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // remove access for transformer
         nonfungiblePositionManager.approve(address(0), newTokenId);
-        if (tokenId != newTokenId) {
-            // old token may be burned during transform; clear approval best-effort
-            try nonfungiblePositionManager.approve(address(0), tokenId) {} catch {}
-        }
 
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-
-        if (wasStaked) {
-            // Re-check health in the final staked custody state because staking realizes pre-stake fees.
-            _stake(newTokenId);
-        }
-        _requireLoanIsHealthy(newTokenId, debt);
+        _requireLoanIsHealthy(newTokenId, debt, false);
 
         transformedTokenId = 0;
     }
@@ -585,7 +577,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @param tokenId The token ID to use as collateral
     /// @param assets How much assets to borrow
     function borrow(uint256 tokenId, uint256 assets) external override {
-        // Allowed callback path: transform() -> allowed transformer -> borrow() for the same tokenId.
+
         bool isTransformMode = tokenId != 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
 
         address owner = tokenOwner[tokenId];
@@ -628,7 +620,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // only does check health here if not in transform mode
         if (!isTransformMode) {
-            _requireLoanIsHealthy(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt, true);
         }
 
         // fails if not enough asset available
@@ -639,6 +631,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Borrow(tokenId, owner, assets, shares);
     }
 
+    /// @dev Decreases the liquidity of a given position and collects the resultant assets (and possibly additional fees)
+    /// This function is not allowed during transformation (if a transformer wants to decreaseLiquidity he can call the methods directly on the NonfungiblePositionManager)
+    /// @param params Struct containing various parameters for the operation. Includes tokenId, liquidity amount, minimum asset amounts, and deadline.
+    /// @return amount0 The amount of the first type of asset collected.
+    /// @return amount1 The amount of the second type of asset collected.
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)
         external
         override
@@ -655,8 +652,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
 
-        bool wasStaked = _unstakeIfNeeded(params.tokenId);
-
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
         if (params.liquidity != 0) {
@@ -670,21 +665,14 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
             params.tokenId,
             params.recipient,
-            params.feeAmount0 == type(uint128).max
-                ? type(uint128).max
-                : SafeCast.toUint128(amount0 + params.feeAmount0),
+            params.feeAmount0 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount0 + params.feeAmount0),
             params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
         );
 
         (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
 
-        if (wasStaked) {
-            // Re-check health in the final staked custody state because staking realizes pre-stake fees.
-            _stake(params.tokenId);
-        }
-
         uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(params.tokenId, debt);
+        _requireLoanIsHealthy(params.tokenId, debt, true);
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
@@ -700,7 +688,22 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
         returns (uint256 assets, uint256 shares)
     {
-        (assets, shares) = _repay(tokenId, amount, isShare);
+        (assets, shares) = _repay(tokenId, amount, isShare, "");
+    }
+
+    /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
+    /// @param tokenId The token ID to use as collateral
+    /// @param amount How many assets/debt shares to repay
+    /// @param isShare Is amount specified in assets or debt shares.
+    /// @param permitData Permit2 data and signature
+    /// @return assets The amount of the assets repayed
+    /// @return shares The amount of the shares repayed
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData)
+        external
+        override
+        returns (uint256 assets, uint256 shares)
+    {
+        (assets, shares) = _repay(tokenId, amount, isShare, permitData);
     }
 
     // state used in liquidation function to avoid stack too deep errors
@@ -745,26 +748,39 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NotLiquidatable();
         }
 
-        _unstakeIfNeeded(params.tokenId);
-
         (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
             _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
 
         // calculate reserve (before transfering liquidation money - otherwise calculation is off)
         if (state.reserveCost != 0) {
-            state.missing = _handleReserveLiquidation(
-                state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96
-            );
+            state.missing =
+                _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
         }
 
         if (state.liquidatorCost != 0) {
-            _pullAssetFromSender(state.liquidatorCost);
+            if (params.permitData.length != 0) {
+                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                    abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+
+                if (permit.permitted.token != asset) {
+                    revert InvalidToken();
+                }
+
+                permit2.permitTransferFrom(
+                    permit,
+                    ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
+                    msg.sender,
+                    signature
+                );
+            } else {
+                // take value from liquidator
+                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
+            }
         }
 
         debtSharesTotal = debtSharesTotal - debtShares;
 
-        // Replenish daily borrow headroom only by assets actually paid into the vault.
-        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.liquidatorCost;
+        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.debt;
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) = _sendPositionValue(
@@ -805,8 +821,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NeedsRepay();
         }
 
-        _unstakeIfNeeded(tokenId);
-
         _removeTokenFromOwner(owner, tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), recipient, tokenId, data);
         emit Remove(tokenId, owner, recipient);
@@ -821,8 +835,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     function withdrawReserves(uint256 amount, address receiver) external onlyOwner {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
 
-        uint256 protected = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-            * reserveProtectionFactorX32 / Q32;
+        uint256 protected =
+            _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * reserveProtectionFactorX32 / Q32;
         (uint256 balance, uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
         uint256 unprotected = reserves > protected ? reserves - protected : 0;
         uint256 available = balance > unprotected ? unprotected : balance;
@@ -891,8 +905,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @notice sets reserve factor - percentage difference between debt and lend interest (onlyOwner)
     /// @param _reserveFactorX32 reserve factor multiplied by Q32
     function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
-        // _reserveFactorX32 is uint32, while Q32 == 2^32. Therefore reserveFactorX32 <= Q32 - 1 by type,
-        // and Q32 - reserveFactorX32 in _calculateGlobalInterest() cannot underflow.
         // update interest to be sure that reservefactor change is applied from now on
         _updateGlobalInterest();
         reserveFactorX32 = _reserveFactorX32;
@@ -921,7 +933,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert CollateralFactorExceedsMax();
         }
         TokenConfig storage config = tokenConfigs[token];
-        config.collateralFactorX32 = collateralFactorX32;
+        config.collateralFactorX32 = collateralFactorX32; 
         config.collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
     }
@@ -935,7 +947,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     ////////////////// INTERNAL FUNCTIONS
 
-    function _deposit(address receiver, uint256 amount, bool isShare)
+    function _deposit(address receiver, uint256 amount, bool isShare, bytes memory permitData)
         internal
         returns (uint256 assets, uint256 shares)
     {
@@ -960,7 +972,22 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft - assets;
-        _pullAssetFromSender(assets);
+
+        if (permitData.length != 0) {
+            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+
+            if (permit.permitted.token != asset) {
+                revert InvalidToken();
+            }
+
+            permit2.permitTransferFrom(
+                permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
+            );
+        } else {
+            // fails if not enough token approved
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+        }
 
         _mint(receiver, shares);
 
@@ -983,6 +1010,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
         }
 
+        uint256 ownerBalance = balanceOf(owner);
+        if (shares > ownerBalance) {
+            shares = ownerBalance;
+            assets = _convertToAssets(shares, newLendExchangeRateX96, Math.Rounding.Down);
+        }
+
         // if caller has allowance for owners shares - may call withdraw
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
@@ -1003,7 +1036,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    function _repay(uint256 tokenId, uint256 amount, bool isShare) internal returns (uint256 assets, uint256 shares) {
+    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData)
+        internal
+        returns (uint256 assets, uint256 shares)
+    {
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
         _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
 
@@ -1029,7 +1065,23 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             assets = _convertToAssets(shares, newDebtExchangeRateX96, Math.Rounding.Up);
         }
 
-        _pullAssetFromSender(assets);
+        if (assets != 0) {
+            if (permitData.length != 0) {
+                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                    abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+
+                if (permit.permitted.token != asset) {
+                    revert InvalidToken();
+                }
+
+                permit2.permitTransferFrom(
+                    permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
+                );
+            } else {
+                // fails if not enough token approved
+                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+            }
+        }
 
         uint256 loanDebtShares = currentShares - shares;
         loan.debtShares = loanDebtShares;
@@ -1053,46 +1105,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         emit Repay(tokenId, msg.sender, tokenOwner[tokenId], assets, shares);
     }
 
-    function _pullAssetFromSender(uint256 assets) internal {
-        if (assets == 0) {
-            return;
-        }
-        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
-    }
-
-    function _maxDepositAssets(uint256 lendExchangeRateX96) internal view returns (uint256) {
-        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
-        if (value >= globalLendLimit) {
-            return 0;
-        }
-        uint256 maxGlobalDeposit = globalLendLimit - value;
-        if (maxGlobalDeposit > dailyLendIncreaseLimitLeft) {
-            return dailyLendIncreaseLimitLeft;
-        }
-        return maxGlobalDeposit;
-    }
-
-    function _maxWithdrawAssets(address owner, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 ownerShareBalance = balanceOf(owner);
-        uint256 ownerAssetBalance = _convertToAssets(ownerShareBalance, lendExchangeRateX96, Math.Rounding.Down);
-        (uint256 balance,) = _getBalanceAndReserves(debtExchangeRateX96, lendExchangeRateX96);
-        if (balance > ownerAssetBalance) {
-            return ownerAssetBalance;
-        }
-        return balance;
-    }
-
     // checks how much balance is available
     function _getBalanceAndReserves(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96)
         internal
         view
         returns (uint256 balance, uint256 reserves)
     {
-        balance = IERC20(asset).balanceOf(address(this));
+        balance = totalAssets();
         uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
         uint256 lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
         reserves = balance + debt > lent ? balance + debt - lent : 0;
@@ -1209,26 +1228,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             missing = reserveCost - reserves;
 
             uint256 totalLent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
-            uint256 preHaircutDailyDebtCap =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
 
             // this lines distribute missing amount and remove it from all lent amount proportionally
             newLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
             lastLendExchangeRateX96 = newLendExchangeRateX96;
-
-            // A reserve socialization haircut reduces the lender base mid-day.
-            // Rescale remaining daily debt headroom so it tracks the post-haircut cap while preserving already-used budget.
-            uint256 postHaircutDailyDebtCap =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
-            if (
-                dailyDebtIncreaseLimitLastReset == uint32(block.timestamp / 1 days)
-                    && postHaircutDailyDebtCap < preHaircutDailyDebtCap
-            ) {
-                uint256 capReduction = preHaircutDailyDebtCap - postHaircutDailyDebtCap;
-                dailyDebtIncreaseLimitLeft =
-                    capReduction >= dailyDebtIncreaseLimitLeft ? 0 : dailyDebtIncreaseLimitLeft - capReduction;
-            }
-
             emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
         }
     }
@@ -1240,7 +1243,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         return factor0X32 > factor1X32 ? factor1X32 : factor0X32;
     }
 
-    function _updateGlobalInterest() internal returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) {
+    function _updateGlobalInterest()
+        internal
+        returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96)
+    {
         // only needs to be updated once per block (when needed)
         if (block.timestamp > lastExchangeRateUpdate) {
             (newDebtExchangeRateX96, newLendExchangeRateX96) = _calculateGlobalInterest();
@@ -1267,10 +1273,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 timeElapsed = (block.timestamp - lastRateUpdate);
 
         if (timeElapsed != 0 && lastRateUpdate != 0) {
+
             (uint256 balance,) = _getBalanceAndReserves(oldDebtExchangeRateX96, oldLendExchangeRateX96);
             uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
             (uint256 borrowRateX64, uint256 supplyRateX64) = interestRateModel.getRatesPerSecondX64(balance, debt);
-            // Safe by type bound documented in setReserveFactor(): reserveFactorX32 is always <= Q32 - 1.
             supplyRateX64 = supplyRateX64.mulDiv(Q32 - reserveFactorX32, Q32);
 
             newDebtExchangeRateX96 = oldDebtExchangeRateX96 + oldDebtExchangeRateX96 * timeElapsed * borrowRateX64 / Q64;
@@ -1281,8 +1287,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt) internal view {
-        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, true);
+    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer) internal view {
+        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, withBuffer);
         if (!isHealthy) {
             revert CollateralFail();
         }
@@ -1336,8 +1342,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily lend limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyLendIncreaseLimitLastReset) {
+            uint256 lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+                * MAX_DAILY_LEND_INCREASE_X32 / Q32;
             dailyLendIncreaseLimitLeft =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyLendIncreaseLimitMin, MAX_DAILY_LEND_INCREASE_X32);
+                dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
             dailyLendIncreaseLimitLastReset = time;
         }
     }
@@ -1346,77 +1354,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily debt limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyDebtIncreaseLimitLastReset) {
+            uint256 debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+                * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
             dailyDebtIncreaseLimitLeft =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
+                dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
             dailyDebtIncreaseLimitLastReset = time;
-        }
-    }
-
-    function _calculateDailyIncreaseLimit(uint256 lendExchangeRateX96, uint256 minLimit, uint256 limitFactorX32)
-        private
-        view
-        returns (uint256)
-    {
-        uint256 limit = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up) * limitFactorX32 / Q32;
-        return minLimit > limit ? minLimit : limit;
-    }
-
-    /// @notice Sets gauge manager address once (owner only)
-    /// @dev Safety note: this only validates that `_gaugeManager` is a contract and then permanently locks it.
-    /// @dev GaugeManager enforces `msg.sender == address(vault)`, so configuring a manager deployed for a different
-    ///      vault will make stake/unstake/reward-precompound paths revert Unauthorized and cannot be corrected afterward.
-    /// @dev This one-time lock without vault-binding handshake is an accepted operational/trust risk.
-    function setGaugeManager(address _gaugeManager) external onlyOwner {
-        if (gaugeManager != address(0)) {
-            revert GaugeManagerAlreadySet();
-        }
-        if (_gaugeManager == address(0) || _gaugeManager.code.length == 0) {
-            revert InvalidConfig();
-        }
-
-        gaugeManager = _gaugeManager;
-        emit SetGaugeManager(_gaugeManager);
-    }
-
-    function stakePosition(uint256 tokenId) external override {
-        _requireGaugeManagerSet();
-        if (tokenOwner[tokenId] != msg.sender) {
-            revert NotDepositor();
-        }
-
-        _stake(tokenId);
-        // Explicit user-initiated staking can realize pre-stake fees to the borrower, so open loans must remain
-        // healthy under the post-stake valuation model, which excludes fee collateral for staked positions.
-        if (loans[tokenId].debtShares != 0) {
-            (uint256 debt,,,,) = loanInfo(tokenId);
-            _requireLoanIsHealthy(tokenId, debt);
-        }
-    }
-
-    function unstakePosition(uint256 tokenId) external override {
-        _requireGaugeManagerSet();
-        if (tokenOwner[tokenId] != msg.sender && transformedTokenId != tokenId) {
-            revert Unauthorized();
-        }
-
-        IGaugeManager(gaugeManager).unstakePosition(tokenId);
-    }
-
-    function _stake(uint256 tokenId) private {
-        nonfungiblePositionManager.approve(gaugeManager, tokenId);
-        IGaugeManager(gaugeManager).stakePosition(tokenId);
-        // Safety gate: staking manager must move the NFT out of the vault. Prevents no-op managers from
-        // leaving lingering approvals on vaulted collateral.
-        // NOTE FOR AUDITS: this only verifies "not in vault anymore"; it does not prove custody sits directly on the
-        // configured gauge address. That deeper custody assumption is accepted and delegated to gauge integration trust.
-        if (nonfungiblePositionManager.ownerOf(tokenId) == address(this)) {
-            revert InvalidConfig();
-        }
-    }
-
-    function _unstakeIfNeeded(uint256 tokenId) internal returns (bool wasStaked) {
-        if (gaugeManager != address(0)) {
-            return IGaugeManager(gaugeManager).unstakeIfStaked(tokenId);
         }
     }
 
@@ -1425,23 +1367,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         view
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
     {
-        // Staked Slipstream positions pass `ignoreFees=true` so oracle skips fee-growth math and excludes fee value.
-        bool ignoreFees = _isStaked(tokenId);
-        (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset), ignoreFees);
+        (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
         isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
-    }
-
-    function _isStaked(uint256 tokenId) private view returns (bool) {
-        address manager = gaugeManager;
-        return manager != address(0) && IGaugeManager(manager).tokenIdToGauge(tokenId) != address(0);
-    }
-
-    function _requireGaugeManagerSet() private view {
-        if (gaugeManager == address(0)) {
-            revert GaugeManagerNotSet();
-        }
     }
 
     function _convertToShares(uint256 amount, uint256 exchangeRateX96, Math.Rounding rounding)

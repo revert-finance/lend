@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-import "../../../../src/transformers/V3Utils.sol";
-import "../../../../src/utils/Constants.sol";
+import "../../../src/transformers/V3Utils.sol";
+import "../../../src/utils/Constants.sol";
 
 abstract contract AutomatorIntegrationTestBase is Test {
     uint256 constant Q64 = 2 ** 64;
@@ -21,8 +21,8 @@ abstract contract AutomatorIntegrationTestBase is Test {
     address constant OPERATOR_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
     address constant WITHDRAWER_ACCOUNT = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
 
-    uint64 constant MAX_REWARD = 46_116_860_184_273_879; // floor(Q64 / 400)
-    uint64 constant MAX_FEE_REWARD = 922_337_203_685_477_580; // floor(Q64 / 20)
+    uint64 constant MAX_REWARD = uint64(Q64 / 400); //0.25%
+    uint64 constant MAX_FEE_REWARD = uint64(Q64 / 20); //5%
 
     address FACTORY = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
 
@@ -30,6 +30,7 @@ abstract contract AutomatorIntegrationTestBase is Test {
 
     address EX0x = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF; // 0x exchange proxy
     address UNIVERSAL_ROUTER = 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD; // uniswap universal router
+    address PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3; // permit2 contract
 
     // DAI/USDC 0.05% - one sided only DAI - current tick is near -276326 - no liquidity (-276320/-276310)
     uint256 constant TEST_NFT = 24181;
@@ -70,6 +71,6 @@ abstract contract AutomatorIntegrationTestBase is Test {
         mainnetFork = vm.createFork(ANKR_RPC, 15489169);
         vm.selectFork(mainnetFork);
 
-        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER);
+        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER, PERMIT2);
     }
 }

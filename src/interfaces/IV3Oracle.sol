@@ -2,14 +2,10 @@
 pragma solidity ^0.8.0;
 
 interface IV3Oracle {
-    function isTokenConfigured(address token) external view returns (bool configured);
-
-    function getTokenValue(address tokenIn, uint256 amountIn, address tokenOut) external view returns (uint256 value);
-
     // gets value and prices for a given v3 nft denominated in token
     // reverts if any involved token is not configured
     // reverts if prices are not valid given oracle configuration
-    function getValue(uint256 tokenId, address token, bool ignoreFees)
+    function getValue(uint256 tokenId, address token)
         external
         view
         returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96);
