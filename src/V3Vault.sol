@@ -591,7 +591,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 revert CollateralFail();
             }
 
-            // Debt-neutral rescue transforms may bypass the borrow buffer only if they do not worsen the loan's LTV.
+            // Transforms may bypass the borrow buffer when they keep the loan's LTV unchanged or improve it.
             // If the final state is riskier than the starting point, it must still satisfy the buffered borrow check.
             if (_isRiskRatioWorse(oldDebt, oldCollateralValue, debt, newCollateralValue)) {
                 uint256 bufferedCollateralValue = newCollateralValue.mulDiv(BORROW_SAFETY_BUFFER_X32, Q32);

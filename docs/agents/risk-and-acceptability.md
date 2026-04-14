@@ -11,13 +11,13 @@ Core health relation:
 Implementation details:
 
 - Collateral value uses oracle valuation and per-token collateral factors.
-- Vault uses an additional borrow safety buffer (`BORROW_SAFETY_BUFFER_X32 = 95%`) for debt-increasing operations.
+- Vault uses an additional borrow safety buffer (`BORROW_SAFETY_BUFFER_X32 = 95%`) for operations that worsen a loan's LTV / risk ratio.
 - Liquidation eligibility uses direct health (without borrow buffer).
 
 Practical implications:
 
 - A borrow can fail even before the position is strictly liquidatable.
-- During `transform()`, if debt did not increase, the borrow safety buffer is intentionally skipped. This allows legitimate position adjustments (range changes, compounding) near utilization boundaries. The full health check is still enforced — positions remain overcollateralized, just without the extra 5% margin. This is by design.
+- During `transform()`, the borrow safety buffer is intentionally skipped when the final loan LTV is unchanged or improved. This allows legitimate position adjustments (range changes, compounding, leverage adjustments that do not worsen LTV) near utilization boundaries. The full health check is still enforced — positions remain overcollateralized, just without the extra 5% margin. This is by design.
 
 ## 2) Liquidation Behavior
 
