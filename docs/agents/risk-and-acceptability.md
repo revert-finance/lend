@@ -17,7 +17,7 @@ Implementation details:
 Practical implications:
 
 - A borrow can fail even before the position is strictly liquidatable.
-- During `transform()`, if debt did not increase, the borrow safety buffer is intentionally skipped. This allows legitimate position adjustments (range changes, compounding) near utilization boundaries. The full health check is still enforced — positions remain overcollateralized, just without the extra 5% margin. This is by design.
+- During `transform()`, the borrow safety buffer is intentionally skipped. This allows legitimate position adjustments (range changes, compounding, or other transform flows) near utilization boundaries. The full health check is still enforced — positions remain overcollateralized, just without the extra 5% margin. This is by design.
 
 ## 2) Liquidation Behavior
 
@@ -57,7 +57,7 @@ When oracle verification fails, valuation-gated operations are intentionally blo
 - If `oracle.getValue(...)` cannot produce a trusted value (for example `PriceDifferenceExceeded`, stale/invalid feed data, or sequencer safety checks), health checks revert.
 - As a result, new debt issuance is blocked (`borrow`, debt-increasing transform paths), and liquidation is also blocked until oracle checks pass again.
 - This is an explicit safety design choice to avoid issuing debt or executing liquidation with untrusted pricing.
-- Exception: debt-free transform paths may skip health/oracle checks (see `V3Vault._requireLoanIsHealthy` which only applies borrow buffer when debt increased).
+- Exception: debt-free transform paths may skip health/oracle checks because there is no outstanding debt to validate. Indebted transform paths still perform a direct health/oracle check, just without the borrow safety buffer.
 
 ## 3) Rate Accrual And Solvency Accounting
 

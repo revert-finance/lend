@@ -576,7 +576,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             // Re-check health in the final staked custody state because staking realizes pre-stake fees.
             _stake(newTokenId);
         }
-        _requireLoanIsHealthy(newTokenId, debt);
+        _requireLoanIsHealthy(newTokenId, debt, false);
 
         transformedTokenId = 0;
     }
@@ -628,7 +628,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // only does check health here if not in transform mode
         if (!isTransformMode) {
-            _requireLoanIsHealthy(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt, true);
         }
 
         // fails if not enough asset available
@@ -684,7 +684,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(params.tokenId, debt);
+        _requireLoanIsHealthy(params.tokenId, debt, true);
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
@@ -1281,8 +1281,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt) internal view {
-        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, true);
+    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer) internal view {
+        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, withBuffer);
         if (!isHealthy) {
             revert CollateralFail();
         }
@@ -1389,7 +1389,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // healthy under the post-stake valuation model, which excludes fee collateral for staked positions.
         if (loans[tokenId].debtShares != 0) {
             (uint256 debt,,,,) = loanInfo(tokenId);
-            _requireLoanIsHealthy(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt, true);
         }
     }
 

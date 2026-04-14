@@ -17,6 +17,10 @@ contract MockLiquidityStripTransformer {
     }
 }
 
+contract NoopAerodromeTransformer {
+    function execute() external {}
+}
+
 contract V3VaultAerodromeTest is AerodromeTestBase {
     event DebugUint(string label, uint256 value);
 
@@ -161,6 +165,65 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "failed transform must leave stake intact");
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge), "failed transform must revert NFT custody changes");
+    }
+
+    function testTransformWithRewardCompoundAllowsHealthyPositionAboveBorrowSafetyBuffer() public {
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        NoopAerodromeTransformer transformer = new NoopAerodromeTransformer();
+        vault.setTransformer(address(transformer), true);
+
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            1000e6,
+            1000e18
+        );
+
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+        vault.stakePosition(tokenId);
+        (, , uint256 collateralValue, ,) = vault.loanInfo(tokenId);
+        uint256 maxBorrow = collateralValue * vault.BORROW_SAFETY_BUFFER_X32() / Q32;
+        vault.borrow(tokenId, maxBorrow);
+        vm.stopPrank();
+
+        uint256 currentDebt;
+        uint256 currentCollateralValue;
+        bool crossedBorrowBuffer;
+        for (uint256 i; i < 100; ++i) {
+            vm.warp(block.timestamp + 1);
+            (currentDebt, , currentCollateralValue, ,) = vault.loanInfo(tokenId);
+            if (currentDebt > maxBorrow) {
+                crossedBorrowBuffer = true;
+                break;
+            }
+        }
+
+        assertTrue(crossedBorrowBuffer, "debt should cross the borrow buffer");
+        assertLt(currentDebt, currentCollateralValue, "position should remain directly healthy");
+
+        vm.prank(alice);
+        vault.approveTransform(tokenId, address(transformer), true);
+
+        vm.prank(alice);
+        uint256 returnedTokenId = vault.transformWithRewardCompound(
+            tokenId,
+            address(transformer),
+            abi.encodeCall(NoopAerodromeTransformer.execute, ()),
+            IVault.RewardCompoundParams({minAeroReward: 0, aeroSplitBps: 5000, deadline: block.timestamp})
+        );
+
+        assertEq(returnedTokenId, tokenId);
+        (uint256 debtAfter, , uint256 collateralValueAfter, ,) = vault.loanInfo(tokenId);
+        assertEq(debtAfter, currentDebt);
+        assertEq(collateralValueAfter, currentCollateralValue);
     }
 
     function testUnstakePosition() public {
