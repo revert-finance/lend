@@ -1228,6 +1228,38 @@ contract V3VaultIntegrationTest is Test {
         assertEq(totalDebtShares, 0);
     }
 
+    function testCollateralValueLimitCannotBeBypassedViaMulticallDepositSandwich() external {
+        _setupBasicLoan(false);
+        vault.setTokenConfig(address(DAI), uint32(Q32 * 9 / 10), uint32(Q32 / 10)); // max 10% debt for DAI
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, 800000);
+
+        vm.expectRevert(Constants.CollateralValueLimit.selector);
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.borrow(TEST_NFT, 200001);
+
+        uint256 flashDepositAmount = 1_000_000;
+        vm.prank(WHALE_ACCOUNT);
+        USDC.transfer(TEST_NFT_ACCOUNT, flashDepositAmount);
+
+        vm.startPrank(TEST_NFT_ACCOUNT);
+        USDC.approve(address(vault), flashDepositAmount);
+
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = abi.encodeCall(V3Vault.deposit, (flashDepositAmount, TEST_NFT_ACCOUNT));
+        calls[1] = abi.encodeCall(V3Vault.borrow, (TEST_NFT, 200001));
+        calls[2] = abi.encodeCall(V3Vault.withdraw, (flashDepositAmount, TEST_NFT_ACCOUNT, TEST_NFT_ACCOUNT));
+
+        vm.expectRevert(Constants.CollateralValueLimit.selector);
+        vault.multicall(calls);
+        vm.stopPrank();
+
+        (uint256 debtShares) = vault.loans(TEST_NFT);
+        assertEq(debtShares, 800000, "debt should remain at the pre-sandwich value");
+        assertEq(vault.balanceOf(TEST_NFT_ACCOUNT), 0, "flash deposit shares should not persist after revert");
+    }
+
     function testMainScenario() external {
         assertEq(vault.totalSupply(), 0);
         assertEq(vault.debtSharesTotal(), 0);
