@@ -10,7 +10,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 contract AutoRangeAndCompoundAerodromeTest is Test, Constants {
     INonfungiblePositionManager internal constant NPM =
         INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
-    address internal constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
+    address internal constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
 
     address internal constant OPERATOR_ACCOUNT = address(0x1111);
     address internal constant WITHDRAWER_ACCOUNT = address(0x2222);
@@ -30,7 +30,8 @@ contract AutoRangeAndCompoundAerodromeTest is Test, Constants {
         baseFork = vm.createFork(baseRpc);
         vm.selectFork(baseFork);
 
-        autoRange = new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
+        autoRange =
+            new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, AERODROME_SWAP_ROUTER, address(0));
     }
 
     function testSetTWAPSeconds() external {
@@ -114,6 +115,7 @@ contract AutoRangeAndCompoundAerodromeTest is Test, Constants {
         assertEq(autoRange.maxTWAPTickDifference(), 100);
         assertTrue(autoRange.operators(OPERATOR_ACCOUNT));
         assertEq(autoRange.withdrawer(), WITHDRAWER_ACCOUNT);
+        assertEq(autoRange.universalRouter(), AERODROME_SWAP_ROUTER);
     }
 
     function _defaultConfig() internal pure returns (AutoRangeAndCompound.PositionConfig memory config) {
