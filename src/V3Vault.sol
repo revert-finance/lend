@@ -521,12 +521,20 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         transformedTokenId = tokenId;
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
+        uint256 oldDebtShares = loans[tokenId].debtShares;
+        uint256 oldDebt;
+        uint256 oldCollateralValue;
 
         address loanOwner = tokenOwner[tokenId];
 
         // only the owner of the loan or any approved caller can call this
         if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
             revert Unauthorized();
+        }
+
+        if (oldDebtShares != 0) {
+            oldDebt = _convertToAssets(oldDebtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+            (, , oldCollateralValue,) = _checkLoanIsHealthy(tokenId, oldDebt, false);
         }
 
         if (
@@ -570,13 +578,28 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             try nonfungiblePositionManager.approve(address(0), tokenId) {} catch {}
         }
 
-        uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+        uint256 newDebtShares = loans[newTokenId].debtShares;
+        uint256 debt = _convertToAssets(newDebtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
         if (wasStaked) {
             // Re-check health in the final staked custody state because staking realizes pre-stake fees.
             _stake(newTokenId);
         }
-        _requireLoanIsHealthy(newTokenId, debt);
+        if (debt != 0) {
+            (bool isHealthy,, uint256 newCollateralValue,) = _checkLoanIsHealthy(newTokenId, debt, false);
+            if (!isHealthy) {
+                revert CollateralFail();
+            }
+
+            // Debt-neutral rescue transforms may bypass the borrow buffer only if they do not worsen the loan's LTV.
+            // If the final state is riskier than the starting point, it must still satisfy the buffered borrow check.
+            if (_isRiskRatioWorse(oldDebt, oldCollateralValue, debt, newCollateralValue)) {
+                uint256 bufferedCollateralValue = newCollateralValue.mulDiv(BORROW_SAFETY_BUFFER_X32, Q32);
+                if (bufferedCollateralValue < debt) {
+                    revert CollateralFail();
+                }
+            }
+        }
 
         transformedTokenId = 0;
     }
@@ -628,7 +651,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // only does check health here if not in transform mode
         if (!isTransformMode) {
-            _requireLoanIsHealthy(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt, true);
         }
 
         // fails if not enough asset available
@@ -684,7 +707,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-        _requireLoanIsHealthy(params.tokenId, debt);
+        _requireLoanIsHealthy(params.tokenId, debt, true);
 
         emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
     }
@@ -1281,10 +1304,44 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt) internal view {
-        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, true);
+    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer) internal view {
+        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, withBuffer);
         if (!isHealthy) {
             revert CollateralFail();
+        }
+    }
+
+    function _isRiskRatioWorse(uint256 oldDebt, uint256 oldCollateralValue, uint256 newDebt, uint256 newCollateralValue)
+        internal
+        pure
+        returns (bool)
+    {
+        if (newDebt == 0) {
+            return false;
+        }
+        if (oldDebt == 0) {
+            return true;
+        }
+        if (oldCollateralValue == 0) {
+            return false;
+        }
+        if (newCollateralValue == 0) {
+            return true;
+        }
+
+        (uint256 lhsHigh, uint256 lhsLow) = _mul512(newDebt, oldCollateralValue);
+        (uint256 rhsHigh, uint256 rhsLow) = _mul512(oldDebt, newCollateralValue);
+        if (lhsHigh != rhsHigh) {
+            return lhsHigh > rhsHigh;
+        }
+        return lhsLow > rhsLow;
+    }
+
+    function _mul512(uint256 a, uint256 b) internal pure returns (uint256 high, uint256 low) {
+        assembly ("memory-safe") {
+            let mm := mulmod(a, b, not(0))
+            low := mul(a, b)
+            high := sub(sub(mm, low), lt(mm, low))
         }
     }
 
@@ -1389,7 +1446,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // healthy under the post-stake valuation model, which excludes fee collateral for staked positions.
         if (loans[tokenId].debtShares != 0) {
             (uint256 debt,,,,) = loanInfo(tokenId);
-            _requireLoanIsHealthy(tokenId, debt);
+            _requireLoanIsHealthy(tokenId, debt, true);
         }
     }
 

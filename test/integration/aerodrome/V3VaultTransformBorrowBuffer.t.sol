@@ -9,6 +9,22 @@ contract BorrowDuringTransformTransformer {
     }
 }
 
+contract NoopTransformBorrowBufferTransformer {
+    function execute() external {}
+}
+
+contract ReduceLiquidityTransformBorrowBufferTransformer {
+    MockAerodromePositionManager internal immutable npm;
+
+    constructor(MockAerodromePositionManager _npm) {
+        npm = _npm;
+    }
+
+    function execute(uint256 tokenId, uint128 newLiquidity) external {
+        npm.setLiquidity(tokenId, newLiquidity);
+    }
+}
+
 contract UnexpectedNFTSender {
     function push(MockAerodromePositionManager npm, address from, address to, uint256 tokenId) external {
         npm.safeTransferFrom(from, to, tokenId);
@@ -78,6 +94,8 @@ contract ReplacementDebtOverwriteAttacker {
 
 contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
     BorrowDuringTransformTransformer internal transformer;
+    NoopTransformBorrowBufferTransformer internal noopTransformer;
+    ReduceLiquidityTransformBorrowBufferTransformer internal reduceLiquidityTransformer;
     UnexpectedNFTTransferTransformer internal unexpectedNftTransformer;
     DirectNFTTransferTransformer internal directNftTransformer;
     TransformUnstakeExistingLoanTransformer internal unstakeExistingLoanTransformer;
@@ -87,6 +105,12 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
 
         transformer = new BorrowDuringTransformTransformer();
         vault.setTransformer(address(transformer), true);
+
+        noopTransformer = new NoopTransformBorrowBufferTransformer();
+        vault.setTransformer(address(noopTransformer), true);
+
+        reduceLiquidityTransformer = new ReduceLiquidityTransformBorrowBufferTransformer(npm);
+        vault.setTransformer(address(reduceLiquidityTransformer), true);
 
         unexpectedNftTransformer = new UnexpectedNFTTransferTransformer(npm);
         vault.setTransformer(address(unexpectedNftTransformer), true);
@@ -148,6 +172,113 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
             tokenId,
             address(transformer),
             abi.encodeCall(BorrowDuringTransformTransformer.execute, (address(vault), tokenId, amount))
+        );
+    }
+
+    function testTransformAllowsDebtNeutralAdjustmentAboveBorrowSafetyBuffer() external {
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50000e6,
+            50000e18
+        );
+
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+
+        (, , uint256 collateralValue, ,) = vault.loanInfo(tokenId);
+        uint256 bufferedMax = collateralValue * uint256(vault.BORROW_SAFETY_BUFFER_X32()) / Q32;
+        uint256 borrowAmount = bufferedMax - 1;
+
+        vm.prank(alice);
+        vault.borrow(tokenId, borrowAmount);
+
+        uint256 currentDebt;
+        uint256 currentCollateralValue;
+        bool crossedBorrowBuffer;
+        for (uint256 i; i < 100; ++i) {
+            vm.warp(block.timestamp + 1);
+            (currentDebt, , currentCollateralValue, ,) = vault.loanInfo(tokenId);
+            if (currentDebt > bufferedMax) {
+                crossedBorrowBuffer = true;
+                break;
+            }
+        }
+
+        assertTrue(crossedBorrowBuffer, "debt should cross the borrow buffer");
+        assertGt(currentDebt, bufferedMax, "debt should move above the borrow buffer");
+        assertLt(currentDebt, currentCollateralValue, "position should remain healthy without the buffer");
+
+        vm.prank(alice);
+        vault.approveTransform(tokenId, address(noopTransformer), true);
+
+        vm.prank(alice);
+        uint256 returnedTokenId =
+            vault.transform(tokenId, address(noopTransformer), abi.encodeCall(NoopTransformBorrowBufferTransformer.execute, ()));
+
+        assertEq(returnedTokenId, tokenId);
+        (uint256 debtAfter, , uint256 collateralValueAfter, ,) = vault.loanInfo(tokenId);
+        assertEq(debtAfter, currentDebt);
+        assertEq(collateralValueAfter, currentCollateralValue);
+    }
+
+    function testTransformCannotWorsenDebtNeutralLoanPastBorrowSafetyBuffer() external {
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e18,
+            50000e6,
+            50000e18
+        );
+
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+
+        (, , uint256 collateralValue, ,) = vault.loanInfo(tokenId);
+        uint256 bufferedMax = collateralValue * uint256(vault.BORROW_SAFETY_BUFFER_X32()) / Q32;
+        uint256 borrowAmount = bufferedMax - 1;
+
+        vm.prank(alice);
+        vault.borrow(tokenId, borrowAmount);
+
+        uint256 currentDebt;
+        uint256 currentCollateralValue;
+        bool crossedBorrowBuffer;
+        for (uint256 i; i < 100; ++i) {
+            vm.warp(block.timestamp + 1);
+            (currentDebt, , currentCollateralValue, ,) = vault.loanInfo(tokenId);
+            if (currentDebt > bufferedMax) {
+                crossedBorrowBuffer = true;
+                break;
+            }
+        }
+
+        assertTrue(crossedBorrowBuffer, "debt should cross the borrow buffer");
+        assertGt(currentDebt, bufferedMax, "debt should move above the borrow buffer");
+        assertLt(currentDebt, currentCollateralValue, "position should remain healthy without the buffer");
+
+        vm.prank(alice);
+        vault.approveTransform(tokenId, address(reduceLiquidityTransformer), true);
+
+        vm.prank(alice);
+        vm.expectRevert(Constants.CollateralFail.selector);
+        vault.transform(
+            tokenId,
+            address(reduceLiquidityTransformer),
+            abi.encodeCall(ReduceLiquidityTransformBorrowBufferTransformer.execute, (tokenId, uint128(999_900_000_000_000_000)))
         );
     }
 

@@ -17,6 +17,10 @@ contract MockLiquidityStripTransformer {
     }
 }
 
+contract NoopRewardCompoundTransformer {
+    function execute() external {}
+}
+
 contract V3VaultAerodromeTest is AerodromeTestBase {
     event DebugUint(string label, uint256 value);
 
@@ -161,6 +165,61 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "failed transform must leave stake intact");
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge), "failed transform must revert NFT custody changes");
+    }
+
+    function testTransformWithRewardCompoundAllowsDebtNeutralAdjustmentAboveBorrowSafetyBuffer() public {
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        NoopRewardCompoundTransformer transformer = new NoopRewardCompoundTransformer();
+        vault.setTransformer(address(transformer), true);
+
+        uint256 tokenId = createPositionProper(
+            alice,
+            address(usdc),
+            address(dai),
+            1,
+            -100,
+            100,
+            1e24,
+            0,
+            0
+        );
+
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+        vault.stakePosition(tokenId);
+
+        (, , uint256 collateralValue, ,) = vault.loanInfo(tokenId);
+        uint256 bufferedMax = collateralValue * uint256(vault.BORROW_SAFETY_BUFFER_X32()) / Q32;
+        vault.borrow(tokenId, bufferedMax - 1);
+
+        uint256 currentDebt;
+        uint256 currentCollateralValue;
+        bool crossedBorrowBuffer;
+        for (uint256 i; i < 100; ++i) {
+            vm.warp(block.timestamp + 1);
+            (currentDebt, , currentCollateralValue, ,) = vault.loanInfo(tokenId);
+            if (currentDebt > bufferedMax) {
+                crossedBorrowBuffer = true;
+                break;
+            }
+        }
+
+        assertTrue(crossedBorrowBuffer, "debt should cross the borrow buffer");
+        assertGt(currentDebt, bufferedMax, "debt should move above the borrow buffer");
+        assertLt(currentDebt, currentCollateralValue, "position should remain healthy without the buffer");
+
+        vault.approveTransform(tokenId, address(transformer), true);
+        uint256 returnedTokenId = vault.transformWithRewardCompound(
+            tokenId,
+            address(transformer),
+            abi.encodeCall(NoopRewardCompoundTransformer.execute, ()),
+            IVault.RewardCompoundParams(0, 5000, block.timestamp + 1)
+        );
+        vm.stopPrank();
+
+        assertEq(returnedTokenId, tokenId);
     }
 
     function testUnstakePosition() public {
