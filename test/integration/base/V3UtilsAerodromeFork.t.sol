@@ -15,7 +15,7 @@ contract V3UtilsAerodromeForkTest is Test, Constants {
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
     IAerodromeSlipstreamFactory constant FACTORY =
         IAerodromeSlipstreamFactory(0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A);
-    address constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
+    address constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
 
     V3Utils internal v3utils;
     address internal owner;
@@ -24,7 +24,7 @@ contract V3UtilsAerodromeForkTest is Test, Constants {
         uint256 forkId = vm.createFork(_baseRpc(), BASE_FORK_BLOCK);
         vm.selectFork(forkId);
 
-        v3utils = new V3Utils(NPM, UNIVERSAL_ROUTER, address(0));
+        v3utils = new V3Utils(NPM, AERODROME_SWAP_ROUTER, address(0));
         owner = NPM.ownerOf(TEST_NFT);
     }
 
