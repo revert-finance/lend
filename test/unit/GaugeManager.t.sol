@@ -620,6 +620,38 @@ contract GaugeManagerUnitTest is Test {
         gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
     }
 
+    function testCompoundRewardsAllowsTwoHopRouteWithinCombinedSlippage() external {
+        _stake();
+        gaugeManager.setRewardBasePool(address(dai), address(0));
+        aeroUsdcPool.setOutputBps(9_900);
+        usdcDaiPool.setOutputBps(9_900);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(amountAdded0, 0);
+        assertGt(amountAdded1, 0);
+    }
+
+    function testCompoundRewardsRevertsWhenTwoHopRouteExceedsCombinedSlippage() external {
+        _stake();
+        gaugeManager.setRewardBasePool(address(dai), address(0));
+        aeroUsdcPool.setOutputBps(9_890);
+        usdcDaiPool.setOutputBps(9_890);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.SlippageError.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+    }
+
     function testCompoundRewardsRevertsOnInvalidSplit() external {
         _stake();
 

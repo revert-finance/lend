@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/libraries/FullMath.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./interfaces/IVault.sol";
@@ -53,6 +54,15 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 amountAdded1;
         uint256 rewardAmount0;
         uint256 rewardAmount1;
+    }
+
+    struct RewardSwapValidation {
+        address poolToken0;
+        address poolToken1;
+        bool swap0For1;
+        uint160 sqrtPriceX96;
+        uint256 amountOutMin;
+        uint256 spotAmountOut;
     }
 
     constructor(
@@ -411,9 +421,20 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             revert NotConfigured();
         }
 
-        uint256 intermediateAmount =
-            _swapThroughPool(IUniswapV3Pool(intermediatePool), address(aeroToken), otherToken, amountIn);
-        amountOut = _swapThroughPool(positionPool, otherToken, targetToken, intermediateAmount);
+        IUniswapV3Pool intermediateRewardPool = IUniswapV3Pool(intermediatePool);
+        RewardSwapValidation memory intermediateValidation =
+            _validateRewardSwap(intermediateRewardPool, address(aeroToken), otherToken, amountIn);
+        uint256 intermediateAmount = _swapThroughValidatedPool(
+            intermediateRewardPool, intermediateValidation, amountIn, intermediateValidation.amountOutMin
+        );
+
+        RewardSwapValidation memory targetValidation =
+            _validateRewardSwap(positionPool, otherToken, targetToken, intermediateAmount);
+        uint256 routeAmountOutMin = _combinedRouteAmountOutMin(intermediateValidation, targetValidation);
+        uint256 targetAmountOutMin =
+            targetValidation.amountOutMin > routeAmountOutMin ? targetValidation.amountOutMin : routeAmountOutMin;
+
+        amountOut = _swapThroughValidatedPool(positionPool, targetValidation, intermediateAmount, targetAmountOutMin);
         return (amountIn, amountOut);
     }
 
@@ -425,39 +446,88 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             return 0;
         }
 
-        address poolToken0 = IAerodromeSlipstreamPool(address(pool)).token0();
-        address poolToken1 = IAerodromeSlipstreamPool(address(pool)).token1();
-        bool swap0For1;
-        if (poolToken0 == tokenIn && poolToken1 == tokenOut) {
-            swap0For1 = true;
-        } else if (poolToken0 == tokenOut && poolToken1 == tokenIn) {
-            swap0For1 = false;
-        } else {
-            revert InvalidPool();
+        RewardSwapValidation memory validation = _validateRewardSwap(pool, tokenIn, tokenOut, amountIn);
+        amountOut = _swapThroughValidatedPool(pool, validation, amountIn, validation.amountOutMin);
+    }
+
+    function _swapThroughValidatedPool(
+        IUniswapV3Pool pool,
+        RewardSwapValidation memory validation,
+        uint256 amountIn,
+        uint256 amountOutMin
+    ) internal returns (uint256 amountOut) {
+        if (amountIn == 0) {
+            return 0;
         }
 
-        (uint160 sqrtPriceX96, int24 currentTick) = _getPoolSlot0(pool);
-        uint256 amountOutMin = _validateSwap(
-            swap0For1,
-            amountIn,
-            pool,
-            currentTick,
-            sqrtPriceX96,
-            REWARD_TWAP_SECONDS,
-            REWARD_MAX_TWAP_TICK_DIFFERENCE,
-            REWARD_MAX_PRICE_DIFFERENCE_X64
-        );
         (, amountOut) = _poolSwap(
             PoolSwapParams({
                 pool: pool,
-                token0: IERC20(poolToken0),
-                token1: IERC20(poolToken1),
+                token0: IERC20(validation.poolToken0),
+                token1: IERC20(validation.poolToken1),
                 fee: _poolFeeOrTickSpacing(pool),
-                swap0For1: swap0For1,
+                swap0For1: validation.swap0For1,
                 amountIn: amountIn,
                 amountOutMin: amountOutMin
             })
         );
+    }
+
+    function _validateRewardSwap(IUniswapV3Pool pool, address tokenIn, address tokenOut, uint256 amountIn)
+        internal
+        view
+        returns (RewardSwapValidation memory validation)
+    {
+        validation.poolToken0 = IAerodromeSlipstreamPool(address(pool)).token0();
+        validation.poolToken1 = IAerodromeSlipstreamPool(address(pool)).token1();
+        if (validation.poolToken0 == tokenIn && validation.poolToken1 == tokenOut) {
+            validation.swap0For1 = true;
+        } else if (validation.poolToken0 == tokenOut && validation.poolToken1 == tokenIn) {
+            validation.swap0For1 = false;
+        } else {
+            revert InvalidPool();
+        }
+
+        int24 currentTick;
+        (validation.sqrtPriceX96, currentTick) = _getPoolSlot0(pool);
+        validation.spotAmountOut = _quoteRewardSwapAmountOut(validation.swap0For1, amountIn, validation.sqrtPriceX96);
+        validation.amountOutMin = _validateSwap(
+            validation.swap0For1,
+            amountIn,
+            pool,
+            currentTick,
+            validation.sqrtPriceX96,
+            REWARD_TWAP_SECONDS,
+            REWARD_MAX_TWAP_TICK_DIFFERENCE,
+            REWARD_MAX_PRICE_DIFFERENCE_X64
+        );
+    }
+
+    function _combinedRouteAmountOutMin(
+        RewardSwapValidation memory intermediateValidation,
+        RewardSwapValidation memory targetValidation
+    ) internal pure returns (uint256 amountOutMin) {
+        // Apply the reward tolerance once to the full two-hop spot quote so per-hop bounds cannot compound.
+        uint256 routeSpotAmountOut = _quoteRewardSwapAmountOut(
+            targetValidation.swap0For1, intermediateValidation.spotAmountOut, targetValidation.sqrtPriceX96
+        );
+        amountOutMin = FullMath.mulDiv(routeSpotAmountOut, Q64 - REWARD_MAX_PRICE_DIFFERENCE_X64, Q64);
+    }
+
+    function _quoteRewardSwapAmountOut(bool swap0For1, uint256 amountIn, uint160 sqrtPriceX96)
+        internal
+        pure
+        returns (uint256 amountOut)
+    {
+        if (amountIn == 0) {
+            return 0;
+        }
+
+        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        if (swap0For1) {
+            return FullMath.mulDiv(amountIn, priceX96, Q96);
+        }
+        return FullMath.mulDiv(amountIn, Q96, priceX96);
     }
 
     function _poolFeeOrTickSpacing(IUniswapV3Pool pool) internal view returns (uint24 feeOrTickSpacing) {
