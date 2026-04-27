@@ -170,6 +170,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     address public emergencyAdmin;
     address public gaugeManager;
 
+    // Transient slot tracking net shares minted earlier in the current transaction (deposits minus withdrawals).
+    // Borrow-side lender-base limits discount this value so temporary self-lending cannot relax risk caps.
+    uint256 private constant TX_SUPPLY_INFLATION_SHARES_SLOT =
+        0x77c5f5ad287ab5c7b7ea0aaa4c95632213a8f4eab414ff7bf7c4163f433cda41;
+
     constructor(
         string memory name,
         string memory symbol,
@@ -963,6 +968,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         _pullAssetFromSender(assets);
 
         _mint(receiver, shares);
+        _increaseTxSupplyInflation(shares);
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }
@@ -995,6 +1001,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // fails if not enough shares
         _burn(owner, shares);
+        _decreaseTxSupplyInflation(shares);
         SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
 
         // when amounts are withdrawn - they may be deposited again
@@ -1058,6 +1065,46 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             return;
         }
         SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+    }
+
+    function _increaseTxSupplyInflation(uint256 shares) internal {
+        if (shares == 0) {
+            return;
+        }
+
+        uint256 inflatedShares = _getTxSupplyInflationShares() + shares;
+        assembly ("memory-safe") {
+            tstore(TX_SUPPLY_INFLATION_SHARES_SLOT, inflatedShares)
+        }
+    }
+
+    function _decreaseTxSupplyInflation(uint256 shares) internal {
+        if (shares == 0) {
+            return;
+        }
+
+        uint256 inflatedShares = _getTxSupplyInflationShares();
+        uint256 updatedShares = shares >= inflatedShares ? 0 : inflatedShares - shares;
+        assembly ("memory-safe") {
+            tstore(TX_SUPPLY_INFLATION_SHARES_SLOT, updatedShares)
+        }
+    }
+
+    function _getTxSupplyInflationShares() internal view returns (uint256 inflatedShares) {
+        assembly ("memory-safe") {
+            inflatedShares := tload(TX_SUPPLY_INFLATION_SHARES_SLOT)
+        }
+    }
+
+    function _getBorrowLimitLentAssets(uint256 lendExchangeRateX96) internal view returns (uint256) {
+        uint256 effectiveTotalSupply = totalSupply();
+        uint256 txSupplyInflationShares = _getTxSupplyInflationShares();
+        if (txSupplyInflationShares >= effectiveTotalSupply) {
+            effectiveTotalSupply = 0;
+        } else {
+            effectiveTotalSupply = effectiveTotalSupply - txSupplyInflationShares;
+        }
+        return _convertToAssets(effectiveTotalSupply, lendExchangeRateX96, Math.Rounding.Up);
     }
 
     function _maxDepositAssets(uint256 lendExchangeRateX96) internal view returns (uint256) {
@@ -1209,8 +1256,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             missing = reserveCost - reserves;
 
             uint256 totalLent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
-            uint256 preHaircutDailyDebtCap =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
+            uint256 preHaircutDailyDebtCap = _calculateDailyIncreaseLimit(
+                newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32
+            );
 
             // this lines distribute missing amount and remove it from all lent amount proportionally
             newLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
@@ -1218,8 +1266,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
             // A reserve socialization haircut reduces the lender base mid-day.
             // Rescale remaining daily debt headroom so it tracks the post-haircut cap while preserving already-used budget.
-            uint256 postHaircutDailyDebtCap =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
+            uint256 postHaircutDailyDebtCap = _calculateDailyIncreaseLimit(
+                newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32
+            );
             if (
                 dailyDebtIncreaseLimitLastReset == uint32(block.timestamp / 1 days)
                     && postHaircutDailyDebtCap < preHaircutDailyDebtCap
@@ -1311,7 +1360,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 // check if current value of used collateral is more than allowed limit
                 // if collateral is decreased - never revert
-                uint256 lentAssets = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+                uint256 lentAssets = _getBorrowLimitLentAssets(lendExchangeRateX96);
                 uint256 collateralValueLimitFactorX32 = tokenConfigs[token0].collateralValueLimitFactorX32;
                 if (
                     collateralValueLimitFactorX32 < type(uint32).max
@@ -1336,8 +1385,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily lend limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyLendIncreaseLimitLastReset) {
-            dailyLendIncreaseLimitLeft =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyLendIncreaseLimitMin, MAX_DAILY_LEND_INCREASE_X32);
+            dailyLendIncreaseLimitLeft = _calculateDailyIncreaseLimit(
+                newLendExchangeRateX96, dailyLendIncreaseLimitMin, MAX_DAILY_LEND_INCREASE_X32
+            );
             dailyLendIncreaseLimitLastReset = time;
         }
     }
@@ -1346,8 +1396,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily debt limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyDebtIncreaseLimitLastReset) {
-            dailyDebtIncreaseLimitLeft =
-                _calculateDailyIncreaseLimit(newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32);
+            dailyDebtIncreaseLimitLeft = _calculateDailyIncreaseLimit(
+                newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32
+            );
             dailyDebtIncreaseLimitLastReset = time;
         }
     }
@@ -1357,7 +1408,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         view
         returns (uint256)
     {
-        uint256 limit = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up) * limitFactorX32 / Q32;
+        uint256 limit = _getBorrowLimitLentAssets(lendExchangeRateX96) * limitFactorX32 / Q32;
         return minLimit > limit ? minLimit : limit;
     }
 
