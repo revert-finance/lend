@@ -70,7 +70,7 @@ contract DeployAerodromeProtocol is Script {
         V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", USDC, npm, irm, oracle);
 
         (V3Utils v3Utils, bool deployedV3Utils) = _loadOrDeployV3Utils(npm);
-        require(v3Utils.owner() == deployer, "DeployAerodromeProtocol: deployer is not V3Utils owner");
+        bool configuredV3UtilsVault;
 
         GaugeManager gaugeManager =
             new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
@@ -128,7 +128,10 @@ contract DeployAerodromeProtocol is Script {
         // Vault config
         vault.setGaugeManager(address(gaugeManager));
 
-        v3Utils.setVault(address(vault));
+        if (deployedV3Utils) {
+            v3Utils.setVault(address(vault));
+            configuredV3UtilsVault = true;
+        }
         leverageTransformer.setVault(address(vault));
         autoRange.setVault(address(vault));
 
@@ -161,6 +164,7 @@ contract DeployAerodromeProtocol is Script {
         console2.log("GAUGE_MANAGER", address(gaugeManager));
         console2.log("V3_UTILS", address(v3Utils));
         console2.log("V3_UTILS_DEPLOYED", deployedV3Utils);
+        console2.log("V3_UTILS_VAULT_CONFIGURED", configuredV3UtilsVault);
         console2.log("LEVERAGE_TRANSFORMER", address(leverageTransformer));
         console2.log("AUTO_RANGE", address(autoRange));
     }

@@ -50,11 +50,12 @@ unset V3_UTILS
 export V3_UTILS="0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1"
 ```
 
-When `V3_UTILS` is set, `PRIVATE_KEY` must belong to the current `V3Utils.owner()` because the deploy script configures the new vault on that V3Utils instance.
+When `V3_UTILS` is set, the protocol deployer does not call `V3Utils.setVault`. The `V3Utils.owner()` must authorize the deployed vault independently after step 1.
 
-For gauge configuration (step 2):
+For V3Utils and gauge configuration:
 
 ```sh
+export VAULT="<DEPLOYED_VAULT_ADDRESS>"
 export GAUGE_MANAGER="<DEPLOYED_GAUGE_MANAGER_ADDRESS>"
 export WETH_USDC_GAUGE="0xF33a96b5932D9E9B9A0eDA447AbD8C9d48d2e0c8"
 export CBBTC_USDC_GAUGE="0x6399ed6725cC163D019aA64FF55b22149D7179A8" # optional
@@ -77,9 +78,43 @@ The script enforces:
 - configured Slipstream pools resolve correctly through Aerodrome factory
 - `V3_UTILS` points at a compatible Aerodrome V3Utils when supplied; otherwise a fresh V3Utils is deployed
 
-Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, `V3_UTILS`, and transformer addresses from logs. `V3_UTILS_DEPLOYED` is `true` only for fresh test deployments.
+Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, `V3_UTILS`, and transformer addresses from logs. `V3_UTILS_DEPLOYED` and `V3_UTILS_VAULT_CONFIGURED` are `true` only for fresh test deployments.
 
-### Step 2: Configure Gauges
+### Step 2: Configure Existing V3Utils
+
+Skip this step when `V3_UTILS_DEPLOYED` is `true`.
+
+Generate the owner/multisig call data:
+
+```sh
+forge script script/ConfigureV3Utils.s.sol:ConfigureV3Utils \
+  --rpc-url "$ETH_RPC_URL"
+```
+
+For a multisig-owned V3Utils, submit a transaction from the `V3Utils.owner()` with:
+- target: `V3_UTILS`
+- value: `0`
+- data: logged `SET_VAULT_CALLDATA`
+
+If the V3Utils owner is an EOA available locally, the same script can broadcast:
+
+```sh
+export BROADCAST_V3_UTILS_CONFIG=true
+
+forge script script/ConfigureV3Utils.s.sol:ConfigureV3Utils \
+  --rpc-url "$ETH_RPC_URL" \
+  --private-key "$PRIVATE_KEY" \
+  --broadcast \
+  -vvvv
+```
+
+The script enforces:
+- `block.chainid == 8453`
+- `V3_UTILS` and `VAULT` have code
+- `V3Vault.transformerAllowList(V3_UTILS) == true`
+- broadcaster is `V3Utils.owner()` when `BROADCAST_V3_UTILS_CONFIG=true`
+
+### Step 3: Configure Gauges
 
 ```sh
 forge script script/ConfigureGauges.s.sol:ConfigureGauges \
@@ -101,7 +136,7 @@ The script enforces:
 2. `GaugeManager.poolToGauge(WETH_USDC_POOL)` is set.
 3. Optional: `GaugeManager.poolToGauge(CBBTC_USDC_POOL)` is set.
 4. `V3Vault.transformerAllowList(<transformer>) == true` for intended transformers.
-5. `V3Utils.vaults(<VAULT>) == true`.
+5. `V3Utils.vaults(<VAULT>) == true`; this is automatic for fresh test deployments and independent for existing V3Utils.
 6. Run focused fork smoke tests:
 
 ```sh
