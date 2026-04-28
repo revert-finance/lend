@@ -40,6 +40,18 @@ export PRIVATE_KEY="<DEPLOYER_PRIVATE_KEY>"
 export ETH_RPC_URL="<BASE_RPC_URL>"
 ```
 
+Optional V3Utils selection:
+
+```sh
+# Unset or zero address: deploy a fresh V3Utils for test deployments.
+unset V3_UTILS
+
+# Later real deployment: reuse the existing Aerodrome V3Utils.
+export V3_UTILS="0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1"
+```
+
+When `V3_UTILS` is set, `PRIVATE_KEY` must belong to the current `V3Utils.owner()` because the deploy script configures the new vault on that V3Utils instance.
+
 For gauge configuration (step 2):
 
 ```sh
@@ -53,6 +65,7 @@ export CBBTC_USDC_GAUGE="0x6399ed6725cC163D019aA64FF55b22149D7179A8" # optional
 ```sh
 forge script script/DeployAerodromeProtocol.s.sol:DeployAerodromeProtocol \
   --rpc-url "$ETH_RPC_URL" \
+  --private-key "$PRIVATE_KEY" \
   --broadcast \
   -vvvv
 ```
@@ -62,14 +75,16 @@ The script enforces:
 - configured addresses have code
 - NPM factory wiring is correct
 - configured Slipstream pools resolve correctly through Aerodrome factory
+- `V3_UTILS` points at a compatible Aerodrome V3Utils when supplied; otherwise a fresh V3Utils is deployed
 
-Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, and transformer addresses from logs.
+Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, `V3_UTILS`, and transformer addresses from logs. `V3_UTILS_DEPLOYED` is `true` only for fresh test deployments.
 
 ### Step 2: Configure Gauges
 
 ```sh
 forge script script/ConfigureGauges.s.sol:ConfigureGauges \
   --rpc-url "$ETH_RPC_URL" \
+  --private-key "$PRIVATE_KEY" \
   --broadcast \
   -vvvv
 ```
@@ -86,7 +101,8 @@ The script enforces:
 2. `GaugeManager.poolToGauge(WETH_USDC_POOL)` is set.
 3. Optional: `GaugeManager.poolToGauge(CBBTC_USDC_POOL)` is set.
 4. `V3Vault.transformerAllowList(<transformer>) == true` for intended transformers.
-5. Run focused fork smoke tests:
+5. `V3Utils.vaults(<VAULT>) == true`.
+6. Run focused fork smoke tests:
 
 ```sh
 forge test --match-contract V3VaultAerodromeTest

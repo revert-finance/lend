@@ -9,6 +9,7 @@ import "../src/V3Vault.sol";
 import "../src/GaugeManager.sol";
 import "../src/transformers/LeverageTransformer.sol";
 import "../src/transformers/AutoRangeAndCompound.sol";
+import "../src/transformers/V3Utils.sol";
 import "../src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -31,6 +32,8 @@ contract DeployAerodromeProtocol is Script {
     // Routing infra
     address internal constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
     address internal constant ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
+    address internal constant EXISTING_AERODROME_V3_UTILS = 0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1;
+    address internal constant EXISTING_AERODROME_V3_UTILS_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
 
     // Chainlink feeds on Base
     address internal constant CHAINLINK_ETH_USD = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
@@ -51,7 +54,7 @@ contract DeployAerodromeProtocol is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
 
-        vm.startBroadcast();
+        vm.startBroadcast(deployer);
 
         IAerodromeNonfungiblePositionManager npm = IAerodromeNonfungiblePositionManager(AERODROME_NPM);
 
@@ -65,6 +68,9 @@ contract DeployAerodromeProtocol is Script {
         );
 
         V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", USDC, npm, irm, oracle);
+
+        (V3Utils v3Utils, bool deployedV3Utils) = _loadOrDeployV3Utils(npm);
+        require(v3Utils.owner() == deployer, "DeployAerodromeProtocol: deployer is not V3Utils owner");
 
         GaugeManager gaugeManager =
             new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
@@ -122,9 +128,11 @@ contract DeployAerodromeProtocol is Script {
         // Vault config
         vault.setGaugeManager(address(gaugeManager));
 
+        v3Utils.setVault(address(vault));
         leverageTransformer.setVault(address(vault));
         autoRange.setVault(address(vault));
 
+        vault.setTransformer(address(v3Utils), true);
         vault.setTransformer(address(leverageTransformer), true);
         vault.setTransformer(address(autoRange), true);
 
@@ -151,8 +159,24 @@ contract DeployAerodromeProtocol is Script {
         console2.log("IRM", address(irm));
         console2.log("VAULT", address(vault));
         console2.log("GAUGE_MANAGER", address(gaugeManager));
+        console2.log("V3_UTILS", address(v3Utils));
+        console2.log("V3_UTILS_DEPLOYED", deployedV3Utils);
         console2.log("LEVERAGE_TRANSFORMER", address(leverageTransformer));
         console2.log("AUTO_RANGE", address(autoRange));
+    }
+
+    function _loadOrDeployV3Utils(IAerodromeNonfungiblePositionManager npm)
+        internal
+        returns (V3Utils v3Utils, bool deployed)
+    {
+        address configuredV3Utils = _envAddressOrZero("V3_UTILS");
+        if (configuredV3Utils == address(0)) {
+            v3Utils = new V3Utils(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
+            deployed = true;
+        } else {
+            _validateV3Utils(configuredV3Utils);
+            v3Utils = V3Utils(payable(configuredV3Utils));
+        }
     }
 
     function _validateDeploymentConfig() internal view {
@@ -175,6 +199,27 @@ contract DeployAerodromeProtocol is Script {
         _validatePool(AERO_CBBTC_POOL, AERO, CBBTC);
     }
 
+    function _validateV3Utils(address v3Utils) internal view {
+        _requireCode(v3Utils, "DeployAerodromeProtocol: V3Utils missing code");
+        V3Utils configuredV3Utils = V3Utils(payable(v3Utils));
+
+        require(
+            address(configuredV3Utils.nonfungiblePositionManager()) == AERODROME_NPM,
+            "DeployAerodromeProtocol: V3Utils NPM mismatch"
+        );
+
+        address configuredRouter = configuredV3Utils.universalRouter();
+        require(
+            configuredRouter == AERODROME_SWAP_ROUTER
+                || (v3Utils == EXISTING_AERODROME_V3_UTILS && configuredRouter == EXISTING_AERODROME_V3_UTILS_ROUTER),
+            "DeployAerodromeProtocol: V3Utils router mismatch"
+        );
+        require(
+            configuredV3Utils.zeroxAllowanceHolder() == ZEROX_ALLOWANCE_HOLDER,
+            "DeployAerodromeProtocol: V3Utils allowance holder mismatch"
+        );
+    }
+
     function _validatePool(address pool, address tokenA, address tokenB) internal view {
         _requireCode(pool, "DeployAerodromeProtocol: pool missing code");
         IAerodromeSlipstreamPool slipstreamPool = IAerodromeSlipstreamPool(pool);
@@ -193,5 +238,13 @@ contract DeployAerodromeProtocol is Script {
 
     function _requireCode(address target, string memory errorMessage) internal view {
         require(target.code.length != 0, errorMessage);
+    }
+
+    function _envAddressOrZero(string memory key) internal returns (address value) {
+        try vm.envAddress(key) returns (address configuredValue) {
+            value = configuredValue;
+        } catch {
+            value = address(0);
+        }
     }
 }
