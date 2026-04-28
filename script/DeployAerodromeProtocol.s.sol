@@ -140,7 +140,7 @@ contract DeployAerodromeProtocol is Script {
         vault.setTransformer(address(autoRange), true);
 
         vault.setLimits(
-            1e6, // minLoanSize = 1 USDC
+            0, // minLoanSize = 0 for test deployment
             10_000_000e6, // global lend limit
             8_000_000e6, // global debt limit
             1_000_000e6, // daily lend increase min
