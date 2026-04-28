@@ -21,7 +21,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
     IAerodromeSlipstreamFactory constant FACTORY =
         IAerodromeSlipstreamFactory(0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A);
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
-    address constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
+    address constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
 
     // Test accounts
     address constant OPERATOR_ACCOUNT = address(0x1111);
@@ -49,7 +49,9 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         vm.selectFork(baseFork);
 
         autoRange =
-            new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
+            new AutoRangeAndCompound(
+                NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, AERODROME_SWAP_ROUTER, address(0)
+            );
 
         _loadPositionDetails();
     }
@@ -178,7 +180,9 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         vm.selectFork(historicalFork);
 
         AutoRangeAndCompound localAutoRange =
-            new AutoRangeAndCompound(NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, UNIVERSAL_ROUTER, address(0));
+            new AutoRangeAndCompound(
+                NPM, OPERATOR_ACCOUNT, WITHDRAWER_ACCOUNT, 60, 100, AERODROME_SWAP_ROUTER, address(0)
+            );
 
         uint256 tokenId = HAPPY_PATH_TOKEN_ID;
         address owner = NPM.ownerOf(tokenId);

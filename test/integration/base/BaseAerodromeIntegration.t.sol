@@ -51,6 +51,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
     address constant AERO = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
+    address constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
 
     INonfungiblePositionManager constant NPM = INonfungiblePositionManager(0x827922686190790b37229fd06084350E74485b72);
 
@@ -131,7 +132,7 @@ contract BaseAerodromeIntegrationTest is Test, Constants {
         gaugeManager.setRewardBasePool(CBBTC, aeroCbbtcPool);
         vault.setGaugeManager(address(gaugeManager));
 
-        autoRange = new AutoRangeAndCompound(NPM, OPERATOR, OPERATOR, 60, 200, address(0), address(0));
+        autoRange = new AutoRangeAndCompound(NPM, OPERATOR, OPERATOR, 60, 200, AERODROME_SWAP_ROUTER, address(0));
         autoRange.setVault(address(vault));
         vault.setTransformer(address(autoRange), true);
 

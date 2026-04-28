@@ -29,7 +29,7 @@ contract DeployAerodromeProtocol is Script {
     address internal constant AERO = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
 
     // Routing infra
-    address internal constant UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC;
+    address internal constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
     address internal constant ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
 
     // Chainlink feeds on Base
@@ -67,12 +67,13 @@ contract DeployAerodromeProtocol is Script {
         V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", USDC, npm, irm, oracle);
 
         GaugeManager gaugeManager =
-            new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
+            new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
         gaugeManager.setRewardBasePool(USDC, AERO_USDC_POOL);
         gaugeManager.setRewardBasePool(WETH, AERO_WETH_POOL);
         gaugeManager.setRewardBasePool(CBBTC, AERO_CBBTC_POOL);
 
-        LeverageTransformer leverageTransformer = new LeverageTransformer(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
+        LeverageTransformer leverageTransformer =
+            new LeverageTransformer(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
         AutoRangeAndCompound autoRange = new AutoRangeAndCompound(
             npm,
@@ -80,7 +81,7 @@ contract DeployAerodromeProtocol is Script {
             deployer, // withdrawer
             60, // TWAP seconds
             200, // max TWAP tick diff
-            UNIVERSAL_ROUTER,
+            AERODROME_SWAP_ROUTER,
             ZEROX_ALLOWANCE_HOLDER
         );
 
@@ -159,7 +160,7 @@ contract DeployAerodromeProtocol is Script {
         _requireCode(AERODROME_NPM, "DeployAerodromeProtocol: NPM missing code");
         _requireCode(AERODROME_FACTORY, "DeployAerodromeProtocol: factory missing code");
         _requireCode(AERODROME_GAUGE_FACTORY, "DeployAerodromeProtocol: gauge factory missing code");
-        _requireCode(UNIVERSAL_ROUTER, "DeployAerodromeProtocol: universal router missing code");
+        _requireCode(AERODROME_SWAP_ROUTER, "DeployAerodromeProtocol: aerodrome router missing code");
         _requireCode(ZEROX_ALLOWANCE_HOLDER, "DeployAerodromeProtocol: 0x allowance holder missing code");
         _requireCode(
             CHAINLINK_BASE_SEQUENCER_UPTIME_FEED, "DeployAerodromeProtocol: sequencer uptime feed missing code"

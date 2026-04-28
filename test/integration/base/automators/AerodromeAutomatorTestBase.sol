@@ -36,7 +36,7 @@ abstract contract AerodromeAutomatorTestBase is Test {
 
     // Base network infrastructure
     address EX0x = address(0); // 0x not available on Base yet, will need alternative
-    address UNIVERSAL_ROUTER = 0x198EF79F1F515F02dFE9e3115eD9fC07183f02fC; // Universal Router on Base
+    address AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E; // Aerodrome router on Base
 
     // For testing, we'll create positions dynamically rather than using existing ones
     // This gives us more control over the test conditions
@@ -81,6 +81,6 @@ abstract contract AerodromeAutomatorTestBase is Test {
         baseFork = vm.createFork(BASE_RPC);
         vm.selectFork(baseFork);
 
-        v3utils = new V3Utils(NPM, EX0x, UNIVERSAL_ROUTER);
+        v3utils = new V3Utils(NPM, AERODROME_SWAP_ROUTER, EX0x);
     }
 } 
