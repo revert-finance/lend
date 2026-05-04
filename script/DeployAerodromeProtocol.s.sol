@@ -7,6 +7,7 @@ import "../src/InterestRateModel.sol";
 import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 import "../src/GaugeManager.sol";
+import "../src/automators/AutoExit.sol";
 import "../src/transformers/LeverageTransformer.sol";
 import "../src/transformers/AutoRangeAndCompound.sol";
 import "../src/transformers/V3Utils.sol";
@@ -82,6 +83,16 @@ contract DeployAerodromeProtocol is Script {
             new LeverageTransformer(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
         AutoRangeAndCompound autoRange = new AutoRangeAndCompound(
+            npm,
+            deployer, // operator
+            deployer, // withdrawer
+            60, // TWAP seconds
+            200, // max TWAP tick diff
+            AERODROME_SWAP_ROUTER,
+            ZEROX_ALLOWANCE_HOLDER
+        );
+
+        AutoExit autoExit = new AutoExit(
             npm,
             deployer, // operator
             deployer, // withdrawer
@@ -167,6 +178,7 @@ contract DeployAerodromeProtocol is Script {
         console2.log("V3_UTILS_VAULT_CONFIGURED", configuredV3UtilsVault);
         console2.log("LEVERAGE_TRANSFORMER", address(leverageTransformer));
         console2.log("AUTO_RANGE", address(autoRange));
+        console2.log("AUTO_EXIT", address(autoExit));
     }
 
     function _loadOrDeployV3Utils(IAerodromeNonfungiblePositionManager npm)
