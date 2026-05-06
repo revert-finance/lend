@@ -40,19 +40,15 @@ export PRIVATE_KEY="<DEPLOYER_PRIVATE_KEY>"
 export ETH_RPC_URL="<BASE_RPC_URL>"
 ```
 
-Optional V3Utils selection:
+The Aerodrome deployment script always deploys a fresh `V3Utils` and configures the deployed vault on it during the same broadcast.
 
-```sh
-# Unset or zero address: deploy a fresh V3Utils for test deployments.
-unset V3_UTILS
+Production roles are hardcoded in the deployment script:
 
-# Later real deployment: reuse the existing Aerodrome V3Utils.
-export V3_UTILS="0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1"
-```
+- Base multisig / owner: `0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9`
+- Multichain withdrawer: `0x5663ba1B0B1d9b8559CFE049b33fe3B194852e82`
+- Multichain operator: `0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF`
 
-When `V3_UTILS` is set, the protocol deployer does not call `V3Utils.setVault`. The `V3Utils.owner()` must authorize the deployed vault independently after step 1.
-
-For V3Utils and gauge configuration:
+For gauge configuration:
 
 ```sh
 export VAULT="<DEPLOYED_VAULT_ADDRESS>"
@@ -76,45 +72,12 @@ The script enforces:
 - configured addresses have code
 - NPM factory wiring is correct
 - configured Slipstream pools resolve correctly through Aerodrome factory
-- `V3_UTILS` points at a compatible Aerodrome V3Utils when supplied; otherwise a fresh V3Utils is deployed
+- fresh protocol contracts are deployed, including `V3Utils`
+- production owner, withdrawer, and operator roles are configured
 
-Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, `V3_UTILS`, and transformer addresses from logs. `V3_UTILS_DEPLOYED` and `V3_UTILS_VAULT_CONFIGURED` are `true` only for fresh test deployments.
+Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, `V3_UTILS`, and transformer addresses from logs. `V3_UTILS_DEPLOYED` and `V3_UTILS_VAULT_CONFIGURED` should both log `true`.
 
-### Step 2: Configure Existing V3Utils
-
-Skip this step when `V3_UTILS_DEPLOYED` is `true`.
-
-Generate the owner/multisig call data:
-
-```sh
-forge script script/ConfigureV3Utils.s.sol:ConfigureV3Utils \
-  --rpc-url "$ETH_RPC_URL"
-```
-
-For a multisig-owned V3Utils, submit a transaction from the `V3Utils.owner()` with:
-- target: `V3_UTILS`
-- value: `0`
-- data: logged `SET_VAULT_CALLDATA`
-
-If the V3Utils owner is an EOA available locally, the same script can broadcast:
-
-```sh
-export BROADCAST_V3_UTILS_CONFIG=true
-
-forge script script/ConfigureV3Utils.s.sol:ConfigureV3Utils \
-  --rpc-url "$ETH_RPC_URL" \
-  --private-key "$PRIVATE_KEY" \
-  --broadcast \
-  -vvvv
-```
-
-The script enforces:
-- `block.chainid == 8453`
-- `V3_UTILS` and `VAULT` have code
-- `V3Vault.transformerAllowList(V3_UTILS) == true`
-- broadcaster is `V3Utils.owner()` when `BROADCAST_V3_UTILS_CONFIG=true`
-
-### Step 3: Configure Gauges
+### Step 2: Configure Gauges
 
 ```sh
 forge script script/ConfigureGauges.s.sol:ConfigureGauges \
@@ -130,14 +93,33 @@ The script enforces:
 - pool/gauge addresses have code
 - provided gauge matches `pool.gauge()` before broadcasting
 
+Run gauge configuration before the Base multisig accepts `GaugeManager` ownership. If ownership has already been accepted, run this step from the Base multisig instead.
+
+### Step 3: Accept Ownership
+
+After gauge configuration is complete, the Base multisig should call `acceptOwnership()` on:
+
+- `ORACLE`
+- `VAULT`
+- `GAUGE_MANAGER`
+- `V3_UTILS`
+- `LEVERAGE_TRANSFORMER`
+- `AUTO_RANGE`
+- `AUTO_EXIT`
+
+`InterestRateModel` uses single-step ownership transfer, so its owner is set to the Base multisig during deployment.
+
 ### Post-Deploy Verification
 
 1. `V3Vault.gaugeManager()` equals deployed `GaugeManager`.
 2. `GaugeManager.poolToGauge(WETH_USDC_POOL)` is set.
 3. Optional: `GaugeManager.poolToGauge(CBBTC_USDC_POOL)` is set.
 4. `V3Vault.transformerAllowList(<transformer>) == true` for intended transformers.
-5. `V3Utils.vaults(<VAULT>) == true`; this is automatic for fresh test deployments and independent for existing V3Utils.
-6. Run focused fork smoke tests:
+5. `V3Utils.vaults(<VAULT>) == true`.
+6. `GaugeManager.withdrawer()`, `AutoRangeAndCompound.withdrawer()`, and `AutoExit.withdrawer()` equal `0x5663ba1B0B1d9b8559CFE049b33fe3B194852e82`.
+7. `AutoRangeAndCompound.operators(0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF)` and `AutoExit.operators(0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF)` are `true`.
+8. Ownership has been accepted by `0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9`.
+9. Run focused fork smoke tests:
 
 ```sh
 forge test --match-contract V3VaultAerodromeTest

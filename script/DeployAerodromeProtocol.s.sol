@@ -33,8 +33,11 @@ contract DeployAerodromeProtocol is Script {
     // Routing infra
     address internal constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
     address internal constant ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
-    address internal constant EXISTING_AERODROME_V3_UTILS = 0x7D1F9FC22beD0798cDA3Fdb18b14a96fc838B9E1;
-    address internal constant EXISTING_AERODROME_V3_UTILS_ROUTER = 0x6fF5693b99212Da76ad316178A184AB56D299b43;
+
+    // Production roles
+    address internal constant BASE_MULTISIG = 0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9;
+    address internal constant MULTICHAIN_WITHDRAWER = 0x5663ba1B0B1d9b8559CFE049b33fe3B194852e82;
+    address internal constant MULTICHAIN_OPERATOR = 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF;
 
     // Chainlink feeds on Base
     address internal constant CHAINLINK_ETH_USD = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
@@ -70,8 +73,7 @@ contract DeployAerodromeProtocol is Script {
 
         V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", USDC, npm, irm, oracle);
 
-        (V3Utils v3Utils, bool deployedV3Utils) = _loadOrDeployV3Utils(npm);
-        bool configuredV3UtilsVault;
+        V3Utils v3Utils = new V3Utils(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
         GaugeManager gaugeManager =
             new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
@@ -84,8 +86,8 @@ contract DeployAerodromeProtocol is Script {
 
         AutoRangeAndCompound autoRange = new AutoRangeAndCompound(
             npm,
-            deployer, // operator
-            deployer, // withdrawer
+            MULTICHAIN_OPERATOR,
+            MULTICHAIN_WITHDRAWER,
             60, // TWAP seconds
             200, // max TWAP tick diff
             AERODROME_SWAP_ROUTER,
@@ -94,8 +96,8 @@ contract DeployAerodromeProtocol is Script {
 
         AutoExit autoExit = new AutoExit(
             npm,
-            deployer, // operator
-            deployer, // withdrawer
+            MULTICHAIN_OPERATOR,
+            MULTICHAIN_WITHDRAWER,
             60, // TWAP seconds
             200, // max TWAP tick diff
             AERODROME_SWAP_ROUTER,
@@ -139,10 +141,8 @@ contract DeployAerodromeProtocol is Script {
         // Vault config
         vault.setGaugeManager(address(gaugeManager));
 
-        if (deployedV3Utils) {
-            v3Utils.setVault(address(vault));
-            configuredV3UtilsVault = true;
-        }
+        gaugeManager.setWithdrawer(MULTICHAIN_WITHDRAWER);
+        v3Utils.setVault(address(vault));
         leverageTransformer.setVault(address(vault));
         autoRange.setVault(address(vault));
 
@@ -164,9 +164,21 @@ contract DeployAerodromeProtocol is Script {
         vault.setTokenConfig(WETH, uint32(85 * Q32 / 100), type(uint32).max);
         vault.setTokenConfig(CBBTC, uint32(85 * Q32 / 100), type(uint32).max);
 
+        oracle.transferOwnership(BASE_MULTISIG);
+        irm.transferOwnership(BASE_MULTISIG);
+        vault.transferOwnership(BASE_MULTISIG);
+        gaugeManager.transferOwnership(BASE_MULTISIG);
+        v3Utils.transferOwnership(BASE_MULTISIG);
+        leverageTransformer.transferOwnership(BASE_MULTISIG);
+        autoRange.transferOwnership(BASE_MULTISIG);
+        autoExit.transferOwnership(BASE_MULTISIG);
+
         vm.stopBroadcast();
 
         console2.log("DEPLOYER", deployer);
+        console2.log("BASE_MULTISIG", BASE_MULTISIG);
+        console2.log("MULTICHAIN_WITHDRAWER", MULTICHAIN_WITHDRAWER);
+        console2.log("MULTICHAIN_OPERATOR", MULTICHAIN_OPERATOR);
         console2.log("AERODROME_FACTORY", AERODROME_FACTORY);
         console2.log("AERODROME_GAUGE_FACTORY", AERODROME_GAUGE_FACTORY);
         console2.log("ORACLE", address(oracle));
@@ -174,25 +186,11 @@ contract DeployAerodromeProtocol is Script {
         console2.log("VAULT", address(vault));
         console2.log("GAUGE_MANAGER", address(gaugeManager));
         console2.log("V3_UTILS", address(v3Utils));
-        console2.log("V3_UTILS_DEPLOYED", deployedV3Utils);
-        console2.log("V3_UTILS_VAULT_CONFIGURED", configuredV3UtilsVault);
+        console2.log("V3_UTILS_DEPLOYED", true);
+        console2.log("V3_UTILS_VAULT_CONFIGURED", true);
         console2.log("LEVERAGE_TRANSFORMER", address(leverageTransformer));
         console2.log("AUTO_RANGE", address(autoRange));
         console2.log("AUTO_EXIT", address(autoExit));
-    }
-
-    function _loadOrDeployV3Utils(IAerodromeNonfungiblePositionManager npm)
-        internal
-        returns (V3Utils v3Utils, bool deployed)
-    {
-        address configuredV3Utils = _envAddressOrZero("V3_UTILS");
-        if (configuredV3Utils == address(0)) {
-            v3Utils = new V3Utils(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
-            deployed = true;
-        } else {
-            _validateV3Utils(configuredV3Utils);
-            v3Utils = V3Utils(payable(configuredV3Utils));
-        }
     }
 
     function _validateDeploymentConfig() internal view {
@@ -202,6 +200,9 @@ contract DeployAerodromeProtocol is Script {
         _requireCode(AERODROME_GAUGE_FACTORY, "DeployAerodromeProtocol: gauge factory missing code");
         _requireCode(AERODROME_SWAP_ROUTER, "DeployAerodromeProtocol: aerodrome router missing code");
         _requireCode(ZEROX_ALLOWANCE_HOLDER, "DeployAerodromeProtocol: 0x allowance holder missing code");
+        _requireCode(BASE_MULTISIG, "DeployAerodromeProtocol: base multisig missing code");
+        _requireNonZero(MULTICHAIN_WITHDRAWER, "DeployAerodromeProtocol: withdrawer zero");
+        _requireNonZero(MULTICHAIN_OPERATOR, "DeployAerodromeProtocol: operator zero");
         _requireCode(
             CHAINLINK_BASE_SEQUENCER_UPTIME_FEED, "DeployAerodromeProtocol: sequencer uptime feed missing code"
         );
@@ -213,27 +214,6 @@ contract DeployAerodromeProtocol is Script {
         _validatePool(AERO_USDC_POOL, AERO, USDC);
         _validatePool(AERO_WETH_POOL, AERO, WETH);
         _validatePool(AERO_CBBTC_POOL, AERO, CBBTC);
-    }
-
-    function _validateV3Utils(address v3Utils) internal view {
-        _requireCode(v3Utils, "DeployAerodromeProtocol: V3Utils missing code");
-        V3Utils configuredV3Utils = V3Utils(payable(v3Utils));
-
-        require(
-            address(configuredV3Utils.nonfungiblePositionManager()) == AERODROME_NPM,
-            "DeployAerodromeProtocol: V3Utils NPM mismatch"
-        );
-
-        address configuredRouter = configuredV3Utils.universalRouter();
-        require(
-            configuredRouter == AERODROME_SWAP_ROUTER
-                || (v3Utils == EXISTING_AERODROME_V3_UTILS && configuredRouter == EXISTING_AERODROME_V3_UTILS_ROUTER),
-            "DeployAerodromeProtocol: V3Utils router mismatch"
-        );
-        require(
-            configuredV3Utils.zeroxAllowanceHolder() == ZEROX_ALLOWANCE_HOLDER,
-            "DeployAerodromeProtocol: V3Utils allowance holder mismatch"
-        );
     }
 
     function _validatePool(address pool, address tokenA, address tokenB) internal view {
@@ -256,11 +236,7 @@ contract DeployAerodromeProtocol is Script {
         require(target.code.length != 0, errorMessage);
     }
 
-    function _envAddressOrZero(string memory key) internal returns (address value) {
-        try vm.envAddress(key) returns (address configuredValue) {
-            value = configuredValue;
-        } catch {
-            value = address(0);
-        }
+    function _requireNonZero(address target, string memory errorMessage) internal pure {
+        require(target != address(0), errorMessage);
     }
 }
