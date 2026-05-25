@@ -48,14 +48,14 @@ contract MockNoopGaugeManager {
         return false;
     }
 
-    function claimRewards(uint256, address) external pure returns (uint256 aeroAmount) {
+    function claimRewards(uint256, address) external pure returns (uint256 rewardAmount) {
         return 0;
     }
 
     function compoundRewards(uint256, uint256, uint256, uint256)
         external
         pure
-        returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
+        returns (uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1)
     {
         return (0, 0, 0);
     }
@@ -545,7 +545,8 @@ contract V3VaultIntegrationTest is Test {
     }
 
     function testTransformAutoCompoundOutsideVault() external {
-        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRangeAndCompound autoRange =
+            new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
 
         // test compounding when not in vault
         vm.prank(WHALE_ACCOUNT);
@@ -555,14 +556,17 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(autoRange), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(
+            TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+        );
 
         vm.prank(WHALE_ACCOUNT);
         autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
     }
 
     function testTransformAutoCompoundInsideVault() external {
-        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRangeAndCompound autoRange =
+            new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
 
@@ -602,7 +606,8 @@ contract V3VaultIntegrationTest is Test {
     }
 
     function testTransformAutoRangeAutoCompoundInsideVault() external {
-        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRangeAndCompound autoRange =
+            new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
 
@@ -642,7 +647,8 @@ contract V3VaultIntegrationTest is Test {
     }
 
     function testTransformAutoRangeInsideVault() external {
-        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRangeAndCompound autoRange =
+            new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
 
@@ -665,7 +671,9 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
+            TEST_NFT,
+            address(vault),
+            AutoRangeAndCompound.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
         );
 
         (uint256 oldDebt,,,,) = vault.loanInfo(TEST_NFT);
@@ -677,11 +685,7 @@ contract V3VaultIntegrationTest is Test {
         autoRange.executeWithVaultAndRewardCompound(
             params,
             address(vault),
-            IVault.RewardCompoundParams({
-                minAeroReward: 0,
-                aeroSplitBps: 0,
-                deadline: block.timestamp
-            })
+            IVault.RewardCompoundParams({minReward: 0, rewardSplitBps: 0, deadline: block.timestamp})
         );
 
         // old token approval should be cleared even when tokenId gets replaced
@@ -1576,7 +1580,8 @@ contract V3VaultIntegrationTest is Test {
         uint256 EXPLOITER_NFT = TEST_NFT_2;
 
         // Set up an auto-compound transformer
-        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
+        AutoRangeAndCompound autoRange =
+            new AutoRangeAndCompound(NPM, WHALE_ACCOUNT, WHALE_ACCOUNT, 60, 100, EX0x, UNIVERSAL_ROUTER);
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
 
@@ -1587,7 +1592,9 @@ contract V3VaultIntegrationTest is Test {
         // Revert bots (outside of vault) to be auto-compounded
         vm.startPrank(ALICE_ACCOUNT);
         NPM.approve(address(autoRange), ALICE_NFT);
-        autoRange.configToken(ALICE_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(
+            ALICE_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+        );
         vm.stopPrank();
 
         // Exploiter opens a position in the Vault
@@ -1597,7 +1604,8 @@ contract V3VaultIntegrationTest is Test {
         vm.stopPrank();
 
         // Exploiter passes ALICE_NFT as param
-        AutoRangeAndCompound.AutoCompoundParams memory params = AutoRangeAndCompound.AutoCompoundParams(ALICE_NFT, false, 0, block.timestamp);
+        AutoRangeAndCompound.AutoCompoundParams memory params =
+            AutoRangeAndCompound.AutoCompoundParams(ALICE_NFT, false, 0, block.timestamp);
 
         // Exploiter account uses his own token to pass validation
         // but transforms Alice position

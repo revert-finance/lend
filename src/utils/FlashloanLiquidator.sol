@@ -139,36 +139,13 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
     }
 
     function _isFactoryPool(IUniswapV3Pool pool, address poolToken0, address poolToken1) internal view returns (bool) {
-        // Uniswap style: resolve by fee.
-        if (address(_getPool(poolToken0, poolToken1, pool.fee())) == address(pool)) {
-            return true;
-        }
-
-        // Slipstream style: resolve by tickSpacing.
-        (bool success, bytes memory tickSpacingData) =
-            address(pool).staticcall(abi.encodeWithSignature("tickSpacing()"));
-        if (!success || tickSpacingData.length < 32) {
-            return false;
-        }
-
-        int24 tickSpacing = abi.decode(tickSpacingData, (int24));
-        if (tickSpacing <= 0) {
-            return false;
-        }
-
-        return address(_getPool(poolToken0, poolToken1, _toTickSpacingU24(tickSpacing))) == address(pool);
+        return address(_getPool(poolToken0, poolToken1, pool.fee())) == address(pool);
     }
 
     function _transferBalanceIfNonZero(IERC20 token, address recipient) internal {
         uint256 balance = token.balanceOf(address(this));
         if (balance != 0) {
             SafeERC20.safeTransfer(token, recipient, balance);
-        }
-    }
-
-    function _toTickSpacingU24(int24 tickSpacing) internal pure returns (uint24 value) {
-        assembly ("memory-safe") {
-            value := tickSpacing
         }
     }
 }

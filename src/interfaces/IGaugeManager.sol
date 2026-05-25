@@ -6,9 +6,9 @@ import "./IProtocolFeeController.sol";
 interface IGaugeManager is IProtocolFeeController {
     event PositionStaked(uint256 indexed tokenId, address indexed owner, address indexed gauge);
     event PositionUnstaked(uint256 indexed tokenId, address indexed owner, address indexed gauge);
-    event RewardsClaimed(uint256 indexed tokenId, address indexed owner, uint256 aeroAmount);
+    event RewardsClaimed(uint256 indexed tokenId, address indexed owner, uint256 rewardAmount);
     event RewardsCompounded(
-        uint256 indexed tokenId, address indexed owner, uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1
+        uint256 indexed tokenId, address indexed owner, uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1
     );
     event CompoundRewardUpdated(address account, uint64 totalRewardX64);
     event GaugeSet(address indexed pool, address indexed gauge);
@@ -25,14 +25,11 @@ interface IGaugeManager is IProtocolFeeController {
     function unstakePosition(uint256 tokenId) external;
     function unstakeIfStaked(uint256 tokenId) external returns (bool wasStaked);
 
-    function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
+    function claimRewards(uint256 tokenId, address recipient) external returns (uint256 rewardAmount);
 
-    function compoundRewards(
-        uint256 tokenId,
-        uint256 minAeroReward,
-        uint256 aeroSplitBps,
-        uint256 deadline
-    ) external returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1);
+    function compoundRewards(uint256 tokenId, uint256 minReward, uint256 rewardSplitBps, uint256 deadline)
+        external
+        returns (uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1);
 
     function setCompoundReward(uint64 _totalRewardX64) external;
 }

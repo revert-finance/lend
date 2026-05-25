@@ -497,13 +497,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         RewardCompoundParams calldata rewardParams
     ) external override returns (uint256 newTokenId) {
         return _transform(
-            tokenId,
-            transformer,
-            data,
-            true,
-            rewardParams.minAeroReward,
-            rewardParams.aeroSplitBps,
-            rewardParams.deadline
+            tokenId, transformer, data, true, rewardParams.minReward, rewardParams.rewardSplitBps, rewardParams.deadline
         );
     }
 
@@ -512,8 +506,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         address transformer,
         bytes calldata data,
         bool compoundRewardsFirst,
-        uint256 minAeroReward,
-        uint256 aeroSplitBps,
+        uint256 minReward,
+        uint256 rewardSplitBps,
         uint256 deadline
     ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
@@ -538,7 +532,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             compoundRewardsFirst && gaugeManager != address(0)
                 && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)
         ) {
-            IGaugeManager(gaugeManager).compoundRewards(tokenId, minAeroReward, aeroSplitBps, deadline);
+            IGaugeManager(gaugeManager).compoundRewards(tokenId, minReward, rewardSplitBps, deadline);
         }
 
         bool wasStaked = _unstakeIfNeeded(tokenId);
@@ -1414,7 +1408,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     /// @notice Sets gauge manager address once (owner only)
     /// @dev Safety note: this only validates that `_gaugeManager` is a contract and then permanently locks it.
-    /// @dev GaugeManager enforces `msg.sender == address(vault)`, so configuring a manager deployed for a different
+    /// @dev The staking manager enforces `msg.sender == address(vault)`, so configuring a manager deployed for a different
     ///      vault will make stake/unstake/reward-precompound paths revert Unauthorized and cannot be corrected afterward.
     /// @dev This one-time lock without vault-binding handshake is an accepted operational/trust risk.
     function setGaugeManager(address _gaugeManager) external onlyOwner {
@@ -1476,7 +1470,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         view
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
     {
-        // Staked Slipstream positions pass `ignoreFees=true` so oracle skips fee-growth math and excludes fee value.
+        // Staked positions pass `ignoreFees=true` so oracle skips fee-growth math and excludes fee value.
         bool ignoreFees = _isStaked(tokenId);
         (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset), ignoreFees);
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);

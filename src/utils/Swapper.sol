@@ -12,19 +12,15 @@ import "v3-core/libraries/FullMath.sol";
 
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+import "../interfaces/pancake/IPancakeV3SwapCallback.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
 import "../utils/Constants.sol";
 
 // base functionality to do swaps with different routing protocols
-abstract contract Swapper is IUniswapV3SwapCallback, Constants {
+abstract contract Swapper is IUniswapV3SwapCallback, IPancakeV3SwapCallback, Constants {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
-
-    // Aerodrome Slipstream NPM mint selector:
-    // mint((address,address,int24,int24,int24,uint256,uint256,uint256,uint256,address,uint256,uint160))
-    bytes4 private constant AERODROME_MINT_SELECTOR = 0xb5007d1f;
 
     /// @notice Wrapped native token address
     IWETH9 public immutable weth;
@@ -131,21 +127,6 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         bool swap0For1;
         uint256 amountIn;
         uint256 amountOutMin;
-    }
-
-    struct AerodromeMintParams {
-        address token0;
-        address token1;
-        int24 tickSpacing;
-        int24 tickLower;
-        int24 tickUpper;
-        uint256 amount0Desired;
-        uint256 amount1Desired;
-        uint256 amount0Min;
-        uint256 amount1Min;
-        address recipient;
-        uint256 deadline;
-        uint160 sqrtPriceX96;
     }
 
     // execute swap directly on specified pool
@@ -257,54 +238,20 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         internal
         returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
     {
-        AerodromeMintParams memory aerodromeParams = AerodromeMintParams({
-            token0: params.token0,
-            token1: params.token1,
-            tickSpacing: _toTickSpacing(params.fee),
-            tickLower: params.tickLower,
-            tickUpper: params.tickUpper,
-            amount0Desired: params.amount0Desired,
-            amount1Desired: params.amount1Desired,
-            amount0Min: params.amount0Min,
-            amount1Min: params.amount1Min,
-            recipient: params.recipient,
-            deadline: params.deadline,
-            sqrtPriceX96: 0
-        });
-
-        // Try Aerodrome mint first. On Uniswap this selector is missing and call reverts.
-        (bool aerodromeSuccess, bytes memory aerodromeData) = address(nonfungiblePositionManager).call(
-            abi.encodeWithSelector(AERODROME_MINT_SELECTOR, aerodromeParams)
-        );
-        if (aerodromeSuccess) {
-            return abi.decode(aerodromeData, (uint256, uint128, uint256, uint256));
-        }
-
-        // Fallback to canonical Uniswap V3 mint.
-        (bool uniswapSuccess, bytes memory uniswapData) =
-            address(nonfungiblePositionManager).call(abi.encodeWithSelector(INonfungiblePositionManager.mint.selector, params));
-        if (uniswapSuccess) {
-            return abi.decode(uniswapData, (uint256, uint128, uint256, uint256));
-        }
-
-        // Bubble the most informative revert data.
-        if (uniswapData.length > 0) {
-            _revertWithData(uniswapData);
-        }
-        _revertWithData(aerodromeData);
-    }
-
-    function _revertWithData(bytes memory revertData) private pure {
-        if (revertData.length == 0) {
-            revert SwapFailed();
-        }
-        assembly ("memory-safe") {
-            revert(add(revertData, 32), mload(revertData))
-        }
+        return nonfungiblePositionManager.mint(params);
     }
 
     // swap callback function where amount for swap is payed
     function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+        _v3SwapCallback(amount0Delta, amount1Delta, data);
+    }
+
+    // PancakeSwap v3 pools use the same swap semantics but a different callback name.
+    function pancakeV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+        _v3SwapCallback(amount0Delta, amount1Delta, data);
+    }
+
+    function _v3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) internal {
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
 
         // check if really called from pool
@@ -320,30 +267,12 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in the `fee` field of positions().
-        (bool success, bytes memory data) = factory.staticcall(
-            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, _toTickSpacing(fee))
-        );
-        if (success && data.length >= 32) {
-            address poolAddress = abi.decode(data, (address));
-            if (poolAddress != address(0)) {
-                return IUniswapV3Pool(poolAddress);
-            }
-        }
-
-        // Uniswap v3 uses getPool(tokenA, tokenB, fee).
-        (success, data) =
+        (bool success, bytes memory data) =
             factory.staticcall(abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee));
         if (success && data.length >= 32) {
             return IUniswapV3Pool(abi.decode(data, (address)));
         }
 
         return IUniswapV3Pool(address(0));
-    }
-
-    function _toTickSpacing(uint24 fee) internal pure returns (int24 tickSpacing) {
-        assembly ("memory-safe") {
-            tickSpacing := fee
-        }
     }
 }

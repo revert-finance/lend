@@ -19,7 +19,6 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "../lib/AggregatorV3Interface.sol";
 
 import "./interfaces/IV3Oracle.sol";
-import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./utils/Constants.sol";
 
 /// @title V3Oracle to be used in V3Vault to calculate position values
@@ -39,7 +38,6 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         TWAP_CHAINLINK_VERIFY, // using TWAP for price and chainlink to verify
         CHAINLINK, // using only chainlink directly
         TWAP // using TWAP directly
-
     }
 
     address public immutable factory;
@@ -159,10 +157,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         configured = token == referenceToken || feedConfigs[token].mode != Mode.NOT_SET;
     }
 
-    function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000)
-        internal
-        pure
-    {
+    function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint16 maxDifferenceX10000) internal pure {
         uint256 differenceX10000 =
             priceX96 >= verifyPriceX96 ? (priceX96 - verifyPriceX96) * 10000 : (verifyPriceX96 - priceX96) * 10000;
 
@@ -337,14 +332,9 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
         uint256 verifyPriceX96;
 
-        bool usesChainlink = (
-            mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY
-                || mode == Mode.CHAINLINK
-        );
-        bool usesTWAP = (
-            mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY
-                || mode == Mode.TWAP
-        );
+        bool usesChainlink =
+            (mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY || mode == Mode.CHAINLINK);
+        bool usesTWAP = (mode == Mode.CHAINLINK_TWAP_VERIFY || mode == Mode.TWAP_CHAINLINK_VERIFY || mode == Mode.TWAP);
 
         if (usesChainlink) {
             uint256 chainlinkPriceX96 = _getChainlinkPriceX96(token);
@@ -483,8 +473,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
     function _loadPositionState(uint256 tokenId) internal view returns (PositionState memory state) {
         (
-            ,
-            ,
+            ,,
             address token0,
             address token1,
             uint24 fee,
@@ -599,10 +588,8 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         uint256 feeGrowthGlobal0X128,
         uint256 feeGrowthGlobal1X128
     ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
-        (uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128) =
-            _getFeeGrowthOutside(pool, tickLower);
-        (uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128) =
-            _getFeeGrowthOutside(pool, tickUpper);
+        (uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128) = _getFeeGrowthOutside(pool, tickLower);
+        (uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128) = _getFeeGrowthOutside(pool, tickUpper);
 
         // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
         unchecked {
@@ -649,17 +636,9 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
             revert InvalidPool();
         }
 
-        // Uniswap v3 ticks() => 8 outputs.
         if (data.length == 256) {
-            (, , feeGrowthOutside0X128, feeGrowthOutside1X128,,,,) =
+            (,, feeGrowthOutside0X128, feeGrowthOutside1X128,,,,) =
                 abi.decode(data, (uint128, int128, uint256, uint256, int56, uint160, uint32, bool));
-            return (feeGrowthOutside0X128, feeGrowthOutside1X128);
-        }
-
-        // Aerodrome Slipstream ticks() => 10 outputs (extra staked/reward fields).
-        if (data.length == 320) {
-            (, , , feeGrowthOutside0X128, feeGrowthOutside1X128,,,,,) =
-                abi.decode(data, (uint128, int128, int128, uint256, uint256, uint256, int56, uint160, uint32, bool));
             return (feeGrowthOutside0X128, feeGrowthOutside1X128);
         }
 
@@ -668,31 +647,12 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
     // helper method to get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        // Aerodrome uses getPool(tokenA, tokenB, tickSpacing) and stores tickSpacing in positions().fee.
-        (bool success, bytes memory data) = factory.staticcall(
-            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, tokenA, tokenB, _toTickSpacing(fee))
-        );
-        if (success && data.length >= 32) {
-            address poolAddress = abi.decode(data, (address));
-            if (poolAddress != address(0)) {
-                return IUniswapV3Pool(poolAddress);
-            }
-        }
-
-        // Uniswap v3 uses getPool(tokenA, tokenB, fee).
-        (success, data) = factory.staticcall(
-            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee)
-        );
+        (bool success, bytes memory data) =
+            factory.staticcall(abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenA, tokenB, fee));
         if (success && data.length >= 32) {
             return IUniswapV3Pool(abi.decode(data, (address)));
         }
 
         return IUniswapV3Pool(address(0));
-    }
-
-    function _toTickSpacing(uint24 fee) internal pure returns (int24 tickSpacing) {
-        assembly ("memory-safe") {
-            tickSpacing := fee
-        }
     }
 }

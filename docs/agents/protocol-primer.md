@@ -15,8 +15,8 @@ In this fork, core contracts are:
 - Vault: `src/V3Vault.sol`
 - Oracle: `src/V3Oracle.sol`
 - Interest model: `src/InterestRateModel.sol`
-- Aerodrome staking adapter: `src/GaugeManager.sol`
-- One-time GaugeManager binding and its operational risk classification are documented in `docs/agents/risk-and-acceptability.md`.
+- Pancake staking adapter: `src/PancakeStakingManager.sol`
+- One-time staking manager binding and its operational risk classification are documented in `docs/agents/risk-and-acceptability.md`.
 
 ## 2) Lending Side
 
@@ -64,7 +64,7 @@ Transformers are protocol-allowlisted contracts that can mutate positions while 
 
 The transformer set is closed: only the contracts in `src/transformers/` (V3Utils, AutoRangeAndCompound, LeverageTransformer) will ever be whitelisted. Each is included in audit scope and individually reviewed. No third-party or future transformers will be added without a dedicated audit.
 
-See `docs/agents/aerodrome-staking-and-gauge-manager.md` for custody paths and state synchronization invariants.
+Staked position custody paths and state synchronization invariants live in the staking manager implementation and fork tests.
 
 ## 6) Liquidations (Conceptual)
 

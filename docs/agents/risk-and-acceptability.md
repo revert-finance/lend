@@ -101,18 +101,15 @@ Reviewer guidance:
 - This includes ALL reentrancy paths that depend on the lending asset executing a callback during transfer — e.g., reentrancy during `_pullAssetFromSender` in `repay`, `liquidate`, `deposit`, or any other vault flow. With a standard ERC20 lending asset, these callbacks cannot occur.
 - If deployment policy changes to support such assets, these classes become in-scope and require explicit code hardening.
 
-## 6) External Gauge Dependency (Accepted Risk)
+## 6) External Staking Dependency (Accepted Risk)
 
-Staked positions depend on the external Aerodrome gauge to return the NFT via `withdraw()`. If the gauge reverts on withdraw (e.g., paused, broken, or upgraded), the vault cannot retrieve the NFT and therefore cannot liquidate that position.
+Staked positions depend on the external staking contract to return the NFT via `withdraw()`. If that contract reverts on withdraw (e.g., paused, broken, or upgraded), the vault cannot retrieve the NFT and therefore cannot liquidate that position.
 
-This is an inherent dependency on the external gauge contract — there is no mitigation the vault can implement. The vault cannot liquidate collateral it does not hold. This is accepted as a deployment-time trust assumption: only gauges validated via `setGauge()` (which checks `pool.gauge() == gauge`) are configured, and Aerodrome gauge contracts are trusted external infrastructure.
+This is an inherent dependency on external staking infrastructure. The vault cannot liquidate collateral it does not hold. This is accepted as a deployment-time trust assumption: only pools validated against the configured staking contract are enabled.
 
-This acceptance covers ONLY the case where the Aerodrome gauge contract itself
-malfunctions. It does NOT cover bugs in the vault's unstake flow, state
-desynchronization between vault staking records and gauge state, or reentrancy
-during unstake. Findings about the vault's own gauge interaction code remain in scope.
+This acceptance covers ONLY the case where the external staking contract itself malfunctions. It does NOT cover bugs in the vault's unstake flow, state desynchronization between vault staking records and staking contract state, or reentrancy during unstake. Findings about the vault's own staking interaction code remain in scope.
 
-### One-Time GaugeManager Binding (Accepted Operational Risk)
+### One-Time Staking Manager Binding (Accepted Operational Risk)
 
 `V3Vault.setGaugeManager` is intentionally one-shot and irreversible.
 
@@ -179,5 +176,4 @@ The transformer set is closed and fully audited:
 
 Recommended high-signal test files:
 
-- `test/atlas/AtlasTransitions.t.sol`
-- `test/integration/aerodrome/GaugeManagerVulnerability.t.sol`
+- `test/integration/base/PancakeBaseFork.t.sol`

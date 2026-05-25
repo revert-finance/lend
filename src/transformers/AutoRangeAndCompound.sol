@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 
@@ -72,7 +71,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         uint64 maxRewardX64; // max allowed reward percentage of fees or full position
         uint128 autoCompoundMin0; // min amount0 to add in autoCompound increaseLiquidity
         uint128 autoCompoundMin1; // min amount1 to add in autoCompound increaseLiquidity
-        uint128 autoCompoundRewardMin; // min claimed AERO when pre-compounding staked rewards
+        uint128 autoCompoundRewardMin; // min claimed staking reward when pre-compounding staked rewards
     }
 
     // configured tokens
@@ -241,7 +240,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
             }
 
-            int24 tickSpacing = IAerodromeSlipstreamPool(address(state.pool)).tickSpacing();
+            int24 tickSpacing = state.pool.tickSpacing();
             int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
 
             if (
@@ -384,7 +383,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+        IVault(vault)
+            .transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
     }
 
     /**
@@ -401,10 +401,13 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         }
         PositionConfig memory config = positionConfigs[params.tokenId];
         IVault.RewardCompoundParams memory adjustedRewardParams = rewardParams;
-        adjustedRewardParams.minAeroReward = config.autoCompoundRewardMin;
+        adjustedRewardParams.minReward = config.autoCompoundRewardMin;
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)), adjustedRewardParams
+                params.tokenId,
+                address(this),
+                abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
+                adjustedRewardParams
             );
     }
 

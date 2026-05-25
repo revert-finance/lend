@@ -43,8 +43,8 @@ interface IVault is IERC4626 {
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
 
     struct RewardCompoundParams {
-        uint256 minAeroReward;
-        uint256 aeroSplitBps;
+        uint256 minReward;
+        uint256 rewardSplitBps;
         uint256 deadline;
     }
 
