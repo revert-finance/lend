@@ -303,28 +303,29 @@ contract PancakeBaseForkTest is Test, Constants {
         assertEq(NPM.ownerOf(tokenId), ALICE);
     }
 
-    function testTransformWithRewardCompoundUnstakesAndRestakes() external {
+    function testTransformWithRewardCompoundClaimsCakeThenUnstakesAndRestakes() external {
         uint256 tokenId = _createVaultedPosition(ALICE, 1 ether, 4_500e6);
 
         vm.startPrank(ALICE);
         vault.stakePosition(tokenId);
         vault.approveTransform(tokenId, address(noopTransformer), true);
         vm.stopPrank();
-        _unlockMasterChef();
 
-        // Direct reward compounding is covered separately. In transform flow, compounding a nonzero reward first would
-        // refresh Pancake MasterChef's withdraw timelock and block the immediate unstake that transform performs.
-        vm.prank(ALICE);
-        stakingManager.claimRewards(tokenId, ALICE);
+        _accrueRewards(tokenId, 10 minutes);
+        uint256 aliceCakeBefore = IERC20(CAKE).balanceOf(ALICE);
+        (,,,,,,, uint128 liquidityBefore,,,,) = NPM.positions(tokenId);
 
         vm.prank(ALICE);
         vault.transformWithRewardCompound(
             tokenId,
             address(noopTransformer),
             abi.encodeCall(NoopPancakeTransformer.execute, ()),
-            IVault.RewardCompoundParams({minReward: 0, rewardSplitBps: 5_000, deadline: block.timestamp + 1 hours})
+            IVault.RewardCompoundParams({minReward: 1, rewardSplitBps: 5_000, deadline: block.timestamp + 1 hours})
         );
 
+        (,,,,,,, uint128 liquidityAfter,,,,) = NPM.positions(tokenId);
+        assertGt(IERC20(CAKE).balanceOf(ALICE), aliceCakeBefore);
+        assertEq(liquidityAfter, liquidityBefore);
         assertEq(stakingManager.tokenIdToGauge(tokenId), address(MASTER_CHEF));
         assertEq(NPM.ownerOf(tokenId), address(MASTER_CHEF));
         assertEq(vault.ownerOf(tokenId), ALICE);

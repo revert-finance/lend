@@ -507,8 +507,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         bytes calldata data,
         bool compoundRewardsFirst,
         uint256 minReward,
-        uint256 rewardSplitBps,
-        uint256 deadline
+        uint256,
+        uint256
     ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
@@ -529,10 +529,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         if (
-            compoundRewardsFirst && gaugeManager != address(0)
+            compoundRewardsFirst && minReward != 0 && gaugeManager != address(0)
                 && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)
         ) {
-            IGaugeManager(gaugeManager).compoundRewards(tokenId, minReward, rewardSplitBps, deadline);
+            // Pancake reward compounding keeps the NFT in MasterChef and can refresh MasterChef's withdraw lock.
+            // Transform flows must unstake immediately, so only enforce the optional reward threshold here.
+            uint256 rewardAmount = IGaugeManager(gaugeManager).claimRewards(tokenId, loanOwner);
+            if (rewardAmount < minReward) {
+                revert NotEnoughReward();
+            }
         }
 
         bool wasStaked = _unstakeIfNeeded(tokenId);

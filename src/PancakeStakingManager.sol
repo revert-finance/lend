@@ -224,8 +224,7 @@ contract PancakeStakingManager is Ownable2Step, ReentrancyGuard, IERC721Receiver
         if (recipient == address(0)) {
             recipient = owner;
         }
-        cakeAmount = _claimRewardsToSelf(tokenId);
-        _sendCakeIfAny(recipient, cakeAmount);
+        cakeAmount = masterChef.harvest(tokenId, recipient);
         emit RewardsClaimed(tokenId, owner, cakeAmount);
     }
 

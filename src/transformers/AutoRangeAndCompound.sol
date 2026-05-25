@@ -388,7 +388,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     /**
-     * @notice Autocompound position in a vault and compound staked gauge rewards first (if position is currently staked)
+     * @notice Autocompound position in a vault and handle staked rewards first (if position is currently staked)
      * Can only be called from configured operator account - vault must be configured as well
      */
     function autoCompoundWithVaultAndRewardCompound(
