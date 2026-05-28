@@ -35,6 +35,12 @@ export ANKR_API_KEY="<KEY>"
 
 The full Pancake deployment scripts deploy the vault, oracle, interest model, V3 utilities, automations, flash liquidator, and `PancakeStakingManager`.
 
+Use the deployment runbook and env templates for production preparation:
+
+- Runbook: `docs/deployment/pancake-v3.md`
+- Base env template: `deployments/pancake/base.env.example`
+- BSC env template: `deployments/pancake/bsc.env.example`
+
 Entrypoints:
 
 - Base: `script/DeployPancakeBase.s.sol:DeployPancakeBase`
@@ -140,11 +146,19 @@ The script enforces:
 
 ### Post-Deploy Verification
 
+After filling the deployed addresses back into the selected env file, run:
+
+```sh
+forge script script/VerifyPancakeDeployment.s.sol:VerifyPancakeDeployment \
+  --rpc-url "$RPC_URL" \
+  -vvvv
+```
+
 1. `V3Vault.gaugeManager()` equals the deployed `PancakeStakingManager` when `SET_VAULT_GAUGE_MANAGER=true`.
 2. `PancakeStakingManager.poolToGauge(<POOL>)` equals `PANCAKE_MASTER_CHEF_V3` for every configured staking pool.
 3. `PancakeStakingManager.rewardBasePools(<TOKEN>)` is set for every configured reward route.
 4. `PancakeStakingManager.withdrawer()` equals the configured staking withdrawer.
-5. Run the focused Base fork smoke test:
+5. Run the focused fork smoke test:
 
 ```sh
 forge test --match-path test/integration/base/PancakeBaseFork.t.sol
