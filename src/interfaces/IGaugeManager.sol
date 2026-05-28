@@ -31,5 +31,17 @@ interface IGaugeManager is IProtocolFeeController {
         external
         returns (uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1);
 
+    function decreaseLiquidityAndCollect(
+        uint256 tokenId,
+        uint128 liquidity,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        uint128 feeAmount0,
+        uint128 feeAmount1,
+        uint256 deadline,
+        address recipient,
+        address rewardRecipient
+    ) external returns (uint256 amount0, uint256 amount1);
+
     function setCompoundReward(uint64 _totalRewardX64) external;
 }

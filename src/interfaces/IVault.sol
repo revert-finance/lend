@@ -59,6 +59,9 @@ interface IVault is IERC4626 {
     function setGaugeManager(address _gaugeManager) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
+    function compoundRewards(uint256 tokenId, uint256 minReward, uint256 rewardSplitBps, uint256 deadline)
+        external
+        returns (uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1);
 
     // params for decreasing liquidity of collateralized position
     struct DecreaseLiquidityAndCollectParams {

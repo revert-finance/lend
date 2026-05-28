@@ -22,6 +22,10 @@ interface IPancakeV3Factory {
     function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
 }
 
+interface IPancakePositionManagerView is INonfungiblePositionManager {
+    function deployer() external view returns (address);
+}
+
 interface IPancakeMasterChefV3View is IPancakeMasterChefV3 {
     function latestPeriodEndTime() external view returns (uint256);
     function poolLength() external view returns (uint256);
@@ -70,6 +74,9 @@ contract NoopPancakeTransformer {
 }
 
 contract PancakeBaseForkTest is Test, Constants {
+    bytes32 internal constant PANCAKE_POOL_INIT_CODE_HASH =
+        0x6ce8eb472fa82df5469c6ab6d485f17c3ad13c8cd7af59b3d4a8026c5ce0f7e2;
+
     uint256 internal constant BASE_FORK_BLOCK = 46_475_796;
 
     address internal constant ALICE = address(0xA11CE);
@@ -80,8 +87,8 @@ contract PancakeBaseForkTest is Test, Constants {
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
     address internal constant CAKE = 0x3055913c90Fcc1A6CE9a358911721eEb942013A1;
 
-    INonfungiblePositionManager internal constant NPM =
-        INonfungiblePositionManager(0x46A15B0b27311cedF172AB29E4f4766fbE7F4364);
+    IPancakePositionManagerView internal constant NPM =
+        IPancakePositionManagerView(0x46A15B0b27311cedF172AB29E4f4766fbE7F4364);
     IPancakeV3Factory internal constant FACTORY = IPancakeV3Factory(0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865);
     IPancakeMasterChefV3View internal constant MASTER_CHEF =
         IPancakeMasterChefV3View(0xC6A2Db661D5a5690172d8eB0a7DEA2d3008665A3);
@@ -140,6 +147,8 @@ contract PancakeBaseForkTest is Test, Constants {
         assertGt(MASTER_CHEF.poolLength(), 0);
         assertGt(MASTER_CHEF.totalAllocPoint(), 0);
         assertGt(MASTER_CHEF.latestPeriodEndTime(), block.timestamp);
+        assertEq(_computePancakePool(NPM.deployer(), WETH, USDC, 500), address(WETH_USDC_POOL));
+        assertTrue(_computePancakePool(address(FACTORY), WETH, USDC, 500) != address(WETH_USDC_POOL));
         assertEq(stakingManager.poolToGauge(address(WETH_USDC_POOL)), address(MASTER_CHEF));
         assertEq(stakingManager.rewardBasePools(WETH), address(CAKE_WETH_POOL));
         assertEq(stakingManager.rewardBasePools(USDC), address(CAKE_USDC_POOL));
@@ -236,6 +245,27 @@ contract PancakeBaseForkTest is Test, Constants {
         assertEq(user, address(stakingManager));
     }
 
+    function testVaultCompoundRewardsKeepsNftInMasterChefAndIncreasesLiquidity() external {
+        uint256 tokenId = _createVaultedPosition(ALICE, 0.25 ether, 1_200e6);
+
+        vm.prank(ALICE);
+        vault.stakePosition(tokenId);
+        _accrueRewards(tokenId, 10 minutes);
+
+        (,,,,,,, uint128 liquidityBefore,,,,) = NPM.positions(tokenId);
+
+        vm.prank(ALICE);
+        (uint256 cakeAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            vault.compoundRewards(tokenId, 0, 5_000, block.timestamp + 1 hours);
+
+        (,,,,,,, uint128 liquidityAfter,,,,) = NPM.positions(tokenId);
+        assertGt(cakeAmount, 0);
+        assertTrue(amountAdded0 != 0 || amountAdded1 != 0, "no compounded token amount");
+        assertGt(liquidityAfter, liquidityBefore);
+        assertEq(stakingManager.tokenIdToGauge(tokenId), address(MASTER_CHEF));
+        assertEq(NPM.ownerOf(tokenId), address(MASTER_CHEF));
+    }
+
     function testCompoundRewardsRefreshesMasterChefWithdrawTimelock() external {
         uint256 tokenId = _createVaultedPosition(ALICE, 0.25 ether, 1_200e6);
 
@@ -259,7 +289,7 @@ contract PancakeBaseForkTest is Test, Constants {
         assertEq(NPM.ownerOf(tokenId), address(vault));
     }
 
-    function testDecreaseLiquidityAndCollectUnstakesThenRestakes() external {
+    function testDecreaseLiquidityAndCollectKeepsPancakePositionStaked() external {
         uint256 tokenId = _createVaultedPosition(ALICE, 1 ether, 4_500e6);
 
         vm.prank(ALICE);
@@ -331,7 +361,18 @@ contract PancakeBaseForkTest is Test, Constants {
         assertEq(vault.ownerOf(tokenId), ALICE);
     }
 
-    function testLiquidationUnstakesPancakePositionBeforeCollectingCollateral() external {
+    function testBorrowRevertsWhilePancakePositionIsStaked() external {
+        uint256 tokenId = _createVaultedPosition(ALICE, 1 ether, 4_500e6);
+
+        vm.prank(ALICE);
+        vault.stakePosition(tokenId);
+
+        vm.expectRevert(Constants.StakedPosition.selector);
+        vm.prank(ALICE);
+        vault.borrow(tokenId, 1_000e6);
+    }
+
+    function testStakeRevertsWhenPositionHasOpenDebt() external {
         uint256 tokenId = _createVaultedPosition(ALICE, 1 ether, 4_500e6);
 
         (,, uint256 collateralValue,,) = vault.loanInfo(tokenId);
@@ -341,29 +382,9 @@ contract PancakeBaseForkTest is Test, Constants {
         vm.prank(ALICE);
         vault.borrow(tokenId, borrowAmount);
 
+        vm.expectRevert(Constants.StakedPosition.selector);
         vm.prank(ALICE);
         vault.stakePosition(tokenId);
-        _unlockMasterChef();
-
-        vault.setTokenConfig(WETH, 0, type(uint32).max);
-        (,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfo(tokenId);
-        assertGt(liquidationCost, 0);
-        assertGt(liquidationValue, 0);
-
-        deal(USDC, BOB, liquidationCost + 100e6);
-        vm.startPrank(BOB);
-        IERC20(USDC).approve(address(vault), liquidationCost + 100e6);
-        vault.liquidate(
-            IVault.LiquidateParams({
-                tokenId: tokenId, amount0Min: 0, amount1Min: 0, deadline: block.timestamp + 1 hours, recipient: BOB
-            })
-        );
-        vm.stopPrank();
-
-        assertEq(stakingManager.tokenIdToGauge(tokenId), address(0));
-        assertEq(NPM.ownerOf(tokenId), address(vault));
-        (uint256 debtAfter,,,,) = vault.loanInfo(tokenId);
-        assertEq(debtAfter, 0);
     }
 
     function testStakeRevertsForNonDepositor() external {
@@ -401,6 +422,7 @@ contract PancakeBaseForkTest is Test, Constants {
         assertEq(CAKE, MASTER_CHEF.CAKE());
         assertEq(NPM.factory(), address(FACTORY));
         assertEq(FACTORY.getPool(WETH, USDC, 500), address(WETH_USDC_POOL));
+        assertEq(_computePancakePool(NPM.deployer(), WETH, USDC, 500), address(WETH_USDC_POOL));
         assertEq(FACTORY.getPool(CAKE, WETH, 500), address(CAKE_WETH_POOL));
         assertEq(FACTORY.getPool(CAKE, USDC, 2500), address(CAKE_USDC_POOL));
 
@@ -516,6 +538,28 @@ contract PancakeBaseForkTest is Test, Constants {
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {
         return a < b ? a : b;
+    }
+
+    function _computePancakePool(address deployer, address tokenA, address tokenB, uint24 fee)
+        internal
+        pure
+        returns (address pool)
+    {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        pool = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            hex"ff",
+                            deployer,
+                            keccak256(abi.encode(token0, token1, fee)),
+                            PANCAKE_POOL_INIT_CODE_HASH
+                        )
+                    )
+                )
+            )
+        );
     }
 
     function _baseRpc() internal returns (string memory rpcUrl) {

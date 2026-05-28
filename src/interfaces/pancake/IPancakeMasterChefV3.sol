@@ -30,4 +30,10 @@ interface IPancakeMasterChefV3 {
         external
         payable
         returns (uint128 liquidity, uint256 amount0, uint256 amount1);
+    function decreaseLiquidity(INonfungiblePositionManager.DecreaseLiquidityParams calldata params)
+        external
+        returns (uint256 amount0, uint256 amount1);
+    function collect(INonfungiblePositionManager.CollectParams calldata params)
+        external
+        returns (uint256 amount0, uint256 amount1);
 }

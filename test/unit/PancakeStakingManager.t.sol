@@ -128,9 +128,14 @@ contract MockPancakePool {
 
 contract MockPancakeVault is IERC721Receiver {
     mapping(uint256 => address) public owners;
+    mapping(uint256 => uint256) public loans;
 
     function setOwner(uint256 tokenId, address owner) external {
         owners[tokenId] = owner;
+    }
+
+    function setDebtShares(uint256 tokenId, uint256 debtShares) external {
+        loans[tokenId] = debtShares;
     }
 
     function ownerOf(uint256 tokenId) external view returns (address) {
@@ -183,6 +188,10 @@ contract MockPancakeNPM is ERC721 {
 
     function addLiquidity(uint256 tokenId, uint128 liquidity) external {
         positionData[tokenId].liquidity += liquidity;
+    }
+
+    function removeLiquidity(uint256 tokenId, uint128 liquidity) external {
+        positionData[tokenId].liquidity -= liquidity;
     }
 
     function positions(uint256 tokenId)
@@ -242,6 +251,11 @@ contract MockPancakeMasterChef is IERC721Receiver {
 
     uint256 public nextAdded0;
     uint256 public nextAdded1;
+    uint256 public nextDecreased0;
+    uint256 public nextDecreased1;
+
+    mapping(uint256 => uint256) public owed0;
+    mapping(uint256 => uint256) public owed1;
 
     constructor(address cake, address npm) {
         CAKE = cake;
@@ -293,6 +307,11 @@ contract MockPancakeMasterChef is IERC721Receiver {
     function setNextIncreaseLiquidityResult(uint256 amount0, uint256 amount1) external {
         nextAdded0 = amount0;
         nextAdded1 = amount1;
+    }
+
+    function setNextDecreaseLiquidityResult(uint256 amount0, uint256 amount1) external {
+        nextDecreased0 = amount0;
+        nextDecreased1 = amount1;
     }
 
     function pendingCake(uint256 tokenId) external view returns (uint256 reward) {
@@ -347,6 +366,43 @@ contract MockPancakeMasterChef is IERC721Receiver {
         nextAdded1 = 0;
         liquidity = amount0 + amount1 == 0 ? 0 : 1;
         MockPancakeNPM(nonfungiblePositionManager).addLiquidity(params.tokenId, liquidity);
+    }
+
+    function decreaseLiquidity(INonfungiblePositionManager.DecreaseLiquidityParams calldata params)
+        external
+        returns (uint256 amount0, uint256 amount1)
+    {
+        if (staker[params.tokenId] != msg.sender) {
+            revert("not staker");
+        }
+        amount0 = nextDecreased0;
+        amount1 = nextDecreased1;
+        owed0[params.tokenId] += amount0;
+        owed1[params.tokenId] += amount1;
+        nextDecreased0 = 0;
+        nextDecreased1 = 0;
+        MockPancakeNPM(nonfungiblePositionManager).removeLiquidity(params.tokenId, params.liquidity);
+    }
+
+    function collect(INonfungiblePositionManager.CollectParams calldata params)
+        external
+        returns (uint256 amount0, uint256 amount1)
+    {
+        if (staker[params.tokenId] != msg.sender) {
+            revert("not staker");
+        }
+        (,, address token0, address token1,,,,,,,,) =
+            MockPancakeNPM(nonfungiblePositionManager).positions(params.tokenId);
+        amount0 = Math.min(owed0[params.tokenId], params.amount0Max);
+        amount1 = Math.min(owed1[params.tokenId], params.amount1Max);
+        owed0[params.tokenId] -= amount0;
+        owed1[params.tokenId] -= amount1;
+        if (amount0 != 0) {
+            IERC20(token0).transfer(params.recipient, amount0);
+        }
+        if (amount1 != 0) {
+            IERC20(token1).transfer(params.recipient, amount1);
+        }
     }
 
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata) external returns (bytes4) {
@@ -483,6 +539,29 @@ contract PancakeStakingManagerUnitTest is Test {
         assertEq(cake.balanceOf(ALICE), 7 ether);
     }
 
+    function testDecreaseLiquidityAndCollectKeepsNftStakedAndForwardsCake() external {
+        _stake();
+        cake.mint(address(masterChef), 3 ether);
+        MockPancakeERC20(positionToken0).mint(address(masterChef), 11 ether);
+        MockPancakeERC20(positionToken1).mint(address(masterChef), 13 ether);
+        masterChef.setReward(TOKEN_ID, 3 ether);
+        masterChef.setNextDecreaseLiquidityResult(11 ether, 13 ether);
+
+        vm.prank(address(vault));
+        (uint256 amount0, uint256 amount1) = stakingManager.decreaseLiquidityAndCollect(
+            TOKEN_ID, 4, 0, 0, 0, 0, block.timestamp + 1, RECIPIENT, ALICE
+        );
+
+        assertEq(amount0, 11 ether);
+        assertEq(amount1, 13 ether);
+        assertEq(IERC20(positionToken0).balanceOf(RECIPIENT), 11 ether);
+        assertEq(IERC20(positionToken1).balanceOf(RECIPIENT), 13 ether);
+        assertEq(cake.balanceOf(ALICE), 3 ether);
+        assertEq(stakingManager.tokenIdToGauge(TOKEN_ID), address(masterChef));
+        assertEq(npm.ownerOf(TOKEN_ID), address(masterChef));
+        assertEq(masterChef.staker(TOKEN_ID), address(stakingManager));
+    }
+
     function testCompoundRewardsKeepsNftStakedAndUsesMasterChefIncreaseLiquidity() external {
         _stake();
         cake.mint(address(masterChef), 100 ether);
@@ -508,6 +587,24 @@ contract PancakeStakingManagerUnitTest is Test {
         assertEq(IERC20(positionToken1).balanceOf(ALICE), 60 ether - amountAdded1 - rewardAmount1);
         assertEq(IERC20(positionToken0).balanceOf(address(stakingManager)), rewardAmount0);
         assertEq(IERC20(positionToken1).balanceOf(address(stakingManager)), rewardAmount1);
+    }
+
+    function testCompoundRewardsRevertsWhenVaultReportsOpenDebt() external {
+        _stake();
+        vault.setDebtShares(TOKEN_ID, 1);
+
+        vm.expectRevert(Constants.StakedPosition.selector);
+        vm.prank(ALICE);
+        stakingManager.compoundRewards(TOKEN_ID, 0, 5_000, block.timestamp + 1);
+    }
+
+    function testDecreaseLiquidityAndCollectRevertsWhenVaultReportsOpenDebt() external {
+        _stake();
+        vault.setDebtShares(TOKEN_ID, 1);
+
+        vm.expectRevert(Constants.StakedPosition.selector);
+        vm.prank(address(vault));
+        stakingManager.decreaseLiquidityAndCollect(TOKEN_ID, 1, 0, 0, 0, 0, block.timestamp + 1, RECIPIENT, ALICE);
     }
 
     function testCompoundRewardsRevertsWhenRouteMissing() external {

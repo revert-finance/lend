@@ -158,11 +158,14 @@ forge script script/VerifyPancakeDeployment.s.sol:VerifyPancakeDeployment \
 2. `PancakeStakingManager.poolToGauge(<POOL>)` equals `PANCAKE_MASTER_CHEF_V3` for every configured staking pool.
 3. `PancakeStakingManager.rewardBasePools(<TOKEN>)` is set for every configured reward route.
 4. `PancakeStakingManager.withdrawer()` equals the configured staking withdrawer.
-5. Run the focused fork smoke test:
+5. Run the focused fork smoke tests:
 
 ```sh
 forge test --match-path test/integration/base/PancakeBaseFork.t.sol
+forge test --match-path test/integration/bsc/PancakeBscFork.t.sol
 ```
+
+Pancake staking is intentionally debt-free: a vault position with open debt cannot be staked, and a staked position cannot borrow or compound rewards through the vault. Pancake MasterChef locks both withdrawal and direct liquidity decreases after liquidity updates, so this invariant keeps liquidation independent from MasterChef timelocks.
 
 ## Note About Uniswap v3 PoolAddress Hash
 

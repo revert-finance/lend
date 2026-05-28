@@ -154,6 +154,21 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     /**
+     * @notice Compound CAKE rewards for a staked vault position without unstaking or changing range.
+     * Can only be called from configured operator account - vault must be configured as well
+     */
+    function compoundRewardsWithVault(
+        uint256 tokenId,
+        address vault,
+        IVault.RewardCompoundParams calldata rewardParams
+    ) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault).compoundRewards(tokenId, rewardParams.minReward, rewardParams.rewardSplitBps, rewardParams.deadline);
+    }
+
+    /**
      * @notice Adjust token directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
      * Swap needs to be done with max price difference from current pool price - otherwise reverts

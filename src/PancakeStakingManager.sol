@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/FullMath.sol";
@@ -240,6 +241,9 @@ contract PancakeStakingManager is Ownable2Step, ReentrancyGuard, IERC721Receiver
         }
 
         _requireStakedGauge(tokenId);
+        if (vault.loans(tokenId) != 0) {
+            revert StakedPosition();
+        }
 
         CompoundState memory state;
         uint24 fee;
@@ -261,6 +265,48 @@ contract PancakeStakingManager is Ownable2Step, ReentrancyGuard, IERC721Receiver
 
         emit RewardsCompounded(tokenId, state.owner, state.cakeAmount, state.amountAdded0, state.amountAdded1);
         return (state.cakeAmount, state.amountAdded0, state.amountAdded1);
+    }
+
+    function decreaseLiquidityAndCollect(
+        uint256 tokenId,
+        uint128 liquidity,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        uint128 feeAmount0,
+        uint128 feeAmount1,
+        uint256 deadline,
+        address recipient,
+        address rewardRecipient
+    ) external override nonReentrant returns (uint256 amount0, uint256 amount1) {
+        _requireVaultCaller();
+        _requireStakedGauge(tokenId);
+        if (vault.loans(tokenId) != 0) {
+            revert StakedPosition();
+        }
+
+        uint256 decreased0;
+        uint256 decreased1;
+        if (liquidity != 0) {
+            (decreased0, decreased1) = masterChef.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    tokenId, liquidity, amount0Min, amount1Min, deadline
+                )
+            );
+        }
+
+        uint128 collectAmount0 =
+            feeAmount0 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(decreased0 + feeAmount0);
+        uint128 collectAmount1 =
+            feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(decreased1 + feeAmount1);
+
+        (amount0, amount1) = masterChef.collect(
+            INonfungiblePositionManager.CollectParams(tokenId, recipient, collectAmount0, collectAmount1)
+        );
+
+        uint256 cakeAmount = _harvestPendingCake(tokenId, rewardRecipient);
+        if (cakeAmount != 0) {
+            emit RewardsClaimed(tokenId, vault.ownerOf(tokenId), cakeAmount);
+        }
     }
 
     function setCompoundReward(uint64 _totalRewardX64) external override onlyOwner {
@@ -302,6 +348,13 @@ contract PancakeStakingManager is Ownable2Step, ReentrancyGuard, IERC721Receiver
         if (cakeAfter > cakeBefore) {
             cakeAmount = cakeAfter - cakeBefore;
         }
+    }
+
+    function _harvestPendingCake(uint256 tokenId, address recipient) internal returns (uint256 cakeAmount) {
+        if (recipient == address(0) || masterChef.pendingCake(tokenId) == 0) {
+            return 0;
+        }
+        cakeAmount = masterChef.harvest(tokenId, recipient);
     }
 
     function _requireVaultCaller() internal view {

@@ -68,4 +68,5 @@ abstract contract Constants {
     error GaugeManagerAlreadySet();
     error NotDepositor();
     error NotStaked();
+    error StakedPosition();
 }

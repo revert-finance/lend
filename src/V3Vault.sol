@@ -598,6 +598,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (!isTransformMode && owner != msg.sender) {
             revert Unauthorized();
         }
+        if (!isTransformMode && _isStaked(tokenId)) {
+            revert StakedPosition();
+        }
 
         (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
 
@@ -659,32 +662,45 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
 
-        bool wasStaked = _unstakeIfNeeded(params.tokenId);
-
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
-
-        if (params.liquidity != 0) {
-            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(
-                    params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
-                )
-            );
+        bool wasStaked = _isStaked(params.tokenId);
+        if (wasStaked && loans[params.tokenId].debtShares != 0) {
+            revert StakedPosition();
         }
 
-        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
-            params.tokenId,
-            params.recipient,
-            params.feeAmount0 == type(uint128).max
-                ? type(uint128).max
-                : SafeCast.toUint128(amount0 + params.feeAmount0),
-            params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
-        );
-
-        (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
-
         if (wasStaked) {
-            // Re-check health in the final staked custody state because staking realizes pre-stake fees.
-            _stake(params.tokenId);
+            (amount0, amount1) = IGaugeManager(gaugeManager).decreaseLiquidityAndCollect(
+                params.tokenId,
+                params.liquidity,
+                params.amount0Min,
+                params.amount1Min,
+                params.feeAmount0,
+                params.feeAmount1,
+                params.deadline,
+                params.recipient,
+                owner
+            );
+        } else {
+            if (params.liquidity != 0) {
+                (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams(
+                        params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
+                    )
+                );
+            }
+
+            INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
+                params.tokenId,
+                params.recipient,
+                params.feeAmount0 == type(uint128).max
+                    ? type(uint128).max
+                    : SafeCast.toUint128(amount0 + params.feeAmount0),
+                params.feeAmount1 == type(uint128).max
+                    ? type(uint128).max
+                    : SafeCast.toUint128(amount1 + params.feeAmount1)
+            );
+
+            (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
         }
 
         uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
@@ -749,7 +765,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert NotLiquidatable();
         }
 
-        _unstakeIfNeeded(params.tokenId);
+        if (_isStaked(params.tokenId)) {
+            revert StakedPosition();
+        }
 
         (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
             _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
@@ -772,7 +790,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) = _sendPositionValue(
-            params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient, params.deadline
+            params.tokenId,
+            state.liquidationValue,
+            state.fullValue,
+            state.feeValue,
+            params.recipient,
+            params.deadline
         );
 
         if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
@@ -1433,14 +1456,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (tokenOwner[tokenId] != msg.sender) {
             revert NotDepositor();
         }
+        if (loans[tokenId].debtShares != 0) {
+            revert StakedPosition();
+        }
 
         _stake(tokenId);
-        // Explicit user-initiated staking can realize pre-stake fees to the borrower, so open loans must remain
-        // healthy under the post-stake valuation model, which excludes fee collateral for staked positions.
-        if (loans[tokenId].debtShares != 0) {
-            (uint256 debt,,,,) = loanInfo(tokenId);
-            _requireLoanIsHealthy(tokenId, debt, true);
-        }
     }
 
     function unstakePosition(uint256 tokenId) external override {
@@ -1450,6 +1470,27 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
 
         IGaugeManager(gaugeManager).unstakePosition(tokenId);
+    }
+
+    function compoundRewards(uint256 tokenId, uint256 minReward, uint256 rewardSplitBps, uint256 deadline)
+        external
+        override
+        returns (uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1)
+    {
+        _requireGaugeManagerSet();
+        if (transformedTokenId != 0) {
+            revert TransformNotAllowed();
+        }
+
+        address owner = tokenOwner[tokenId];
+        if (owner != msg.sender && !transformApprovals[owner][tokenId][msg.sender]) {
+            revert Unauthorized();
+        }
+        if (loans[tokenId].debtShares != 0) {
+            revert StakedPosition();
+        }
+
+        return IGaugeManager(gaugeManager).compoundRewards(tokenId, minReward, rewardSplitBps, deadline);
     }
 
     function _stake(uint256 tokenId) private {

@@ -53,6 +53,12 @@ forge script script/DeployPancakeBsc.s.sol:DeployPancakeBsc \
 
 The dry run should fail rather than silently deploy if any production config is empty, a Chainlink feed/pool address has no code, a reward route does not resolve through the Pancake V3 factory, or a staking pool is not registered in `MasterChefV3`.
 
+## 3.1 Pancake Staking Invariant
+
+Staking is supported only for debt-free vault positions. The vault rejects borrowing against already-staked Pancake NFTs and rejects staking NFTs with open debt. Reward compounding is also restricted to debt-free staked positions.
+
+This is intentional. Pancake MasterChefV3 can timelock both `withdraw` and direct staked `decreaseLiquidity` after liquidity updates, so allowing debt on staked positions would make liquidation depend on an external unlock window.
+
 ## 4. Broadcast
 
 After the dry run is clean:
@@ -135,9 +141,10 @@ Before opening public access:
 forge build
 forge test --no-match-path 'test/integration/uniswap/**' -vv
 forge test --match-path test/integration/base/PancakeBaseFork.t.sol -vv
+forge test --match-path test/integration/bsc/PancakeBscFork.t.sol -vv
 ```
 
-For BSC, run the deployment dry-run and verification script against a BSC RPC. A dedicated BSC fork smoke suite is still a recommended follow-up before mainnet BSC launch.
+For BSC, run the deployment dry-run and verification script against a BSC RPC in addition to the fork smoke suite.
 
 ## Open Launch Inputs
 

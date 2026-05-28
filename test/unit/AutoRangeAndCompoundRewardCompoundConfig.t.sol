@@ -38,6 +38,7 @@ contract MockVaultRewardCapture {
     uint256 public lastMinReward;
     uint256 public lastRewardSplitBps;
     uint256 public lastDeadline;
+    bool public compoundRewardsCalled;
 
     function transformWithRewardCompound(
         uint256 tokenId,
@@ -52,6 +53,18 @@ contract MockVaultRewardCapture {
         lastRewardSplitBps = rewardParams.rewardSplitBps;
         lastDeadline = rewardParams.deadline;
         return tokenId;
+    }
+
+    function compoundRewards(uint256 tokenId, uint256 minReward, uint256 rewardSplitBps, uint256 deadline)
+        external
+        returns (uint256 rewardAmount, uint256 amountAdded0, uint256 amountAdded1)
+    {
+        compoundRewardsCalled = true;
+        lastTokenId = tokenId;
+        lastMinReward = minReward;
+        lastRewardSplitBps = rewardSplitBps;
+        lastDeadline = deadline;
+        return (0, 0, 0);
     }
 }
 
@@ -152,5 +165,19 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
 
         assertEq(mockVault.lastMinReward(), 33);
         assertEq(mockVault.lastRewardSplitBps(), 5_000);
+    }
+
+    function testCompoundRewardsWithVaultCallsVaultRewardCompounding() external {
+        IVault.RewardCompoundParams memory rewardParams =
+            IVault.RewardCompoundParams({minReward: 7, rewardSplitBps: 6_000, deadline: block.timestamp + 1 hours});
+
+        vm.prank(OPERATOR);
+        autoRange.compoundRewardsWithVault(TOKEN_ID, address(mockVault), rewardParams);
+
+        assertTrue(mockVault.compoundRewardsCalled());
+        assertEq(mockVault.lastTokenId(), TOKEN_ID);
+        assertEq(mockVault.lastMinReward(), 7);
+        assertEq(mockVault.lastRewardSplitBps(), 6_000);
+        assertEq(mockVault.lastDeadline(), block.timestamp + 1 hours);
     }
 }
