@@ -41,13 +41,13 @@ contract DeployAerodromeProtocol is Script {
 
     // Chainlink feeds on Base
     address internal constant CHAINLINK_ETH_USD = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
-    address internal constant CHAINLINK_BTC_USD = 0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F;
+    address internal constant CHAINLINK_CBBTC_USD = 0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D;
     address internal constant CHAINLINK_USDC_USD = 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B;
     address internal constant CHAINLINK_BASE_SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
 
     // Base Slipstream pools
     address internal constant WETH_USDC_POOL = 0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59;
-    address internal constant CBBTC_USDC_POOL = 0x4e962BB3889Bf030368F56810A9c96B83CB3E778;
+    address internal constant CBBTC_WETH_POOL = 0x70aCDF2Ad0bf2402C957154f944c19Ef4e1cbAE1;
     address internal constant AERO_USDC_POOL = 0xBE00fF35AF70E8415D0eB605a286D8A45466A4c1;
     address internal constant AERO_WETH_POOL = 0x82321f3BEB69f503380D6B233857d5C43562e2D0;
     address internal constant AERO_CBBTC_POOL = 0xdFe5F275020def30993f042174Fc2D335678b626;
@@ -62,16 +62,16 @@ contract DeployAerodromeProtocol is Script {
 
         IAerodromeNonfungiblePositionManager npm = IAerodromeNonfungiblePositionManager(AERODROME_NPM);
 
-        V3Oracle oracle = new V3Oracle(npm, USDC, address(0));
+        V3Oracle oracle = new V3Oracle(npm, WETH, address(0));
 
         InterestRateModel irm = new InterestRateModel(
             0, // base rate
-            Q64 * 15 / 1000, // multiplier (1.5%)
-            Q64, // jump multiplier (100%)
-            Q64 * 80 / 100 // kink (80%)
+            Q64 * 13 / 100, // multiplier (13%)
+            Q64 * 300 / 100, // jump multiplier (300%)
+            Q64 * 90 / 100 // kink (90%)
         );
 
-        V3Vault vault = new V3Vault("Revert Lend USDC", "rlUSDC", USDC, npm, irm, oracle);
+        V3Vault vault = new V3Vault("Revert Lend Base USDC", "rlBaseUSDC", USDC, npm, irm, oracle);
 
         V3Utils v3Utils = new V3Utils(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
@@ -109,19 +109,19 @@ contract DeployAerodromeProtocol is Script {
         oracle.setSequencerUptimeFeed(CHAINLINK_BASE_SEQUENCER_UPTIME_FEED);
 
         oracle.setTokenConfig(
-            USDC,
-            AggregatorV3Interface(CHAINLINK_USDC_USD),
-            86400,
-            IUniswapV3Pool(address(0)),
-            60,
-            V3Oracle.Mode.CHAINLINK,
-            type(uint16).max
-        );
-
-        oracle.setTokenConfig(
             WETH,
             AggregatorV3Interface(CHAINLINK_ETH_USD),
             3600,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+
+        oracle.setTokenConfig(
+            USDC,
+            AggregatorV3Interface(CHAINLINK_USDC_USD),
+            86400,
             IUniswapV3Pool(WETH_USDC_POOL),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
@@ -130,9 +130,9 @@ contract DeployAerodromeProtocol is Script {
 
         oracle.setTokenConfig(
             CBBTC,
-            AggregatorV3Interface(CHAINLINK_BTC_USD),
-            3600,
-            IUniswapV3Pool(CBBTC_USDC_POOL),
+            AggregatorV3Interface(CHAINLINK_CBBTC_USD),
+            86400,
+            IUniswapV3Pool(CBBTC_WETH_POOL),
             60,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             200
@@ -152,17 +152,18 @@ contract DeployAerodromeProtocol is Script {
 
         vault.setLimits(
             1e6, // minLoanSize = 1 USDC
-            10_000_000e6, // global lend limit
-            8_000_000e6, // global debt limit
-            1_000_000e6, // daily lend increase min
-            1_000_000e6 // daily debt increase min
+            25_000_000e6, // global lend limit
+            22_500_000e6, // global debt limit
+            5_000_000e6, // daily lend increase min
+            4_500_000e6 // daily debt increase min
         );
 
         vault.setReserveFactor(uint32(10 * Q32 / 100));
+        vault.setReserveProtectionFactor(uint32(5 * Q32 / 100));
 
-        vault.setTokenConfig(USDC, uint32(90 * Q32 / 100), type(uint32).max);
-        vault.setTokenConfig(WETH, uint32(85 * Q32 / 100), type(uint32).max);
-        vault.setTokenConfig(CBBTC, uint32(85 * Q32 / 100), type(uint32).max);
+        vault.setTokenConfig(USDC, uint32(85 * Q32 / 100), type(uint32).max);
+        vault.setTokenConfig(WETH, uint32(775 * Q32 / 1000), type(uint32).max);
+        vault.setTokenConfig(CBBTC, uint32(775 * Q32 / 1000), type(uint32).max);
 
         oracle.transferOwnership(BASE_MULTISIG);
         irm.transferOwnership(BASE_MULTISIG);
@@ -210,7 +211,7 @@ contract DeployAerodromeProtocol is Script {
         IAerodromeNonfungiblePositionManager npm = IAerodromeNonfungiblePositionManager(AERODROME_NPM);
         require(npm.factory() == AERODROME_FACTORY, "DeployAerodromeProtocol: NPM factory mismatch");
         _validatePool(WETH_USDC_POOL, WETH, USDC);
-        _validatePool(CBBTC_USDC_POOL, CBBTC, USDC);
+        _validatePool(CBBTC_WETH_POOL, CBBTC, WETH);
         _validatePool(AERO_USDC_POOL, AERO, USDC);
         _validatePool(AERO_WETH_POOL, AERO, WETH);
         _validatePool(AERO_CBBTC_POOL, AERO, CBBTC);
