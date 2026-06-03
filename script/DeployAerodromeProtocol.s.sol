@@ -152,10 +152,10 @@ contract DeployAerodromeProtocol is Script {
 
         vault.setLimits(
             1e6, // minLoanSize = 1 USDC
-            25_000_000e6, // global lend limit
-            22_500_000e6, // global debt limit
-            5_000_000e6, // daily lend increase min
-            4_500_000e6 // daily debt increase min
+            1_000_000e6, // global lend limit
+            1_000_000e6, // global debt limit
+            100_000e6, // daily lend increase min
+            100_000e6 // daily debt increase min
         );
 
         vault.setReserveFactor(uint32(10 * Q32 / 100));
