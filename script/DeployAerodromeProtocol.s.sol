@@ -71,7 +71,7 @@ contract DeployAerodromeProtocol is Script {
             Q64 * 90 / 100 // kink (90%)
         );
 
-        V3Vault vault = new V3Vault("Revert Lend Base USDC", "rlBaseUSDC", USDC, npm, irm, oracle);
+        V3Vault vault = new V3Vault("Revert Lend Aerodrome USDC", "rlAeroUSDC", USDC, npm, irm, oracle);
 
         V3Utils v3Utils = new V3Utils(npm, AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER);
 
