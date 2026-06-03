@@ -89,7 +89,7 @@ contract DeployAerodromeProtocol is Script {
             MULTICHAIN_OPERATOR,
             MULTICHAIN_WITHDRAWER,
             60, // TWAP seconds
-            200, // max TWAP tick diff
+            100, // max TWAP tick diff
             AERODROME_SWAP_ROUTER,
             ZEROX_ALLOWANCE_HOLDER
         );
@@ -99,7 +99,7 @@ contract DeployAerodromeProtocol is Script {
             MULTICHAIN_OPERATOR,
             MULTICHAIN_WITHDRAWER,
             60, // TWAP seconds
-            200, // max TWAP tick diff
+            100, // max TWAP tick diff
             AERODROME_SWAP_ROUTER,
             ZEROX_ALLOWANCE_HOLDER
         );
