@@ -15,7 +15,6 @@ abstract contract Constants {
     error InvalidConfig();
     error TWAPCheckFailed();
     error WrongContract();
-    error InvalidToken();
 
     error SwapFailed();
     error SlippageError();
@@ -24,29 +23,10 @@ abstract contract Constants {
 
     error ExceedsMaxReward();
     error InvalidPool();
-    error ChainlinkPriceError();
-    error PriceDifferenceExceeded();
-    error SequencerDown();
-    error SequencerGracePeriodNotOver();
-    error SequencerUptimeFeedInvalid();
-
-    error CollateralFail();
-    error MinLoanSize();
-    error GlobalDebtLimit();
-    error GlobalLendLimit();
-    error DailyDebtIncreaseLimit();
-    error DailyLendIncreaseLimit();
     error InsufficientLiquidity();
-    error NotLiquidatable();
-    error InterestNotUpdated();
     error TransformNotAllowed();
     error TransformFailed();
-    error CollateralFactorExceedsMax();
-    error CollateralValueLimit();
     error NoLiquidity();
-    error DebtChanged();
-    error NeedsRepay();
-    error NoSharesRepayed();
 
     error SelfSend();
     error NotSupportedWhatToDo();

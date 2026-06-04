@@ -2,8 +2,9 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
+import "v3-core/interfaces/IUniswapV3Factory.sol";
 import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-core/libraries/TickMath.sol";
 
@@ -11,10 +12,11 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../../lib/IWETH9.sol";
 import "../../lib/IUniversalRouter.sol";
+import "../interfaces/pancake/IPancakeV3SwapCallback.sol";
 import "../utils/Constants.sol";
 
-// base functionality to do swaps with different routing protocols
-abstract contract Swapper is IUniswapV3SwapCallback, Constants {
+// base functionality to do swaps with Pancake v3 pools and approved external routers
+abstract contract Swapper is IPancakeV3SwapCallback, Constants {
     event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
     /// @notice Wrapped native token address
@@ -22,18 +24,18 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
     address public immutable factory;
 
-    /// @notice Uniswap v3 position manager
+    /// @notice PancakeSwap v3 position manager
     INonfungiblePositionManager public immutable nonfungiblePositionManager;
 
-    /// @notice Uniswap Universal Router
+    /// @notice Universal Router
     address public immutable universalRouter;
 
     /// @notice 0x Protocol AllowanceHolder contract
     address public immutable zeroxAllowanceHolder;
 
     /// @notice Constructor
-    /// @param _nonfungiblePositionManager Uniswap v3 position manager
-    /// @param _universalRouter Uniswap Universal Router
+    /// @param _nonfungiblePositionManager PancakeSwap v3 position manager
+    /// @param _universalRouter Universal Router
     /// @param _zeroxAllowanceHolder 0x Protocol AllowanceHolder contract
     constructor(
         INonfungiblePositionManager _nonfungiblePositionManager,
@@ -47,8 +49,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         zeroxAllowanceHolder = _zeroxAllowanceHolder;
     }
 
-
-    // swap data for uni - must include sweep for input token
+    // Universal Router swap data - must include sweep for input token.
     struct UniversalRouterData {
         bytes commands;
         bytes[] inputs;
@@ -70,7 +71,10 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         internal
         returns (uint256 amountInDelta, uint256 amountOutDelta)
     {
-        if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0) && address(params.tokenIn) != address(0)) {
+        if (
+            params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0)
+                && address(params.tokenIn) != address(0)
+        ) {
             uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
             uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
 
@@ -85,7 +89,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
 
             if (isUniversalRouter) {
                 // Handle Universal Router case
-                (address target, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
+                (, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
                 UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
                 SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
                 IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
@@ -124,19 +128,20 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     // amounts must be available on the contract for both tokens
     function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
         if (params.amountIn != 0) {
-            (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(
-                address(this),
-                params.swap0For1,
-                int256(params.amountIn),
-                (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
-                abi.encode(
-                    params.swap0For1 ? params.token0 : params.token1,
-                    params.swap0For1 ? params.token1 : params.token0,
-                    params.fee
-                )
-            );
-            amountInDelta = params.swap0For1 ? uint256(amount0Delta) : uint256(amount1Delta);
-            amountOutDelta = params.swap0For1 ? uint256(-amount1Delta) : uint256(-amount0Delta);
+            (int256 amount0Delta, int256 amount1Delta) = params.pool
+                .swap(
+                    address(this),
+                    params.swap0For1,
+                    SafeCast.toInt256(params.amountIn),
+                    (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
+                    abi.encode(
+                        params.swap0For1 ? params.token0 : params.token1,
+                        params.swap0For1 ? params.token1 : params.token0,
+                        params.fee
+                    )
+                );
+            amountInDelta = params.swap0For1 ? SafeCast.toUint256(amount0Delta) : SafeCast.toUint256(amount1Delta);
+            amountOutDelta = params.swap0For1 ? SafeCast.toUint256(-amount1Delta) : SafeCast.toUint256(-amount0Delta);
 
             // amountMin slippage check
             if (amountOutDelta < params.amountOutMin) {
@@ -145,8 +150,12 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         }
     }
 
-    // swap callback function where amount for swap is payed
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+    // Pancake v3 pools call this callback name for direct pool swaps.
+    function pancakeV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+        _v3SwapCallback(amount0Delta, amount1Delta, data);
+    }
+
+    function _v3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) internal {
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
 
         // check if really called from pool
@@ -156,11 +165,29 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         }
 
         // transfer needed amount of tokenIn
-        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta));
+        SafeERC20.safeTransfer(
+            IERC20(tokenIn), msg.sender, amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta)
+        );
     }
 
     // get pool for token
     function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
-        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+        return IUniswapV3Pool(IUniswapV3Factory(factory).getPool(tokenA, tokenB, fee));
+    }
+
+    function _getPoolSlot0(IUniswapV3Pool pool) internal view returns (uint160 sqrtPriceX96, int24 tick) {
+        (bool success, bytes memory data) = address(pool).staticcall(abi.encodeWithSelector(pool.slot0.selector));
+        if (!success || data.length < 64) {
+            revert InvalidPool();
+        }
+
+        uint256 sqrtPriceX96Raw;
+        int256 tickRaw;
+        assembly ("memory-safe") {
+            sqrtPriceX96Raw := mload(add(data, 0x20))
+            tickRaw := mload(add(data, 0x40))
+        }
+        sqrtPriceX96 = SafeCast.toUint160(sqrtPriceX96Raw);
+        tick = SafeCast.toInt24(tickRaw);
     }
 }

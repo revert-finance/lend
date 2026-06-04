@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "permit2/interfaces/IPermit2.sol";
@@ -10,10 +11,10 @@ import "../utils/Swapper.sol";
 import "../transformers/Transformer.sol";
 
 /// @title v3Utils v1.1
-/// @notice Utility functions for Uniswap V3 positions
+/// @notice Utility functions for PancakeSwap V3 positions.
 /// It does not hold any ERC20 or NFTs.
 /// It can be simply redeployed when new / better functionality is implemented
-contract V3Utils is Transformer, Swapper, IERC721Receiver {
+contract V3Utils is Transformer, Swapper, IERC721Receiver, ReentrancyGuard {
     using SafeCast for uint256;
 
     // @notice Permit2 contract
@@ -27,8 +28,8 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
 
     /// @notice Constructor
-    /// @param _nonfungiblePositionManager Uniswap v3 position manager
-    /// @param _universalRouter Uniswap Universal Router
+    /// @param _nonfungiblePositionManager PancakeSwap v3 position manager
+    /// @param _universalRouter Universal Router
     /// @param _zeroxAllowanceHolder 0x Protocol AllowanceHolder contract
     /// @param _permit2 Permit2 contract
     constructor(
@@ -49,7 +50,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
     /// @notice Complete description of what should be executed on provided NFT - different fields are used depending on specified WhatToDo
     struct Instructions {
-        // what action to perform on provided Uniswap v3 position
+        // what action to perform on the provided PancakeSwap v3 position
         WhatToDo whatToDo;
         // target token for swaps (if this is address(0) no swaps are executed)
         address targetToken;
@@ -78,7 +79,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         // for adding liquidity slippage
         uint256 amountAddMin0;
         uint256 amountAddMin1;
-        // for all uniswap deadlineable functions
+        // for all PancakeSwap v3 deadlineable functions
         uint256 deadline;
         // left over tokens will be sent to this address
         address recipient;
@@ -101,6 +102,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @return newTokenId Id of position (if a new one was created)
     function executeWithPermit(uint256 tokenId, Instructions memory instructions, uint8 v, bytes32 r, bytes32 s)
         public
+        nonReentrant
         returns (uint256 newTokenId)
     {
         if (nonfungiblePositionManager.ownerOf(tokenId) != msg.sender) {
@@ -108,19 +110,26 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         }
 
         nonfungiblePositionManager.permit(address(this), tokenId, instructions.deadline, v, r, s);
-        return execute(tokenId, instructions);
+        return _execute(tokenId, instructions);
 
         // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
     }
 
     /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
     /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
-    function onERC721Received(address, /*operator*/ address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(
+        address,
+        /*operator*/
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    )
         external
         override
+        nonReentrant
         returns (bytes4)
     {
-        // only Uniswap v3 NFTs allowed
+        // only PancakeSwap v3 NFTs allowed
         if (msg.sender != address(nonfungiblePositionManager)) {
             revert WrongContract();
         }
@@ -132,7 +141,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
         Instructions memory instructions = abi.decode(data, (Instructions));
 
-        execute(tokenId, instructions);
+        _execute(tokenId, instructions);
 
         // return token to owner (this line guarantees that token is returned to originating owner)
         nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
@@ -144,9 +153,16 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @param tokenId Token to process
     /// @param instructions Instructions to execute
     /// @return newTokenId Id of position (if a new one was created)
-    function execute(uint256 tokenId, Instructions memory instructions) public returns (uint256 newTokenId) {
+    function execute(uint256 tokenId, Instructions memory instructions)
+        public
+        nonReentrant
+        returns (uint256 newTokenId)
+    {
         _validateCaller(nonfungiblePositionManager, tokenId);
+        newTokenId = _execute(tokenId, instructions);
+    }
 
+    function _execute(uint256 tokenId, Instructions memory instructions) internal returns (uint256 newTokenId) {
         (,, address token0, address token1,,,, uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         uint256 amount0;
@@ -402,7 +418,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @return amountOut Output amount of tokenOut
     /// If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
     /// Optionally unwraps any wrapped native token and returns native token instead
-    function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
+    function swap(SwapParams calldata params) external payable nonReentrant returns (uint256 amountOut) {
         if (params.tokenIn == params.tokenOut) {
             revert SameToken();
         }
@@ -478,6 +494,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     function swapAndMint(SwapAndMintParams calldata params)
         external
         payable
+        nonReentrant
         returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
     {
         if (params.token0 == params.token1) {
@@ -545,6 +562,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params)
         external
         payable
+        nonReentrant
         returns (uint128 liquidity, uint256 amount0, uint256 amount1)
     {
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
@@ -776,10 +794,10 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
             unwrap
         );
 
-        INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = INonfungiblePositionManager
-            .IncreaseLiquidityParams(
-            params.tokenId, total0, total1, params.amountAddMin0, params.amountAddMin1, params.deadline
-        );
+        INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams =
+            INonfungiblePositionManager.IncreaseLiquidityParams(
+                params.tokenId, total0, total1, params.amountAddMin0, params.amountAddMin1, params.deadline
+            );
 
         (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
 
@@ -886,7 +904,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         }
     }
 
-    // decreases liquidity from uniswap v3 position
+    // decreases liquidity from PancakeSwap v3 position
     function _decreaseLiquidity(
         uint256 tokenId,
         uint128 liquidity,
@@ -901,7 +919,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         }
     }
 
-    // collects specified amount of fees from uniswap v3 position
+    // collects specified amount of fees from PancakeSwap v3 position
     function _collectFees(uint256 tokenId, IERC20 token0, IERC20 token1, uint128 collectAmount0, uint128 collectAmount1)
         internal
         returns (uint256 amount0, uint256 amount1)

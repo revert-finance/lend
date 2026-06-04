@@ -6,38 +6,55 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../utils/Constants.sol";
-import "../interfaces/IVault.sol";
+import "../interfaces/pancake/IPancakeMasterChefV3Staker.sol";
 
 abstract contract Transformer is Ownable2Step, Constants {
-    event VaultSet(address newVault);
+    event PancakeStakerSet(address indexed staker, bool active);
 
-    // configurable by owner
-    mapping(address => bool) public vaults;
+    /// @notice Pancake MasterChef stakers allowed to call transformer callbacks.
+    mapping(address => bool) public pancakeStakers;
 
     /**
-     * @notice Owner controlled function to activate vault address
-     * @param _vault vault
+     * @notice Owner controlled function to activate a Pancake staker address.
+     * @param _staker Pancake MasterChef V3 staker
      */
-    function setVault(address _vault) external onlyOwner {
-        emit VaultSet(_vault);
-        vaults[_vault] = true;
+    function setPancakeStaker(address _staker) external onlyOwner {
+        _setPancakeStaker(_staker, true);
+    }
+
+    /**
+     * @notice Owner controlled function to activate or deactivate a Pancake staker address.
+     * @param _staker Pancake MasterChef V3 staker
+     * @param _active Active state
+     */
+    function setPancakeStaker(address _staker, bool _active) external onlyOwner {
+        _setPancakeStaker(_staker, _active);
+    }
+
+    function _setPancakeStaker(address _staker, bool _active) internal {
+        if (_staker == address(0)) {
+            revert InvalidConfig();
+        }
+        pancakeStakers[_staker] = _active;
+        emit PancakeStakerSet(_staker, _active);
     }
 
     // validates if caller is owner (direct or indirect for a given position)
-    function _validateOwner(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId, address vault)
+    function _validateOwner(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId, address staker)
         internal
+        view
     {
-        // vault can not be owner
-        if (vaults[msg.sender]) {
+        // a staker callback cannot configure owner permissions
+        if (pancakeStakers[msg.sender]) {
             revert Unauthorized();
         }
 
         address owner;
-        if (vault != address(0)) {
-            if (!vaults[vault]) {
+        if (staker != address(0)) {
+            if (!pancakeStakers[staker]) {
                 revert Unauthorized();
             }
-            owner = IVault(vault).ownerOf(tokenId);
+            owner = IPancakeMasterChefV3Staker(staker).ownerOf(tokenId);
         } else {
             owner = nonfungiblePositionManager.ownerOf(tokenId);
         }
@@ -49,8 +66,8 @@ abstract contract Transformer is Ownable2Step, Constants {
 
     // validates if caller is allowed to process position
     function _validateCaller(INonfungiblePositionManager nonfungiblePositionManager, uint256 tokenId) internal view {
-        if (vaults[msg.sender]) {
-            uint256 transformedTokenId = IVault(msg.sender).transformedTokenId();
+        if (pancakeStakers[msg.sender]) {
+            uint256 transformedTokenId = IPancakeMasterChefV3Staker(msg.sender).transformedTokenId();
             if (tokenId != transformedTokenId) {
                 revert Unauthorized();
             }

@@ -14,10 +14,8 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../../lib/IWETH9.sol";
 import "../utils/Swapper.sol";
-import "../interfaces/IVault.sol";
 
 abstract contract Automator is Ownable2Step, Swapper {
-
     uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
     uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
 
@@ -54,6 +52,9 @@ abstract contract Automator is Ownable2Step, Swapper {
      * @param _withdrawer withdrawer
      */
     function setWithdrawer(address _withdrawer) public onlyOwner {
+        if (_withdrawer == address(0)) {
+            revert ZeroAddress();
+        }
         emit WithdrawerChanged(_withdrawer);
         withdrawer = _withdrawer;
     }
@@ -64,6 +65,9 @@ abstract contract Automator is Ownable2Step, Swapper {
      * @param _active active or not
      */
     function setOperator(address _operator, bool _active) public onlyOwner {
+        if (_operator == address(0)) {
+            revert ZeroAddress();
+        }
         emit OperatorChanged(_operator, _active);
         operators[_operator] = _active;
     }
@@ -92,8 +96,11 @@ abstract contract Automator is Ownable2Step, Swapper {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }
+        if (to == address(0)) {
+            revert ZeroAddress();
+        }
 
-        uint256 i;
+        uint256 i = 0;
         uint256 count = tokens.length;
         address token;
         uint256 balance;
@@ -113,6 +120,9 @@ abstract contract Automator is Ownable2Step, Swapper {
     function withdrawETH(address to) external {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
+        }
+        if (to == address(0)) {
+            revert ZeroAddress();
         }
 
         uint256 balance = address(this).balance;
@@ -141,13 +151,15 @@ abstract contract Automator is Ownable2Step, Swapper {
             revert TWAPCheckFailed();
         }
 
-        // calculate min output price price and percentage
+        // calculate min output price and percentage without multiplying by Q64 upfront
         uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        uint256 spotAmountOut;
         if (swap0For1) {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q160); // Q160 = Q96 * Q64
+            spotAmountOut = FullMath.mulDiv(amountIn, priceX96, Q96);
         } else {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q32, priceX96);
+            spotAmountOut = FullMath.mulDiv(amountIn, Q96, priceX96);
         }
+        amountOutMin = FullMath.mulDiv(spotAmountOut, Q64 - maxPriceDifferenceX64, Q64);
     }
 
     // Checks if there was not more tick difference

@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
 import "./Automator.sol";
+import "../transformers/Transformer.sol";
+import "../interfaces/pancake/IPancakeMasterChefV3Staker.sol";
 
 /// @title AutoExit
 /// @notice Lets a v3 position to be automatically removed (limit order) or swapped to the opposite token (stop loss order) when it reaches a certain tick.
-/// A revert controlled bot (operator) is responsable for the execution of optimized swaps (using external swap router)
+/// A revert controlled bot (operator) is responsible for the execution of optimized swaps (using external swap router)
 /// Positions need to be approved (approve or setApprovalForAll) for the contract and configured with configToken method
-contract AutoExit is Automator {
+contract AutoExit is Transformer, Automator, ReentrancyGuard {
+    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
+
     event Executed(
         uint256 indexed tokenId,
         address account,
@@ -38,7 +44,11 @@ contract AutoExit is Automator {
         uint16 _maxTWAPTickDifference,
         address _universalRouter,
         address _zeroxAllowanceHolder
-    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder) {}
+    )
+        Automator(
+            _npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder
+        )
+    {}
 
     // define how stoploss / limit should be handled
     struct PositionConfig {
@@ -65,7 +75,7 @@ contract AutoExit is Automator {
         bytes swapData; // if its a swap order - must include swap data
         uint256 amountRemoveMin0; // min amount to be removed from liquidity
         uint256 amountRemoveMin1; // min amount to be removed from liquidity
-        uint256 deadline; // for uniswap operations
+        uint256 deadline; // for PancakeSwap v3 operations
         uint64 rewardX64; // which reward will be used for protocol, can be max configured amount (considering onlyFees)
     }
 
@@ -94,13 +104,29 @@ contract AutoExit is Automator {
     }
 
     /**
+     * @notice Handle a Pancake-staked token through a configured MasterChef staker.
+     * Can only be called by a configured operator.
+     */
+    function executeWithPancakeStaker(ExecuteParams calldata params, address staker) external {
+        if (!operators[msg.sender] || !pancakeStakers[staker]) {
+            revert Unauthorized();
+        }
+        IPancakeMasterChefV3Staker(staker)
+            .transform(params.tokenId, address(this), abi.encodeCall(AutoExit.execute, (params)));
+    }
+
+    /**
      * @notice Handle token (must be in correct state)
-     * Can only be called only from configured operator account
+     * Can only be called only from configured operator account, or from a configured Pancake staker during transform.
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
-    function execute(ExecuteParams calldata params) external {
+    function execute(ExecuteParams calldata params) external nonReentrant {
         if (!operators[msg.sender]) {
-            revert Unauthorized();
+            if (pancakeStakers[msg.sender]) {
+                _validateCaller(nonfungiblePositionManager, params.tokenId);
+            } else {
+                revert Unauthorized();
+            }
         }
 
         PositionConfig memory config = positionConfigs[params.tokenId];
@@ -125,7 +151,7 @@ contract AutoExit is Automator {
         }
 
         state.pool = _getPool(state.token0, state.token1, state.fee);
-        (, state.tick,,,,,) = state.pool.slot0();
+        (, state.tick) = _getPoolSlot0(state.pool);
 
         // not triggered
         if (config.token0TriggerTick <= state.tick && state.tick < config.token1TriggerTick) {
@@ -154,7 +180,7 @@ contract AutoExit is Automator {
 
             state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
             if (state.swapAmount != 0) {
-                (state.sqrtPriceX96, state.currentTick,,,,,) = state.pool.slot0();
+                (state.sqrtPriceX96, state.currentTick) = _getPoolSlot0(state.pool);
 
                 // checks if price in valid oracle range and calculates amountOutMin
                 state.amountOutMin = _validateSwap(
@@ -199,6 +225,9 @@ contract AutoExit is Automator {
         }
 
         state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
+        if (pancakeStakers[state.owner]) {
+            state.owner = IPancakeMasterChefV3Staker(state.owner).ownerOf(params.tokenId);
+        }
         if (state.amount0 != 0) {
             _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
         }
@@ -219,16 +248,22 @@ contract AutoExit is Automator {
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
     function configToken(uint256 tokenId, PositionConfig calldata config) external {
+        _configToken(tokenId, address(0), config);
+    }
+
+    /// @notice Configures a token that is owned by a Pancake MasterChef staker.
+    function configToken(uint256 tokenId, address staker, PositionConfig calldata config) external {
+        _configToken(tokenId, staker, config);
+    }
+
+    function _configToken(uint256 tokenId, address staker, PositionConfig calldata config) internal {
         if (config.isActive) {
-            if (config.token0TriggerTick >= config.token1TriggerTick) {
+            if (config.token0TriggerTick >= config.token1TriggerTick || config.maxRewardX64 > MAX_REWARD_X64) {
                 revert InvalidConfig();
             }
         }
 
-        address owner = nonfungiblePositionManager.ownerOf(tokenId);
-        if (owner != msg.sender) {
-            revert Unauthorized();
-        }
+        _validateOwner(nonfungiblePositionManager, tokenId, staker);
 
         positionConfigs[tokenId] = config;
 
