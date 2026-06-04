@@ -52,6 +52,7 @@ contract PancakeMockPool {
     address public immutable token1;
     uint24 public immutable fee;
     int24 public tick;
+    int24 public observedTick;
     uint160 public sqrtPriceX96 = 2 ** 96;
     uint256 public outputBps = 10_000;
 
@@ -63,6 +64,10 @@ contract PancakeMockPool {
 
     function setTick(int24 tick_) external {
         tick = tick_;
+    }
+
+    function setObservedTick(int24 observedTick_) external {
+        observedTick = observedTick_;
     }
 
     function setOutputBps(uint256 outputBps_) external {
@@ -93,7 +98,7 @@ contract PancakeMockPool {
         tickCumulatives = new int56[](secondsAgos.length);
         secondsPerLiquidityCumulativeX128s = new uint160[](secondsAgos.length);
         for (uint256 i; i < secondsAgos.length; ++i) {
-            tickCumulatives[i] = int56(int24(tick)) * int56(uint56(secondsAgos[i]));
+            tickCumulatives[i] = int56(int24(observedTick)) * int56(uint56(secondsAgos[i]));
         }
     }
 
@@ -113,6 +118,15 @@ contract PancakeMockPool {
         IPancakeV3SwapCallback(msg.sender).pancakeV3SwapCallback(-int256(amountOut), int256(amountIn), data);
         PancakeMockERC20(token0).mint(recipient, amountOut);
         return (-int256(amountOut), int256(amountIn));
+    }
+}
+
+contract PancakeMockRouter {
+    function swapExact(PancakeMockERC20 tokenIn, PancakeMockERC20 tokenOut, uint256 amountIn, uint256 amountOut)
+        external
+    {
+        tokenIn.transferFrom(msg.sender, address(this), amountIn);
+        tokenOut.mint(msg.sender, amountOut);
     }
 }
 
@@ -160,6 +174,10 @@ contract PancakeMockNPM is ERC721 {
     function setFees(uint256 tokenId, uint128 owed0, uint128 owed1) external {
         positionData[tokenId].tokensOwed0 = owed0;
         positionData[tokenId].tokensOwed1 = owed1;
+    }
+
+    function permit(address spender, uint256 tokenId, uint256, uint8, bytes32, bytes32) external {
+        _approve(spender, tokenId);
     }
 
     function positions(uint256 tokenId)
@@ -402,5 +420,37 @@ contract PancakeMockMasterChef is IERC721Receiver, IPancakeMasterChefV3 {
                 );
             }
             npm.safeTransferFrom(address(this), msg.sender, newTokenId);
+        }
+    }
+
+    contract PancakeMultiSendTransformer {
+        INonfungiblePositionManager public immutable npm;
+
+        constructor(INonfungiblePositionManager npm_) {
+            npm = npm_;
+        }
+
+        function sendMany(uint256[] calldata tokenIds) external {
+            for (uint256 i; i < tokenIds.length; ++i) {
+                npm.safeTransferFrom(address(this), msg.sender, tokenIds[i]);
+            }
+        }
+    }
+
+    contract PancakeMasterChefWithdrawTransformer {
+        INonfungiblePositionManager public immutable npm;
+        IPancakeMasterChefV3 public immutable masterChef;
+
+        constructor(INonfungiblePositionManager npm_, IPancakeMasterChefV3 masterChef_) {
+            npm = npm_;
+            masterChef = masterChef_;
+        }
+
+        function stakeOwned(uint256 tokenId) external {
+            npm.safeTransferFrom(address(this), address(masterChef), tokenId);
+        }
+
+        function withdrawOther(uint256 tokenId) external {
+            masterChef.withdraw(tokenId, msg.sender);
         }
     }
