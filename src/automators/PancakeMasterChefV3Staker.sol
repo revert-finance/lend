@@ -248,7 +248,7 @@ contract PancakeMasterChefV3Staker is
 
     /// @notice Sets the token used by claimRewards for this position.
     function setHarvestToken(uint256 tokenId, RewardToken rewardToken) external override {
-        _requirePositionOwner(tokenId);
+        _requireManagedApprovedCaller(tokenId);
         harvestTokens[tokenId] = rewardToken;
         emit HarvestTokenSet(tokenId, rewardToken);
     }
@@ -781,6 +781,19 @@ contract PancakeMasterChefV3Staker is
         }
     }
 
+    function _requireManagedApprovedCaller(uint256 tokenId) internal view returns (address owner) {
+        owner = positionOwners[tokenId];
+        if (owner == address(0)) {
+            revert NotConfigured();
+        }
+        if (msg.sender == owner) {
+            return owner;
+        }
+        if (!transformerAllowList[msg.sender] || !transformApprovals[owner][tokenId][msg.sender]) {
+            revert Unauthorized();
+        }
+    }
+
     function _requireStakedPosition(uint256 tokenId) internal view returns (address owner) {
         owner = positionOwners[tokenId];
         if (owner == address(0)) {
@@ -990,6 +1003,7 @@ contract PancakeMasterChefV3Staker is
 
             if (existingOwner == address(0)) {
                 positionOwners[tokenId] = transformOwner;
+                harvestTokens[tokenId] = harvestTokens[currentTransformedTokenId];
             }
             if (
                 tokenId != currentTransformedTokenId && activeTransformer != address(0)

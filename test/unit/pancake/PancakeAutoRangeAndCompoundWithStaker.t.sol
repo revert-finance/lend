@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 
 import "../../../src/automators/Automator.sol";
 import "../../../src/automators/PancakeMasterChefV3Staker.sol";
+import {IPancakeMasterChefV3Staker as IStaker} from "../../../src/interfaces/pancake/IPancakeMasterChefV3Staker.sol";
 import "../../../src/transformers/AutoRangeAndCompound.sol";
 import "../../../src/utils/Constants.sol";
 import "./PancakeMasterChefV3Mocks.sol";
@@ -20,6 +21,8 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
     uint256 internal constant DIRECT_TOKEN_ID = 2;
     uint256 internal constant NEW_TOKEN_ID = 100;
     uint24 internal constant FEE = 500;
+    IStaker.RewardToken internal constant HARVEST_CAKE = IStaker.RewardToken.CAKE;
+    IStaker.RewardToken internal constant HARVEST_TOKEN1 = IStaker.RewardToken.TOKEN1;
 
     PancakeMockERC20 internal cake;
     PancakeMockERC20 internal token0;
@@ -66,7 +69,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
             TOKEN_ID,
             address(staker),
             AutoRangeAndCompound.PositionConfig(
-                0, 0, -10, 10, 0, 0, false, false, autoRangeAndCompound.MAX_REWARD_X64(), 0, 0, 0
+                0, 0, -10, 10, 0, 0, false, false, autoRangeAndCompound.MAX_REWARD_X64(), 0, 0, 0, HARVEST_CAKE
             )
         );
         vm.stopPrank();
@@ -108,7 +111,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
     function testAutoRangeAndCompoundConfigAuthorizationResetAndInvalidConfig() external {
         uint64 maxReward = autoRangeAndCompound.MAX_REWARD_X64();
         AutoRangeAndCompound.PositionConfig memory config =
-            AutoRangeAndCompound.PositionConfig(1, 2, -20, 20, 3, 4, false, true, maxReward, 5, 6, 7);
+            AutoRangeAndCompound.PositionConfig(1, 2, -20, 20, 3, 4, false, true, maxReward, 5, 6, 7, HARVEST_TOKEN1);
 
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(BOB);
@@ -123,43 +126,64 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, 20, -20, 0, 0, false, false, maxReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, 20, -20, 0, 0, false, false, maxReward, 0, 0, 0, HARVEST_CAKE)
         );
 
         vm.prank(ALICE);
         autoRangeAndCompound.configToken(TOKEN_ID, address(staker), config);
 
-        (
-            ,,
-            int32 lowerTickDelta,
-            int32 upperTickDelta,,,,
-            bool autoCompoundEnabled,
-            uint64 maxRewardX64,
-            uint128 autoCompoundMin0,
-            uint128 autoCompoundMin1,
-            uint128 autoCompoundRewardMin
-        ) = autoRangeAndCompound.positionConfigs(TOKEN_ID);
+        AutoRangeAndCompound.PositionConfig memory storedConfig = autoRangeAndCompound.positionConfigs(TOKEN_ID);
 
-        assertEq(lowerTickDelta, config.lowerTickDelta);
-        assertEq(upperTickDelta, config.upperTickDelta);
-        assertTrue(autoCompoundEnabled);
-        assertEq(maxRewardX64, config.maxRewardX64);
-        assertEq(autoCompoundMin0, config.autoCompoundMin0);
-        assertEq(autoCompoundMin1, config.autoCompoundMin1);
-        assertEq(autoCompoundRewardMin, config.autoCompoundRewardMin);
+        assertEq(storedConfig.lowerTickDelta, config.lowerTickDelta);
+        assertEq(storedConfig.upperTickDelta, config.upperTickDelta);
+        assertTrue(storedConfig.autoCompound);
+        assertEq(storedConfig.maxRewardX64, config.maxRewardX64);
+        assertEq(storedConfig.autoCompoundMin0, config.autoCompoundMin0);
+        assertEq(storedConfig.autoCompoundMin1, config.autoCompoundMin1);
+        assertEq(storedConfig.autoCompoundRewardMin, config.autoCompoundRewardMin);
+        assertEq(uint8(storedConfig.harvestToken), uint8(HARVEST_TOKEN1));
+        assertEq(uint8(staker.harvestTokens(TOKEN_ID)), uint8(HARVEST_TOKEN1));
 
         vm.prank(ALICE);
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, false, maxReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, false, maxReward, 0, 0, 0, HARVEST_CAKE)
         );
-        (,, lowerTickDelta, upperTickDelta,,,,,,,,) = autoRangeAndCompound.positionConfigs(TOKEN_ID);
-        assertEq(lowerTickDelta, 0);
-        assertEq(upperTickDelta, 0);
+        storedConfig = autoRangeAndCompound.positionConfigs(TOKEN_ID);
+        assertEq(storedConfig.lowerTickDelta, 0);
+        assertEq(storedConfig.upperTickDelta, 0);
+        assertEq(uint8(staker.harvestTokens(TOKEN_ID)), uint8(HARVEST_CAKE));
+    }
+
+    function testAutoRangeAndCompoundConfigSetsHarvestModeOnStaker() external {
+        uint64 maxReward = autoRangeAndCompound.MAX_REWARD_X64();
+        vm.prank(ALICE);
+        autoRangeAndCompound.configToken(
+            TOKEN_ID,
+            address(staker),
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, false, maxReward, 0, 0, 0, HARVEST_TOKEN1)
+        );
+
+        assertEq(uint8(staker.harvestTokens(TOKEN_ID)), uint8(HARVEST_TOKEN1));
+
+        masterChef.setReward(TOKEN_ID, 100);
+        vm.prank(ALICE);
+        uint256 claimed = staker.claimRewards(TOKEN_ID, RECIPIENT);
+
+        assertEq(claimed, 100);
+        assertEq(token1.balanceOf(RECIPIENT), 100);
     }
 
     function testAutoRangeAndCompoundCreatesAndStakesNewPosition() external {
+        uint64 maxReward = autoRangeAndCompound.MAX_REWARD_X64();
+        vm.prank(ALICE);
+        autoRangeAndCompound.configToken(
+            TOKEN_ID,
+            address(staker),
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, false, maxReward, 0, 0, 0, HARVEST_TOKEN1)
+        );
+
         vm.prank(OPERATOR);
         autoRangeAndCompound.executeWithPancakeStaker(
             AutoRangeAndCompound.ExecuteParams(TOKEN_ID, false, 0, "", 0, 0, 0, 0, 1, 0), address(staker)
@@ -170,6 +194,9 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         assertEq(npm.ownerOf(TOKEN_ID), address(staker));
         assertEq(npm.ownerOf(NEW_TOKEN_ID), address(masterChef));
         assertEq(masterChef.positionUser(NEW_TOKEN_ID), address(staker));
+        assertEq(uint8(autoRangeAndCompound.positionConfigs(NEW_TOKEN_ID).harvestToken), uint8(HARVEST_TOKEN1));
+        assertEq(uint8(autoRangeAndCompound.positionConfigs(TOKEN_ID).harvestToken), uint8(HARVEST_CAKE));
+        assertEq(uint8(staker.harvestTokens(NEW_TOKEN_ID)), uint8(HARVEST_TOKEN1));
 
         vm.prank(ALICE);
         staker.unstakePosition(TOKEN_ID, RECIPIENT);
@@ -183,7 +210,8 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         vm.startPrank(ALICE);
         npm.approve(address(autoRangeAndCompound), DIRECT_TOKEN_ID);
         autoRangeAndCompound.configToken(
-            DIRECT_TOKEN_ID, AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
+            DIRECT_TOKEN_ID,
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, false, 0, 0, 0, 0, HARVEST_CAKE)
         );
         vm.stopPrank();
 
@@ -214,7 +242,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, 10, 20, 0, 0, false, false, maxReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, 10, 20, 0, 0, false, false, maxReward, 0, 0, 0, HARVEST_CAKE)
         );
 
         vm.expectRevert(Constants.SameRange.selector);
@@ -257,7 +285,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             DIRECT_TOKEN_ID,
             AutoRangeAndCompound.PositionConfig(
-                0, 0, 0, 0, 0, 0, false, true, autoRangeAndCompound.MAX_REWARD_X64(), 0, 0, 0
+                0, 0, 0, 0, 0, 0, false, true, autoRangeAndCompound.MAX_REWARD_X64(), 0, 0, 0, HARVEST_CAKE
             )
         );
         vm.stopPrank();
@@ -279,7 +307,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 0, HARVEST_CAKE)
         );
 
         vm.prank(OPERATOR);
@@ -300,7 +328,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 0, HARVEST_CAKE)
         );
 
         vm.expectRevert(Constants.SwapAmountTooLarge.selector);
@@ -318,7 +346,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 0, HARVEST_CAKE)
         );
 
         vm.expectRevert(Constants.TWAPCheckFailed.selector);
@@ -336,7 +364,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, false, tooHighReward, 0, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, false, tooHighReward, 0, 0, 0, HARVEST_CAKE)
         );
     }
 
@@ -368,7 +396,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 1_000)
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 0, 0, 1_000, HARVEST_CAKE)
         );
 
         AutoRangeAndCompound.RewardCompoundParams memory rewardParams;
@@ -395,7 +423,9 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         masterChef.setReward(TOKEN_ID, 100);
         vm.prank(ALICE);
         autoRangeAndCompound.configToken(
-            TOKEN_ID, address(staker), AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, 0, 0, 0, 0)
+            TOKEN_ID,
+            address(staker),
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, 0, 0, 0, 0, HARVEST_CAKE)
         );
 
         AutoRangeAndCompound.RewardCompoundParams memory rewardParams;
@@ -414,7 +444,7 @@ contract PancakeAutoRangeAndCompoundWithStakerTest is Test {
         autoRangeAndCompound.configToken(
             TOKEN_ID,
             address(staker),
-            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 1, 0, 0)
+            AutoRangeAndCompound.PositionConfig(0, 0, -10, 10, 0, 0, false, true, maxReward, 1, 0, 0, HARVEST_CAKE)
         );
 
         vm.expectRevert(Constants.NotEnoughReward.selector);

@@ -60,6 +60,7 @@ Flow:
 - The staker records the logical owner in `positionOwners[tokenId]`.
 - Owner can call `claimRewards(tokenId, recipient)` or `unstakePosition(tokenId, recipient)`.
 - Owner can approve an automator with `approveTransform(tokenId, automator, true)`.
+- Reward harvest mode defaults to CAKE and can be set to CAKE, token0, or token1 either on the staker or through `AutoRangeAndCompound.PositionConfig.harvestToken`.
 - Operators call Pancake-aware automator entrypoints, such as `executeWithPancakeStaker`.
 
 For non-staked owner-held NFTs, owners approve the automator directly in the Pancake V3 position manager and configure the position on the automator.
@@ -257,6 +258,7 @@ After broadcast, the configured owner must call `acceptOwnership()` on each depl
 - `AutoRangeAndCompound.executeWithPancakeStakerAndRewardCompound` compounds CAKE first, then changes range.
 - `AutoRangeAndCompound.autoCompoundWithPancakeStaker` fee-compounds staked positions.
 - `AutoRangeAndCompound.autoCompoundWithPancakeStakerAndRewardCompound` compounds CAKE first, then fee-compounds.
+- `AutoRangeAndCompound.configToken` stores `PositionConfig.harvestToken` and applies it to the staker for staked positions.
 - `AutoExit.executeWithPancakeStaker` exits staked positions.
 - Direct `execute` / `autoCompound` methods support owner-held positions where the automator is approved by the NFT owner.
 

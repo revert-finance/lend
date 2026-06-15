@@ -46,6 +46,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     event LeftoverSent(uint256 indexed tokenId, address indexed token, address indexed to, uint256 amount);
 
     event AutoCompoundRewardUpdated(address account, uint64 totalRewardX64);
+    event HarvestTokenConfigured(uint256 indexed tokenId, IPancakeMasterChefV3Staker.RewardToken harvestToken);
 
     constructor(
         INonfungiblePositionManager _npm,
@@ -77,10 +78,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         uint128 autoCompoundMin0; // min amount0 fees for fee autocompound execution
         uint128 autoCompoundMin1; // min amount1 fees for fee autocompound execution
         uint128 autoCompoundRewardMin; // min harvested CAKE when reward-compounding before an action
+        IPancakeMasterChefV3Staker.RewardToken harvestToken; // token used by staker claimRewards
     }
 
     // configured tokens
-    mapping(uint256 => PositionConfig) public positionConfigs;
+    mapping(uint256 => PositionConfig) private _positionConfigs;
 
     /// @notice params for execute()
     struct ExecuteParams {
@@ -205,7 +207,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             }
         }
 
-        PositionConfig memory config = positionConfigs[params.tokenId];
+        PositionConfig memory config = _positionConfigs[params.tokenId];
 
         if (config.lowerTickDelta == config.upperTickDelta) {
             revert NotConfigured();
@@ -349,12 +351,17 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             }
 
             // copy token config for new token
-            positionConfigs[state.newTokenId] = config;
+            _positionConfigs[state.newTokenId] = config;
             _emitPositionConfigured(state.newTokenId, config);
+            emit HarvestTokenConfigured(state.newTokenId, config.harvestToken);
 
             // delete config for old position
-            delete positionConfigs[params.tokenId];
-            _emitPositionConfigured(params.tokenId, PositionConfig(0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0));
+            delete _positionConfigs[params.tokenId];
+            _emitPositionConfigured(
+                params.tokenId,
+                PositionConfig(0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0, IPancakeMasterChefV3Staker.RewardToken.CAKE)
+            );
+            emit HarvestTokenConfigured(params.tokenId, IPancakeMasterChefV3Staker.RewardToken.CAKE);
 
             emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
@@ -466,7 +473,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             }
         }
 
-        PositionConfig memory config = positionConfigs[params.tokenId];
+        PositionConfig memory config = _positionConfigs[params.tokenId];
         if (!config.autoCompound) {
             revert NotConfigured();
         }
@@ -599,6 +606,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         _configToken(tokenId, address(0), config);
     }
 
+    function positionConfigs(uint256 tokenId) external view returns (PositionConfig memory config) {
+        config = _positionConfigs[tokenId];
+    }
+
     // function to configure a token held by a configured Pancake staker
     function configToken(uint256 tokenId, address staker, PositionConfig calldata config) external {
         _configToken(tokenId, staker, config);
@@ -612,8 +623,12 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             revert InvalidConfig();
         }
 
-        positionConfigs[tokenId] = config;
+        _positionConfigs[tokenId] = config;
+        if (staker != address(0)) {
+            IPancakeMasterChefV3Staker(staker).setHarvestToken(tokenId, config.harvestToken);
+        }
         _emitPositionConfigured(tokenId, config);
+        emit HarvestTokenConfigured(tokenId, config.harvestToken);
     }
 
     function _emitPositionConfigured(uint256 tokenId, PositionConfig memory config) internal {
@@ -652,7 +667,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         returns (IPancakeMasterChefV3Staker.RewardCompoundParams memory adjusted)
     {
         uint256 minCakeReward = rewardParams.minCakeReward;
-        uint256 configuredMinReward = uint256(positionConfigs[tokenId].autoCompoundRewardMin);
+        uint256 configuredMinReward = uint256(_positionConfigs[tokenId].autoCompoundRewardMin);
         if (configuredMinReward > minCakeReward) {
             minCakeReward = configuredMinReward;
         }
