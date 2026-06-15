@@ -36,17 +36,16 @@ The practical replacement for older `POOL_INIT_CODE_HASH` / `PoolAddress.compute
 address pool = factory.getPool(token0, token1, fee);
 ```
 
-For runtime automator calls, operators may still pass concrete pool addresses in calldata, for example `token0CakePool`, `token0AnchorPool`, `token1CakePool`, and `token1AnchorPool`. Those are execution-time pool inputs, not deployment env vars, and the contracts validate them against the Pancake factory.
+Reward-compound routes are configured on `PancakeMasterChefV3Staker` with canonical CAKE/base-token pools. Operators do not pass anchor or reward pool calldata.
 
 ## Contracts
 
 The Pancake deployment script deploys:
 
 - `V3Utils`: owner-facing position utility transformer.
-- `AutoRange`: operator range adjustment, fee compound, and optional CAKE reward compound for owner-held or staker-held positions.
+- `AutoRangeAndCompound`: operator range adjustment, fee compound, and optional CAKE reward compound for owner-held or staker-held positions.
 - `AutoExit`: operator exit/limit/stop execution for owner-held or staker-held positions.
 - `PancakeMasterChefV3Staker`: custody contract that stakes Pancake V3 NFTs into MasterChefV3 and records logical owners.
-- `PancakeMasterChefV3AutoCompound`: dedicated fee and CAKE reward compounder for owner-held or staker-held positions.
 
 ## Staked Position Flow
 
@@ -70,24 +69,23 @@ For non-staked owner-held NFTs, owners approve the automator directly in the Pan
 There are two reward-compound patterns:
 
 - Fee-only compounding uses normal `transform`.
-- CAKE + fee compounding uses `transformWithRewardCompound`, so the staker withdraws the NFT, harvests CAKE, transfers CAKE to the reward transformer, and then restakes non-empty results.
+- CAKE + fee compounding uses `transformWithRewardCompound`, so the staker harvests and compounds CAKE first, then runs the normal transform path and restakes non-empty results.
 
-`PancakeMasterChefV3AutoCompound` and `AutoRange` validate CAKE reward swaps with:
+`PancakeMasterChefV3Staker` validates CAKE reward swaps with:
 
 - Canonical Pancake factory pool checks.
 - Current spot price vs TWAP checks.
 - Minimum output derived from spot/TWAP tolerance.
-- Configured anchor-token minimum balance.
-- Optional user-configured per-position minimums and max reward caps.
+- Fixed reward-swap limits: 60 second TWAP, 200 max tick difference, and 2% max price difference.
+- Optional user-configured per-position minimums passed by `AutoRangeAndCompound`.
 
-For long-tail token reward routes, the operator supplies:
+For reward routes:
 
-- `token0CakePool`: CAKE/anchor or CAKE/token0 pool.
-- `token0AnchorPool`: token0/anchor pool when token0 is not a configured anchor.
-- `token1CakePool`: CAKE/anchor or CAKE/token1 pool.
-- `token1AnchorPool`: token1/anchor pool when token1 is not a configured anchor.
+- If the target token is CAKE, no swap is needed.
+- If `rewardBasePools[target]` exists, CAKE swaps directly to the target token.
+- Otherwise CAKE swaps to the other position token through `rewardBasePools[otherToken]`, then swaps through the position pool into the target token.
 
-If the position token itself is a configured anchor, the corresponding `tokenXCakePool` can be the direct CAKE/token pool and `tokenXAnchorPool` is not used. If the position token is CAKE, no reward swap is needed for that side.
+Reward-compound protocol fees stay in the staker and are withdrawable only by the staker `WITHDRAWER`.
 
 ## Tests
 
@@ -108,7 +106,7 @@ export BASE_RPC_URL=https://...
 forge test
 ```
 
-The fork smoke tests deploy the staker and auto compounder on forked chains and verify the configured MasterChef, CAKE, and reward anchor setup.
+The fork smoke tests deploy the staker and `AutoRangeAndCompound` on forked chains and verify the configured MasterChef and CAKE setup. If `PANCAKE_REWARD_BASE_TOKENS` and `PANCAKE_REWARD_BASE_POOLS` are provided, the tests also assert that `setRewardBasePool` succeeds.
 
 ## Deployment
 
@@ -125,7 +123,7 @@ Supported chains:
 - `42161` Arbitrum
 - `8453` Base
 
-The script deploys all contracts, configures the Pancake staker in the transformers, allow-lists the transformers in the staker, configures default reward anchors, and initiates `Ownable2Step` ownership transfers.
+The script deploys all contracts, configures the Pancake staker in the transformers, allow-lists the transformers in the staker, optionally configures reward base pools, and initiates `Ownable2Step` ownership transfers.
 
 ### Default Addresses
 
@@ -155,15 +153,6 @@ Universal Router defaults:
 | Arbitrum | `0xA51afAFe0263b40EdaEf0Df8781eA9aa03E381a3` |
 | Base | `0x6fF5693b99212Da76ad316178A184AB56D299b43` |
 
-Default reward anchors:
-
-| Chain | Anchors | Minimum anchor balances |
-| --- | --- | --- |
-| Ethereum | WETH `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` | `10e18` |
-| BSC | USDT `0x55d398326f99059fF775485246999027B3197955`, WBNB `0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c` | `100000e18`, `200e18` |
-| Arbitrum | WETH `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1` | `10e18` |
-| Base | WETH `0x4200000000000000000000000000000000000006` | `10e18` |
-
 Default roles:
 
 - Owner:
@@ -191,11 +180,11 @@ export WITHDRAWER=0x...
 export TWAP_SECONDS=60
 export MAX_TWAP_TICK_DIFFERENCE=100
 
-export PANCAKE_REWARD_ANCHOR_TOKENS=0xAnchorTokenA,0xAnchorTokenB
-export PANCAKE_REWARD_ANCHOR_MIN_BALANCES=10000000000000000000,100000000000000000000000
+export PANCAKE_REWARD_BASE_TOKENS=0xBaseTokenA,0xBaseTokenB
+export PANCAKE_REWARD_BASE_POOLS=0xCakeBasePoolA,0xCakeBasePoolB
 ```
 
-There is no deployment-time `POOL_INIT_CODE_HASH` override. Position pools are derived from the NFT's token pair and fee through `factory.getPool`. Reward-compound route pools are passed per execution and validated on-chain.
+There is no deployment-time `POOL_INIT_CODE_HASH` override. Position pools are derived from the NFT's token pair and fee through `factory.getPool`. Reward base pools are optional and validated on-chain against the Pancake factory.
 
 ### Dry Run
 
@@ -253,10 +242,10 @@ After broadcast, the configured owner must call `acceptOwnership()` on each depl
 
 ## Post-Deploy Checklist
 
-- Verify deployed bytecode/source for `V3Utils`, `AutoRange`, `AutoExit`, `PancakeMasterChefV3Staker`, and `PancakeMasterChefV3AutoCompound`.
-- Confirm `setPancakeStaker(staker)` is active on `V3Utils`, `AutoRange`, `AutoExit`, and `PancakeMasterChefV3AutoCompound`.
+- Verify deployed bytecode/source for `V3Utils`, `AutoRangeAndCompound`, `AutoExit`, and `PancakeMasterChefV3Staker`.
+- Confirm `setPancakeStaker(staker)` is active on `V3Utils`, `AutoRangeAndCompound`, and `AutoExit`.
 - Confirm `setTransformer(transformer, true)` is active on the staker for each allowed transformer.
-- Confirm `setRewardAnchor(anchor, minBalance)` is configured on `AutoRange` and `PancakeMasterChefV3AutoCompound`.
+- Confirm optional `setRewardBasePool(baseToken, pool)` entries are configured on the staker.
 - Confirm `OWNER` has accepted ownership.
 - Confirm `OPERATOR` and `WITHDRAWER` are correct.
 - For staked positions, owners must call `approveTransform(tokenId, automator, true)` before operator execution.
@@ -264,13 +253,11 @@ After broadcast, the configured owner must call `acceptOwnership()` on each depl
 
 ## Operator Notes
 
-- `AutoRange.executeWithPancakeStaker` changes range for staked positions.
-- `AutoRange.executeWithPancakeStakerAndRewardCompound` compounds CAKE first, then changes range.
-- `AutoRange.autoCompoundWithPancakeStaker` fee-compounds staked positions.
-- `AutoRange.autoCompoundWithPancakeStakerAndRewardCompound` compounds CAKE first, then fee-compounds.
+- `AutoRangeAndCompound.executeWithPancakeStaker` changes range for staked positions.
+- `AutoRangeAndCompound.executeWithPancakeStakerAndRewardCompound` compounds CAKE first, then changes range.
+- `AutoRangeAndCompound.autoCompoundWithPancakeStaker` fee-compounds staked positions.
+- `AutoRangeAndCompound.autoCompoundWithPancakeStakerAndRewardCompound` compounds CAKE first, then fee-compounds.
 - `AutoExit.executeWithPancakeStaker` exits staked positions.
-- `PancakeMasterChefV3AutoCompound.executeWithPancakeStaker` fee-compounds staked positions.
-- `PancakeMasterChefV3AutoCompound.executeWithPancakeStakerAndRewardCompound` compounds CAKE and fees for staked positions.
 - Direct `execute` / `autoCompound` methods support owner-held positions where the automator is approved by the NFT owner.
 
 ## Safety Notes
@@ -279,5 +266,4 @@ After broadcast, the configured owner must call `acceptOwnership()` on each depl
 - The staker is designed to be the MasterChefV3 `user`; the human/user wallet remains the logical owner in staker accounting.
 - Non-empty positions received by the staker during transforms are restaked.
 - Empty residual positions remain withdrawable by the logical owner through `unstakePosition`.
-- Protocol rewards stay in the automator contracts and can be withdrawn only by `WITHDRAWER`.
-- Reward anchor minimum balances are a liquidity sanity check, not a full oracle.
+- Fee-compound protocol rewards stay in `AutoRangeAndCompound`; reward-compound protocol rewards stay in the staker. Both can be withdrawn only by their configured `WITHDRAWER`.

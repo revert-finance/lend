@@ -9,8 +9,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../src/transformers/V3Utils.sol";
-import "../src/transformers/AutoRange.sol";
-import "../src/transformers/PancakeMasterChefV3AutoCompound.sol";
+import "../src/transformers/AutoRangeAndCompound.sol";
 import "../src/automators/AutoExit.sol";
 import "../src/automators/PancakeMasterChefV3Staker.sol";
 import "../src/interfaces/pancake/IPancakeMasterChefV3.sol";
@@ -39,13 +38,6 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
     address internal constant DEFAULT_CAKE_BASE = 0x3055913c90Fcc1A6CE9a358911721eEb942013A1;
     address internal constant DEFAULT_CAKE_BSC = 0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82;
     address internal constant DEFAULT_CAKE_ARBITRUM = 0x1b896893dfc86bb67Cf57767298b9073D2c1bA2c;
-
-    // Conservative default anchors for dynamic CAKE reward routes.
-    address internal constant MAINNET_WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address internal constant BASE_WETH = 0x4200000000000000000000000000000000000006;
-    address internal constant ARBITRUM_WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
-    address internal constant BSC_USDT = 0x55d398326f99059fF775485246999027B3197955;
-    address internal constant BSC_WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     // Shared infra contracts across Ethereum, Arbitrum, and Base.
     address internal constant DEFAULT_PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
@@ -82,10 +74,9 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
         external
         returns (
             V3Utils v3Utils,
-            AutoRange autoRange,
+            AutoRangeAndCompound autoRangeAndCompound,
             AutoExit autoExit,
-            PancakeMasterChefV3Staker pancakeStaker,
-            PancakeMasterChefV3AutoCompound pancakeAutoCompound
+            PancakeMasterChefV3Staker pancakeStaker
         )
     {
         _assertSupportedChain(block.chainid);
@@ -95,7 +86,7 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
         vm.startBroadcast();
 
         v3Utils = new V3Utils(config.npm, config.universalRouter, config.zeroxAllowanceHolder, config.permit2);
-        autoRange = new AutoRange(
+        autoRangeAndCompound = new AutoRangeAndCompound(
             config.npm,
             config.operator,
             config.withdrawer,
@@ -115,40 +106,25 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
         );
         if (address(config.masterChef) != address(0)) {
             pancakeStaker = new PancakeMasterChefV3Staker(config.npm, config.masterChef, config.cake);
-            pancakeAutoCompound = new PancakeMasterChefV3AutoCompound(
-                config.npm,
-                config.cake,
-                config.operator,
-                config.withdrawer,
-                config.twapSeconds,
-                config.maxTwapTickDifference,
-                config.universalRouter,
-                config.zeroxAllowanceHolder
-            );
-            _configurePancakeAutoCompound(pancakeAutoCompound);
-            _configurePancakeAutoRange(autoRange, config.cake);
+            pancakeStaker.setWithdrawer(config.withdrawer);
+            _configurePancakeStaker(pancakeStaker);
 
             v3Utils.setPancakeStaker(address(pancakeStaker));
-            autoRange.setPancakeStaker(address(pancakeStaker));
+            autoRangeAndCompound.setPancakeStaker(address(pancakeStaker));
             autoExit.setPancakeStaker(address(pancakeStaker));
-            pancakeAutoCompound.setPancakeStaker(address(pancakeStaker));
 
             pancakeStaker.setTransformer(address(v3Utils), true);
-            pancakeStaker.setTransformer(address(autoRange), true);
+            pancakeStaker.setTransformer(address(autoRangeAndCompound), true);
             pancakeStaker.setTransformer(address(autoExit), true);
-            pancakeStaker.setTransformer(address(pancakeAutoCompound), true);
         }
 
         // Ownable2Step contracts: set pending owner; OWNER must acceptOwnership() afterwards.
         if (config.owner != tx.origin) {
             v3Utils.transferOwnership(config.owner);
-            autoRange.transferOwnership(config.owner);
+            autoRangeAndCompound.transferOwnership(config.owner);
             autoExit.transferOwnership(config.owner);
             if (address(pancakeStaker) != address(0)) {
                 pancakeStaker.transferOwnership(config.owner);
-            }
-            if (address(pancakeAutoCompound) != address(0)) {
-                pancakeAutoCompound.transferOwnership(config.owner);
             }
         }
 
@@ -165,10 +141,9 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
         console2.log("Permit2", config.permit2);
         console2.log("Owner", config.owner);
         console2.log("V3Utils", address(v3Utils));
-        console2.log("AutoRange", address(autoRange));
+        console2.log("AutoRangeAndCompound", address(autoRangeAndCompound));
         console2.log("AutoExit", address(autoExit));
         console2.log("PancakeMasterChefV3Staker", address(pancakeStaker));
-        console2.log("PancakeMasterChefV3AutoCompound", address(pancakeAutoCompound));
     }
 
     function _loadConfig() internal returns (DeployConfig memory config) {
@@ -216,32 +191,14 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
         _assertContract(config.permit2);
     }
 
-    function _configurePancakeAutoCompound(PancakeMasterChefV3AutoCompound pancakeAutoCompound) internal {
-        address[] memory anchorTokens =
-            _envAddressArrayOrDefault("PANCAKE_REWARD_ANCHOR_TOKENS", _defaultRewardAnchorTokens(block.chainid));
-        uint256[] memory anchorMinBalances = _envUintArrayOrDefault(
-            "PANCAKE_REWARD_ANCHOR_MIN_BALANCES", _defaultRewardAnchorMinBalances(block.chainid)
-        );
-        if (anchorTokens.length != anchorMinBalances.length) {
-            revert InvalidArrayLength("PANCAKE_REWARD_ANCHOR_TOKENS");
+    function _configurePancakeStaker(PancakeMasterChefV3Staker pancakeStaker) internal {
+        address[] memory baseTokens = _envAddressArrayOrDefault("PANCAKE_REWARD_BASE_TOKENS", new address[](0));
+        address[] memory basePools = _envAddressArrayOrDefault("PANCAKE_REWARD_BASE_POOLS", new address[](0));
+        if (baseTokens.length != basePools.length) {
+            revert InvalidArrayLength("PANCAKE_REWARD_BASE_TOKENS");
         }
-        for (uint256 i; i < anchorTokens.length; ++i) {
-            pancakeAutoCompound.setRewardAnchor(anchorTokens[i], anchorMinBalances[i]);
-        }
-    }
-
-    function _configurePancakeAutoRange(AutoRange autoRange, IERC20 cake) internal {
-        autoRange.setCakeToken(cake);
-        address[] memory anchorTokens =
-            _envAddressArrayOrDefault("PANCAKE_REWARD_ANCHOR_TOKENS", _defaultRewardAnchorTokens(block.chainid));
-        uint256[] memory anchorMinBalances = _envUintArrayOrDefault(
-            "PANCAKE_REWARD_ANCHOR_MIN_BALANCES", _defaultRewardAnchorMinBalances(block.chainid)
-        );
-        if (anchorTokens.length != anchorMinBalances.length) {
-            revert InvalidArrayLength("PANCAKE_REWARD_ANCHOR_TOKENS");
-        }
-        for (uint256 i; i < anchorTokens.length; ++i) {
-            autoRange.setRewardAnchor(anchorTokens[i], anchorMinBalances[i]);
+        for (uint256 i; i < baseTokens.length; ++i) {
+            pancakeStaker.setRewardBasePool(baseTokens[i], basePools[i]);
         }
     }
 
@@ -266,17 +223,6 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
         returns (address[] memory values)
     {
         try vm.envAddress(key, ",") returns (address[] memory parsed) {
-            return parsed;
-        } catch {
-            return defaultValue;
-        }
-    }
-
-    function _envUintArrayOrDefault(string memory key, uint256[] memory defaultValue)
-        internal
-        returns (uint256[] memory values)
-    {
-        try vm.envUint(key, ",") returns (uint256[] memory parsed) {
             return parsed;
         } catch {
             return defaultValue;
@@ -329,56 +275,6 @@ contract DeployPancakeV3UtilsAndAutomators is Script {
             return DEFAULT_CAKE_BSC;
         }
         return address(0);
-    }
-
-    function _defaultRewardAnchorTokens(uint256 chainId) internal pure returns (address[] memory tokens) {
-        if (chainId == MAINNET_CHAIN_ID) {
-            tokens = new address[](1);
-            tokens[0] = MAINNET_WETH;
-            return tokens;
-        }
-        if (chainId == BASE_CHAIN_ID) {
-            tokens = new address[](1);
-            tokens[0] = BASE_WETH;
-            return tokens;
-        }
-        if (chainId == ARBITRUM_CHAIN_ID) {
-            tokens = new address[](1);
-            tokens[0] = ARBITRUM_WETH;
-            return tokens;
-        }
-        if (chainId == BSC_CHAIN_ID) {
-            tokens = new address[](2);
-            tokens[0] = BSC_USDT;
-            tokens[1] = BSC_WBNB;
-            return tokens;
-        }
-        return new address[](0);
-    }
-
-    function _defaultRewardAnchorMinBalances(uint256 chainId) internal pure returns (uint256[] memory balances) {
-        if (chainId == MAINNET_CHAIN_ID) {
-            balances = new uint256[](1);
-            balances[0] = 10e18; // WETH
-            return balances;
-        }
-        if (chainId == BASE_CHAIN_ID) {
-            balances = new uint256[](1);
-            balances[0] = 10e18; // WETH
-            return balances;
-        }
-        if (chainId == ARBITRUM_CHAIN_ID) {
-            balances = new uint256[](1);
-            balances[0] = 10e18; // WETH
-            return balances;
-        }
-        if (chainId == BSC_CHAIN_ID) {
-            balances = new uint256[](2);
-            balances[0] = 100_000e18; // USDT
-            balances[1] = 200e18; // WBNB
-            return balances;
-        }
-        return new uint256[](0);
     }
 
     function _defaultOwner(uint256 chainId) internal pure returns (address) {

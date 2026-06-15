@@ -22,6 +22,7 @@ contract PancakeMasterChefV3StakerTest is Test {
     PancakeMockERC20 internal token1;
     PancakeMockFactory internal factory;
     PancakeMockPool internal pool;
+    PancakeMockPool internal cakeToken0Pool;
     PancakeMockNPM internal npm;
     PancakeMockMasterChef internal masterChef;
     PancakeMasterChefV3Staker internal staker;
@@ -32,13 +33,17 @@ contract PancakeMasterChefV3StakerTest is Test {
         token1 = new PancakeMockERC20("Token1", "TK1");
         factory = new PancakeMockFactory();
         pool = new PancakeMockPool(address(token0), address(token1), FEE);
+        cakeToken0Pool = new PancakeMockPool(address(cake), address(token0), FEE);
         factory.setPool(address(token0), address(token1), FEE, address(pool));
+        factory.setPool(address(cake), address(token0), FEE, address(cakeToken0Pool));
+        token0.mint(address(cakeToken0Pool), 1_000_000);
 
         npm = new PancakeMockNPM(address(factory), address(token0));
         masterChef = new PancakeMockMasterChef(address(cake), address(npm));
         staker = new PancakeMasterChefV3Staker(
             INonfungiblePositionManager(address(npm)), IPancakeMasterChefV3(address(masterChef)), IERC20(address(cake))
         );
+        staker.setRewardBasePool(address(token0), address(cakeToken0Pool));
 
         npm.mintPosition(ALICE, TOKEN_ID, address(token0), address(token1), FEE, -10, 10, 100, 0, 0);
     }
@@ -92,6 +97,16 @@ contract PancakeMasterChefV3StakerTest is Test {
         vm.expectRevert(Constants.TransformNotAllowed.selector);
         vm.prank(ALICE);
         staker.transform(TOKEN_ID, address(transformer), abi.encodeCall(PancakeNoopTransformer.execute, (TOKEN_ID)));
+    }
+
+    function testSetRewardCanOnlyLowerProtocolReward() external {
+        uint64 currentReward = staker.totalRewardX64();
+
+        staker.setReward(currentReward / 2);
+        assertEq(staker.totalRewardX64(), currentReward / 2);
+
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        staker.setReward(currentReward / 2 + 1);
     }
 
     function testMasterChefActionsAreGatedToStaker() external {
@@ -175,35 +190,52 @@ contract PancakeMasterChefV3StakerTest is Test {
         assertEq(staker.transformedTokenId(), 0);
     }
 
-    function testRewardTransformHandsCakeToTransformerAndRestakesOriginal() external {
+    function testTransformWithRewardCompoundCompoundsBeforeTransformAndRestakesOriginal() external {
         _stake();
-        masterChef.setReward(TOKEN_ID, 7 ether);
-        PancakeRewardTransformer transformer = new PancakeRewardTransformer(IERC20(address(cake)));
+        masterChef.setReward(TOKEN_ID, 1_000);
+        PancakeNoopTransformer transformer = new PancakeNoopTransformer();
         staker.setTransformer(address(transformer), true);
 
-        vm.prank(ALICE);
-        uint256 finalTokenId = staker.transformWithRewardCompound(TOKEN_ID, address(transformer), "");
+        IPancakeMasterChefV3Staker.RewardCompoundParams memory rewardParams =
+            IPancakeMasterChefV3Staker.RewardCompoundParams({
+                minCakeReward: 1_000, cakeSplitBps: 10_000, amount0Min: 0, amount1Min: 0, deadline: 1
+            });
 
+        vm.prank(ALICE);
+        uint256 finalTokenId = staker.transformWithRewardCompound(
+            TOKEN_ID, address(transformer), abi.encodeCall(PancakeNoopTransformer.execute, (TOKEN_ID)), rewardParams
+        );
+
+        (,,,,,,, uint128 liquidity,,,,) = npm.positions(TOKEN_ID);
         assertEq(finalTokenId, TOKEN_ID);
-        assertEq(transformer.lastCakeAmount(), 7 ether);
-        assertEq(transformer.lastOwner(), ALICE);
-        assertEq(cake.balanceOf(ALICE), 7 ether);
+        assertEq(liquidity, 1_080);
+        assertEq(token0.balanceOf(ALICE), 1);
+        assertEq(token0.balanceOf(address(staker)), 19);
+        assertEq(cake.balanceOf(ALICE), 0);
         assertEq(npm.ownerOf(TOKEN_ID), address(masterChef));
         assertEq(staker.transformedTokenId(), 0);
     }
 
-    function testCompoundRewardsAliasHandsCakeToTransformerAndRestakesOriginal() external {
+    function testCompoundRewardsAddsLiquidityAndKeepsProtocolFeeInStaker() external {
         _stake();
-        masterChef.setReward(TOKEN_ID, 7 ether);
-        PancakeRewardTransformer transformer = new PancakeRewardTransformer(IERC20(address(cake)));
-        staker.setTransformer(address(transformer), true);
+        masterChef.setReward(TOKEN_ID, 1_000);
 
         vm.prank(ALICE);
-        uint256 finalTokenId = staker.compoundRewards(TOKEN_ID, address(transformer), "");
+        (uint256 cakeAmount, uint256 amountAdded0, uint256 amountAdded1) = staker.compoundRewards(
+            TOKEN_ID,
+            IPancakeMasterChefV3Staker.RewardCompoundParams({
+                minCakeReward: 1_000, cakeSplitBps: 10_000, amount0Min: 0, amount1Min: 0, deadline: 1
+            })
+        );
 
-        assertEq(finalTokenId, TOKEN_ID);
-        assertEq(transformer.lastCakeAmount(), 7 ether);
-        assertEq(cake.balanceOf(ALICE), 7 ether);
+        (,,,,,,, uint128 liquidity,,,,) = npm.positions(TOKEN_ID);
+        assertEq(cakeAmount, 1_000);
+        assertEq(amountAdded0, 980);
+        assertEq(amountAdded1, 0);
+        assertEq(liquidity, 1_080);
+        assertEq(token0.balanceOf(ALICE), 1);
+        assertEq(token0.balanceOf(address(staker)), 19);
+        assertEq(cake.balanceOf(ALICE), 0);
         assertTrue(staker.isStaked(TOKEN_ID));
     }
 

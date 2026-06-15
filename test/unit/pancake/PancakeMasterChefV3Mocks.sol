@@ -13,7 +13,6 @@ import "v3-core/interfaces/IUniswapV3Pool.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../../../src/interfaces/pancake/IPancakeMasterChefV3.sol";
-import "../../../src/interfaces/pancake/IPancakeMasterChefV3Staker.sol";
 import "../../../src/interfaces/pancake/IPancakeV3SwapCallback.sol";
 
 contract PancakeMockERC20 is ERC20 {
@@ -365,7 +364,35 @@ contract PancakeMockMasterChef is IERC721Receiver, IPancakeMasterChefV3 {
         returns (uint128 liquidity, uint256 amount0, uint256 amount1)
     {
         _requireUser(params.tokenId);
-        return INonfungiblePositionManager(nonfungiblePositionManager).increaseLiquidity(params);
+        (,, address token0, address token1,,,,,,,,) =
+            INonfungiblePositionManager(nonfungiblePositionManager).positions(params.tokenId);
+
+        if (params.amount0Desired != 0) {
+            IERC20(token0).safeTransferFrom(msg.sender, address(this), params.amount0Desired);
+            IERC20(token0).safeIncreaseAllowance(nonfungiblePositionManager, params.amount0Desired);
+        }
+        if (params.amount1Desired != 0) {
+            IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1Desired);
+            IERC20(token1).safeIncreaseAllowance(nonfungiblePositionManager, params.amount1Desired);
+        }
+
+        (liquidity, amount0, amount1) =
+            INonfungiblePositionManager(nonfungiblePositionManager).increaseLiquidity(params);
+
+        if (params.amount0Desired != 0) {
+            IERC20(token0).safeApprove(nonfungiblePositionManager, 0);
+            uint256 refund0 = params.amount0Desired - amount0;
+            if (refund0 != 0) {
+                IERC20(token0).safeTransfer(msg.sender, refund0);
+            }
+        }
+        if (params.amount1Desired != 0) {
+            IERC20(token1).safeApprove(nonfungiblePositionManager, 0);
+            uint256 refund1 = params.amount1Desired - amount1;
+            if (refund1 != 0) {
+                IERC20(token1).safeTransfer(msg.sender, refund1);
+            }
+        }
     }
 
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata) external returns (bytes4) {
@@ -381,24 +408,6 @@ contract PancakeMockMasterChef is IERC721Receiver, IPancakeMasterChefV3 {
 
     contract PancakeNoopTransformer {
         function execute(uint256) external {}
-    }
-
-    contract PancakeRewardTransformer is IPancakeMasterChefV3RewardTransformer {
-        IERC20 public immutable cake;
-        uint256 public lastCakeAmount;
-        address public lastOwner;
-
-        constructor(IERC20 cake_) {
-            cake = cake_;
-        }
-
-        function executeWithReward(uint256, address owner, uint256 cakeAmount, bytes calldata) external {
-            lastCakeAmount = cakeAmount;
-            lastOwner = owner;
-            if (cakeAmount != 0) {
-                SafeERC20.safeTransfer(cake, owner, cakeAmount);
-            }
-        }
     }
 
     contract PancakeReplaceTransformer {
