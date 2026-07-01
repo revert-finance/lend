@@ -77,6 +77,10 @@ The script enforces:
 
 Record deployed `VAULT`, `GAUGE_MANAGER`, `ORACLE`, `IRM`, `V3_UTILS`, and transformer addresses from logs. `V3_UTILS_DEPLOYED` and `V3_UTILS_VAULT_CONFIGURED` should both log `true`.
 
+### AutoRange Hotfix Deployment
+
+For deploying only a replacement `AutoRangeAndCompound` transformer to an existing Base Aerodrome vault, use `script/DeployAerodromeAutoRangeFix.s.sol` and follow `script/DEPLOY_AERODROME_AUTORANGE_FIX.md`.
+
 ### Step 2: Configure Gauges
 
 ```sh

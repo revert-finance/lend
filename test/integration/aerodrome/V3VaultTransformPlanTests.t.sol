@@ -70,8 +70,9 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 
     function _deployAutoRange() internal returns (AutoRangeAndCompound) {
-        AutoRangeAndCompound autoRange =
-            new AutoRangeAndCompound(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0), address(0));
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(
+            INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0), address(0)
+        );
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
         return autoRange;
@@ -171,11 +172,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             tokenId,
             address(autoRange),
             abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
-            IVault.RewardCompoundParams({
-                minAeroReward: 0,
-                aeroSplitBps: 0,
-                deadline: block.timestamp + 1 hours
-            })
+            IVault.RewardCompoundParams({minAeroReward: 0, aeroSplitBps: 0, deadline: block.timestamp + 1 hours})
         );
 
         assertEq(transformedTokenId, tokenId);
@@ -208,11 +205,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             tokenId,
             address(autoRange),
             abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
-            IVault.RewardCompoundParams({
-                minAeroReward: 0,
-                aeroSplitBps: 0,
-                deadline: block.timestamp + 1 hours
-            })
+            IVault.RewardCompoundParams({minAeroReward: 0, aeroSplitBps: 0, deadline: block.timestamp + 1 hours})
         );
 
         assertEq(transformedTokenId, tokenId);
@@ -301,6 +294,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         assertTrue(newTokenId != tokenId);
         assertEq(vault.ownerOf(newTokenId), alice);
         assertEq(vault.ownerOf(tokenId), alice);
+        assertEq(vault.loanCount(alice), 2);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
         assertEq(vault.loans(tokenId), 0);
@@ -406,8 +400,9 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
     }
 
     function _deployAutoRange() internal returns (AutoRangeAndCompound) {
-        AutoRangeAndCompound autoRange =
-            new AutoRangeAndCompound(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0x1), address(0x2));
+        AutoRangeAndCompound autoRange = new AutoRangeAndCompound(
+            INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0x1), address(0x2)
+        );
 
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
@@ -469,11 +464,27 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
         vm.prank(admin);
         autoRange.executeWithVault(params, address(vault));
 
-        MockAutoRangeAndCompoundAerodromePositionManager rangeNpm = MockAutoRangeAndCompoundAerodromePositionManager(address(npm));
+        MockAutoRangeAndCompoundAerodromePositionManager rangeNpm =
+            MockAutoRangeAndCompoundAerodromePositionManager(address(npm));
         uint256 newTokenId = rangeNpm.lastMintedTokenId();
 
+        assertEq(vault.loanCount(alice), 2);
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(vault.ownerOf(newTokenId), alice);
+        assertEq(npm.getApproved(tokenId), address(0));
+        assertEq(npm.getApproved(newTokenId), address(0));
+
+        vm.prank(admin);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.execute(params);
+
+        vm.prank(alice);
+        vault.remove(tokenId, alice, "");
+
+        assertEq(vault.loanCount(alice), 1);
+        assertEq(vault.loanAtIndex(alice, 0), newTokenId);
+        assertEq(npm.ownerOf(tokenId), alice);
+
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
     }

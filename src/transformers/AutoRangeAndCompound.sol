@@ -160,13 +160,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-        if (!operators[msg.sender]) {
-            if (vaults[msg.sender]) {
-                _validateCaller(nonfungiblePositionManager, params.tokenId);
-            } else {
-                revert Unauthorized();
-            }
-        }
+        _validateExecutionCaller(params.tokenId);
 
         PositionConfig memory config = positionConfigs[params.tokenId];
 
@@ -384,7 +378,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (!operators[msg.sender] || !vaults[vault]) {
             revert Unauthorized();
         }
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+        IVault(vault)
+            .transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
     }
 
     /**
@@ -404,7 +399,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         adjustedRewardParams.minAeroReward = config.autoCompoundRewardMin;
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)), adjustedRewardParams
+                params.tokenId,
+                address(this),
+                abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
+                adjustedRewardParams
             );
     }
 
@@ -414,13 +412,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function autoCompound(AutoCompoundParams calldata params) external nonReentrant {
-        if (!operators[msg.sender]) {
-            if (vaults[msg.sender]) {
-                _validateCaller(nonfungiblePositionManager, params.tokenId);
-            } else {
-                revert Unauthorized();
-            }
-        }
+        _validateExecutionCaller(params.tokenId);
 
         PositionConfig memory config = positionConfigs[params.tokenId];
         if (!config.autoCompound) {
@@ -576,5 +568,17 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         }
         totalRewardX64 = _totalRewardX64;
         emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
+    }
+
+    function _validateExecutionCaller(uint256 tokenId) internal view {
+        if (vaults[msg.sender]) {
+            _validateCaller(nonfungiblePositionManager, tokenId);
+        } else if (operators[msg.sender]) {
+            if (vaults[nonfungiblePositionManager.ownerOf(tokenId)]) {
+                revert Unauthorized();
+            }
+        } else {
+            revert Unauthorized();
+        }
     }
 }
