@@ -13,7 +13,7 @@ Aerodrome is intentionally excluded and should be handled on its own branch.
 
 The script deploys a new `AutoRange`, calls `setVault(vault)` on it, and transfers ownership to the existing chain owner. It does not call `vault.setTransformer`; the vault owner/multisig must do that after review.
 
-By default, the script authorizes the standard Uniswap V3 operator bot `0xbb1a1a2773a799d83078ae4d59d9f4b2b6ac50ff` in the new transformer's constructor. Export `OPERATOR` to override this default (e.g. `address(0)` to deploy with no operator).
+By default, the script authorizes the standard Uniswap V3 operator bot `0xbb1a1a2773a799d83078ae4d59d9f4b2b6ac50ff` in the new transformer's constructor. Export `OPERATOR` to override this default (e.g. `0x0000000000000000000000000000000000000000` to deploy with no operator).
 
 ## Vault Owners
 

@@ -195,11 +195,15 @@ contract DeployAutoRangeFix is Script {
     }
 
     function _envOrAddress(string memory key, address defaultValue) internal returns (address value) {
-        try vm.envString(key) returns (string memory rawValue) {
-            return _parseAddress(key, rawValue);
+        // Only a genuinely unset var falls back to the default; a present-but-malformed
+        // value is parsed (and reverts) outside the catch so it can never be swallowed.
+        string memory rawValue;
+        try vm.envString(key) returns (string memory v) {
+            rawValue = v;
         } catch {
             return defaultValue;
         }
+        return _parseAddress(key, rawValue);
     }
 
     function _envOrUint32(string memory key, uint32 defaultValue) internal returns (uint32 value) {
@@ -214,14 +218,15 @@ contract DeployAutoRangeFix is Script {
         internal
         returns (uint256 value)
     {
-        try vm.envString(key) returns (string memory rawValue) {
-            value = _parseUint(key, rawValue);
-            if (value > maxValue) {
-                revert InvalidUintEnv(key, rawValue);
-            }
-            return value;
+        string memory rawValue;
+        try vm.envString(key) returns (string memory v) {
+            rawValue = v;
         } catch {
             return defaultValue;
+        }
+        value = _parseUint(key, rawValue);
+        if (value > maxValue) {
+            revert InvalidUintEnv(key, rawValue);
         }
     }
 
