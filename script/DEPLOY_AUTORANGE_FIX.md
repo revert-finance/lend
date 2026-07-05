@@ -13,9 +13,7 @@ Aerodrome is intentionally excluded and should be handled on its own branch.
 
 The script deploys a new `AutoRange`, calls `setVault(vault)` on it, and transfers ownership to the existing chain owner. It does not call `vault.setTransformer`; the vault owner/multisig must do that after review.
 
-By default, the script uses `address(0)` for `OPERATOR` so the new transformer is deployed without an active bot. The export blocks below set the current operator bot explicitly.
-
-The operator bot address is currently disabled on the old `AutoRange` deployments. Exporting `OPERATOR` below enables that bot in the new fixed deployment constructor.
+By default, the script authorizes the standard Uniswap V3 operator bot `0xbb1a1a2773a799d83078ae4d59d9f4b2b6ac50ff` in the new transformer's constructor. Export `OPERATOR` to override this default (e.g. `address(0)` to deploy with no operator).
 
 ## Vault Owners
 
@@ -96,6 +94,6 @@ export MAX_TWAP_TICK_DIFFERENCE=100
 1. If ownership was transferred, the new `AutoRange` owner calls `acceptOwnership()`.
 2. The vault owner/multisig calls `setTransformer(newAutoRange, true)`.
 3. The vault owner/multisig should call `setTransformer(oldAutoRange, false)` after migration.
-4. If `OPERATOR` was left unset, the new `AutoRange` owner calls `setOperator(bot, true)` only after the vault allowlist step is complete.
+4. The new `AutoRange` is deployed with the original operator already authorized by default. If you overrode `OPERATOR=address(0)`, the new `AutoRange` owner must call `setOperator(bot, true)` after the vault allowlist step is complete.
 
 The script prints calldata for steps 1-3 after deployment.

@@ -51,6 +51,8 @@ contract DeployAutoRangeFix is Script {
 
     address internal constant DEFAULT_ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
     address internal constant DEFAULT_WITHDRAWER = 0x5663ba1B0B1d9b8559CFE049b33fe3B194852e82;
+    // Default operator for the Uniswap V3 auto-range deployments (overridable via the OPERATOR env var).
+    address internal constant DEFAULT_OPERATOR = 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF;
 
     struct DeployConfig {
         string networkName;
@@ -102,7 +104,7 @@ contract DeployAutoRangeFix is Script {
         config = _defaultConfig(block.chainid);
 
         config.owner = _envOrAddress("OWNER", config.owner);
-        config.operator = _envOrAddress("OPERATOR", address(0));
+        config.operator = _envOrAddress("OPERATOR", config.operator);
         config.withdrawer = _envOrAddress("WITHDRAWER", config.withdrawer);
         config.universalRouter = _envOrAddress("UNIVERSAL_ROUTER", config.universalRouter);
         config.zeroxAllowanceHolder = _envOrAddress("ZEROX_ALLOWANCE_HOLDER", config.zeroxAllowanceHolder);
@@ -122,7 +124,7 @@ contract DeployAutoRangeFix is Script {
                 vault: MAINNET_VAULT,
                 oldAutoRange: MAINNET_OLD_AUTO_RANGE,
                 owner: MAINNET_OWNER,
-                operator: address(0),
+                operator: DEFAULT_OPERATOR,
                 withdrawer: DEFAULT_WITHDRAWER,
                 twapSeconds: 60,
                 maxTwapTickDifference: 100,
@@ -137,7 +139,7 @@ contract DeployAutoRangeFix is Script {
                 vault: ARBITRUM_VAULT,
                 oldAutoRange: ARBITRUM_OLD_AUTO_RANGE,
                 owner: ARBITRUM_OWNER,
-                operator: address(0),
+                operator: DEFAULT_OPERATOR,
                 withdrawer: DEFAULT_WITHDRAWER,
                 twapSeconds: 60,
                 maxTwapTickDifference: 100,
@@ -152,7 +154,7 @@ contract DeployAutoRangeFix is Script {
                 vault: BASE_VAULT,
                 oldAutoRange: BASE_OLD_AUTO_RANGE,
                 owner: BASE_OWNER,
-                operator: address(0),
+                operator: DEFAULT_OPERATOR,
                 withdrawer: DEFAULT_WITHDRAWER,
                 twapSeconds: 60,
                 maxTwapTickDifference: 100,
