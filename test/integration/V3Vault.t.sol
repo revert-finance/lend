@@ -525,7 +525,7 @@ contract V3VaultIntegrationTest is Test {
 
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert("Not approved");
+        vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.autoCompound(AutoRange.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
 
         // user hasnt approved automator
@@ -561,7 +561,7 @@ contract V3VaultIntegrationTest is Test {
 
         // direct auto-range when in vault fails
         vm.prank(WHALE_ACCOUNT);
-        vm.expectRevert(Constants.NotConfigured.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.execute(params);
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -583,13 +583,19 @@ contract V3VaultIntegrationTest is Test {
         (uint256 debt,,,,) = vault.loanInfo(TEST_NFT);
         assertEq(debt, 0);
 
-        //still in vault
+        // old token is debt-free but remains withdrawable by its vault owner.
+        // The vault's old approval is still present on the old NFT; the new AutoRange
+        // guard is what prevents direct operator execution against that vault-owned token.
+        assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 2);
+        assertEq(vault.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+        assertEq(NPM.getApproved(TEST_NFT), address(autoRange));
+
+        // still in vault, but not directly executable by the operator
         assertEq(NPM.ownerOf(TEST_NFT), address(vault));
 
-        // but removable by owner
-        vm.prank(TEST_NFT_ACCOUNT);
-        vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
-        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+        vm.prank(WHALE_ACCOUNT);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        autoRange.execute(params);
 
         uint256 newTokenId = NPM.tokenByIndex(NPM.totalSupply() - 1);
         assertEq(newTokenId, 599811);
@@ -598,6 +604,14 @@ contract V3VaultIntegrationTest is Test {
         assertEq(debt, 8403870);
         assertEq(NPM.ownerOf(newTokenId), address(vault));
         assertEq(vault.ownerOf(newTokenId), TEST_NFT_ACCOUNT);
+        assertEq(NPM.getApproved(newTokenId), address(0));
+
+        vm.prank(TEST_NFT_ACCOUNT);
+        vault.remove(TEST_NFT, TEST_NFT_ACCOUNT, "");
+
+        assertEq(NPM.ownerOf(TEST_NFT), TEST_NFT_ACCOUNT);
+        assertEq(vault.loanCount(TEST_NFT_ACCOUNT), 1);
+        assertEq(vault.loanAtIndex(TEST_NFT_ACCOUNT, 0), newTokenId);
     }
 
     function testLiquidationTimeBased() external {

@@ -131,13 +131,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function execute(ExecuteParams calldata params) external {
-        if (!operators[msg.sender]) {
-            if (vaults[msg.sender]) {
-                _validateCaller(nonfungiblePositionManager, params.tokenId);
-            } else {
-                revert Unauthorized();
-            }
-        }
+        _validateExecutionCaller(params.tokenId);
 
         PositionConfig memory config = positionConfigs[params.tokenId];
 
@@ -357,14 +351,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function autoCompound(AutoCompoundParams calldata params) external nonReentrant {
-        if (!operators[msg.sender]) {
-            if (vaults[msg.sender]) {
-                _validateCaller(nonfungiblePositionManager, params.tokenId);
-            } else {
-                revert Unauthorized();
-            }
-        }
-
+        _validateExecutionCaller(params.tokenId);
 
         PositionConfig memory config = positionConfigs[params.tokenId];
         if (!config.autoCompound) {
@@ -526,6 +513,18 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 revert NotSupportedFeeTier();
             }
             return spacing;
+        }
+    }
+
+    function _validateExecutionCaller(uint256 tokenId) internal view {
+        if (vaults[msg.sender]) {
+            _validateCaller(nonfungiblePositionManager, tokenId);
+        } else if (operators[msg.sender]) {
+            if (vaults[nonfungiblePositionManager.ownerOf(tokenId)]) {
+                revert Unauthorized();
+            }
+        } else {
+            revert Unauthorized();
         }
     }
 }
