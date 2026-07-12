@@ -43,6 +43,9 @@ contract LeverageTransformer is Transformer, Swapper {
 
     // method called from transform() method in Vault
     function leverageUp(LeverageUpParams calldata params) external {
+        if (!vaults[msg.sender]) {
+            revert Unauthorized();
+        }
         _validateCaller(nonfungiblePositionManager, params.tokenId);
 
         uint256 amount = params.borrowAmount;
@@ -131,6 +134,9 @@ contract LeverageTransformer is Transformer, Swapper {
 
     // method called from transform() method in Vault
     function leverageDown(LeverageDownParams calldata params) external {
+        if (!vaults[msg.sender]) {
+            revert Unauthorized();
+        }
         _validateCaller(nonfungiblePositionManager, params.tokenId);
 
         address token = IVault(msg.sender).asset();
