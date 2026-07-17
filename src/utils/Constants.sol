@@ -47,6 +47,7 @@ abstract contract Constants {
     error DebtChanged();
     error NeedsRepay();
     error NoSharesRepayed();
+    error InsufficientAssetForRepay();
 
     error SelfSend();
     error NotSupportedWhatToDo();
