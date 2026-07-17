@@ -11,6 +11,7 @@ import "../src/transformers/V3Utils.sol";
 import "../src/transformers/AutoRange.sol";
 import "../src/transformers/AutoCompound.sol";
 import "../src/transformers/LeverageTransformer.sol";
+import "../src/transformers/MultiCollectSwap.sol";
 
 import "../src/automators/AutoExit.sol";
 
@@ -156,6 +157,10 @@ contract DeployArbitrum is Script {
         AutoCompound autoCompound = AutoCompound(payable(0x9D97c76102E72883CD25Fa60E0f4143516d5b6db));
         autoCompound.setVault(address(vault));
         vault.setTransformer(address(autoCompound), true);
+
+        MultiCollectSwap multiCollectSwap = new MultiCollectSwap(NPM, UNIVERSAL_ROUTER, EX0x);
+        multiCollectSwap.setVault(address(vault));
+        vault.setTransformer(address(multiCollectSwap), true);
 
         //AutoExit autoExit = AutoExit();
 
