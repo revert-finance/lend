@@ -3,7 +3,11 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
+import "./IV3Oracle.sol";
+
 interface IVault is IERC4626 {
+    function oracle() external view returns (IV3Oracle);
+
     function transformedTokenId() external view returns (uint256 tokenId);
 
     function loans(uint256 tokenId) external view returns (uint256 debtShares);
