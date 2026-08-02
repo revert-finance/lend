@@ -32,7 +32,7 @@ contract DeployBaseV3UtilsNewClFactory is Script {
     function run() external returns (V3Utils v3Utils) {
         _validateDeploymentConfig();
 
-        vm.envUint("PRIVATE_KEY");
+        // Signer comes from the CLI (e.g. --account deployer). No PRIVATE_KEY required.
         vm.startBroadcast();
         v3Utils = new V3Utils(
             IAerodromeNonfungiblePositionManager(AERODROME_NPM), AERODROME_SWAP_ROUTER, ZEROX_ALLOWANCE_HOLDER
