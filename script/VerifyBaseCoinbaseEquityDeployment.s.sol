@@ -22,6 +22,7 @@ contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
 
     function run() external {
         Equity[7] memory eq = _equities();
+        _installLocalB20Stubs(eq); // adapters and setTokenConfig'd tokens are read through the stubs (live multiplier)
         address[7] memory adapters = _readAdapters(eq);
         V3Oracle oracle = V3Oracle(vm.envAddress("ORACLE"));
         V3Vault vault = V3Vault(vm.envAddress("VAULT"));

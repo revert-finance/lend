@@ -19,11 +19,13 @@ import "../src/transformers/V3Utils.sol";
 ///         Until the Safe accepts, the deployer remains owner and Stage A is not complete.
 ///         FlashloanLiquidator has no owner. emergencyAdmin is never set (matches the house).
 ///         globalDebtLimit is 0 at deploy: borrows stay disabled until Stage B.
+///         Broadcast with `--skip-simulation` (B20 stand-ins exist only in the local run).
 contract DeployBaseCoinbaseEquityVault is CoinbaseEquityBaseConfig {
     bytes4 internal constant ACCEPT_OWNERSHIP = bytes4(keccak256("acceptOwnership()"));
 
     function run() external {
         Equity[7] memory eq = _equities();
+        _installLocalB20Stubs(eq); // local run only: setTokenConfig reads token.decimals(), adapters read multiplier()
         address[7] memory adapters = _readAdapters(eq);
         _validateDeploymentConfig(eq, adapters);
 

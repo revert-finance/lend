@@ -8,11 +8,13 @@ import "../src/utils/ChainlinkMultiplierFeed.sol";
 ///         Adapters are immutable and ownerless - there is no ownership step. Export the logged
 ///         ADAPTER_* addresses before running DeployBaseCoinbaseEquityVault.
 ///
-///         B20 tokens are native client code: multiplier() works on a live Base node and reverts on
-///         anvil/revm forks, so dry-run this against a live RPC, never a local fork.
+///         B20 tokens are native client code that revm cannot execute; the script etches a local
+///         stand-in (LocalB20Stub, fed with the live multiplier via eth_call) for its own run.
+///         Broadcast with `--skip-simulation`; dry-run against a live Base RPC, never a local fork.
 contract DeployBaseCoinbaseEquityAdapters is CoinbaseEquityBaseConfig {
     function run() external returns (address[7] memory adapters) {
         Equity[7] memory eq = _equities();
+        _installLocalB20Stubs(eq); // local run only; see CoinbaseEquityBaseConfig
         _validateDeploymentConfig(eq);
 
         // Signer comes from the CLI (--account deployer). No PRIVATE_KEY required.

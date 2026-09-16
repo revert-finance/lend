@@ -106,6 +106,13 @@ into `aerodrome-slipstream`) before this branch's PR. Do not lose them.
   Every Friday freeze and Sunday unfreeze is therefore a multisig transaction (WP6).
 - **B20 tokens cannot execute on anvil/revm forks** (native client code, `0xef`). Do not build
   fork-based tests that call `transfer`/`multiplier` on the real tokens; they will revert. See WP3.
+  **This also applies to `forge script` itself** (found 2026-09-16): forge runs the script body
+  locally in revm even for `--broadcast`, so `oracle.setTokenConfig(equity, …)` (reads
+  `token.decimals()`) and every adapter read (`multiplier()`) would revert before any tx is sent.
+  The scripts therefore `vm.etch` a `LocalB20Stub` at each token address for their own run (8
+  decimals; multiplier fetched from the live node with `vm.rpc("eth_call")`), and **must be
+  broadcast with `--skip-simulation`** so forge does not replay the bundle without the stubs.
+  The stubs never touch the chain; broadcast txs execute against the real tokens.
 
 ### 1.3 House conventions to match
 
@@ -324,8 +331,8 @@ address and parameter so the scripts cannot drift: `script/CoinbaseEquityBaseCon
 `UnfreezeBorrows`). Adapter addresses flow between scripts as `ADAPTER_<SYMBOL>` env vars (logged by
 the adapter script). `foundry.toml` grants no `fs_permissions`, so scripts **log** rather than
 `vm.writeJson`; the WP7 manifest is assembled by hand from the logs and checked by the verify script.
-Dry-runs must target a **live Base RPC**: the scripts call `multiplier()` on the real B20 tokens,
-which reverts on anvil/revm forks.
+Dry-runs must target a **live Base RPC** (the stub's multiplier comes from `eth_call` on the node);
+broadcast with `--account deployer --broadcast --skip-simulation`.
 
 Two stages, gated separately (§4, §6): **Stage A** deploys everything inert (`globalDebtLimit = 0`,
 no `setVault`); **Stage B** configures and enables. Stage A must be complete and verified before any

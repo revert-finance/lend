@@ -8,6 +8,31 @@ import "../src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../lib/AggregatorV3Interface.sol";
+import "../src/interfaces/IB20Multiplier.sol";
+
+/// @dev forge 1.7 exposes vm.rpc but this forge-std Vm.sol predates it
+interface VmRpc {
+    function rpc(string calldata method, string calldata params) external returns (bytes memory data);
+}
+
+/// @notice Local-only stand-in for a B20 token, etched at the real token address during a script run.
+/// @dev B20 tokens are native client code (`0xef`): a live Base node executes them, revm cannot. forge
+///      always runs the script body locally, so any path that touches a B20 token (setTokenConfig ->
+///      decimals(), adapter -> multiplier()) would revert before a single tx is broadcast. The stub
+///      returns 8 decimals and the multiplier read from the live node via eth_call. It never leaves the
+///      local run: broadcast txs execute against the real token on chain. Broadcast with
+///      `--skip-simulation` so forge does not re-simulate the tx bundle without the stubs.
+contract LocalB20Stub is IB20Multiplier {
+    uint256 private multiplierValue; // slot 0, written with vm.store
+
+    function decimals() external pure returns (uint8) {
+        return 8;
+    }
+
+    function multiplier() external view override returns (uint256) {
+        return multiplierValue;
+    }
+}
 
 /// @notice Single source of truth for the Coinbase B20 equity-collateral vault on Base:
 ///         every address and parameter in docs/plan-coinbase-equity-collateral-base-deployment.md §3.
@@ -146,6 +171,32 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             CAP_TSLAC_X32,
             "ADAPTER_TSLAC"
         );
+    }
+
+    // ---- local B20 stand-ins ----------------------------------------------------------------------
+
+    /// @dev live multiplier() via eth_call executed by the node (native B20 code); reverts if unavailable
+    function _liveMultiplier(address token) internal returns (uint256) {
+        string memory params = string.concat(
+            '[{"to":"', vm.toString(token), '","data":"', vm.toString(abi.encodeWithSelector(IB20Multiplier.multiplier.selector)),
+            '"},"latest"]'
+        );
+        bytes memory data = VmRpc(address(vm)).rpc("eth_call", params);
+        require(data.length == 32, "CoinbaseEquity: live multiplier() call failed");
+        uint256 m = abi.decode(data, (uint256));
+        require(m > 0, "CoinbaseEquity: live multiplier() == 0");
+        return m;
+    }
+
+    /// @dev etches LocalB20Stub at every equity token for the local script run; see LocalB20Stub
+    function _installLocalB20Stubs(Equity[7] memory e) internal {
+        for (uint256 i = 0; i < 7; i++) {
+            _requireCode(e[i].token, string.concat("CoinbaseEquity: token missing code ", e[i].symbol));
+            uint256 m = _liveMultiplier(e[i].token);
+            vm.etch(e[i].token, type(LocalB20Stub).runtimeCode);
+            vm.store(e[i].token, bytes32(0), bytes32(m));
+            console2.log("LOCAL_B20_STUB", e[i].symbol, "multiplier", m);
+        }
     }
 
     function _readAdapters(Equity[7] memory e) internal returns (address[7] memory adapters) {
