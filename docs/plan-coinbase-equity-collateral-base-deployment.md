@@ -316,7 +316,7 @@ pilot caps, freeze runbook, issuer confirmation.
 
 ### WP4 — Deployment scripts (dry-run only in this plan)
 
-**Status (2026-09-16): written, compile/dry-run pending.** One shared config contract holds every
+**Status (2026-09-16): written and committed (`script/CoinbaseEquity*.s.sol`, `script/DeployBaseCoinbaseEquity*.s.sol`, `script/VerifyBaseCoinbaseEquityDeployment.s.sol`); type-checked with the legacy solc pipeline. Still to do before DoD: via-IR `forge build` (the deploy script embeds V3Vault/V3Oracle creation code and needs several GB of RAM), then dry-run against a live Base RPC without `--broadcast`.** One shared config contract holds every
 address and parameter so the scripts cannot drift: `script/CoinbaseEquityBaseConfig.s.sol`
 (`_equities()` table, `_validateEquityPool` incl. the `observe([60,0])` gate, `_requireFreshFeed`,
 `_logSafeTx`). Scripts: `DeployBaseCoinbaseEquityAdapters.s.sol`, `DeployBaseCoinbaseEquityVault.s.sol`,
