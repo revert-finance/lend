@@ -36,16 +36,28 @@ Base, 27,000+ on mainnet, 291,000+ on Arbitrum) that continuously signs `execute
 `executeWithVault` calls. The owner controls `setVault()` and the stuck-token withdrawal path.
 
 Nothing is at risk today (no funds held, no vault wired), but consider transferring to the Base
-multisig, matching `DeployAerodromeProtocol`:
+multisig, matching `DeployAerodromeProtocol`. `V3Utils` inherits `Ownable2Step` (via `Transformer`),
+so the transfer is **two steps from two accounts**: the current owner proposes, then the multisig
+must call `acceptOwnership()` itself — until it does, the hot key remains the owner.
 
 ```sh
+# step 1 — current owner proposes (sets pendingOwner only)
 cast send 0x93a8F1FFAae10e3E5B67a0F36aB9581bCDc463C7 "transferOwnership(address)" \
   0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9 --rpc-url "$BASE_RPC_URL" --account deployer
 cast send 0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD "transferOwnership(address)" \
   0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9 --rpc-url "$BASE_RPC_URL" --account deployer
+
+# step 2 — Safe transaction from 0x45B220…1cc9, one per contract:
+#   to   = <V3Utils address>,  value = 0,  data = acceptOwnership()  (0x79ba5097)
+cast calldata "acceptOwnership()"
+
+# verify: owner() == Safe and pendingOwner() == 0x0
+cast call 0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD "owner()(address)" --rpc-url "$BASE_RPC_URL"
+cast call 0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD "pendingOwner()(address)" --rpc-url "$BASE_RPC_URL"
 ```
 
-`V3Utils` uses plain `Ownable`, so the transfer takes effect immediately (no `acceptOwnership`).
+As of 2026-09-16 neither contract has a pending owner (`pendingOwner() == 0x0`); nothing has been
+proposed yet.
 
 ## Scope
 
