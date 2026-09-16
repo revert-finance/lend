@@ -1,8 +1,8 @@
 # Proposal: Coinbase tokenized equities as Revert Lend collateral (Base) — revised
 
 **Status:** proposal, revised after two independent reviews and a third round of feedback on the
-plan (2026-09-16: ownership mechanics, USDC reference bounds, policy registry, cardinality,
-staged gates, liquidator readiness, cross pairs). Not approved. Nothing deployed.
+plan (2026-09-16: ownership mechanics, policy registry, cardinality, staged gates, liquidator
+readiness, cross pairs; answer bounds considered and dropped). Not approved. Nothing deployed.
 **Date:** 2026-09-15/16 (on-chain figures re-verified at block 51,363,041 unless noted)
 **Inputs merged:** `docs/review-coinbase-equity-collateral-base.md` (independent review; where it
 conflicted with the original, its evidence won) and
@@ -21,8 +21,8 @@ Deploy a new Revert Lend `V3Vault` + `V3Oracle` on Base (8453) lending **USDC** 
 Slipstream LP positions (MinUnstake factory) containing **Coinbase B20 tokenized stocks**.
 
 - Oracle: `Mode.CHAINLINK_TWAP_VERIFY` — Chainlink `Coinbase TICKER` feeds, wrapped in a
-  **multiplier-aware adapter** with answer bounds, cross-checked against the pool TWAP. The USDC
-  reference feed is wrapped in the same adapter in bounds-only mode (§3.2).
+  **multiplier-aware adapter** (no bounds, no owner), cross-checked against the pool TWAP. USDC
+  reference on the raw Chainlink feed, as on every live vault.
 - Launch collateral factors **55%** (AAPLc, MSFTc, GOOGLc, AMZNc, METAc) and **50%** (NVDAc, TSLAc),
   with an evidence-gated ramp to 60/55.
 - Hard per-name debt caps as **concentration limits**, at **half size for the pilot**.
@@ -174,13 +174,13 @@ NVDAc 0.33% · METAc 0.22% · GOOGLc 0.14% · AMZNc 0.07% · AAPLc 0.05% · MSFT
   branch at L355–363 — must be covered by tests.
 - `setTokenConfig` **forces `Mode.CHAINLINK` for the reference token** (L261–278). Deploying from
   this tree puts USDC in CHAINLINK-only mode. Deliberate — see §3.1.
-- **C4 #446 unfixed**: `_getChainlinkPriceX96` enforces only `answer <= 0` and staleness. **This
-  applies to the USDC reference feed too, and matters more there**: USDC is `referenceToken`, its
-  answer *divides* every equity's Chainlink price (`chainlinkPriceX96 * Q96 /
-  chainlinkReferencePriceX96`), and its forced `Mode.CHAINLINK` means **no TWAP cross-check exists
-  on that leg**. A fresh but absurd USDC print distorts all seven valuations at once. Bounding only
-  the equity adapters leaves the most consequential input unbounded → USDC gets a bounds-only
-  adapter (§3.2). **[verified — R15]**
+- **C4 #446 unfixed house-wide** (`_getChainlinkPriceX96` enforces only `answer <= 0` and
+  staleness; no live oracle has min/max bounds). **In this vault it is covered by
+  `CHAINLINK_TWAP_VERIFY`**: the Chainlink-derived price is `equityUSD / usdcUSD`, the TWAP is
+  `equity/USDC` from the pool, so a garbage print on an equity feed diverges > 3% and that token
+  fails closed, and a garbage print on the **USDC reference** diverges on all seven and the vault
+  fails closed. Static bounds would add nothing behind a dynamic ±3% check; they were proposed and
+  **dropped** (Mario, 2026-09-16). **[verified; accepted — matches live]**
 - `create` / `onERC721Received` never touch the oracle → **deposits work during blackouts**.
 - `V3Utils` routes every swap through `_routerSwap` (0x AllowanceHolder or Aerodrome
   UniversalRouter). The UniversalRouter is pinned to the original CL factory and **cannot reach
@@ -214,10 +214,9 @@ V3Oracle(npm = MinUnstake NPM, _referenceToken = USDC, _chainlinkReferenceToken 
 
 `_chainlinkReferenceToken = USDC` (hard-coding USDC = $1, no feed) was rejected: it removes depeg
 detection on the unit of account. USDC is configured via `setTokenConfig` → forced `Mode.CHAINLINK`,
-feed = **bounds-only `ChainlinkMultiplierFeed` wrapping `0x7e86…bc6B`** (§3.2; the raw feed is not
-wired directly), `maxFeedAge` 86400 (house convention). USDC bounds are a decision (suggested
-`[0.90, 1.10]`): a bound hit fails **the whole vault** closed, including liquidations, so they must
-sit outside plausible depeg prints (March 2023 low: $0.87) yet reject garbage.
+feed `0x7e86…bc6B` (raw, as on every live vault), `maxFeedAge` 86400 (house convention). A garbage
+USDC print is caught indirectly: it moves the Chainlink-derived equity prices but not the pool
+TWAPs, so all seven equities diverge and the vault fails closed (§2.6).
 
 Equities: `Mode.CHAINLINK_TWAP_VERIFY`, feed = **`ChainlinkMultiplierFeed` adapter** (§3.2), pool =
 the USDC pool in §2.3, `twapSeconds` **60**, `maxFeedAge` **108000** (30h), `maxDifference` **300**
@@ -236,31 +235,29 @@ whichever fires first:
    reopen wicks extend blackouts until convergence. House convention is 200; 300 chosen for these
    pools. Corollary: switching a token to CHAINLINK-only mid-crisis does **not** remove this check.
 
-### 3.2 Multiplier-aware feed adapter + answer bounds — eight instances incl. USDC [blocker — WP2]
+### 3.2 Multiplier-aware feed adapter — seven instances, no bounds, no owner [blocker — WP2]
 
 Current `V3Oracle` values `rawUnits × feedPrice` and never reads `multiplier()`. Identified
 **fail-open path**: an emergency `updateMultiplier` cut with transfer gating on a weekend leaves the
 feed ≤30h-fresh and the pool untradeable (TWAP frozen); both checks pass while collateral is impaired,
 and deposits remain open, so impaired LP can be deposited and borrowed against.
 
-Fix — a ~30–50 line `AggregatorV3Interface` adapter per feed, no audited-code change. `token ==
-address(0)` selects **bounds-only mode**, used for the USDC reference feed (and for the equities if
-Chainlink confirms token-basis units):
+Fix — a ~20-line `AggregatorV3Interface` adapter per equity, no audited-code change, **immutable
+and ownerless** (nothing to administer; replacing one is a new deploy + `setTokenConfig` from the
+Safe). If Chainlink confirms token-basis units the adapter is not needed and the raw feeds are wired
+directly:
 
 ```
 ChainlinkMultiplierFeed.latestRoundData():
     (roundId, answer, startedAt, updatedAt, answeredInRound) = feed.latestRoundData()
     require(answer > 0)
-    require(minAnswer <= answer <= maxAnswer)          // C4 #446 bounds, in SHARE terms
-    if (token == 0) return (roundId, answer, ...)      // bounds-only: USDC reference
     m = token.multiplier(); require(m > 0)             // reverts → fail-closed
     return (roundId, answer * m / 1e18, startedAt, updatedAt, answeredInRound)
 decimals() = feed.decimals()
 ```
 
-Bounds are applied **in share terms before multiplying** so they do not drift with splits; owner
-(multisig, `Ownable2Step`) may update them with events. Behaviour matrix — each row is a required
-test (WP3):
+Answer bounds (C4 #446) were considered and dropped as redundant with the ±3% TWAP divergence check
+(§2.6). Behaviour matrix — each row is a required test (WP3):
 
 | Scenario | Adapter | Outcome |
 | --- | --- | --- |
@@ -270,9 +267,9 @@ test (WP3):
 | Emergency cut + gating (weekend) | feed leg halves vs frozen pool TWAP | divergence reverts → **fail-closed; hole closed** |
 | Fat-fingered multiplier | passes only if error < `maxDifference` | keep 300 |
 | `multiplier()` reverts (client regression) | adapter reverts | fail-closed |
-| Fresh but absurd answer | bounds reject | fail-closed (#446) |
-| USDC reference prints outside `[0.90, 1.10]` | USDC adapter reverts | **every** valuation reverts — vault-wide fail-closed, incl. liquidations |
-| USDC prints $0.98 (inside bounds) | passthrough | all equity values rise ~2% in USDC terms — correct |
+| Fresh but absurd equity answer (10× / 0.1×) | passes through | divergence > 3% → that token fails closed (#446 covered by TWAP verify) |
+| Fresh but absurd USDC reference answer | n/a (raw feed) | all seven equities diverge → vault-wide fail-closed, incl. liquidations |
+| USDC prints $0.98 (inside 3%) | n/a | all equity values rise ~2% in USDC terms — correct |
 
 **Two external prerequisites are binary and gate the design [blocker — WP1]:**
 1. **Written confirmation from Chainlink** that `Coinbase TICKER` feeds are **share-basis** (adjusted
@@ -392,8 +389,9 @@ two configured equities is depositable via `create`, permissionlessly; 7 tokens 
 *strictly riskier* than equity/USDC: no USDC leg, so the √price cushion of an in-range USDC pair
 disappears and both legs fall together in a correlated crash (the §4.1 1:1 figure is the *best*
 case); both legs blackout together. The caps bind both legs, which is the only existing control.
-Options: **accept and monitor** (no code; nightly cross-pair scan) or **exclude** via a pool/pair
-allowlist in `V3Vault` — a change to the audited vault requiring review. **[decision — R17]**
+**Decided (2026-09-16): accept and monitor** — no code change; nightly cross-pair scan; an
+allowlist in `V3Vault` (audited-code change) is deferred to the pre-ramp review. **[accepted risk —
+R17]**
 
 ### 4.4 Limits, reserves, minimum loan
 
@@ -411,7 +409,7 @@ allowlist in `V3Vault` — a change to the audited vault requiring review. **[de
 ## 5. Deployment shape (detail in the plan)
 
 New `V3Oracle`, `InterestRateModel`, `V3Vault`, `FlashloanLiquidator` (MinUnstake-bound, no owner),
-eight `ChainlinkMultiplierFeed` adapters (seven equities + USDC bounds-only). Reuse V3Utils
+seven ownerless `ChainlinkMultiplierFeed` adapters. Reuse V3Utils
 `0xc3cFFd…Fe2dD` after ownership transfer **and Safe acceptance**. **No
 GaugeManager at pilot** (one-shot `setGaugeManager`; MinUnstake gauge reward flow unsimulated; known
 unstake OOG bistability in `docs/investigation-aerodrome-stuck-unstake-71869354.md`). No
@@ -450,13 +448,13 @@ run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLo
 | R8 | Med | No `emergencyAdmin` (matches live): freeze/unfreeze are multisig txs every weekend; missed quorum = borrows open into the blind window | Mario | weekend signing quorum + Safe tx template committed; pre-weekend near-threshold scan | **address decided; quorum open — WP6** |
 | R9 | Med | Zero reserves → first loss to lenders | Mario | seed ≥$40–100K or explicit acceptance | **decision** |
 | R10 | Med | Deposits cannot be frozen; pre-positioning before weekend | eng | borrowing frozen instead; documented | accepted |
-| R11 | Med | C4 #446 bounds absent on equity feeds | eng | bounds in adapter, share terms; independent review of diff | **open — WP2** |
+| R11 | Low | C4 #446 min/max bounds absent (house-wide) | eng | covered here by `CHAINLINK_TWAP_VERIFY` divergence on equities and, indirectly, on the USDC reference; bounds dropped as redundant | **accepted — matches live** |
 | R12 | Low | `minLoanSize` $100 uneconomic to liquidate | risk | ≥$1,000, derived from gas + exit | resolved in §4.4 |
 | R13 | Low | Existing tests can't exercise B20 on anvil | eng | three-bucket test split (plan §WP3) | planned |
 | R14 | Med | Ownership: CF/cap/config changes land with 2 Safe signatures, no timelock (older lend vaults sit behind a 48h timelock). Accepted for the pilot because the weekly freeze needs a fast `setLimits` and `emergencyAdmin` is unset | Mario | pilot caps bound the blast radius; revisit option C (timelock owner + Safe as `emergencyAdmin`) before raising caps | **decided (A) — accepted risk** |
-| R15 | **High** | **USDC reference feed unbounded** in forced `CHAINLINK` mode (no TWAP check); it divides every equity price, so one absurd print distorts all seven valuations | eng | bounds-only adapter on USDC; bounds decision (suggest `[0.90, 1.10]`); proximity alert | **open — WP2** |
+| R15 | Low | USDC reference feed in forced `CHAINLINK` mode has no direct TWAP check; it divides every equity price | eng | a bad USDC print diverges all seven equity legs from their TWAPs → vault-wide fail-closed; no exploitable path; same as every live vault | **accepted — covered by R11 reasoning** |
 | R16 | **High** | **Policy 5 admin is a plain EOA** `0xEC0F05…2812` controlling send/receive/execute/mint gating on all Coinbase stock tokens | Mario | Coinbase to explain key custody/process (WP1.3); poller on `policyAdmin`/`pendingPolicyAdmin`; pilot caps; exclusion possible | **open — WP1** |
-| R17 | Med | Equity/equity crosses depositable permissionlessly; riskier than equity/USDC (no USDC leg, correlated legs, joint blackout); frontend hiding is not a control | Mario/eng | accept+monitor (caps bind both legs, nightly scan) **or** pair allowlist in `V3Vault` (audited-code change) | **decision** |
+| R17 | Med | Equity/equity crosses depositable permissionlessly; riskier than equity/USDC (no USDC leg, correlated legs, joint blackout); frontend hiding is not a control | Mario/eng | **accept + monitor** (decided 2026-09-16): caps bind both legs; nightly cross-pair scan; allowlist deferred to pre-ramp review | **accepted risk** |
 | R18 | Med | Ownership mis-sequencing: `Ownable2Step` transfers left unaccepted leave the hot key as owner; `FlashloanLiquidator` has no owner | eng | scripts assert `pendingOwner`, print Safe accept batches; verify asserts `owner`+`pendingOwner`; manifest records both | planned — WP4 |
 
 ---
@@ -473,8 +471,8 @@ deposits open during blackout; liquidation penalty band fixed at 2–10%.
 
 **Unresolved blockers — Stage A (no deployment until closed):** V3Utils ownership transferred
 **and accepted**; WP1 written confirmations (Chainlink units, Coinbase multiplier/balance semantics,
-policy-admin EOA control, role enumeration, legal); WP2 adapter (multiplier + bounds-only) + #446 on
-all eight feeds incl. USDC, with independent review; cross-pair decision; minLoan/IRM specified;
+policy-admin EOA control, role enumeration, legal); WP2 adapter with independent review;
+minLoan/IRM specified;
 `observe([60,0])` gate green.
 **Unresolved blockers — Stage B (borrows stay disabled until closed):** on-chain smoke test with one
 real liquidation; liquidation-readiness route documented (stressed liquidity, named liquidator, or
@@ -491,7 +489,7 @@ cancellation — **do not force a deployment recommendation.**
 3. Which liquidation-readiness route is acceptable for Stage B — demonstrated stressed liquidity,
    a named funded B20-eligible liquidator, or caps sized to that liquidator's capital?
 4. Is `maxPoolPriceDifference = 300` acceptable given it fires before the TWAP check on thin books?
-5. Equity/equity crosses: accept and monitor, or add a pair allowlist to the audited vault?
+5. ~~Equity/equity crosses~~ — decided: accept and monitor at pilot.
 6. Reserve seeding amount, and who funds it.
-7. USDC reference-adapter bounds: is `[0.90, 1.10]` the right trade between rejecting garbage and
-   not freezing the whole vault in a real depeg?
+7. Does the reviewer agree that TWAP divergence makes static answer bounds redundant on both the
+   equity and USDC legs (§2.6), so C4 #446 can stay as-is here as on the live vaults?

@@ -13,8 +13,8 @@ policy is *intentional* — do not "fix" it), `docs/agents/protocol-primer.md`.
 ## 0. Scope
 
 **In scope (pilot):** new `V3Oracle`, `InterestRateModel`, `V3Vault`, `FlashloanLiquidator`
-(MinUnstake-bound, no owner), eight `ChainlinkMultiplierFeed` adapters (seven equities + USDC
-bounds-only), reuse of V3Utils `0xc3cFFd…Fe2dD`,
+(MinUnstake-bound, no owner), seven `ChainlinkMultiplierFeed` adapters (ownerless, immutable),
+reuse of V3Utils `0xc3cFFd…Fe2dD`,
 deploy/verify/freeze scripts, mock + live-simulation tests, runbook, manifest, go/no-go.
 
 **Out of scope (pilot):** GaugeManager/staking (one-shot `setGaugeManager`; MinUnstake gauge reward
@@ -88,8 +88,8 @@ into `aerodrome-slipstream`) before this branch's PR. Do not lose them.
   `acceptOwnership()` from its own account, and until then the *deployer remains owner*.
   `InterestRateModel` is plain `Ownable` (transfer is immediate). **`FlashloanLiquidator` has no
   ownership at all** (`Swapper, IUniswapV3FlashCallback` only) — there is nothing to transfer, and a
-  script calling `transferOwnership` on it will not compile. `ChainlinkMultiplierFeed` must inherit
-  `Ownable2Step` to match the house. Consequences: every deploy script asserts `pendingOwner() ==
+  script calling `transferOwnership` on it will not compile. `ChainlinkMultiplierFeed` has **no
+  owner either** (immutable, nothing to administer — decided 2026-09-16). Consequences: every deploy script asserts `pendingOwner() ==
   MULTISIG` (not `owner()`) on 2-step contracts at exit and prints the Safe `acceptOwnership()` batch;
   the manifest and the verify script assert `owner() == MULTISIG && pendingOwner() == address(0)`;
   no configuration step that requires the Safe as owner (`V3Utils.setVault`, final `setLimits`) is
@@ -193,26 +193,25 @@ Record each outcome, with the source document, in `docs/proposal-coinbase-equity
 5. **Historical gap reproduction**: adjusted close → next-session-open for the seven names from a
    documented source, incl. holidays and exceptional closures (review found max −10…19%).
 
-If (1) is token-basis → WP2 becomes a bounds-only adapter (no multiply). If (2) says balances can
-scale → **stop; this collateral type is undeployable** on v3 pool accounting.
+If (1) is token-basis → **WP2 is not needed at all**: wire the raw Chainlink feeds directly, as
+every live vault does. If (2) says balances can scale → **stop; this collateral type is
+undeployable** on v3 pool accounting.
 
 ### WP2 — Contract: `src/utils/ChainlinkMultiplierFeed.sol` (+ `src/interfaces/IB20Multiplier.sol`)
 
-Depends on WP1.1/WP1.2 for the final multiply-or-not decision; **build it multiplier-aware now**:
-`token == address(0)` means "bounds only, no multiply", which serves **both** the WP1.1 token-basis
-branch **and the USDC reference feed** (below). One contract, eight instances.
+Depends on WP1.1/WP1.2 for the final multiply-or-not decision; **build it now**. One contract,
+seven instances (one per equity). **The adapter does exactly one thing: multiply the Chainlink share
+price by the token's `multiplier()`, failing closed if that call reverts or returns zero.**
 
-**Why USDC needs an instance too (C4 #446, added 2026-09-16).** USDC is the `referenceToken`, so
-its Chainlink answer *divides every equity's Chainlink price*
-(`chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96`) and `setTokenConfig` forces it into
-`Mode.CHAINLINK` — **no TWAP cross-check exists for the reference leg**. Bounding the seven equity
-adapters while wiring USDC straight to the raw feed leaves the one input that distorts all seven
-valuations at once protected only by `answer <= 0`. Therefore USDC is configured through a
-bounds-only `ChainlinkMultiplierFeed(usdcFeed, token = address(0), min, max)` as well. Its bounds
-are a **[decision, §7]**: too tight (±3%) and a real depeg like March 2023 ($0.87) freezes the entire
-vault (every valuation reverts, including liquidations); too loose and it is decorative. Suggested
-`[0.90e8, 1.10e8]`. Do **not** answer this with `_chainlinkReferenceToken = USDC` (hard-code $1) —
-that swaps the bug for blindness to a depeg.
+**No answer bounds, no owner (decided by Mario 2026-09-16).** An earlier revision added C4 #446
+min/max bounds to the adapter and a bounds-only instance for the USDC reference feed. Both were
+dropped as redundant with `CHAINLINK_TWAP_VERIFY`: the Chainlink-derived price is
+`equityUSD / usdcUSD` and the TWAP is `equity/USDC` straight from the pool, so a garbage print on
+**either** feed — an equity feed *or* the USDC reference — diverges by more than 3% from the TWAP and
+`_requireMaxDifference` reverts, for all seven names in the USDC case. That is a dynamic ±3% bound;
+a static band behind it catches nothing extra. USDC is therefore wired to the raw Chainlink feed in
+forced `Mode.CHAINLINK`, exactly like every live vault. C4 #446 remains unfixed house-wide and this
+vault is no different; it is recorded as accepted-and-covered in the proposal.
 
 `V3Oracle` calls only `feed.decimals()` (`V3Oracle.sol:256`, at `setTokenConfig`) and
 `feed.latestRoundData()` (`:419`). The adapter is therefore a minimal `AggregatorV3Interface`.
@@ -220,23 +219,17 @@ that swaps the bug for blindness to a depeg.
 ```solidity
 interface IB20Multiplier { function multiplier() external view returns (uint256); } // 1e18 = 1.0
 
-contract ChainlinkMultiplierFeed is AggregatorV3Interface, Ownable2Step {   // 2-step: matches the house
-    AggregatorV3Interface public immutable feed;   // Chainlink "Coinbase TICKER" or USDC/USD
-    IB20Multiplier      public immutable token;    // the B20 token, or address(0) = bounds only
-    int256 public minAnswer;   // share terms, feed decimals   (C4 #446)
-    int256 public maxAnswer;   // share terms, feed decimals
-    event BoundsUpdated(int256 min, int256 max);
-    error InvalidAnswer(); error AnswerOutOfBounds(int256); error InvalidMultiplier();
+contract ChainlinkMultiplierFeed is AggregatorV3Interface {      // no owner, nothing to administer
+    AggregatorV3Interface public immutable feed;   // Chainlink "Coinbase TICKER"
+    IB20Multiplier      public immutable token;    // the B20 token
+    error InvalidAnswer(); error InvalidMultiplier();
 
     function decimals() external view returns (uint8) { return feed.decimals(); }
     function description() ...; function version() ...;
-    function setBounds(int256 min, int256 max) external onlyOwner;   // emits BoundsUpdated
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
         (uint80 r, int256 a, uint256 s, uint256 u, uint80 ar) = feed.latestRoundData();
         if (a <= 0) revert InvalidAnswer();
-        if (a < minAnswer || a > maxAnswer) revert AnswerOutOfBounds(a);   // BEFORE multiplying
-        if (address(token) == address(0)) return (r, a, s, u, ar);          // bounds-only (USDC)
-        uint256 m = token.multiplier(); if (m == 0) revert InvalidMultiplier();
+        uint256 m = token.multiplier(); if (m == 0) revert InvalidMultiplier();  // revert → fail-closed
         return (r, int256(uint256(a) * m / 1e18), s, u, ar);              // floor; see rounding note
     }
     function getRoundData(uint80) ... // same transform, or revert NotSupported — V3Oracle never calls it
@@ -244,18 +237,14 @@ contract ChainlinkMultiplierFeed is AggregatorV3Interface, Ownable2Step {   // 2
 ```
 
 Requirements:
-- Bounds in **share terms, applied before multiplying**, so they do not drift with splits. Owner =
-  multisig via `Ownable2Step` (constructor sets deployer; script calls `transferOwnership`, Safe
-  accepts). Initial bounds per token: **[decision, §7]** — suggest ±80% around launch price for
-  equities, `[0.90, 1.10]` for USDC, re-set on ramp.
 - `token.multiplier()` reverting → adapter reverts → fail-closed. `m == 0` → revert.
 - Overflow: `a` ≤ ~1e11 (8-dec, ≤ $1,000/share) × `m` ≤ ~1e19 → < 1e30, fits `uint256`; keep an
   explicit sanity `require(m <= 1e21)` or document the bound. Rounding: floor; error is ≤ 1 unit of
   feed precision (1e-8 $), negligible against `maxDifference` 3% — state this in a comment.
-- No admin path can change `feed` or `token` (immutable). No pause. Nothing that could make it
-  fail *open*.
-- Acceptance: WP3 bucket-1 tests green for every row of proposal §3.2's matrix plus the USDC
-  bounds-only rows; **independent review of the exact diff** recorded in the PR.
+- `feed` and `token` immutable; no owner, no setters, no pause. Nothing that could make it fail
+  *open*. Replacing an adapter = deploying a new one and `setTokenConfig` from the Safe.
+- Acceptance: WP3 bucket-1 tests green for every row of proposal §3.2's matrix; **independent
+  review of the exact diff** recorded in the PR.
 
 ### WP3 — Tests (three buckets; record the split so nothing is silently waived)
 
@@ -268,15 +257,14 @@ Reuse `MockPool`, `MockAerodromePositionManager`, and the existing mock Chainlin
 
 - `test/unit/ChainlinkMultiplierFeed.t.sol` — every row of the §3.2 matrix: dividend Δ≈0.04%
   tracks; 2:1 and 1:2 splits with feed print before/after multiplier flip; emergency cut;
-  fat-finger inside/outside 3%; `multiplier()` revert; `m == 0`; fresh-but-absurd answer rejected by
-  bounds; bounds update event; decimals passthrough; `getRoundData` behaviour; **bounds-only mode**
-  (`token == 0`): passthrough inside bounds, revert outside, `multiplier` never called;
-  `Ownable2Step`: `setBounds` reverts for pending owner until `acceptOwnership`.
+  fat-finger inside/outside 3%; `multiplier()` revert; `m == 0`; `a <= 0`; decimals passthrough;
+  `getRoundData` behaviour; no state-changing function exists.
 - `test/integration/aerodrome/V3OracleB20.t.sol` — `V3Oracle(mockNpm, USDC6, address(0))`;
-  USDC in forced `Mode.CHAINLINK` **through a bounds-only adapter** — assert that a USDC answer
-  outside bounds makes `getValue` revert for *every* configured token (reference leg fail-closed),
-  and that an in-bounds USDC move to $0.98 reprices all of them; an 8-decimal token in
-  `CHAINLINK_TWAP_VERIFY` via the adapter.
+  USDC in forced `Mode.CHAINLINK` on the raw mock feed; an 8-decimal token in
+  `CHAINLINK_TWAP_VERIFY` via the adapter. **Garbage-print coverage (replaces bounds):** an absurd
+  equity feed print (10× / 0.1×) → `getValue` reverts on that token via divergence; an absurd USDC
+  reference print (10× / 0.1×) → `getValue` reverts on **every** equity via divergence; a USDC move
+  to $0.98 (inside 3%) reprices all equities correctly.
   Cover: the `referenceTokenDecimals < tokenDecimals` scaling branch (`V3Oracle.sol:355-363`) with
   8-dec token vs 6-dec reference against a known price; staleness revert at `maxFeedAge`; divergence
   revert at `maxDifference`; spot-vs-derived revert at `maxPoolPriceDifference`; blackout table
@@ -324,29 +312,27 @@ Two stages, gated separately (§4, §6): **Stage A** deploys everything inert (`
 no `setVault`); **Stage B** configures and enables. Stage A must be complete and verified before any
 Stage-B gate is evaluated — the gates are no longer circular.
 
-**`script/DeployBaseCoinbaseEquityAdapters.s.sol`** — deploys **eight** `ChainlinkMultiplierFeed`
-(seven equities with `token`, one USDC bounds-only with `token = address(0)`), `transferOwnership
-(MULTISIG)` each, asserts `pendingOwner() == MULTISIG`, logs, prints the Safe `acceptOwnership()`
-batch (eight `to`/`data` pairs), and `vm.writeJson`s addresses into
-`deployments/base-coinbase-equity.json` (WP7 schema). Stage A continues only after the Safe has
-accepted and `owner()` reads MULTISIG on all eight.
+**`script/DeployBaseCoinbaseEquityAdapters.s.sol`** — deploys **seven** `ChainlinkMultiplierFeed`
+(feed, token), asserts `feed()`/`token()`/`decimals()` and that `latestRoundData()` returns
+`feed.answer × multiplier / 1e18`, logs, and `vm.writeJson`s addresses into
+`deployments/base-coinbase-equity.json` (WP7 schema). No ownership step — the adapters have none.
 
 **`script/DeployBaseCoinbaseEquityVault.s.sol`** — modeled on `DeployAerodromeProtocol.s.sol`.
 Preflight (`_validateDeploymentConfig`, all `require`):
 - `chainid == 8453`; code at NPM, factory, USDC, UniversalRouter, 0x AllowanceHolder, sequencer
-  feed, eight adapters, seven pools, V3Utils, MULTISIG.
+  feed, USDC feed, seven adapters, seven pools, V3Utils, MULTISIG.
 - `npm.factory() == MinUnstake factory`; for each pool: `factory.getPool(token, USDC, 10) == pool`,
   `pool.token0() == USDC`, `pool.tickSpacing() == 10`, `pool.nft() == NPM`,
   **`pool.observe([60, 0])` succeeds** (not a cardinality number — see WP0.1).
-- For each adapter: `adapter.feed() == expected feed`, `adapter.token() == expected token` (`0` for
-  USDC), `adapter.decimals() == 8`, `adapter.owner() == MULTISIG && pendingOwner() == 0`,
-  `adapter.latestRoundData()` succeeds and `updatedAt` within `maxFeedAge` (86400 for USDC).
+- For each adapter: `adapter.feed() == expected feed`, `adapter.token() == expected token`,
+  `adapter.decimals() == 8`, `adapter.latestRoundData()` succeeds and `updatedAt` within
+  `maxFeedAge`; USDC raw feed fresh within 86400.
 - `V3Utils(0xc3cF…).owner() == MULTISIG && pendingOwner() == address(0)` (WP0.2 accepted).
 Broadcast:
 1. `InterestRateModel(0, Q64*13/100, Q64*300/100, Q64*90/100)` **[confirm, §7]**.
 2. `V3Oracle(npm, USDC, address(0))`; `setMaxPoolPriceDifference(300)`;
-   `setSequencerUptimeFeed(0xBCF8…6433)`; `setTokenConfig(USDC, usdcAdapter, 86400, pool=0, 0,
-   Mode.CHAINLINK, 0)` (forced for reference token; **adapter, not raw feed**); for each equity
+   `setSequencerUptimeFeed(0xBCF8…6433)`; `setTokenConfig(USDC, usdcFeed, 86400, pool=0, 0,
+   Mode.CHAINLINK, 0)` (forced for reference token; raw feed, as on every live vault); for each equity
    `setTokenConfig(token, adapter, 108000, pool, 60, Mode.CHAINLINK_TWAP_VERIFY, 300)`.
    **Do not call `setEmergencyAdmin`** — leave `address(0)`, matching the live Aerodrome oracle.
 3. `V3Vault("Revert Lend Coinbase Equities USDC", "rlCbEqUSDC", USDC, npm, irm, oracle)`
@@ -371,8 +357,9 @@ prints): the accept batch; `V3Utils.setVault(vault)` (owner-only; reuse
   `oracle.getValue()` on one real position per pair (create one if none — deposits need no oracle)
   and implied price within tolerance of the feed; `vault.loanInfo()` round-trip per pair;
   `observe([60,0])` ×7; sequencer feed; **`emergencyAdmin() == address(0)` on both vault and
-  oracle**; `owner() == MULTISIG && pendingOwner() == 0` on vault, oracle, V3Utils, eight adapters;
-  IRM `owner()`; `globalDebtLimit == 0`; all token configs == manifest.
+  oracle**; `owner() == MULTISIG && pendingOwner() == 0` on vault, oracle, V3Utils; IRM `owner()`;
+  adapters have no owner (assert no `owner()` selector); `globalDebtLimit == 0`; all token configs
+  == manifest.
 - `--stage b` (after the smoke test, before caps are raised): everything above plus the smoke-test
   evidence (tx hashes read from the manifest) and the final limits tuple.
 It does **not** simulate borrow/repay/liquidate via `eth_call` — stateless calls cannot chain and
@@ -381,8 +368,8 @@ forks cannot execute B20. That is the on-chain smoke test:
 **Stage-B on-chain smoke test (real transactions, team-controlled, tiny).** Safe sets
 `setLimits(minLoan, lendLimit, globalDebtLimit = 3 × minLoanSize, …)`; a team account deposits a
 small B20/USDC position per pair, borrows `minLoanSize`, repays; one position is pushed under the
-threshold by borrowing at max and waiting for a feed move (or a bounds/CF tweak on a *test* token
-config — decide in review) and liquidated by the named liquidator (WP5) using `amountIn = 0`
+threshold by borrowing at max and waiting for a feed move (or a temporary CF tweak on that token
+config from the Safe — decide in review) and liquidated by the named liquidator (WP5) using `amountIn = 0`
 inventory-take; then everything is unwound and `globalDebtLimit` returns to `0` for the weekend
 dry-run (§4 #7). Record every tx hash in the manifest. This is the only place borrow → liquidate
 is exercised against real B20 semantics before lenders are exposed.
@@ -435,8 +422,6 @@ Sensors:
 - **`multiplier()` poller** on all seven. Any change → page + freeze borrows; check feed freshness
   before unfreezing (the stale-feed-across-the-flip window auto-recovers at the first adjusted print
   — do not "fix" it).
-- **USDC reference adapter**: alert when the USDC answer is within 2% of either bound (a bound hit
-  freezes the whole vault).
 - **Feed age**: alert 12h weekday / 20h weekend; page at 25h. Routine 5–7h intraday staleness is
   normal — do not alert below 12h.
 - **Divergence**: |feed−spot| and |feed−TWAP| per name; alert at 50% of thresholds (1.5%).
@@ -464,7 +449,7 @@ allowlist** — eligibility is per token. Any MinUnstake NFT pairing two configu
 depositable through `create`, permissionlessly, whatever the frontend shows. Crosses are *strictly
 riskier* than equity/USDC: no USDC leg, so the √price cushion of an in-range USDC pair is gone and
 both legs fall together in a correlated crash; both legs also blackout together. Seven tokens →
-21 possible pairs. Two admissible outcomes **[decision, §7]**:
+21 possible pairs. **Decided (Mario, 2026-09-16): accept and monitor.** The two options were:
 - **Accept and monitor**: no code change; the per-name caps already bind both legs; WP6 cross-pair
   sensor; state it in the proposal as an accepted risk.
 - **Exclude**: add a pool/pair allowlist to `V3Vault` (checked in `_updateAndCheckCollateral` or at
@@ -475,7 +460,7 @@ both legs fall together in a correlated crash; both legs also blackout together.
 
 `deployments/base-coinbase-equity.json` — machine-readable: chain, block, every contract
 (address, constructor args, owner, pendingOwner, emergencyAdmin — `FlashloanLiquidator` has none),
-every `setTokenConfig` tuple (oracle and vault), limits tuple, adapter bounds (eight, incl. USDC),
+every `setTokenConfig` tuple (oracle and vault), limits tuple, adapter feed/token linkage (seven),
 pool/feed/token linkage, policy ids + admin observed, named liquidator, smoke-test tx hashes,
 tx hashes, dates.
 `VerifyBaseCoinbaseEquityDeployment.s.sol` reads it and asserts every postcondition.
@@ -493,13 +478,12 @@ legal sign-off reference.
 | CL factory | MinUnstake | `0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef` | §2.3 |
 | Lending asset / referenceToken | USDC (6 dec) | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | §3.1 |
 | `_chainlinkReferenceToken` | none | `address(0)` | §3.1 (hard-coding USDC=$1 rejected) |
-| USDC feed (underlying) | Chainlink USDC/USD | `0x7e860098F58bBFC8648a4311b374B1D669a2bc6B` | §2.5 — **wired via bounds-only adapter, not directly** |
-| USDC adapter bounds | bounds-only `ChainlinkMultiplierFeed(token=0)` | **TBD** (suggest `90_000_000 / 110_000_000`) | WP2; C4 #446 on the reference leg |
+| USDC feed | Chainlink USDC/USD, raw | `0x7e860098F58bBFC8648a4311b374B1D669a2bc6B` | §2.5 — as on every live vault; garbage prints caught by equity TWAP divergence |
 | Sequencer uptime feed | Base | `0xBCF85224fc0756B9Fa45aA7892530B47e10b6433` | live rlAeroUSDC |
 | UniversalRouter | Aerodrome | `0x6Cb442acF35158D5eDa88fe602221b67B400Be3E` | cannot reach MinUnstake pools |
 | 0x AllowanceHolder | | `0x0000000000001fF3684f28c67538d4D072C22734` | — |
 | V3Utils (reuse) | MinUnstake-bound | `0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD` | `Ownable2Step`: transfer + Safe accept first |
-| Owner — vault, oracle, IRM, 8 adapters (`FlashloanLiquidator` has no owner) | **2-of-3 Safe (decided: option A, as rlAeroUSDC)** | `0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9` | GnosisSafeProxy v1.3.0, verified; vault/oracle/adapters `Ownable2Step` → Safe must `acceptOwnership()`; IRM plain `Ownable` |
+| Owner — vault, oracle, IRM (`FlashloanLiquidator` and the 7 adapters have no owner) | **2-of-3 Safe (decided: option A, as rlAeroUSDC)** | `0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9` | GnosisSafeProxy v1.3.0, verified; vault/oracle `Ownable2Step` → Safe must `acceptOwnership()`; IRM plain `Ownable` |
 | Policy registry (B20) | precompile | `0x8453000000000000000000000000000000000002` | `isAuthorized(uint64,address)`, `policyAdmin`, `policyExists`, `pendingPolicyAdmin` |
 | Transfer/mint policy id (all tokens, 09-16) | blocklist | `5`; admin `0xEC0F05C174e54FBf0Fe16ad930a8AFEbCe612812` (EOA) | WP1.3 / WP6 poller |
 | `emergencyAdmin` (vault + oracle) | not set | `address(0)` | matches live rlAeroUSDC + oracle; `setLimits`/`setOracleMode` multisig-only |
@@ -529,8 +513,7 @@ legal sign-off reference.
 | `setLimits` live | | `(1_000e6, 2_000_000e6, 1_000_000e6, 200_000e6, 100_000e6)` | §4.4; `minLoanSize` to be derived |
 | `setLimits` weekend freeze | | `(1_000e6, 2_000_000e6, currentDebt, 0, 0)` | WP4/WP6 — verify in WP3 |
 | Pool cardinality | optional | `2048` on the three 360-ring pools, if bumped at all; gate is `observe([60,0])` + span ≥ 10× | WP0.1 |
-| Adapter bounds (share terms) | per equity token | **TBD** (suggest ±80% of launch price) | WP2 |
-| Cross pairs (equity/equity) | accept+monitor **or** vault allowlist | **TBD** | WP6b |
+| Cross pairs (equity/equity) | accept + monitor (decided) | no allowlist; caps bind both legs; nightly scan | WP6b |
 | Named liquidator | account, capital, B20 eligibility | **TBD** | WP5 gate |
 | Reserve seed | ≥ $40–100K or explicit acceptance | **TBD** | §7 |
 
@@ -545,9 +528,8 @@ Feed, token and pool addresses per asset are in proposal §2.1, §2.3, §2.5.
 | 0 | pre | *(optional)* `increaseObservationCardinalityNext(2048)` on the three 360-ring pools | anyone (`deployer`) | if chosen; weeks before |
 | 1a | pre | V3Utils `transferOwnership(MULTISIG)`; assert `pendingOwner()` | `deployer` (current owner) | — |
 | 1b | pre | V3Utils `acceptOwnership()`; assert `owner()==MULTISIG`, `pendingOwner()==0` | **multisig** | 1a |
-| 2a | A | Deploy 8 adapters (7 equity + USDC bounds-only); `transferOwnership`; assert `pendingOwner()` | `deployer` | WP2 reviewed; §6 Stage-A gates |
-| 2b | A | `acceptOwnership()` ×8 (Safe batch) | **multisig** | 2a |
-| 3a | A | Deploy IRM (transfer → immediate), Oracle (configured), Vault (configured, **debt limit 0**), FlashloanLiquidator (no owner); `transferOwnership` on oracle + vault; assert `pendingOwner()` | `deployer` | WP4 dry-run green; preflight passes at deploy block; 2b |
+| 2 | A | Deploy 7 adapters (ownerless); assert linkage and `answer × multiplier` | `deployer` | WP2 reviewed; §6 Stage-A gates |
+| 3a | A | Deploy IRM (transfer → immediate), Oracle (configured), Vault (configured, **debt limit 0**), FlashloanLiquidator (no owner); `transferOwnership` on oracle + vault; assert `pendingOwner()` | `deployer` | WP4 dry-run green; preflight passes at deploy block; 2 |
 | 3b | A | `acceptOwnership()` on oracle + vault (Safe batch) | **multisig** | 3a |
 | 4 | A | `VerifyBaseCoinbaseEquityDeployment --stage a` | read-only | 3b; all green |
 | 5 | B | `V3Utils.setVault(vault)` | **multisig** | 1b, 4 |
@@ -562,9 +544,8 @@ Feed, token and pool addresses per asset are in proposal §2.1, §2.3, §2.5.
 
 - WP0.1 decided (bump to 2048 or skip) and, if bumped, verified; `ring_coverage.sh` green either way.
 - WP0.2 verified on-chain: `owner() == MULTISIG && pendingOwner() == 0` on V3Utils `0xc3cF…`.
-- WP1 items 1–5 recorded with sources; design branch (multiply vs bounds-only) chosen accordingly.
-- WP2 merged (incl. bounds-only mode and `Ownable2Step`) with an independent review comment on the
-  exact diff.
+- WP1 items 1–5 recorded with sources; design branch (adapter vs raw feeds) chosen accordingly.
+- WP2 merged with an independent review comment on the exact diff.
 - WP3 bucket 1 green in CI; bucket 2 scripts runnable and outputs committed under `script/sim/out/`
   for a pinned block; bucket 3 recorded.
 - WP4 scripts dry-run green against live Base at a recent block (`forge script … --rpc-url …`
@@ -572,7 +553,7 @@ Feed, token and pool addresses per asset are in proposal §2.1, §2.3, §2.5.
 - WP5 model reproduced at two blocks; pilot caps in manifest justified by it or divergence accepted;
   liquidation-readiness route (1/2/3) chosen and, if (2), the liquidator named.
 - WP6 runbook written; freeze/unfreeze scripts dry-run; policy-registry poller runs against live Base.
-- WP6b cross-pair decision recorded (accept+monitor, or allowlist designed and reviewed).
+- WP6b: accept+monitor recorded; cross-pair scan in the runbook.
 - WP7 manifest schema filled with everything known pre-deploy; go/no-go list (§6) instantiated.
 - Proposal §7 updated: every [assumption] either converted to [verified] or moved to [accepted risk]
   with owner; every [blocker] either closed or explicitly blocking deployment.
@@ -595,12 +576,11 @@ a Stage-B artefact.
 - [ ] Issuer policy/role/pause/burn/seizure enumeration complete via registry + logs on all seven;
       policy-admin EOA `0xEC0F05…2812` control explained by Coinbase; consequences formally accepted
       (or exclusion chosen)
-- [ ] `ChainlinkMultiplierFeed` (multiplier + bounds-only modes, `Ownable2Step`) merged,
-      independently reviewed, matrix tested
-- [ ] C4 #446 bounds decided for **all eight** feeds incl. USDC (values in manifest)
+- [ ] `ChainlinkMultiplierFeed` (multiplier only, ownerless) merged, independently reviewed,
+      matrix tested; garbage-print divergence tests (equity and USDC) green
 - [ ] `twapSeconds`, `maxDifference`, `maxPoolPriceDifference`, `maxFeedAge` pinned; overnight
       divergence samples support `maxDifference = 300`
-- [ ] Cross-pair decision made (accept+monitor, or allowlist merged and reviewed)
+- [ ] Cross-pair handling recorded as accepted risk in the proposal; nightly scan specified in runbook
 - [ ] Explicit CF line (55/50 launch; ramp conditions) recorded
 - [ ] `minLoanSize` derived from measured gas + stressed exit; IRM parameters confirmed
 - [ ] V3Utils `0xc3cF…`: `owner() == MULTISIG && pendingOwner() == 0`
@@ -628,7 +608,7 @@ green; `emergencyAdmin() == address(0)` on vault and oracle; `globalDebtLimit ==
 - [ ] **Multisig weekend signing quorum committed** for Friday freeze / Sunday unfreeze, with a
       tested Safe tx template
 - [ ] Monitoring live: policy-registry poller, canary, multiplier poller, feed age, divergence,
-      USDC-bounds proximity, ring coverage, cross-pair scan
+      ring coverage, cross-pair scan
 - [ ] `Verify --stage b` green; manifest complete; independent reviewer has checked final commit,
       manifest, simulation output, smoke-test hashes and deployed bytecode
 
@@ -644,9 +624,8 @@ cancellation. **Do not force a deployment recommendation.**
 | ~~Vault owner: Safe or 48h timelock?~~ **Decided: A — Safe `0x45B22086…1cc9`, no timelock, `emergencyAdmin = none` (all as rlAeroUSDC).** Option C (48h timelock owner + Safe as `emergencyAdmin`) is the recorded candidate for post-pilot hardening before caps are raised | WP4, WP6 | — |
 | Weekend multisig signing quorum (Friday 15:00 ET freeze, Sunday-evening unfreeze) — `emergencyAdmin` itself is decided: none | WP6 | — |
 | Reserve seed amount and funder (≥ $40–100K suggested) | #7 in §4 | explicit first-loss acceptance |
-| Adapter initial bounds per equity token | WP2 | ±80% of launch price |
-| **USDC reference adapter bounds** (bound hit = whole vault fails closed) | WP2 | `[0.90, 1.10]` |
-| **Cross pairs**: accept+monitor, or add a pair allowlist to `V3Vault` (audited-code change) | WP6b, WP3 | accept+monitor |
+| ~~Adapter answer bounds (equity + USDC)~~ **Decided: none** — redundant with TWAP divergence; matches live vaults | — | — |
+| ~~Cross pairs~~ **Decided: accept + monitor** (no allowlist at pilot; caps bind both legs; nightly scan) | — | — |
 | **Named liquidator** (account, capital, B20 eligibility) — or which WP5 route replaces it | WP5, Stage B | none → Stage B blocked |
 | Cardinality bump on the three 360-ring pools: do (2048) or skip | WP0.1 | skip |
 | IRM parameters (reuse Aerodrome `0/13%/300%/90%`?) | WP4 | reuse |
