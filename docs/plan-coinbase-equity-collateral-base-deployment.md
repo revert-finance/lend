@@ -263,7 +263,8 @@ Requirements:
 **Bucket 1 — mock-tested, local (`forge test`).** **Status: implemented** (commit `b29f155`):
 `test/integration/aerodrome/B20TestBase.sol`, `mocks/MockB20Token.sol`, `mocks/MockChainlinkFeed.sol`,
 `V3OracleB20.t.sol` (28), `V3VaultB20.t.sol` (11 + 1) — 40 tests green. `MockPool.observe` was
-corrected to the Uniswap cumulative sign convention (previous tests only used tick 0).
+corrected to the Uniswap cumulative sign convention (previous tests only used tick 0); the full Aerodrome
+integration suite (13 suites, 93 tests) and the unit suite (43) pass after the change (run 2026-09-16).
 Add `test/integration/aerodrome/mocks/MockB20Token.sol`: `MockERC20` with 8 decimals plus
 `multiplier()` (settable), `setRevertMultiplier(bool)`, and `setBlocked(address, bool)` making
 `transfer`/`transferFrom` revert for blocked `from`/`to`/`msg.sender` (simulates policy gating).
