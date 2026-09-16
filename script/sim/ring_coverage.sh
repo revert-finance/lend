@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TWAP liveness gate (plan WP0.1 / WP6): observe([TWAP_SECONDS, 0]) must succeed on every pool and the
 # oldest stored observation must be >= COVERAGE_MULT * TWAP_SECONDS old. Cardinality is informational.
-# Output: out/ring_coverage-<block>.json ; exit 1 on any gate failure.
+# Output: results/ring_coverage-<block>.json ; exit 1 on any gate failure.
 source "$(dirname "$0")/common.sh"
 COVERAGE_MULT="${COVERAGE_MULT:-10}"
 

@@ -6,7 +6,7 @@ batched JSON-RPC, and report every gap > 12h (weekend, holiday, weekday), the cu
 the live feed-vs-pool divergence (one sample; run from cron overnight to accumulate).
 
 Env: BASE_RPC_URL or ALCHEMY_API_KEY; ROUNDS (default 400); BLOCK (default latest).
-Output: out/feed_roundwalk-<block>.json and a summary on stdout. Exit 1 if any feed is stale beyond
+Output: results/feed_roundwalk-<block>.json and a summary on stdout. Exit 1 if any feed is stale beyond
 maxFeedAge (108000s) or any live divergence exceeds 3%.
 """
 import json, math, os, sys, time, urllib.request
@@ -131,7 +131,7 @@ def main():
 
     out = dict(block=block, timestamp=now, usdcPrice=usdc_price, usdcFeedAgeSeconds=now - usdc_updated,
                maxFeedAge=MAX_FEED_AGE, maxDifference=MAX_DIFFERENCE, feeds=feeds)
-    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"feed_roundwalk-{block}.json")
     with open(path, "w") as fh:

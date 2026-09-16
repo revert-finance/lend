@@ -28,7 +28,7 @@ EQUITIES=(
 )
 export EQUITIES
 
-OUT_DIR="$(dirname "${BASH_SOURCE[0]}")/out"
+OUT_DIR="$(dirname "${BASH_SOURCE[0]}")/results"
 mkdir -p "$OUT_DIR"
 export OUT_DIR
 

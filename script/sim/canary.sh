@@ -3,7 +3,7 @@
 # by the live node (native B20 code). Any revert or `false` means transfer gating changed.
 # Directions per token: pool -> fresh EOA, pool -> V3Utils, pool -> multisig, other pool -> pool,
 # plus pool -> $VAULT and pool -> each $WATCH_ADDRESSES entry once they exist.
-# Output: out/canary-<block>.json ; exit 1 on any failure.
+# Output: results/canary-<block>.json ; exit 1 on any failure.
 source "$(dirname "$0")/common.sh"
 
 FRESH_EOA=0x00000000000000000000000000000000DeaDBeef

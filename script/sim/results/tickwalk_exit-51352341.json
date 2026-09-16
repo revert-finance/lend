@@ -1,0 +1,521 @@
+{
+ "block": 51352341,
+ "usdcUsd": 0.99987113,
+ "lentUsd": 2000000.0,
+ "pilot": true,
+ "recoveryFloor": 0.9,
+ "maxPenalty": 0.1,
+ "shocks": [
+  0.0,
+  0.1,
+  0.2,
+  0.3,
+  0.4
+ ],
+ "pools": [
+  {
+   "symbol": "AAPLc",
+   "pool": "0xA3b1E3f9747065e2073722Ff4c9027d3eA4994F0",
+   "spotUsd": 330.47988721198504,
+   "tick": -11956,
+   "liquidity": 49793595843472,
+   "fee": 500,
+   "initializedTicksAbove": 104,
+   "capUsd": 80000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 330.47988721198504,
+     "liquidityAtStart": 49793595843472,
+     "saleNotionalUsd": 88000.0,
+     "recoveredUsd": 87820.38831018363,
+     "recoveryPct": 0.9979589580702685,
+     "endPriceUsd": 329.3960975969931,
+     "priceImpactPct": -0.0032794419779522688,
+     "maxSaleAtFloorUsd": 703999.9999993597,
+     "impliedCapAtFloorUsd": 639999.9999994179
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 297.4318984907865,
+     "liquidityAtStart": 251505749298,
+     "saleNotionalUsd": 88000.0,
+     "recoveredUsd": 14252.132242701182,
+     "recoveryPct": 0.16195604821251344,
+     "endPriceUsd": 4.442192666456863,
+     "priceImpactPct": -0.9850648410980893,
+     "maxSaleAtFloorUsd": 7124.020171468146,
+     "impliedCapAtFloorUsd": 6476.38197406195
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 264.38390976958806,
+     "liquidityAtStart": 9960574505,
+     "saleNotionalUsd": 88000.0,
+     "recoveredUsd": 9936.724638108457,
+     "recoveryPct": 0.11291732543305065,
+     "endPriceUsd": 3.282277457641673,
+     "priceImpactPct": -0.987585184512544,
+     "maxSaleAtFloorUsd": 1486.8026903714053,
+     "impliedCapAtFloorUsd": 1351.6388094285503
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 231.3359210483895,
+     "liquidityAtStart": 6795917946,
+     "saleNotionalUsd": 88000.0,
+     "recoveredUsd": 9221.416802758484,
+     "recoveryPct": 0.10478882730407368,
+     "endPriceUsd": 2.5414312707052655,
+     "priceImpactPct": -0.9890141087506524,
+     "maxSaleAtFloorUsd": 1142.880979576148,
+     "impliedCapAtFloorUsd": 1038.9827087055892
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 198.28793232719102,
+     "liquidityAtStart": 6778912253,
+     "saleNotionalUsd": 88000.0,
+     "recoveredUsd": 8601.882035637125,
+     "recoveryPct": 0.09774865949587642,
+     "endPriceUsd": 1.8964413325356404,
+     "priceImpactPct": -0.9904359215899918,
+     "maxSaleAtFloorUsd": 1054.8601732007228,
+     "impliedCapAtFloorUsd": 958.9637938188388
+    }
+   ]
+  },
+  {
+   "symbol": "MSFTc",
+   "pool": "0x7103eB3c9590d1281f7dc03b2A9EE27C39dF5D54",
+   "spotUsd": 499.55878774797134,
+   "tick": -16088,
+   "liquidity": 33186996317664,
+   "fee": 500,
+   "initializedTicksAbove": 39,
+   "capUsd": 50000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 499.55878774797134,
+     "liquidityAtStart": 33186996317664,
+     "saleNotionalUsd": 55000.00000000001,
+     "recoveredUsd": 54909.77859401222,
+     "recoveryPct": 0.9983596108002221,
+     "endPriceUsd": 498.10643269511195,
+     "priceImpactPct": -0.0029072755569102826,
+     "maxSaleAtFloorUsd": 439999.9999995999,
+     "impliedCapAtFloorUsd": 399999.9999996362
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 449.60290897317424,
+     "liquidityAtStart": 5625981086,
+     "saleNotionalUsd": 55000.00000000001,
+     "recoveredUsd": 4727.472583529878,
+     "recoveryPct": 0.0859540469732705,
+     "endPriceUsd": 2.8267318445023206,
+     "priceImpactPct": -0.9937128257222397,
+     "maxSaleAtFloorUsd": 1099.7408119510512,
+     "impliedCapAtFloorUsd": 999.7643745009556
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 399.6470301983771,
+     "liquidityAtStart": 2390832787,
+     "saleNotionalUsd": 55000.00000000001,
+     "recoveredUsd": 4116.400287992844,
+     "recoveryPct": 0.07484364159986988,
+     "endPriceUsd": 2.2229125743618634,
+     "priceImpactPct": -0.9944378103516535,
+     "maxSaleAtFloorUsd": 518.4735019429355,
+     "impliedCapAtFloorUsd": 471.3395472208504
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 349.6911514235799,
+     "liquidityAtStart": 2235758733,
+     "saleNotionalUsd": 55000.00000000001,
+     "recoveredUsd": 3852.816896606863,
+     "recoveryPct": 0.07005121630194296,
+     "endPriceUsd": 1.7173552164688368,
+     "priceImpactPct": -0.995088937167905,
+     "maxSaleAtFloorUsd": 458.97680771304306,
+     "impliedCapAtFloorUsd": 417.25164337549364
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 299.73527264878277,
+     "liquidityAtStart": 2216672960,
+     "saleNotionalUsd": 55000.00000000001,
+     "recoveredUsd": 3585.2723150601637,
+     "recoveryPct": 0.06518676936473024,
+     "endPriceUsd": 1.274932702221246,
+     "priceImpactPct": -0.9957464709076294,
+     "maxSaleAtFloorUsd": 424.27162588865036,
+     "impliedCapAtFloorUsd": 385.7014780805912
+    }
+   ]
+  },
+  {
+   "symbol": "GOOGLc",
+   "pool": "0xB1987CAD1682841b4b641d50E520777eC5Ab5542",
+   "spotUsd": 343.18180407213384,
+   "tick": -12333,
+   "liquidity": 115197943290910,
+   "fee": 500,
+   "initializedTicksAbove": 88,
+   "capUsd": 120000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 343.18180407213384,
+     "liquidityAtStart": 115197943290910,
+     "saleNotionalUsd": 132000.0,
+     "recoveredUsd": 131695.51532707634,
+     "recoveryPct": 0.9976932979323965,
+     "endPriceUsd": 341.94489730588356,
+     "priceImpactPct": -0.003604231784941292,
+     "maxSaleAtFloorUsd": 1055999.9999990396,
+     "impliedCapAtFloorUsd": 959999.9999991268
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 308.86362366492045,
+     "liquidityAtStart": 222560650552,
+     "saleNotionalUsd": 132000.0,
+     "recoveredUsd": 21546.059854162864,
+     "recoveryPct": 0.1632277261679005,
+     "endPriceUsd": 5.2745134859825855,
+     "priceImpactPct": -0.9829228401085367,
+     "maxSaleAtFloorUsd": 9520.228703389876,
+     "impliedCapAtFloorUsd": 8654.753366718069
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 274.54544325770706,
+     "liquidityAtStart": 13714299670,
+     "saleNotionalUsd": 132000.0,
+     "recoveredUsd": 15870.658595271418,
+     "recoveryPct": 0.12023226208538952,
+     "endPriceUsd": 3.951351957399643,
+     "priceImpactPct": -0.9856076578415813,
+     "maxSaleAtFloorUsd": 2085.0326282379683,
+     "impliedCapAtFloorUsd": 1895.4842074890619
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 240.22726285049367,
+     "liquidityAtStart": 10852734775,
+     "saleNotionalUsd": 132000.0,
+     "recoveredUsd": 14916.438743633209,
+     "recoveryPct": 0.1130033238154031,
+     "endPriceUsd": 3.0706551801462236,
+     "priceImpactPct": -0.9872177073338372,
+     "maxSaleAtFloorUsd": 1860.4391512053553,
+     "impliedCapAtFloorUsd": 1691.3083192775955
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 205.9090824432803,
+     "liquidityAtStart": 10851319690,
+     "saleNotionalUsd": 132000.0,
+     "recoveredUsd": 13926.59239167384,
+     "recoveryPct": 0.10550448781571091,
+     "endPriceUsd": 2.294308285024592,
+     "priceImpactPct": -0.9888576634998285,
+     "maxSaleAtFloorUsd": 1722.225824778434,
+     "impliedCapAtFloorUsd": 1565.659840707667
+    }
+   ]
+  },
+  {
+   "symbol": "AMZNc",
+   "pool": "0xd03Bc8C7F2FAedCe2aac81bF0444AEA08Ea06E9b",
+   "spotUsd": 248.63839027234408,
+   "tick": -9111,
+   "liquidity": 20979513310447,
+   "fee": 500,
+   "initializedTicksAbove": 26,
+   "capUsd": 40000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 248.63839027234408,
+     "liquidityAtStart": 20979513310447,
+     "saleNotionalUsd": 44000.0,
+     "recoveredUsd": 43942.55658753378,
+     "recoveryPct": 0.9986944678984949,
+     "endPriceUsd": 248.13502358765257,
+     "priceImpactPct": -0.002024493016304363,
+     "maxSaleAtFloorUsd": 351999.99999967986,
+     "impliedCapAtFloorUsd": 319999.99999970896
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 223.77455124510968,
+     "liquidityAtStart": 4562251959,
+     "saleNotionalUsd": 44000.0,
+     "recoveredUsd": 4261.122289855798,
+     "recoveryPct": 0.09684368840581359,
+     "endPriceUsd": 2.0462713504573538,
+     "priceImpactPct": -0.9908556565566923,
+     "maxSaleAtFloorUsd": 620.0516325479839,
+     "impliedCapAtFloorUsd": 563.683302316349
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 198.91071221787527,
+     "liquidityAtStart": 3133931700,
+     "saleNotionalUsd": 44000.0,
+     "recoveredUsd": 3982.0307586550716,
+     "recoveryPct": 0.09050069906034254,
+     "endPriceUsd": 1.630346405941118,
+     "priceImpactPct": -0.9918036269250531,
+     "maxSaleAtFloorUsd": 485.0855833501555,
+     "impliedCapAtFloorUsd": 440.98689395468676
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 174.04687319064084,
+     "liquidityAtStart": 3105872684,
+     "saleNotionalUsd": 44000.0,
+     "recoveredUsd": 3746.3518416535926,
+     "recoveryPct": 0.08514436003758165,
+     "endPriceUsd": 1.262935162903619,
+     "priceImpactPct": -0.9927437066822782,
+     "maxSaleAtFloorUsd": 453.17083928966895,
+     "impliedCapAtFloorUsd": 411.97349026333535
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 149.18303416340643,
+     "liquidityAtStart": 3104219171,
+     "saleNotionalUsd": 44000.0,
+     "recoveredUsd": 3490.3664660322647,
+     "recoveryPct": 0.07932651059164238,
+     "endPriceUsd": 0.9397028432484145,
+     "priceImpactPct": -0.9937010072994016,
+     "maxSaleAtFloorUsd": 419.35505441506393,
+     "impliedCapAtFloorUsd": 381.23186765005806
+    }
+   ]
+  },
+  {
+   "symbol": "METAc",
+   "pool": "0xEAF57753BC382E0324a1D43F72E7027705a2273E",
+   "spotUsd": 666.0057755630564,
+   "tick": -18964,
+   "liquidity": 54947513240867,
+   "fee": 500,
+   "initializedTicksAbove": 113,
+   "capUsd": 90000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 666.0057755630564,
+     "liquidityAtStart": 54947513240867,
+     "saleNotionalUsd": 99000.00000000001,
+     "recoveredUsd": 98882.93833718693,
+     "recoveryPct": 0.998817558961484,
+     "endPriceUsd": 665.1025692255788,
+     "priceImpactPct": -0.0013561539112990628,
+     "maxSaleAtFloorUsd": 791999.9999992799,
+     "impliedCapAtFloorUsd": 719999.9999993453
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 599.4051980067508,
+     "liquidityAtStart": 737078925857,
+     "saleNotionalUsd": 99000.00000000001,
+     "recoveredUsd": 63376.42188474111,
+     "recoveryPct": 0.6401658776236475,
+     "endPriceUsd": 75.88006823544008,
+     "priceImpactPct": -0.8734077240441523,
+     "maxSaleAtFloorUsd": 54681.75595544018,
+     "impliedCapAtFloorUsd": 49710.68723221834
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 532.8046204504452,
+     "liquidityAtStart": 209669342693,
+     "saleNotionalUsd": 99000.00000000001,
+     "recoveredUsd": 35150.68450588394,
+     "recoveryPct": 0.35505741925135287,
+     "endPriceUsd": 28.608714608095426,
+     "priceImpactPct": -0.9463054307150922,
+     "maxSaleAtFloorUsd": 23353.883409887207,
+     "impliedCapAtFloorUsd": 21230.803099897457
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 466.2040428941395,
+     "liquidityAtStart": 107797296855,
+     "saleNotionalUsd": 99000.00000000001,
+     "recoveredUsd": 19772.24994583117,
+     "recoveryPct": 0.19971969642253704,
+     "endPriceUsd": 16.896960873687757,
+     "priceImpactPct": -0.9637562969879166,
+     "maxSaleAtFloorUsd": 4624.588895494527,
+     "impliedCapAtFloorUsd": 4204.1717231768425
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 399.6034653378338,
+     "liquidityAtStart": 10661639528,
+     "saleNotionalUsd": 99000.00000000001,
+     "recoveredUsd": 17519.80706282192,
+     "recoveryPct": 0.17696774810931232,
+     "endPriceUsd": 12.5263855133364,
+     "priceImpactPct": -0.9686529607476093,
+     "maxSaleAtFloorUsd": 2355.350352081587,
+     "impliedCapAtFloorUsd": 2141.227592801443
+    }
+   ]
+  },
+  {
+   "symbol": "NVDAc",
+   "pool": "0x853F5f1B92b16714Fe6CDA67CAad0856B83C7ab9",
+   "spotUsd": 211.63946793048416,
+   "tick": -7499,
+   "liquidity": 59757614042589,
+   "fee": 500,
+   "initializedTicksAbove": 91,
+   "capUsd": 70000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 211.63946793048416,
+     "liquidityAtStart": 59757614042589,
+     "saleNotionalUsd": 77000.0,
+     "recoveredUsd": 76852.4552150322,
+     "recoveryPct": 0.9980838339614572,
+     "endPriceUsd": 210.91464105068246,
+     "priceImpactPct": -0.0034248190419745583,
+     "maxSaleAtFloorUsd": 615999.9999994398,
+     "impliedCapAtFloorUsd": 559999.9999994907
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 190.47552113743575,
+     "liquidityAtStart": 253306074446,
+     "saleNotionalUsd": 77000.0,
+     "recoveredUsd": 16655.201291555746,
+     "recoveryPct": 0.21630131547474996,
+     "endPriceUsd": 4.611628879449004,
+     "priceImpactPct": -0.9757888633042693,
+     "maxSaleAtFloorUsd": 9033.211519337783,
+     "impliedCapAtFloorUsd": 8212.010472125257
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 169.31157434438734,
+     "liquidityAtStart": 16935298242,
+     "saleNotionalUsd": 77000.0,
+     "recoveredUsd": 11157.603450801065,
+     "recoveryPct": 0.14490394091949435,
+     "endPriceUsd": 3.2803989878453916,
+     "priceImpactPct": -0.9806250753940017,
+     "maxSaleAtFloorUsd": 1873.8297646996216,
+     "impliedCapAtFloorUsd": 1703.481604272383
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 148.1476275513389,
+     "liquidityAtStart": 12566999471,
+     "saleNotionalUsd": 77000.0,
+     "recoveredUsd": 10272.079229503348,
+     "recoveryPct": 0.13340362635718633,
+     "endPriceUsd": 2.537091685770776,
+     "priceImpactPct": -0.9828745709418021,
+     "maxSaleAtFloorUsd": 1621.1290253922925,
+     "impliedCapAtFloorUsd": 1473.7536594475384
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 126.98368075829049,
+     "liquidityAtStart": 9493722083,
+     "saleNotionalUsd": 77000.0,
+     "recoveredUsd": 9389.466199028273,
+     "recoveryPct": 0.12194111946789965,
+     "endPriceUsd": 1.8899481950289412,
+     "priceImpactPct": -0.9851166056634758,
+     "maxSaleAtFloorUsd": 1183.2562783092726,
+     "impliedCapAtFloorUsd": 1075.6875257357024
+    }
+   ]
+  },
+  {
+   "symbol": "TSLAc",
+   "pool": "0x469337fDcc5E8f38e2E4B670B04F57865D13a7BB",
+   "spotUsd": 357.01017838565497,
+   "tick": -12728,
+   "liquidity": 6545296758199,
+   "fee": 500,
+   "initializedTicksAbove": 28,
+   "capUsd": 30000.0,
+   "scenarios": [
+    {
+     "shock": 0.0,
+     "postShockUsd": 357.01017838565497,
+     "liquidityAtStart": 6545296758199,
+     "saleNotionalUsd": 33000.0,
+     "recoveredUsd": 32901.038430190296,
+     "recoveryPct": 0.9970011645512211,
+     "endPriceUsd": 355.50951880194043,
+     "priceImpactPct": -0.004203408402808861,
+     "maxSaleAtFloorUsd": 263999.9999997599,
+     "impliedCapAtFloorUsd": 239999.9999997817
+    },
+    {
+     "shock": 0.1,
+     "postShockUsd": 321.3091605470895,
+     "liquidityAtStart": 2823913728,
+     "saleNotionalUsd": 33000.0,
+     "recoveredUsd": 4097.410893835437,
+     "recoveryPct": 0.12416396647986172,
+     "endPriceUsd": 4.874865163592779,
+     "priceImpactPct": -0.9848281164617516,
+     "maxSaleAtFloorUsd": 558.012189801957,
+     "impliedCapAtFloorUsd": 507.28380891086994
+    },
+    {
+     "shock": 0.2,
+     "postShockUsd": 285.608142708524,
+     "liquidityAtStart": 2810721949,
+     "saleNotionalUsd": 33000.0,
+     "recoveredUsd": 3868.415019582175,
+     "recoveryPct": 0.11722469756309621,
+     "endPriceUsd": 3.900720079433323,
+     "priceImpactPct": -0.986342405918678,
+     "maxSaleAtFloorUsd": 506.02700153103797,
+     "impliedCapAtFloorUsd": 460.0245468463981
+    },
+    {
+     "shock": 0.3,
+     "postShockUsd": 249.90712486995847,
+     "liquidityAtStart": 2604405152,
+     "saleNotionalUsd": 33000.0,
+     "recoveredUsd": 3634.079605650551,
+     "recoveryPct": 0.11012362441365306,
+     "endPriceUsd": 3.0297967374611914,
+     "priceImpactPct": -0.9878763090926769,
+     "maxSaleAtFloorUsd": 455.07646117766853,
+     "impliedCapAtFloorUsd": 413.70587379788043
+    },
+    {
+     "shock": 0.4,
+     "postShockUsd": 214.20610703139297,
+     "liquidityAtStart": 2581532099,
+     "saleNotionalUsd": 33000.0,
+     "recoveredUsd": 3389.7574307251,
+     "recoveryPct": 0.10271992214318486,
+     "endPriceUsd": 2.2624324156039255,
+     "priceImpactPct": -0.9894380582936771,
+     "maxSaleAtFloorUsd": 417.8912145071081,
+     "impliedCapAtFloorUsd": 379.90110409737093
+    }
+   ]
+  }
+ ]
+}

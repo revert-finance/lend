@@ -295,8 +295,8 @@ Reuse `MockPool`, `MockAerodromePositionManager`, and the existing mock Chainlin
   caps bind; both legs revert valuation in the same blackout (no USDC leg).
 
 **Bucket 2 — live-simulated (stateless `eth_call` against a live Base node, pinned block; no
-broadcast).** **Status: `script/sim/common.sh`, `policy_registry.sh`, `ring_coverage.sh`, `canary.sh`, `feed_roundwalk.py` written and run green against Base (outputs under `script/sim/out/`); `tickwalk_exit.py`, `zerox_quotes.sh`, `roles_from_logs.py` pending.** Under `script/sim/` (bash + python or forge scripts run without `--broadcast`), each
-writing JSON to `script/sim/out/`. **Scope limit (2026-09-16): a sequence of `eth_call`s shares no
+broadcast).** **Status: `script/sim/common.sh`, `policy_registry.sh`, `ring_coverage.sh`, `canary.sh`, `feed_roundwalk.py` written and run green against Base (outputs under `script/sim/results/`); `tickwalk_exit.py`, `zerox_quotes.sh`, `roles_from_logs.py` pending.** Under `script/sim/` (bash + python or forge scripts run without `--broadcast`), each
+writing JSON to `script/sim/results/`. **Scope limit (2026-09-16): a sequence of `eth_call`s shares no
 state, so borrow → repay → liquidate cannot be chained here; that flow moves to the Stage-B on-chain
 smoke test (WP4/§4).** Spike first: check whether Tenderly `simulate-bundle` or Alchemy
 `simulateExecutionBundle` executes B20 calls (they run their own EVMs and very likely hit the same
@@ -413,6 +413,8 @@ keystore flow (it currently reads `vm.envUint("PRIVATE_KEY")` — same change as
 `DeployBaseV3UtilsNewClFactory` received).
 
 ### WP5 — Stressed-exit model (replaces the "25% of pool USDC" cap rule)
+
+**Status (2026-09-16): `script/sim/tickwalk_exit.py` implemented and run** (block 51372341; second block for reproducibility in `script/sim/results/`). Result: 99.8% recovery at spot, 9–23% after −10% (METAc 65%), 7–21% after −30%; a 90%-recovery floor implies caps of $400–$10K per name. Pool depth therefore **cannot** justify any cap ≥ the pilot table → route (2)/(3) of the liquidation-readiness gate is mandatory; the pilot caps stay as concentration limits only. Proposal §2.4 carries the table.
 
 `script/sim/tickwalk_exit.py`, reproducible from a pinned block: read `slot0`, `liquidity()`,
 `tickBitmap` words around the tick, `ticks(t).liquidityNet`, then simulate crossing with the 0.05%
@@ -578,7 +580,7 @@ Feed, token and pool addresses per asset are in proposal §2.1, §2.3, §2.5.
 - WP0.2 verified on-chain: `owner() == MULTISIG && pendingOwner() == 0` on V3Utils `0xc3cF…`.
 - WP1 items 1–5 recorded with sources; design branch (adapter vs raw feeds) chosen accordingly.
 - WP2 merged with an independent review comment on the exact diff.
-- WP3 bucket 1 green in CI; bucket 2 scripts runnable and outputs committed under `script/sim/out/`
+- WP3 bucket 1 green in CI; bucket 2 scripts runnable and outputs committed under `script/sim/results/`
   for a pinned block; bucket 3 recorded.
 - WP4 scripts dry-run green against live Base at a recent block (`forge script … --rpc-url …`
   without `--broadcast`), preflight assertions all passing.

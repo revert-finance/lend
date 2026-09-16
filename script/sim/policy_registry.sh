@@ -3,7 +3,7 @@
 # For each equity: policyId(scope) for all six scopes; for each policy id: policyExists, policyAdmin,
 # pendingPolicyAdmin and isAuthorized(id, x) for every protocol address we depend on.
 # Extra addresses (vault, oracle, liquidators...) via WATCH_ADDRESSES="0x.. 0x.." once they exist.
-# Output: out/policy_registry-<block>.json ; exit 1 if any watched address is unauthorized.
+# Output: results/policy_registry-<block>.json ; exit 1 if any watched address is unauthorized.
 source "$(dirname "$0")/common.sh"
 
 SCOPES=(TRANSFER_SENDER_POLICY TRANSFER_RECEIVER_POLICY TRANSFER_EXECUTOR_POLICY MINT_RECEIVER_POLICY SEIZE_EXEMPT_POLICY SEIZE_RECEIVER_POLICY)

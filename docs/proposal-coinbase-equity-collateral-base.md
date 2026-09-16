@@ -129,6 +129,26 @@ percent of spot. After a −30% gap trade, a cap-sized liquidator exit recovers 
 | AMZNc | $80,000 | ~$3,900 |
 | TSLAc | $60,000 | ~$3,800 |
 
+**Re-derived with the WP5 model (`script/sim/tickwalk_exit.py`, block 51372341, pilot caps at $2M lent,
+sale = cap × 1.10 at the post-shock price, real tick bitmap + `liquidityNet`, pool fee) [verified]:**
+
+| Pool | pilot cap | rec. −10% | −20% | −30% | −40% | cap for 90% recovery after −10% | after −30% |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| AAPLc | $80,000 | 17% | 11% | 10% | 10% | $7,486 | $1,041 |
+| MSFTc | $50,000 | 9% | 7% | 7% | 7% | $988 | $416 |
+| GOOGLc | $120,000 | 17% | 12% | 11% | 11% | $9,755 | $1,695 |
+| AMZNc | $40,000 | 10% | 9% | 9% | 8% | $565 | $412 |
+| METAc | $90,000 | 65% | 37% | 21% | 18% | $49,988 | $5,092 |
+| NVDAc | $70,000 | 23% | 15% | 13% | 12% | $9,551 | $1,488 |
+| TSLAc | $30,000 | 12% | 12% | 11% | 10% | $508 | $414 |
+
+At spot (no shock) all seven absorb a cap-sized sale at **99.8%** recovery (worst impact 0.02%) — the
+"deceptive" depth. Correlated seven-name liquidation: sell $528K → recover $132,838
+(−10%), $85,564 (−20%), $66,138 (−30%), $60,016 (−40%). The
+liquidity-consistent cap at a 90% floor is **$400–$10K per name after only −10%** (METAc the lone
+exception at ~$50K), i.e. the caps cannot be sized from pool depth at all; they are concentration
+limits, and the exit must come from a redemption-capable liquidator (Stage-B gate).
+
 **In the scenario the caps were originally sized against, the pool is not the exit.** Post-gap
 liquidation is viable only for desks with issuer redemption (non-US KYC) or TradFi hedging (equity
 futures reopen Sunday 18:00 ET, before the feed resumes at 20:00). The liquidation penalty band is a
