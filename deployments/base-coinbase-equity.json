@@ -1,0 +1,94 @@
+{
+  "$comment": "Manifest of record for the Coinbase B20 equity-collateral vault on Base (plan WP7). Values under 'deployed' are filled from script logs after each stage; everything else mirrors script/CoinbaseEquityBaseConfig.s.sol and is asserted by VerifyBaseCoinbaseEquityDeployment.",
+  "chainId": 8453,
+  "branch": "codex/coinbase-b20-equity-vault",
+  "stage": "pre-deployment",
+  "deployed": {
+    "block": null,
+    "irm": {"address": null, "owner": "0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9", "ownership": "Ownable (immediate)", "tx": null},
+    "oracle": {"address": null, "owner": "0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9", "pendingOwner": "0x0000000000000000000000000000000000000000", "emergencyAdmin": "0x0000000000000000000000000000000000000000", "ownership": "Ownable2Step (Safe accepted tx: null)", "tx": null},
+    "vault": {"address": null, "owner": "0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9", "pendingOwner": "0x0000000000000000000000000000000000000000", "emergencyAdmin": "0x0000000000000000000000000000000000000000", "ownership": "Ownable2Step (Safe accepted tx: null)", "tx": null},
+    "flashloanLiquidator": {"address": null, "ownership": "none", "tx": null},
+    "adapters": {
+      "AAPLc": null, "MSFTc": null, "GOOGLc": null, "AMZNc": null, "METAc": null, "NVDAc": null, "TSLAc": null,
+      "ownership": "none (immutable)"
+    },
+    "v3UtilsSetVaultTx": null,
+    "smokeTest": {"setLimitsTinyTx": null, "borrowTxs": [], "repayTxs": [], "liquidationTx": null, "liquidator": null, "resetToZeroTx": null},
+    "weekendDryRun": {"freezeTx": null, "unfreezeTx": null, "signers": [], "sensorLogs": null},
+    "borrowsOpenedTx": null
+  },
+  "reused": {
+    "v3Utils": {"address": "0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD", "npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53", "ownerRequired": "0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9", "transferTx": null, "acceptTx": null},
+    "npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+    "factory": "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef",
+    "universalRouter": "0x6Cb442acF35158D5eDa88fe602221b67B400Be3E",
+    "zeroxAllowanceHolder": "0x0000000000001fF3684f28c67538d4D072C22734",
+    "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "usdcFeed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
+    "sequencerUptimeFeed": "0xBCF85224fc0756B9Fa45aA7892530B47e10b6433",
+    "b20PolicyRegistry": "0x8453000000000000000000000000000000000002"
+  },
+  "oracle": {
+    "constructor": {"npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53", "referenceToken": "USDC", "chainlinkReferenceToken": "0x0000000000000000000000000000000000000000"},
+    "maxPoolPriceDifference": 300,
+    "usdc": {"feed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B", "maxFeedAge": 86400, "mode": "CHAINLINK (forced for referenceToken)"},
+    "equities": {"maxFeedAge": 108000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "ChainlinkMultiplierFeed adapter (feed, token)"}
+  },
+  "vault": {
+    "name": "Revert Lend Coinbase Equities USDC",
+    "symbol": "rlCbEqUSDC",
+    "irm": {"baseRatePerYearX64": 0, "multiplierPerYearX64": "Q64*13/100", "jumpMultiplierPerYearX64": "Q64*300/100", "kinkX64": "Q64*90/100"},
+    "reserveFactorX32": 429496729,
+    "reserveProtectionFactorX32": 214748364,
+    "limits": {
+      "stageA": [1000000000, 2000000000000, 0, 200000000000, 100000000000],
+      "smokeTest": [1000000000, 2000000000000, "3 * minLoanSize", 200000000000, 100000000000],
+      "live": [1000000000, 2000000000000, 1000000000000, 200000000000, 100000000000],
+      "weekendFreeze": [1000000000, 2000000000000, "currentDebt", 0, 0]
+    },
+    "usdc": {"collateralFactorX32": 3650722201, "collateralValueLimitFactorX32": 4294967295},
+    "transformers": ["0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD"],
+    "gaugeManager": "not set at pilot"
+  },
+  "equities": [
+    {"symbol": "AAPLc", "token": "0xb200000000000000000000C2e324d24d7eEcd1fb", "feed": "0x787f13dEa48Db0897CbCDD985de77809D837F988", "pool": "0xA3b1E3f9747065e2073722Ff4c9027d3eA4994F0", "collateralFactorX32": 2362232012, "collateralValueLimitFactorX32": 171798691, "capPctOfLent": 4.0},
+    {"symbol": "MSFTc", "token": "0xB200000000000000000000Ab99cFa739E253872B", "feed": "0xeB10A6c9aa7E537aEd766C08c35Dae35B321b18c", "pool": "0x7103eB3c9590d1281f7dc03b2A9EE27C39dF5D54", "collateralFactorX32": 2362232012, "collateralValueLimitFactorX32": 107374182, "capPctOfLent": 2.5},
+    {"symbol": "GOOGLc", "token": "0xb2000000000000000000002D0BA3164cc74f58B7", "feed": "0x5bF49E0ffA937CE2FfF033c739aD7C634c4D34F2", "pool": "0xB1987CAD1682841b4b641d50E520777eC5Ab5542", "collateralFactorX32": 2362232012, "collateralValueLimitFactorX32": 257698037, "capPctOfLent": 6.0},
+    {"symbol": "AMZNc", "token": "0xb200000000000000000000d9192b6B456483C2E8", "feed": "0x06A8E4b3aBB3B7543d8396FB2B763d22820cB295", "pool": "0xd03Bc8C7F2FAedCe2aac81bF0444AEA08Ea06E9b", "collateralFactorX32": 2362232012, "collateralValueLimitFactorX32": 85899345, "capPctOfLent": 2.0},
+    {"symbol": "METAc", "token": "0xb2000000000000000000008bC8786B856E61707C", "feed": "0x6526aE6797A76123638b863AeE4dD27Ba4E4b27D", "pool": "0xEAF57753BC382E0324a1D43F72E7027705a2273E", "collateralFactorX32": 2362232012, "collateralValueLimitFactorX32": 193273528, "capPctOfLent": 4.5},
+    {"symbol": "NVDAc", "token": "0xb20000000000000000000078ee7ce2fE4908108C", "feed": "0x04689a41629776563E6822F76f2e57D148d28513", "pool": "0x853F5f1B92b16714Fe6CDA67CAad0856B83C7ab9", "collateralFactorX32": 2147483648, "collateralValueLimitFactorX32": 150323855, "capPctOfLent": 3.5},
+    {"symbol": "TSLAc", "token": "0xb2000000000000000000001e800a7f5189430cD0", "feed": "0xFaf869185383a24F8cb00e27BdA6b63B9905DCb4", "pool": "0x469337fDcc5E8f38e2E4B670B04F57865D13a7BB", "collateralFactorX32": 2147483648, "collateralValueLimitFactorX32": 64424509, "capPctOfLent": 1.5}
+  ],
+  "b20Observed": {
+    "block": 51372420,
+    "transferAndMintPolicyId": 5,
+    "policyType": "blocklist",
+    "policyAdmin": "0xEC0F05C174e54FBf0Fe16ad930a8AFEbCe612812",
+    "defaultAdminRole": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+    "pauseUnpauseRole": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+    "mintBurnRole": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+    "seizeRoleHolders": [],
+    "multipliers": {"GOOGLc": "1000377118676784179", "others": "1000000000000000000"}
+  },
+  "evidence": {
+    "unitTests": "test/unit/ChainlinkMultiplierFeed.t.sol",
+    "integrationTests": ["test/integration/aerodrome/V3OracleB20.t.sol", "test/integration/aerodrome/V3VaultB20.t.sol"],
+    "liveChecks": "script/sim/results/",
+    "stressedExitModel": ["script/sim/results/tickwalk_exit-51372341.json", "script/sim/results/tickwalk_exit-51352341.json"],
+    "adapterDryRun": "forge script DeployBaseCoinbaseEquityAdapters --rpc-url <base> (2026-09-16, no broadcast): 7 adapters, ~2.79M gas"
+  },
+  "decisions": {
+    "owner": "A: Safe 2-of-3, no timelock (as rlAeroUSDC)",
+    "emergencyAdmin": "none (house-wide)",
+    "oracleMode": "CHAINLINK_TWAP_VERIFY",
+    "answerBounds": "none (redundant with TWAP divergence; matches live vaults)",
+    "crossPairs": "accept + monitor",
+    "cardinalityBump": "skip (default)",
+    "irm": "reuse Aerodrome parameters (default)",
+    "pilotCaps": "half-size table as concentration limits (default)",
+    "namedLiquidator": null,
+    "weekendSigningQuorum": null,
+    "reserveSeed": null
+  }
+}

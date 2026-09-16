@@ -439,6 +439,8 @@ Record which one in the manifest. Half-size caps remain placeholders until then.
 
 ### WP6 — Monitoring and runbook: `docs/runbook-coinbase-equity-vault.md`
 
+**Status (2026-09-16): draft written** — sensors mapped to the `script/sim/*` scripts with thresholds, Friday/Sunday procedures with the exact tuples and the printed-calldata flow, NYSE closure calendar, blackout table for users, six incident procedures, dress-rehearsal weekend. Placeholders remain for the named liquidator, the weekend signing quorum and the reserve seed (plan §7).
+
 Sensors:
 - **Policy-registry poller** (≥1/min; `script/sim/policy_registry.sh` in loop mode): for each
   token, `policyId(scope)` for all six scopes (detect re-pointing to a new policy); for each id,
@@ -491,6 +493,8 @@ both legs fall together in a correlated crash; both legs also blackout together.
 "Don't surface it in the frontend" is not a control and is removed as an option.
 
 ### WP7 — Manifest and go/no-go
+
+**Status (2026-09-16): `deployments/base-coinbase-equity.json` template written** with every parameter, reused address, observed B20 fact and evidence pointer filled; `deployed.*` fields are `null` until Stage A/B and are the fields `VerifyBaseCoinbaseEquityDeployment` will be pointed at.
 
 `deployments/base-coinbase-equity.json` — machine-readable: chain, block, every contract
 (address, constructor args, owner, pendingOwner, emergencyAdmin — `FlashloanLiquidator` has none),
