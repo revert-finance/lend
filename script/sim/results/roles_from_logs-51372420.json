@@ -1,0 +1,1286 @@
+{
+ "block": 51372420,
+ "fromBlock": "0x2d00000",
+ "tokens": [
+  {
+   "symbol": "AAPLc",
+   "token": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+   "events": 14,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145246,
+     "logIndex": 295,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x41595c1602361d82058b8cac3633f796689a06a320bdf5d58fe84cc2080d2343"
+    },
+    {
+     "kind": "grant",
+     "block": 49145246,
+     "logIndex": 300,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x41595c1602361d82058b8cac3633f796689a06a320bdf5d58fe84cc2080d2343"
+    },
+    {
+     "kind": "grant",
+     "block": 49145429,
+     "logIndex": 1000,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x77f1d290c9886582c554ba1833b6e71941555cb453ccfa55947ee3b33d448f48"
+    },
+    {
+     "kind": "grant",
+     "block": 49145626,
+     "logIndex": 119,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xbbb45526d48046601323fc9a7d87267fac9cb0a7a2f890ad38897060d14ba78d"
+    },
+    {
+     "kind": "grant",
+     "block": 49145732,
+     "logIndex": 126,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x16e65fb9d34fc0b28696c58ab752a7de8f1e335c413b6457015b45efbc8c60ee"
+    },
+    {
+     "kind": "grant",
+     "block": 49451087,
+     "logIndex": 191,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x6b084378a74e71fd70f0dd445da2162e1290220786f36ede355161586b963a5d"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451344,
+     "logIndex": 317,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xace2cffd9b9a49b3f9240dfd1aa4971bdb2a2c2fbcb7191d648e82fd6e8c6f03"
+    },
+    {
+     "kind": "grant",
+     "block": 49485732,
+     "logIndex": 329,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xbf1a3b1228cc52c54f0293ac7a169147e8ebefcd6bb3a0644fb9114c88c63bef"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485937,
+     "logIndex": 51,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x50e26e214c0c337dea534656ebbf4a2d11352b9f1f071c0a166aa5739cc661a5"
+    },
+    {
+     "kind": "grant",
+     "block": 49491848,
+     "logIndex": 168,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xfb7f6490cd4b866da1fcc1af314541a770f2fdd3d5fa2a637b28e4a70eb7f4b2"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492154,
+     "logIndex": 359,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x345a66cb77e9cdc205726920d56f5933f5bf08cb43efadaa4b010b2f8ee2db9d"
+    },
+    {
+     "kind": "grant",
+     "block": 49781973,
+     "logIndex": 348,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x16126a3d212537d11f46d2fcfc287bee43a39a41f6224ef74544dd0e3517900f"
+    },
+    {
+     "kind": "grant",
+     "block": 50820576,
+     "logIndex": 417,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x18787cffe317b5024aad4daef9c3dcb408cd12a7232752aa6d52536511ddb58b"
+    },
+    {
+     "kind": "grant",
+     "block": 50820724,
+     "logIndex": 506,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x26fc08daaad3ebbb70f90e28481509b7eeffc9265c8da3af017e2175a9165f94"
+    }
+   ]
+  },
+  {
+   "symbol": "MSFTc",
+   "token": "0xB200000000000000000000Ab99cFa739E253872B",
+   "events": 14,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145298,
+     "logIndex": 184,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0xe8231d89e58dc194b085f27de085a617ecdc2e3f1ddfbf094d04745cba515650"
+    },
+    {
+     "kind": "grant",
+     "block": 49145298,
+     "logIndex": 189,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0xe8231d89e58dc194b085f27de085a617ecdc2e3f1ddfbf094d04745cba515650"
+    },
+    {
+     "kind": "grant",
+     "block": 49145352,
+     "logIndex": 84,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x60075cef484e02f6d969a0c302b2eac6168de4940ffe6b6c12ac6d6331a942fc"
+    },
+    {
+     "kind": "grant",
+     "block": 49145556,
+     "logIndex": 170,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xe6f0c0fad264b4636708ba80b6503f16e0d7faa46e9606bfe50ad38b4979a1b9"
+    },
+    {
+     "kind": "grant",
+     "block": 49145669,
+     "logIndex": 361,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x4b45c6e703a16fa8710ebc5b9c130505fb47f479567b39bdb2f64448cc83260c"
+    },
+    {
+     "kind": "grant",
+     "block": 49451063,
+     "logIndex": 597,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xba33f0b6a6690a7fe427a54932f76db873ae4fff637d8341e5f70c9a1e7c0f8f"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451380,
+     "logIndex": 1161,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xc55ddfd53803bb968f2ec5f33c07f6028f011895ccb84d5cf646fbd316d4ad30"
+    },
+    {
+     "kind": "grant",
+     "block": 49485654,
+     "logIndex": 388,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xad421cf6fcc6448fc867e83a828541cd5324c7472363f21a244fb9f76af9a2a8"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485960,
+     "logIndex": 275,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x78ca97aa5dddd56a919cd5f79e51b19e70b26ca88dae71f0df4698a589bb9dc8"
+    },
+    {
+     "kind": "grant",
+     "block": 49491946,
+     "logIndex": 419,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x31a72791f9a3cf98cf004792b424461f2b5533753a5c90bbab036083ce612025"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492084,
+     "logIndex": 1490,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x13aad7fe3584e99ca76f4f5e7c10838e86f7775c58b023031722dcec7132b45d"
+    },
+    {
+     "kind": "grant",
+     "block": 49781936,
+     "logIndex": 525,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x0f65e0b094cc254eb60ad509b207b5a60cbf14e8794d1995930855f9765cd02c"
+    },
+    {
+     "kind": "grant",
+     "block": 50820533,
+     "logIndex": 116,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xbe34beaaab6a8dc34698ea50f82cbda4a5b0bb11cca0f5eb5f6b83bdf885fae5"
+    },
+    {
+     "kind": "grant",
+     "block": 50820693,
+     "logIndex": 671,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x2e15d72fb32dfb9912fdf902a2aeba5bdfc33546c58dd8c49ce4aab0c7d3f2e6"
+    }
+   ]
+  },
+  {
+   "symbol": "GOOGLc",
+   "token": "0xb2000000000000000000002D0BA3164cc74f58B7",
+   "events": 15,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     },
+     {
+      "account": "0xe6cb3c8fd23c66e26e091b4fc0c0b5abd8dd8c37",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145218,
+     "logIndex": 71,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x21cf9d7b81f36a196db463e63cf34c3478f2a325caa9d64a46780cd42dbfdf77"
+    },
+    {
+     "kind": "grant",
+     "block": 49145218,
+     "logIndex": 76,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x21cf9d7b81f36a196db463e63cf34c3478f2a325caa9d64a46780cd42dbfdf77"
+    },
+    {
+     "kind": "grant",
+     "block": 49145440,
+     "logIndex": 272,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x9f3b2ad542b020e505fba5332e545653d96e9f6120aab474f3b6364c33fab230"
+    },
+    {
+     "kind": "grant",
+     "block": 49145602,
+     "logIndex": 507,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x87e7f2b7a3590c0fdfc7c4a96481000342a446549d2b159caae40d28e878b1e2"
+    },
+    {
+     "kind": "grant",
+     "block": 49145760,
+     "logIndex": 202,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x56124a4991f9860ce4d39f1d40c9166fbb93ec1b02a531a4bcfeb19d52e0e8a2"
+    },
+    {
+     "kind": "grant",
+     "block": 49451105,
+     "logIndex": 210,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xc324668e572c5230a447ef5ce9d497c835c35597bbb1e2c2b14c0dfccdff99c9"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451411,
+     "logIndex": 642,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x5bc7556d8205ecdcd160af779c6eaa88f1f1b702b8a1f5689206c3d1430e4da3"
+    },
+    {
+     "kind": "grant",
+     "block": 49485714,
+     "logIndex": 177,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x5aef7c0c03b176e2ff4198c871220bd0e64e52534d8e7219fe92005cb66590d1"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485991,
+     "logIndex": 126,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x294d853b4bb17635f61b4a17b13909ec3fdcf8820e28edc178b2b5d7997fd9bc"
+    },
+    {
+     "kind": "grant",
+     "block": 49491923,
+     "logIndex": 318,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x32415eeccd86c18c849d43f803d4ff62cd8f55168bdad47d6deee2bad1f68188"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492147,
+     "logIndex": 122,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x384fa1e8ac367c08f8091cb17f0e1a78987177dea084e640c6050c5b19466b94"
+    },
+    {
+     "kind": "grant",
+     "block": 49782017,
+     "logIndex": 473,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x8645c87c1934f55eade35640aef5643e5b32ced65494193eb7cf32900136f120"
+    },
+    {
+     "kind": "grant",
+     "block": 50820514,
+     "logIndex": 429,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x3cb34d7dadcb349ecef239609ddbc246b0b14982fc981f47285d6edebd6a0321"
+    },
+    {
+     "kind": "grant",
+     "block": 50820644,
+     "logIndex": 321,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xea54190d2ee4e7813db74845b98d744b8a2d872d386aed5b0ef221af60dc1e67"
+    },
+    {
+     "kind": "grant",
+     "block": 51310603,
+     "logIndex": 679,
+     "role": "OPERATOR_ROLE",
+     "account": "0xe6cb3c8fd23c66e26e091b4fc0c0b5abd8dd8c37",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x205cdfa111a16ed78f0d191b62b940a5c658c1f6dc1ca67a2b8ad64d202e3d21"
+    }
+   ]
+  },
+  {
+   "symbol": "AMZNc",
+   "token": "0xb200000000000000000000d9192b6B456483C2E8",
+   "events": 14,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145336,
+     "logIndex": 663,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x1d9c2cf03b1d75c88733a973fd633712b40a8eddf5d2707aefd7ba68d858f6e1"
+    },
+    {
+     "kind": "grant",
+     "block": 49145336,
+     "logIndex": 668,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x1d9c2cf03b1d75c88733a973fd633712b40a8eddf5d2707aefd7ba68d858f6e1"
+    },
+    {
+     "kind": "grant",
+     "block": 49145466,
+     "logIndex": 74,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xb5c77c211551390d94b4d64ef58d8ed1f1029321d9b754d3ab4932d67427e6a5"
+    },
+    {
+     "kind": "grant",
+     "block": 49145517,
+     "logIndex": 320,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x85b74d591e9b094f160c8dfb1c09b39f3aaff557bab3b5391f9e1c663c9c4785"
+    },
+    {
+     "kind": "grant",
+     "block": 49145806,
+     "logIndex": 370,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x552e8024ce58b6c7b1f19f015a40873e3c2b53a534fcea7db3883c8513b75764"
+    },
+    {
+     "kind": "grant",
+     "block": 49451094,
+     "logIndex": 393,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xc05df39f9c2d0656432465595c47a926a6a2ddfb78badced3b8db1cdcc28efc8"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451326,
+     "logIndex": 78,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xfd818bc39df220db2f24bd2643bf31d03c1ceba9b2a3b1598bdfe89042234ce5"
+    },
+    {
+     "kind": "grant",
+     "block": 49485631,
+     "logIndex": 255,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x796859f5811f83fec7067d231d8c0361eca3a42c31771eb73be0489290ff13e0"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485975,
+     "logIndex": 215,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x3a1305623799177aa6a42c83502e95d65345a207164b29b68371caf86741722d"
+    },
+    {
+     "kind": "grant",
+     "block": 49491928,
+     "logIndex": 409,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x0af0c522a1ae4a13b96f71a2a7869f1c535e93906f927c706e269ef2d61a1466"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492069,
+     "logIndex": 40,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x104fc9949d5a68e44131c9f00aad9959629e0374e0a0d267e6b8b8e1ce27ae75"
+    },
+    {
+     "kind": "grant",
+     "block": 49781952,
+     "logIndex": 336,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x33e500ddb2746d879d8756ee68c388380ccb9717a6f3931ec5b0e22c62419810"
+    },
+    {
+     "kind": "grant",
+     "block": 50820595,
+     "logIndex": 343,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xfc5886e6c3527426b0eac37b97443330057398df264ff31fbb296deacfc6b3da"
+    },
+    {
+     "kind": "grant",
+     "block": 50820735,
+     "logIndex": 164,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x33c6b7595870dc1c076ab6dfac69d96200fa1ba6f5ba4838ed4bdd696e64d9ce"
+    }
+   ]
+  },
+  {
+   "symbol": "METAc",
+   "token": "0xb2000000000000000000008bC8786B856E61707C",
+   "events": 14,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145181,
+     "logIndex": 667,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0xb26f63ea15649ee1e76a2918eac516e73a71a1ccfd5a250915da302d842c6ddb"
+    },
+    {
+     "kind": "grant",
+     "block": 49145181,
+     "logIndex": 672,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0xb26f63ea15649ee1e76a2918eac516e73a71a1ccfd5a250915da302d842c6ddb"
+    },
+    {
+     "kind": "grant",
+     "block": 49145453,
+     "logIndex": 102,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x16f870320f545ce37adbabae18f02f58425fe9c4ae4d34b866282346ef8084be"
+    },
+    {
+     "kind": "grant",
+     "block": 49145584,
+     "logIndex": 762,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x85a9acd1fb84523514993d81315c4b0cee301ca8c0933c6a536eb771d9c0819d"
+    },
+    {
+     "kind": "grant",
+     "block": 49145747,
+     "logIndex": 75,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x83fdd0c35bdd1ec08087155a3a1ef1e57699d99cd084037e9e7ffa58003ab170"
+    },
+    {
+     "kind": "grant",
+     "block": 49451146,
+     "logIndex": 396,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xd9ee2bbb4257338d294742c72d9d9bd1ee7adc66dad714b6626e3b67802edd15"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451362,
+     "logIndex": 484,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x101c30995ffa2747706c7082a0805143f54412966c969c866d17e5d8466f0ac5"
+    },
+    {
+     "kind": "grant",
+     "block": 49485683,
+     "logIndex": 140,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x6ae7318296d7dcb38f7400e38d1ce19a4c7483064f58133e1fc1e1a93a115451"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485999,
+     "logIndex": 56,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x1f72a380ccc560e9e46af93cc311b620298e8c1983d61521b12d1ab0553f7922"
+    },
+    {
+     "kind": "grant",
+     "block": 49491874,
+     "logIndex": 125,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xbb0c3ea5be5b3f66cce1ab07158c0dffca053773cecc6308aa8d5d6e8aa25713"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492118,
+     "logIndex": 225,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x71ec0383f31280f336988b31a321e5873b067bc29fcd92d6f7dfb12c87cea88c"
+    },
+    {
+     "kind": "grant",
+     "block": 49781965,
+     "logIndex": 304,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x9ea8577b6d81ecf52505adbd84b5569a6b94fe5c8ebe45bafa25ec2720b1d99e"
+    },
+    {
+     "kind": "grant",
+     "block": 50820603,
+     "logIndex": 245,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x9978e7c1e504a62f6f1803fa8f04e4b42bd0eb63ac04985378c88201a4994311"
+    },
+    {
+     "kind": "grant",
+     "block": 50820683,
+     "logIndex": 314,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x6905103032237cb22b97eac059dbe1f73013baedc292c54abbccd823452cbefb"
+    }
+   ]
+  },
+  {
+   "symbol": "NVDAc",
+   "token": "0xb20000000000000000000078ee7ce2fE4908108C",
+   "events": 14,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145311,
+     "logIndex": 83,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x35e3070e771162d7abf2a5cb64408cae55b9cf0d307bfbc1bb12b486442fa507"
+    },
+    {
+     "kind": "grant",
+     "block": 49145311,
+     "logIndex": 88,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x35e3070e771162d7abf2a5cb64408cae55b9cf0d307bfbc1bb12b486442fa507"
+    },
+    {
+     "kind": "grant",
+     "block": 49145375,
+     "logIndex": 133,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xd9f4642f3a2ee14cca1ff78ba854a5dce22976df3e607240c4f4009a6cca006a"
+    },
+    {
+     "kind": "grant",
+     "block": 49145639,
+     "logIndex": 25,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x8fb1d62ab748ffb0199b369508ca2832a9abbf2e47fb3dbe3698d3b349ef4e2f"
+    },
+    {
+     "kind": "grant",
+     "block": 49145680,
+     "logIndex": 304,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x5cd385abf744afca78acb1020e99ab608bb2d233ef986954bb756ea91bddb2f9"
+    },
+    {
+     "kind": "grant",
+     "block": 49451164,
+     "logIndex": 320,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x01da8486fe816d70d97c9cd3727fe9acca7aeaacd9447c4a8a70c157a0386917"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451318,
+     "logIndex": 278,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x88ab8fe06de7552197ad3d8477200bebf772650eaeffad9ab4385c5d8df192ff"
+    },
+    {
+     "kind": "grant",
+     "block": 49485743,
+     "logIndex": 117,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x7d16f237111c44fcd464e70c2558bc51299e000f06adf2367f70ce37323ee353"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485949,
+     "logIndex": 400,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xb61df534f8b69f6c6e7acad00233554d679102e0c450f71d9d47ef1a712d8f18"
+    },
+    {
+     "kind": "grant",
+     "block": 49491902,
+     "logIndex": 1595,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x46ccd5355045fe3292661e96cc6b079e601749a4e6eedfeb0dc082d7d6ffddb3"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492061,
+     "logIndex": 54,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x8de0e6207594920ff209fbc1b82b4201794339aa042ac18106d479269f654fdb"
+    },
+    {
+     "kind": "grant",
+     "block": 49781988,
+     "logIndex": 644,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xfa452dafe76d902a60769f893351047b0cafa88e2183c3f9854e98c81e94477b"
+    },
+    {
+     "kind": "grant",
+     "block": 50820553,
+     "logIndex": 569,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xbff7e86d9ebb90c748590142f2053ba7ee4a33176af7d5ca7317dc1752529b35"
+    },
+    {
+     "kind": "grant",
+     "block": 50820701,
+     "logIndex": 447,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x58f90a6e41c2c683943d2fd335b76a80f218be6f74210bec4608611f71376b2d"
+    }
+   ]
+  },
+  {
+   "symbol": "TSLAc",
+   "token": "0xb2000000000000000000001e800a7f5189430cD0",
+   "events": 14,
+   "roles": {
+    "DEFAULT_ADMIN_ROLE": [
+     {
+      "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+      "hasCode": false
+     }
+    ],
+    "OPERATOR_ROLE": [
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "MINT_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "BURN_ROLE": [
+     {
+      "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+      "hasCode": true
+     }
+    ],
+    "METADATA_ROLE": [
+     {
+      "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+      "hasCode": false
+     },
+     {
+      "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+      "hasCode": false
+     }
+    ],
+    "PAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ],
+    "UNPAUSE_ROLE": [
+     {
+      "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+      "hasCode": false
+     }
+    ]
+   },
+   "history": [
+    {
+     "kind": "grant",
+     "block": 49145287,
+     "logIndex": 303,
+     "role": "DEFAULT_ADMIN_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x916b199598d32d3a98e8abb67d47b3f3f4c8143479a2edc71b9754490a489a10"
+    },
+    {
+     "kind": "grant",
+     "block": 49145287,
+     "logIndex": 308,
+     "role": "OPERATOR_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0xb20f000000000000000000000000000000000000",
+     "tx": "0x916b199598d32d3a98e8abb67d47b3f3f4c8143479a2edc71b9754490a489a10"
+    },
+    {
+     "kind": "grant",
+     "block": 49145393,
+     "logIndex": 339,
+     "role": "MINT_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x095b714b16a76668a8fb8a837926a089013717a007a6f073161a7804b84b6c35"
+    },
+    {
+     "kind": "grant",
+     "block": 49145651,
+     "logIndex": 438,
+     "role": "BURN_ROLE",
+     "account": "0xd1ca4dacdf3231011d175351f1f02d15c7c5664c",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x3d138be848966e27b4ec66403000cbbd14df29fcc2f7dda7340640e1b3c592d4"
+    },
+    {
+     "kind": "grant",
+     "block": 49145713,
+     "logIndex": 430,
+     "role": "METADATA_ROLE",
+     "account": "0x5da41bddc73406f246d73cbe2e319f3cfc814d9a",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xd350d9ca306271604c6199426184a097e0a81bed630c241f775c423409808eb0"
+    },
+    {
+     "kind": "grant",
+     "block": 49451056,
+     "logIndex": 106,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x6c721e5768027641b7ab69d66f042f511eef6a71eee6c6c953f49421c7af99d4"
+    },
+    {
+     "kind": "revoke",
+     "block": 49451391,
+     "logIndex": 167,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x152ebc566e3acda69e6bf5dace4801627e3d7ea3b0daab8797c01b8f93f5a5c5"
+    },
+    {
+     "kind": "grant",
+     "block": 49485647,
+     "logIndex": 62,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x78e8170e97c8c7fba5bb34c80c17d30d4b14d81fc253ce19e5a760aadc53f1c9"
+    },
+    {
+     "kind": "revoke",
+     "block": 49485911,
+     "logIndex": 154,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xea9a43e97b84dcf3c370caf7a78d8b2a4bbbfa4e565f105f2a0f61e1d99bda91"
+    },
+    {
+     "kind": "grant",
+     "block": 49491913,
+     "logIndex": 46,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xe05d7236ce0ed731dc4af4cbf0ed0f1cf91db5f399c521e02dedc2899e671af0"
+    },
+    {
+     "kind": "revoke",
+     "block": 49492110,
+     "logIndex": 439,
+     "role": "METADATA_ROLE",
+     "account": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x7f4fc839fe601b852f18c4628ae214152e2fae12339e17f7f1dfeeda29b0e049"
+    },
+    {
+     "kind": "grant",
+     "block": 49782004,
+     "logIndex": 380,
+     "role": "METADATA_ROLE",
+     "account": "0x1cc04544ea7a0dae4fb3aa031b663d7ca6f2beca",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0x9f65699cd11441342c46a62cc8df77d5ae58c7275022a72b1d582f5853f499ee"
+    },
+    {
+     "kind": "grant",
+     "block": 50820543,
+     "logIndex": 213,
+     "role": "PAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xddc70ecd01d10f685c68f4587932988f8764b1a6ae98506399ebef6182904a20"
+    },
+    {
+     "kind": "grant",
+     "block": 50820750,
+     "logIndex": 699,
+     "role": "UNPAUSE_ROLE",
+     "account": "0x2fb501c548aa3fe46811855c69be64ce72aebcdd",
+     "sender": "0x38467be00970af18076fd08f6b4cf38ba91572b1",
+     "tx": "0xe7ed649bd05fbde98bc8a3f2356e251c8be484508749c094ff0b366cd7372d7c"
+    }
+   ]
+  }
+ ]
+}

@@ -84,6 +84,15 @@ dividends and voting pass through; non-US persons only, not enforced on-chain.
   explain the control around this key (plan §WP1.3).
 - A simulated `transfer` pool → fresh never-KYC'd address returns `true`; DEX pools hold thousands of
   shares. The transfer canary (plan §WP6) remains as the end-to-end check behind the registry poller.
+- **Role holders, replayed from `RoleGranted`/`RoleRevoked` logs on all seven tokens
+  (`script/sim/roles_from_logs.py`, block 51372420) [verified]:** identical on every token —
+  `DEFAULT_ADMIN_ROLE` **EOA `0x38467be00970af18076fd08f6b4cf38ba91572b1`**; `PAUSE_ROLE` and
+  `UNPAUSE_ROLE` **EOA `0x2fb501c548aa3fe46811855c69be64ce72aebcdd`**; `MINT_ROLE` and `BURN_ROLE` a
+  contract `0xd1ca4dacdf3231011d175351f1f02d15c7c5664c` (unverified; presumably the mint/redeem
+  gateway); `METADATA_ROLE` two EOAs; `OPERATOR_ROLE` EOAs. **No `SEIZE_ROLE` holder exists today**
+  — seizure is not currently enabled on any of the seven. Together with the policy-admin EOA, the
+  issuer's entire control surface (admin, pause, policy) is **three hot keys**, all unverified EOAs.
+  **[verified; High — folded into R16]**
 
 ### 2.3 Pools — Aerodrome Slipstream MinUnstake, all `token0 = USDC`, `tickSpacing = 10`, fee 0.05% [verified]
 
@@ -492,7 +501,7 @@ run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLo
 | R13 | Low | Existing tests can't exercise B20 on anvil | eng | three-bucket test split (plan §WP3) | planned |
 | R14 | Med | Ownership: CF/cap/config changes land with 2 Safe signatures, no timelock (older lend vaults sit behind a 48h timelock). Accepted for the pilot because the weekly freeze needs a fast `setLimits` and `emergencyAdmin` is unset | Mario | pilot caps bound the blast radius; revisit option C (timelock owner + Safe as `emergencyAdmin`) before raising caps | **decided (A) — accepted risk** |
 | R15 | Low | USDC reference feed in forced `CHAINLINK` mode has no direct TWAP check; it divides every equity price | eng | a bad USDC print diverges all seven equity legs from their TWAPs → vault-wide fail-closed; no exploitable path; same as every live vault | **accepted — covered by R11 reasoning** |
-| R16 | **High** | **Policy 5 admin is a plain EOA** `0xEC0F05…2812` controlling send/receive/execute/mint gating on all Coinbase stock tokens | Mario | Coinbase to explain key custody/process (WP1.3); poller on `policyAdmin`/`pendingPolicyAdmin`; pilot caps; exclusion possible | **open — WP1** |
+| R16 | **High** | **Issuer control surface is three plain EOAs**: policy-5 admin `0xEC0F05…2812` (transfer/mint gating), `DEFAULT_ADMIN_ROLE` `0x38467b…72b1` (can grant any role incl. SEIZE), `PAUSE/UNPAUSE_ROLE` `0x2fb501…bcdd` — identical on all seven tokens; no SEIZE holder today | Mario | Coinbase to explain key custody/process for all three (WP1.3); pollers on `policyAdmin`/`pendingPolicyAdmin` and on role logs (`roles_from_logs.py` with `LAST=`); pilot caps; exclusion possible | **open — WP1** |
 | R17 | Med | Equity/equity crosses depositable permissionlessly; riskier than equity/USDC (no USDC leg, correlated legs, joint blackout); frontend hiding is not a control | Mario/eng | **accept + monitor** (decided 2026-09-16): caps bind both legs; nightly cross-pair scan; allowlist deferred to pre-ramp review | **accepted risk** |
 | R18 | Med | Ownership mis-sequencing: `Ownable2Step` transfers left unaccepted leave the hot key as owner; `FlashloanLiquidator` has no owner | eng | scripts assert `pendingOwner`, print Safe accept batches; verify asserts `owner`+`pendingOwner`; manifest records both | planned — WP4 |
 
