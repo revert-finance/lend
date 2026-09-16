@@ -426,6 +426,12 @@ Sensors:
   normal — do not alert below 12h.
 - **Divergence**: |feed−spot| and |feed−TWAP| per name; alert at 50% of thresholds (1.5%).
 - **Ring coverage**: alert if any pool's measured observation span < 10× `twapSeconds`.
+- **Debt tracking must not use `loanInfo()`**: it values the collateral and reverts for the whole
+  blackout (verified in `V3VaultB20.t.sol::testBlackoutTable`). Monitors compute debt as
+  `loans(tokenId)` shares × `lastDebtExchangeRateX96 / Q96`, and health from the last good price.
+- **Freeze tuple nuance** (verified): `globalDebtLimit = currentDebt` caps *total* debt, so amounts
+  repaid during the weekend can be re-borrowed up to the frozen total. Acceptable — net exposure
+  cannot grow — but the runbook should say so rather than promise "no borrowing".
 - **Cross pairs**: enumerate deposited positions nightly; alert on any position whose two legs are
   both equities (see §2.8) and report its debt against both caps.
 Freeze procedure: responsible account/automation; exact five-tuples before/after; **Friday 15:00 ET**

@@ -289,6 +289,7 @@ Answer bounds (C4 #446) were considered and dropped as redundant with the ±3% T
 | `borrow` / increase debt | frozen |
 | **`liquidate`** | **frozen** — the safety-critical loss |
 | indebted `transform` (V3Utils etc.) | frozen |
+| `loanInfo()` view | **reverts** — it values the collateral; frontends and monitors must derive debt from `loans(tokenId)` shares × `lastDebtExchangeRateX96` (found by WP3 tests) |
 
 Fail-closed is the documented protocol policy (`docs/agents/risk-and-acceptability.md`, "Oracle-Failure
 Policy"). Borrowers cannot withdraw collateral or add debt during it, so nothing can be extracted;

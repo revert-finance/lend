@@ -123,9 +123,10 @@ contract MockPool is IAerodromeSlipstreamPool {
         tickCumulatives = new int56[](secondsAgos.length);
         secondsPerLiquidityPostWriteX128s = new uint160[](secondsAgos.length);
 
-        // Keep TWAP aligned with the current tick.
+        // Keep TWAP aligned with observedTick. Cumulatives grow with time, so the value
+        // `secondsAgo` seconds back is lower: cum[0] - cum[twap] == observedTick * twap.
         for (uint i = 0; i < secondsAgos.length; i++) {
-            tickCumulatives[i] = int56(observedTick) * int56(uint56(secondsAgos[i]));
+            tickCumulatives[i] = -int56(observedTick) * int56(uint56(secondsAgos[i]));
             secondsPerLiquidityPostWriteX128s[i] = 0;
         }
 
