@@ -199,6 +199,11 @@ undeployable** on v3 pool accounting.
 
 ### WP2 — Contract: `src/utils/ChainlinkMultiplierFeed.sol` (+ `src/interfaces/IB20Multiplier.sol`)
 
+**Status (2026-09-16): implemented on `codex/coinbase-b20-equity-vault`** — commit `4ecf020`;
+modeled on the house `ChainlinkFeedCombinator` (ownerless, immutable, invalid input → `answer = 0`
+so `V3Oracle` rejects the round); `test/unit/ChainlinkMultiplierFeed.t.sol` 19 tests green.
+Independent review of the diff still required (DoD §5).
+
 Depends on WP1.1/WP1.2 for the final multiply-or-not decision; **build it now**. One contract,
 seven instances (one per equity). **The adapter does exactly one thing: multiply the Chainlink share
 price by the token's `multiplier()`, failing closed if that call reverts or returns zero.**
@@ -248,7 +253,10 @@ Requirements:
 
 ### WP3 — Tests (three buckets; record the split so nothing is silently waived)
 
-**Bucket 1 — mock-tested, local (`forge test`).**
+**Bucket 1 — mock-tested, local (`forge test`).** **Status: implemented** (commit `b29f155`):
+`test/integration/aerodrome/B20TestBase.sol`, `mocks/MockB20Token.sol`, `mocks/MockChainlinkFeed.sol`,
+`V3OracleB20.t.sol` (28), `V3VaultB20.t.sol` (11 + 1) — 40 tests green. `MockPool.observe` was
+corrected to the Uniswap cumulative sign convention (previous tests only used tick 0).
 Add `test/integration/aerodrome/mocks/MockB20Token.sol`: `MockERC20` with 8 decimals plus
 `multiplier()` (settable), `setRevertMultiplier(bool)`, and `setBlocked(address, bool)` making
 `transfer`/`transferFrom` revert for blocked `from`/`to`/`msg.sender` (simulates policy gating).
@@ -308,14 +316,25 @@ pilot caps, freeze runbook, issuer confirmation.
 
 ### WP4 — Deployment scripts (dry-run only in this plan)
 
+**Status (2026-09-16): written, compile/dry-run pending.** One shared config contract holds every
+address and parameter so the scripts cannot drift: `script/CoinbaseEquityBaseConfig.s.sol`
+(`_equities()` table, `_validateEquityPool` incl. the `observe([60,0])` gate, `_requireFreshFeed`,
+`_logSafeTx`). Scripts: `DeployBaseCoinbaseEquityAdapters.s.sol`, `DeployBaseCoinbaseEquityVault.s.sol`,
+`VerifyBaseCoinbaseEquityDeployment.s.sol`, `CoinbaseEquityBorrowLimits.s.sol` (`FreezeBorrows` +
+`UnfreezeBorrows`). Adapter addresses flow between scripts as `ADAPTER_<SYMBOL>` env vars (logged by
+the adapter script). `foundry.toml` grants no `fs_permissions`, so scripts **log** rather than
+`vm.writeJson`; the WP7 manifest is assembled by hand from the logs and checked by the verify script.
+Dry-runs must target a **live Base RPC**: the scripts call `multiplier()` on the real B20 tokens,
+which reverts on anvil/revm forks.
+
 Two stages, gated separately (§4, §6): **Stage A** deploys everything inert (`globalDebtLimit = 0`,
 no `setVault`); **Stage B** configures and enables. Stage A must be complete and verified before any
 Stage-B gate is evaluated — the gates are no longer circular.
 
 **`script/DeployBaseCoinbaseEquityAdapters.s.sol`** — deploys **seven** `ChainlinkMultiplierFeed`
 (feed, token), asserts `feed()`/`token()`/`decimals()` and that `latestRoundData()` returns
-`feed.answer × multiplier / 1e18`, logs, and `vm.writeJson`s addresses into
-`deployments/base-coinbase-equity.json` (WP7 schema). No ownership step — the adapters have none.
+`feed.answer × multiplier / 1e18`, and logs `ADAPTER_<SYMBOL> <address>` for the next script and the
+WP7 manifest. No ownership step — the adapters have none.
 
 **`script/DeployBaseCoinbaseEquityVault.s.sol`** — modeled on `DeployAerodromeProtocol.s.sol`.
 Preflight (`_validateDeploymentConfig`, all `require`):
@@ -353,9 +372,9 @@ prints): the accept batch; `V3Utils.setVault(vault)` (owner-only; reuse
 `script/ConfigureV3Utils.s.sol`'s calldata output); the Stage-B `setLimits` steps below.
 
 **`script/VerifyBaseCoinbaseEquityDeployment.s.sol`** — read-only, two modes:
-- `--stage a` (after Stage A, before any Stage-B gate): `getPool` resolution ×7;
-  `oracle.getValue()` on one real position per pair (create one if none — deposits need no oracle)
-  and implied price within tolerance of the feed; `vault.loanInfo()` round-trip per pair;
+- `--stage a` (env `STAGE=a`; after Stage A, before any Stage-B gate): `getPool` resolution ×7;
+  `oracle.getTokenValue(token, 1e8, USDC)` per equity (runs all three oracle checks without needing a
+  position) within 3% of the adapter answer;
   `observe([60,0])` ×7; sequencer feed; **`emergencyAdmin() == address(0)` on both vault and
   oracle**; `owner() == MULTISIG && pendingOwner() == 0` on vault, oracle, V3Utils; IRM `owner()`;
   adapters have no owner (assert no `owner()` selector); `globalDebtLimit == 0`; all token configs
@@ -374,7 +393,7 @@ inventory-take; then everything is unwound and `globalDebtLimit` returns to `0` 
 dry-run (§4 #7). Record every tx hash in the manifest. This is the only place borrow → liquidate
 is exercised against real B20 semantics before lenders are exposed.
 
-**`script/FreezeBorrows.s.sol` / `script/UnfreezeBorrows.s.sol`** — `setLimits` is **owner-only**
+**`script/CoinbaseEquityBorrowLimits.s.sol` (`FreezeBorrows` / `UnfreezeBorrows`)** — `setLimits` is **owner-only**
 here (no `emergencyAdmin`) and the owner is the multisig, so these scripts **do not broadcast from
 `deployer`**. They read the current tuple and debt, compute the target
 `(minLoan, lendLimit, currentDebt, 0, 0)` (freeze) or the manifest tuple (unfreeze), print the exact
