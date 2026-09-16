@@ -295,7 +295,7 @@ Reuse `MockPool`, `MockAerodromePositionManager`, and the existing mock Chainlin
   caps bind; both legs revert valuation in the same blackout (no USDC leg).
 
 **Bucket 2 — live-simulated (stateless `eth_call` against a live Base node, pinned block; no
-broadcast).** Under `script/sim/` (bash + python or forge scripts run without `--broadcast`), each
+broadcast).** **Status: `script/sim/common.sh`, `policy_registry.sh`, `ring_coverage.sh`, `canary.sh`, `feed_roundwalk.py` written and run green against Base (outputs under `script/sim/out/`); `tickwalk_exit.py`, `zerox_quotes.sh`, `roles_from_logs.py` pending.** Under `script/sim/` (bash + python or forge scripts run without `--broadcast`), each
 writing JSON to `script/sim/out/`. **Scope limit (2026-09-16): a sequence of `eth_call`s shares no
 state, so borrow → repay → liquidate cannot be chained here; that flow moves to the Stage-B on-chain
 smoke test (WP4/§4).** Spike first: check whether Tenderly `simulate-bundle` or Alchemy

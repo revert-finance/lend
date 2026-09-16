@@ -163,6 +163,24 @@ Weekday gap round 360→361 = 16.8h. Feed observed **7.1h stale mid-session** on
 on a separate sample). Multi-hour intraday staleness is routine; alert thresholds must reflect it.
 A 72.5h gap was observed over Labor Day weekend.
 
+**Round-walk over the last ≤400 rounds per feed (`script/sim/feed_roundwalk.py`, block 51372265) [verified]:**
+
+| Feed | rounds | max closure gap (h) | max weekday gap (h) | max reopen step | live feed-vs-pool |
+| --- | --- | --- | --- | --- | --- |
+| AAPLc | 209 | 76.0 | 21.5 | 0.77% | 0.12% |
+| MSFTc | 203 | 80.4 | 24.0 | 0.75% | 0.06% |
+| GOOGLc | 180 | 81.6 | 24.0 | 0.78% | 0.12% |
+| AMZNc | 221 | 75.9 | 22.3 | 1.39% | 0.26% |
+| METAc | 400 | 76.8 | 18.4 | 1.02% | 0.03% |
+| NVDAc | 363 | 77.9 | 17.6 | 1.18% | 0.10% |
+| TSLAc | 400 | 76.0 | 18.6 | 1.01% | 0.29% |
+
+Three-day weekends produce **76–82h** closures (the 52.45h figure is an ordinary weekend); with
+`maxFeedAge` 30h that only lengthens the blackout, it does not fail open. **Weekday gaps reach exactly
+24.0h** on several feeds, leaving 6h of margin under 108000s — a spurious weekday blackout is the
+failure mode if that margin is ever crossed. **[review question: 30h vs 36h]** Reopen steps in the
+window never exceeded 1.4%; live divergence 0.03–0.29% supports `maxDifference = 300`.
+
 Live feed-vs-pool divergence, regular session (single sample; overnight sampling still required):
 NVDAc 0.33% · METAc 0.22% · GOOGLc 0.14% · AMZNc 0.07% · AAPLc 0.05% · MSFTc 0.00%.
 

@@ -20,14 +20,32 @@ import "../src/transformers/V3Utils.sol";
 ///         FlashloanLiquidator has no owner. emergencyAdmin is never set (matches the house).
 ///         globalDebtLimit is 0 at deploy: borrows stay disabled until Stage B.
 ///         Broadcast with `--skip-simulation` (B20 stand-ins exist only in the local run).
+///
+///         DRY_RUN=true (never with --broadcast): deploys the seven adapters inline instead of reading
+///         ADAPTER_* and downgrades the V3Utils-ownership preflight to a warning, so the whole of
+///         Stage A can be simulated before WP0.2 and step 2 have happened on chain.
 contract DeployBaseCoinbaseEquityVault is CoinbaseEquityBaseConfig {
     bytes4 internal constant ACCEPT_OWNERSHIP = bytes4(keccak256("acceptOwnership()"));
 
     function run() external {
+        bool dryRun = _envBoolOrFalse("DRY_RUN");
         Equity[7] memory eq = _equities();
         _installLocalB20Stubs(eq); // local run only: setTokenConfig reads token.decimals(), adapters read multiplier()
-        address[7] memory adapters = _readAdapters(eq);
-        _validateDeploymentConfig(eq, adapters);
+
+        address[7] memory adapters;
+        if (dryRun) {
+            console2.log("DRY_RUN: deploying adapters inline; V3Utils ownership check downgraded to a warning");
+            vm.startBroadcast();
+            for (uint256 i = 0; i < 7; i++) {
+                adapters[i] = address(
+                    new ChainlinkMultiplierFeed(AggregatorV3Interface(eq[i].feed), IB20Multiplier(eq[i].token))
+                );
+            }
+            vm.stopBroadcast();
+        } else {
+            adapters = _readAdapters(eq);
+        }
+        _validateDeploymentConfig(eq, adapters, dryRun);
 
         IAerodromeNonfungiblePositionManager npm = IAerodromeNonfungiblePositionManager(AERODROME_NPM);
 
@@ -104,15 +122,20 @@ contract DeployBaseCoinbaseEquityVault is CoinbaseEquityBaseConfig {
         );
     }
 
-    function _validateDeploymentConfig(Equity[7] memory eq, address[7] memory adapters) internal view {
+    function _validateDeploymentConfig(Equity[7] memory eq, address[7] memory adapters, bool dryRun) internal view {
         _requireBaseInfra();
         _requireFreshFeed(CHAINLINK_USDC_USD, USDC_MAX_FEED_AGE, "USDC");
         _requireCode(CHAINLINK_BASE_SEQUENCER_UPTIME_FEED, "DeployVault: sequencer feed missing code");
 
         // V3Utils must already be Safe-owned with nothing pending (WP0.2, both steps)
         V3Utils v3Utils = V3Utils(payable(V3_UTILS));
-        require(v3Utils.owner() == BASE_MULTISIG, "DeployVault: V3Utils not owned by multisig");
-        require(v3Utils.pendingOwner() == address(0), "DeployVault: V3Utils has pending owner");
+        bool v3UtilsOwned = v3Utils.owner() == BASE_MULTISIG && v3Utils.pendingOwner() == address(0);
+        if (dryRun && !v3UtilsOwned) {
+            console2.log("WARNING: V3Utils owner is", v3Utils.owner(), "pendingOwner", v3Utils.pendingOwner());
+            console2.log("WARNING: WP0.2 (transfer + Safe accept) must be done before the real deployment");
+        } else {
+            require(v3UtilsOwned, "DeployVault: V3Utils not owned by multisig (or pending owner set)");
+        }
         require(
             address(v3Utils.nonfungiblePositionManager()) == AERODROME_NPM, "DeployVault: V3Utils NPM mismatch"
         );
@@ -124,6 +147,14 @@ contract DeployBaseCoinbaseEquityVault is CoinbaseEquityBaseConfig {
             require(address(adapter.token()) == eq[i].token, string.concat("DeployVault: adapter token ", eq[i].symbol));
             require(adapter.decimals() == 8, string.concat("DeployVault: adapter decimals ", eq[i].symbol));
             _requireFreshFeed(adapters[i], EQUITY_MAX_FEED_AGE, eq[i].symbol);
+        }
+    }
+
+    function _envBoolOrFalse(string memory key) internal returns (bool value) {
+        try vm.envBool(key) returns (bool configured) {
+            value = configured;
+        } catch {
+            value = false;
         }
     }
 
