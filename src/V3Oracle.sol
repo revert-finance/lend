@@ -262,6 +262,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
     /// @param twapSeconds TWAP period to use
     /// @param mode Mode how both oracle should be used
     /// @param maxDifference Max allowable difference between both oracle prices
+    /// @dev Preserves a distinct liquidation age already configured for `token`; otherwise both ages use `maxFeedAge`
     function setTokenConfig(
         address token,
         AggregatorV3Interface feed,
@@ -271,7 +272,20 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         Mode mode,
         uint16 maxDifference
     ) external onlyOwner {
-        _setTokenConfig(token, feed, maxFeedAge, maxFeedAge, pool, twapSeconds, mode, maxDifference);
+        uint32 configuredLiquidationMaxFeedAge = liquidationMaxFeedAge[token];
+        uint32 configuredOperationalMaxFeedAge = feedConfigs[token].maxFeedAge;
+        bool hasDistinctLiquidationWindow =
+            configuredLiquidationMaxFeedAge != 0 && configuredLiquidationMaxFeedAge != configuredOperationalMaxFeedAge;
+        _setTokenConfig(
+            token,
+            feed,
+            maxFeedAge,
+            hasDistinctLiquidationWindow ? configuredLiquidationMaxFeedAge : maxFeedAge,
+            pool,
+            twapSeconds,
+            mode,
+            maxDifference
+        );
     }
 
     /// @notice Sets feed configuration with a stricter age for normal operations and a longer liquidation window

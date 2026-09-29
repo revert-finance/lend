@@ -50,8 +50,8 @@ IRM ⟨addr⟩, FlashloanLiquidator ⟨addr⟩, adapters ×7 ⟨addr⟩, V3Utils
 | Sequencer | `0xBCF85224fc0756B9Fa45aA7892530B47e10b6433` | 1/min | answer = 1 | — |
 
 **Do not use `vault.loanInfo()` for monitoring or in frontends after the 2h operational limit** — it
-uses the strict valuation path. Liquidation monitoring must use `oracle.getValueForLiquidation()`
-plus vault debt shares during the 2–30h window.
+uses the strict valuation path. Use `vault.loanInfoForLiquidation()` for liquidation monitoring
+during the 2–30h window; it uses the same valuation path as `liquidate()`.
 
 ---
 
@@ -110,7 +110,7 @@ Base does not), May 31, Jun 18 (Juneteenth observed), Jul 5 (Independence Day ob
 | Liquidate | **works**, subject to TWAP/divergence checks | **frozen** |
 | Indebted transform / collateral removal | frozen | frozen |
 | Lender `withdraw`/`redeem` | works while liquid USDC remains | works while liquid USDC remains |
-| `loanInfo()` | reverts; use liquidation valuation for monitoring | reverts |
+| `loanInfo()` | reverts; `loanInfoForLiquidation()` works | both revert |
 
 ---
 
@@ -122,6 +122,9 @@ failure appears systemic. Do **not** switch a token to `Mode.CHAINLINK` or `TWAP
 fallback — `maxPoolPriceDifference` still applies and the TWAP-only mode is rejected by design
 (proposal §3.4). Wait for Chainlink; if > 48h on a weekday, escalate to Chainlink and consider
 `setTokenConfig` to a replacement feed via the Safe (48h+ decision, not an emergency lever).
+For every equity reconfiguration, use the eight-argument overload and state both `7200` and
+`108000`; never use the seven-argument overload for an equity, even though it now preserves an
+already-distinct liquidation window.
 
 ### 5.2 Corporate action / `multiplier()` change
 Expected outcome: the adapter changes the token price instantly; the feed adjusts per share at its
@@ -139,8 +142,13 @@ same response for all seven pending explanation.
 
 ### 5.4 Failed or late liquidation
 Named liquidator did not act within 30 minutes of a position becoming liquidatable (outside blackout):
-⟨backup liquidator / team account⟩ executes `FlashloanLiquidator` or a direct `liquidate` with
-`amountIn = 0` (inventory-take; the exit for B20 is 0x or issuer redemption, never the UniversalRouter).
+⟨backup liquidator / team account⟩ executes `FlashloanLiquidator`, which uses
+`loanInfoForLiquidation()` and therefore remains available in the 2–30h window. Setting the helper's
+`amount0In`/`amount1In` to zero skips those swaps and only works when the collected USDC can repay
+the flash loan; any residual B20 is inventory. The capital-backed fallback is a direct
+`vault.liquidate()` call: the caller supplies and approves USDC and receives the collected assets
+(that vault call has no `amountIn` parameter). The exit for B20 is 0x or issuer redemption, never
+the UniversalRouter. The named and backup liquidators must drill both routes after the 2h cutoff.
 Record the delay; if repeated, cut caps.
 
 ### 5.5 Lender run during blackout

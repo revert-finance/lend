@@ -272,10 +272,12 @@ the USDC pool in §2.3, `twapSeconds` **60**, operational `maxFeedAge` **7200** 
 `maxFeedAge` **108000** (30h), `maxDifference` **300** (3%). Global
 `maxPoolPriceDifference` **300**.
 
-The existing seven-argument `setTokenConfig` remains ABI-compatible and sets both ages to the same
-value. Existing deployment scripts and any newly deployed non-equity vault therefore retain the
-original single-window behavior. Only the new eight-argument overload opts a token into distinct
-operational and liquidation ages.
+The existing seven-argument `setTokenConfig` remains ABI-compatible. On first configuration and
+single-window reconfiguration it sets both ages to the same value; on reconfiguring a token that
+already has distinct windows, it preserves the existing liquidation age, so it cannot silently
+collapse that token to the operational age. Existing deployment scripts and newly configured
+non-equity tokens retain the original single-window behavior. Equity changes must nevertheless use
+the eight-argument overload so both ages are explicit and reviewable.
 
 Three independent fail-closed checks can revert valuation for an asset, and the blackout starts at
 whichever fires first:
@@ -345,7 +347,7 @@ Answer bounds (C4 #446) were considered and dropped as redundant with the ±3% T
 | `borrow` / increase debt | frozen | frozen |
 | collateral removal / indebted transform / staking | frozen | frozen |
 | **`liquidate`** | **works**, subject to unchanged TWAP/divergence checks | **frozen** |
-| `loanInfo()` view | reverts on the strict path; liquidators use `getValueForLiquidation()` plus debt shares | reverts |
+| `loanInfo()` view | reverts on the strict path; `loanInfoForLiquidation()` works | both revert |
 
 Fail-closed is the documented protocol policy (`docs/agents/risk-and-acceptability.md`, "Oracle-Failure
 Policy"). Borrowers cannot withdraw collateral or add debt during it, so nothing can be extracted;
@@ -504,7 +506,7 @@ run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLo
 | R5 | High | B20 is native-client code; issuer blocking, pause, burn, seizure possible | Mario/legal | policy state **is pollable** via registry `0x8453…0002` → poller on every protocol address (WP6); role holders from logs + legal (WP1); canary; pilot caps; **exclusion remains a possible outcome** | **open — WP1** |
 | R6 | Med | `maxPoolPriceDifference` unchosen; reopen wicks extend blackouts | eng | 300, consequence in runbook; wick scenarios in tests | resolved in §3.1 |
 | R7 | Med | V3Utils owned by hot key | Mario | `Ownable2Step`: hot key `transferOwnership`, **Safe `acceptOwnership`**; verify `owner()==Safe && pendingOwner()==0` before `setVault` | **open — WP0** |
-| R8 | Med | Dual-age implementation changes previously audited `V3Oracle`/`V3Vault`; a permissive call-site mistake could authorize borrowing with the 30h liquidation price | eng | separate `getValue` / `getValueForLiquidation` entry points; only `liquidate()` calls the latter; boundary and action-level tests; independent core review | **open — WP3** |
+| R8 | Med | Dual-age implementation changes previously audited `V3Oracle`/`V3Vault`; a permissive call-site mistake could authorize borrowing with the 30h liquidation price | eng | separate `getValue` / `getValueForLiquidation` entry points; only `liquidate()` and read-only `loanInfoForLiquidation()` call the latter; boundary and action-level tests; independent core review | **open — WP3** |
 | R9 | Med | Zero reserves → first loss to lenders | Mario | seed ≥$40–100K or explicit acceptance | **decision** |
 | R10 | Med | Deposits cannot be frozen; pre-positioning before a stale-price window | eng | risk-increasing actions stop automatically after 2h; deposits and repayments intentionally remain available | accepted |
 | R11 | Low | C4 #446 min/max bounds absent (house-wide) | eng | covered here by `CHAINLINK_TWAP_VERIFY` divergence on equities and, indirectly, on the USDC reference; bounds dropped as redundant | **accepted — matches live** |
@@ -515,7 +517,8 @@ run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLo
 | R16 | **High** | **Issuer control surface is three plain EOAs**: policy-5 admin `0xEC0F05…2812` (transfer/mint gating), `DEFAULT_ADMIN_ROLE` `0x38467b…72b1` (can grant any role incl. SEIZE), `PAUSE/UNPAUSE_ROLE` `0x2fb501…bcdd` — identical on all seven tokens; no SEIZE holder today | Mario | Coinbase to explain key custody/process for all three (WP1.3); pollers on `policyAdmin`/`pendingPolicyAdmin` and on role logs (`roles_from_logs.py` with `LAST=`); pilot caps; exclusion possible | **open — WP1** |
 | R17 | Med | Equity/equity crosses depositable permissionlessly; riskier than equity/USDC (no USDC leg, correlated legs, joint blackout); frontend hiding is not a control | Mario/eng | **accept + monitor** (decided 2026-09-16): caps bind both legs; nightly cross-pair scan; allowlist deferred to pre-ramp review | **accepted risk** |
 | R18 | Med | Ownership mis-sequencing: `Ownable2Step` transfers left unaccepted leave the hot key as owner; `FlashloanLiquidator` has no owner | eng | scripts assert `pendingOwner`, print Safe accept batches; verify asserts `owner`+`pendingOwner`; manifest records both | planned — WP4 |
-| R19 | Med | `V3Vault` has little EIP-170 bytecode headroom; an earlier dual-age implementation shape compiled to 25,360 bytes and was undeployable | eng | preserve the original strict helper and isolate the liquidation helper; exact candidate currently 23,763 bytes vs 24,576 limit; make runtime-size output a Stage-A gate and recheck after any source/compiler change | **resolved in candidate; gate remains** |
+| R19 | Med | `V3Vault` has little EIP-170 bytecode headroom; an earlier dual-age implementation shape compiled to 25,360 bytes and was undeployable | eng | preserve the original strict helper and isolate the liquidation helper; exact candidate currently 23,748 bytes vs 24,576 limit; make runtime-size output a Stage-A gate and recheck after any source/compiler change | **resolved in candidate; gate remains** |
+| R20 | Med | Atomic liquidation helper could use the strict 2h `loanInfo()` path and become unavailable during the 2–30h window | eng | helper calls `loanInfoForLiquidation()`; integration test proves the strict read reverts while liquidation read and liquidation remain available; rehearse the helper after the 2h transition | resolved in candidate; Stage-B rehearsal remains |
 
 ---
 

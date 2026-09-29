@@ -23,10 +23,16 @@ contract MockFlashVault {
         return address(assetToken);
     }
 
-    function loanInfo(uint256)
+    function loanInfoForLiquidation(uint256)
         external
         view
-        returns (uint256 debt, uint256 fullValue, uint256 collateralValue, uint256 _liquidationCost, uint256 _liquidationValue)
+        returns (
+            uint256 debt,
+            uint256 fullValue,
+            uint256 collateralValue,
+            uint256 _liquidationCost,
+            uint256 _liquidationValue
+        )
     {
         return (0, 0, 0, liquidationCost, liquidationValue);
     }
@@ -107,4 +113,3 @@ contract FlashloanLiquidatorCallbackTest is AerodromeTestBase {
         liquidator.liquidate(params);
     }
 }
-

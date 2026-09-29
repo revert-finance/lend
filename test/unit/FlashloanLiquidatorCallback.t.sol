@@ -95,7 +95,7 @@ contract MockVaultFlash {
         liquidationValue = _liquidationValue;
     }
 
-    function loanInfo(uint256) external view returns (uint256, uint256, uint256, uint256, uint256) {
+    function loanInfoForLiquidation(uint256) external view returns (uint256, uint256, uint256, uint256, uint256) {
         return (0, 0, 0, liquidationCost, liquidationValue);
     }
 

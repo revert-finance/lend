@@ -257,6 +257,32 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
+    /// @notice Retrieves loan details using the oracle's liquidation feed-age window.
+    /// @dev Intended for liquidation tooling. Ordinary loan reads retain the stricter operational window.
+    function loanInfoForLiquidation(uint256 tokenId)
+        external
+        view
+        override
+        returns (
+            uint256 debt,
+            uint256 fullValue,
+            uint256 collateralValue,
+            uint256 liquidationCost,
+            uint256 liquidationValue
+        )
+    {
+        (uint256 newDebtExchangeRateX96,) = _calculateGlobalInterest();
+
+        debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+
+        bool isHealthy;
+        (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthyForLiquidation(tokenId, debt);
+
+        if (!isHealthy) {
+            (liquidationValue, liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
+        }
+    }
+
     /// @notice Retrieves owner of a loan
     /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
     /// @return owner Owner of the loan

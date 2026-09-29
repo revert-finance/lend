@@ -61,7 +61,7 @@ contract V3OracleB20Test is B20TestBase {
         );
     }
 
-    function testLegacySetterUsesSameAgeForBothPaths() external {
+    function testLegacySetterPreservesConfiguredLiquidationAge() external {
         oracle.setTokenConfig(
             address(nvdac),
             AggregatorV3Interface(address(nvdaAdapter)),
@@ -71,7 +71,31 @@ contract V3OracleB20Test is B20TestBase {
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             EQUITY_MAX_DIFFERENCE
         );
-        assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_MAX_FEED_AGE);
+        assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_LIQUIDATION_MAX_FEED_AGE);
+    }
+
+    function testLegacySetterUsesOperationalAgeForFirstConfiguration() external {
+        oracle.setTokenConfig(
+            address(aero),
+            AggregatorV3Interface(address(nvdaAdapter)),
+            EQUITY_MAX_FEED_AGE,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+        assertEq(oracle.liquidationMaxFeedAge(address(aero)), EQUITY_MAX_FEED_AGE);
+
+        oracle.setTokenConfig(
+            address(aero),
+            AggregatorV3Interface(address(nvdaAdapter)),
+            EQUITY_MAX_FEED_AGE / 2,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+        assertEq(oracle.liquidationMaxFeedAge(address(aero)), EQUITY_MAX_FEED_AGE / 2);
     }
 
     // ---- decimal scaling (V3Oracle referenceTokenDecimals < tokenDecimals branch) ------------

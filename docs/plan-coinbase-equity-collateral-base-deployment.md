@@ -382,7 +382,9 @@ Broadcast:
    Mode.CHAINLINK, 0)` (forced for reference token; raw feed, as on every live vault); for each equity
    `setTokenConfig(token, adapter, 7200, 108000, pool, 60,
    Mode.CHAINLINK_TWAP_VERIFY, 300)`; the first age is used by all ordinary valuation and the second
-   only by the liquidation entry point.
+   only by the liquidation entry point and its read-only `loanInfoForLiquidation()` companion.
+   Equity reconfiguration must use this eight-argument overload; the legacy seven-argument overload
+   preserves an existing longer liquidation age but does not make both values explicit for review.
    **Do not call `setEmergencyAdmin`** — leave `address(0)`, matching the live Aerodrome oracle.
 3. `V3Vault("Revert Lend Coinbase Equities USDC", "rlCbEqUSDC", USDC, npm, irm, oracle)`
    **[name/symbol: suggestion]**; `setTokenConfig` for USDC (85%, uncapped) and the seven equities
@@ -418,8 +420,10 @@ forks cannot execute B20. That is the on-chain smoke test:
 `setLimits(minLoan, lendLimit, globalDebtLimit = 3 × minLoanSize, …)`; a team account deposits a
 small B20/USDC position per pair, borrows `minLoanSize`, repays; one position is pushed under the
 threshold by borrowing at max and waiting for a feed move (or a temporary CF tweak on that token
-config from the Safe — decide in review) and liquidated by the named liquidator (WP5) using `amountIn = 0`
-inventory-take; then everything is unwound and `globalDebtLimit` returns to `0` for the automatic
+config from the Safe — decide in review) and liquidated by the named liquidator (WP5) through
+`FlashloanLiquidator`; test its zero-swap inventory route only where the collected USDC repays the
+flash loan, and also test the capital-backed direct-vault fallback. Then everything is unwound and
+`globalDebtLimit` returns to `0` for the automatic
 age-transition rehearsal (§4 #7). Record every tx hash in the manifest. This is the only place borrow → liquidate
 is exercised against real B20 semantics before lenders are exposed.
 
@@ -487,8 +491,8 @@ Sensors:
 - **Divergence**: |feed−spot| and |feed−TWAP| per name; alert at 50% of thresholds (1.5%).
 - **Ring coverage**: alert if any pool's measured observation span < 10× `twapSeconds`.
 - **Debt tracking must not use `loanInfo()` after 2h**: it deliberately uses strict valuation.
-  Monitors compute debt as `loans(tokenId)` shares × `lastDebtExchangeRateX96 / Q96`; between 2h
-  and 30h they obtain collateral value from `oracle.getValueForLiquidation(...)`.
+  Between 2h and 30h monitors use `loanInfoForLiquidation()`, the same read used by
+  `FlashloanLiquidator`; both stop at the 30h cutoff.
 - **Emergency freeze tuple** (verified): `globalDebtLimit = 0` is strict, so repayments cannot
   reopen capacity. It is reserved for issuer, policy, multiplier or oracle incidents; ordinary feed
   staleness is enforced automatically by the oracle.
@@ -557,7 +561,7 @@ legal sign-off reference.
 | Equity oracle mode | `CHAINLINK_TWAP_VERIFY` | enum | §3.1 |
 | Equity `twapSeconds` | 60 s | `60` | §3.1 (a 360 ring cannot fail a 60 s window; see WP0.1) |
 | Equity operational `maxFeedAge` | 2 h | `7200` | §3.1; gates every ordinary valuation and risk-increasing action |
-| Equity liquidation `maxFeedAge` | 30 h | `108000` | §3.1; used only by `liquidate()` through the distinct oracle entry point |
+| Equity liquidation `maxFeedAge` | 30 h | `108000` | §3.1; used only by `liquidate()` and read-only `loanInfoForLiquidation()` through the distinct oracle entry point |
 | Equity `maxDifference` | 3% | `300` | §3.1 — never above; validate overnight |
 | USDC oracle mode | `CHAINLINK` (forced) | enum | `setTokenConfig` L261–278 |
 | USDC `maxFeedAge` | 24 h | `86400` | house convention |
@@ -650,10 +654,11 @@ a Stage-B artefact.
       matrix tested; garbage-print divergence tests (equity and USDC) green
 - [ ] `twapSeconds`, `maxDifference`, `maxPoolPriceDifference`, operational `maxFeedAge` and
       liquidation `maxFeedAge` pinned; overnight divergence samples support `maxDifference = 300`
-- [ ] Dual-age `V3Oracle`/`V3Vault` diff independently audited: only `liquidate()` can reach the
-      relaxed oracle entry point; action-level and exact-boundary tests green
+- [ ] Dual-age `V3Oracle`/`V3Vault` diff independently audited: only `liquidate()` and read-only
+      `loanInfoForLiquidation()` can reach the relaxed oracle entry point; action-level and
+      exact-boundary tests green; the legacy setter preserves an existing longer liquidation age
 - [ ] Exact candidate built with pinned settings; deployed runtime sizes attached and below 24,576
-      bytes (`V3Vault` currently 23,763; `V3Oracle` 22,837), with no unreviewed source change afterward
+      bytes (`V3Vault` currently 23,748; `V3Oracle` 22,910), with no unreviewed source change afterward
 - [ ] Cross-pair handling recorded as accepted risk in the proposal; nightly scan specified in runbook
 - [ ] Explicit CF line (55/50 launch; ramp conditions) recorded
 - [ ] `minLoanSize` derived from measured gas + stressed exit; IRM parameters confirmed
@@ -678,7 +683,8 @@ green; `emergencyAdmin() == address(0)` on vault and oracle; `globalDebtLimit ==
       liquidator gate above passed
 - [ ] Reserve seeding done (amount, funder) or first-loss socialisation explicitly accepted
 - [ ] Automatic 2h liquidation-only transition, 30h valuation cutoff and fresh-print recovery
-      observed over one full weekend on the deployed borrow-disabled vault
+      observed over one full weekend on the deployed borrow-disabled vault; both
+      `FlashloanLiquidator` and the capital-backed direct-vault fallback exercised after 2h
 - [ ] Strict-zero emergency freeze/unfreeze exercised separately; runbook names accounts, tuple,
       incident criteria, restoration criteria and fallback; incident signing coverage confirmed
 - [ ] Monitoring live: policy-registry poller, canary, multiplier poller, feed age, divergence,

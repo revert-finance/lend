@@ -1,7 +1,7 @@
 {
   "$comment": "Manifest of record for the Coinbase B20 equity-collateral vault on Base (plan WP7). Values under 'deployed' are filled from script logs after each stage; everything else mirrors script/CoinbaseEquityBaseConfig.s.sol and is asserted by VerifyBaseCoinbaseEquityDeployment.",
   "chainId": 8453,
-  "branch": "codex/coinbase-b20-equity-vault",
+  "branch": "codex/coinbase-b20-equity-vault-dual-staleness",
   "stage": "pre-deployment",
   "deployed": {
     "block": null,
@@ -15,7 +15,8 @@
     },
     "v3UtilsSetVaultTx": null,
     "smokeTest": {"setLimitsTinyTx": null, "borrowTxs": [], "repayTxs": [], "liquidationTx": null, "liquidator": null, "resetToZeroTx": null},
-    "weekendDryRun": {"freezeTx": null, "unfreezeTx": null, "signers": [], "sensorLogs": null},
+    "ageTransitionRehearsal": {"operationalCutoffObservedAt": null, "liquidationCutoffObservedAt": null, "freshPrintRecoveryObservedAt": null, "sensorLogs": null},
+    "emergencyFreezeDrill": {"freezeTx": null, "unfreezeTx": null, "signers": []},
     "borrowsOpenedTx": null
   },
   "reused": {
@@ -33,7 +34,7 @@
     "constructor": {"npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53", "referenceToken": "USDC", "chainlinkReferenceToken": "0x0000000000000000000000000000000000000000"},
     "maxPoolPriceDifference": 300,
     "usdc": {"feed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B", "maxFeedAge": 86400, "mode": "CHAINLINK (forced for referenceToken)"},
-    "equities": {"maxFeedAge": 108000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "ChainlinkMultiplierFeed adapter (feed, token)"}
+    "equities": {"operationalMaxFeedAge": 7200, "liquidationMaxFeedAge": 108000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "ChainlinkMultiplierFeed adapter (feed, token)"}
   },
   "vault": {
     "name": "Revert Lend Coinbase Equities USDC",
@@ -45,7 +46,7 @@
       "stageA": [1000000000, 2000000000000, 0, 200000000000, 100000000000],
       "smokeTest": [1000000000, 2000000000000, "3 * minLoanSize", 200000000000, 100000000000],
       "live": [1000000000, 2000000000000, 1000000000000, 200000000000, 100000000000],
-      "weekendFreeze": [1000000000, 2000000000000, "currentDebt", 0, 0]
+      "emergencyFreeze": [1000000000, 2000000000000, 0, 0, 0]
     },
     "usdc": {"collateralFactorX32": 3650722201, "collateralValueLimitFactorX32": 4294967295},
     "transformers": ["0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD"],

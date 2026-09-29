@@ -130,6 +130,9 @@ contract V3VaultB20Test is B20TestBase {
         // Normal valuation and collateral removal are frozen.
         vm.expectRevert(ChainlinkPriceError.selector);
         vault.loanInfo(tokenId);
+        (,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfoForLiquidation(tokenId);
+        assertGt(liquidationCost, 0);
+        assertGt(liquidationValue, liquidationCost);
         vm.prank(borrower);
         vm.expectRevert(ChainlinkPriceError.selector);
         vault.decreaseLiquidityAndCollect(
@@ -179,6 +182,9 @@ contract V3VaultB20Test is B20TestBase {
         vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
         usdcRefFeed.setUpdatedAt(block.timestamp);
         nvdaFeed.setUpdatedAt(equityUpdatedAt);
+
+        vm.expectRevert(ChainlinkPriceError.selector);
+        vault.loanInfoForLiquidation(tokenId);
 
         usdc.mint(liquidator, 10_000e6);
         vm.startPrank(liquidator);
