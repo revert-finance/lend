@@ -745,7 +745,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         state.debt = _convertToAssets(debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
 
         (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) =
-            _checkLoanIsHealthy(params.tokenId, state.debt, false);
+            _checkLoanIsHealthyForLiquidation(params.tokenId, state.debt);
         if (state.isHealthy) {
             revert NotLiquidatable();
         }
@@ -1482,6 +1482,18 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
         isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
+    }
+
+    function _checkLoanIsHealthyForLiquidation(uint256 tokenId, uint256 debt)
+        internal
+        view
+        returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
+    {
+        bool ignoreFees = _isStaked(tokenId);
+        (fullValue, feeValue,,) = oracle.getValueForLiquidation(tokenId, address(asset), ignoreFees);
+        uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+        collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
+        isHealthy = collateralValue >= debt;
     }
 
     function _isStaked(uint256 tokenId) private view returns (bool) {

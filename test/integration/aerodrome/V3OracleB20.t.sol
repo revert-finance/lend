@@ -44,6 +44,34 @@ contract V3OracleB20Test is B20TestBase {
         assertEq(address(feed), address(nvdaAdapter));
         assertEq(uint8(nvdaMode), uint8(V3Oracle.Mode.CHAINLINK_TWAP_VERIFY));
         assertEq(maxDifference, EQUITY_MAX_DIFFERENCE);
+        assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_LIQUIDATION_MAX_FEED_AGE);
+    }
+
+    function testOperationalAgeCannotExceedLiquidationAge() external {
+        vm.expectRevert(InvalidConfig.selector);
+        oracle.setTokenConfig(
+            address(nvdac),
+            AggregatorV3Interface(address(nvdaAdapter)),
+            EQUITY_LIQUIDATION_MAX_FEED_AGE + 1,
+            EQUITY_LIQUIDATION_MAX_FEED_AGE,
+            IUniswapV3Pool(address(nvdaPool)),
+            TWAP_SECONDS,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            EQUITY_MAX_DIFFERENCE
+        );
+    }
+
+    function testLegacySetterUsesSameAgeForBothPaths() external {
+        oracle.setTokenConfig(
+            address(nvdac),
+            AggregatorV3Interface(address(nvdaAdapter)),
+            EQUITY_MAX_FEED_AGE,
+            IUniswapV3Pool(address(nvdaPool)),
+            TWAP_SECONDS,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            EQUITY_MAX_DIFFERENCE
+        );
+        assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_MAX_FEED_AGE);
     }
 
     // ---- decimal scaling (V3Oracle referenceTokenDecimals < tokenDecimals branch) ------------
@@ -74,11 +102,34 @@ contract V3OracleB20Test is B20TestBase {
         assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
     }
 
-    // weekday gaps of ~17-24h must not blackout; 30h maxFeedAge covers them
-    function testTwentyFourHourWeekdayGapDoesNotBlackout() external {
+    function testTwentyFourHourGapIsLiquidationOnly() external {
         vm.warp(block.timestamp + 24 hours);
         usdcRefFeed.setUpdatedAt(block.timestamp);
-        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
+        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
+        (uint256 value,,,) = oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+        assertApproxEqRel(value, _expectedNvdaValue(), 1e12);
+    }
+
+    function testBeyondLiquidationMaxFeedAgeFailsBothPaths() external {
+        vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
+        vm.expectRevert(ChainlinkPriceError.selector);
+        oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+    }
+
+    function testAtExactlyLiquidationMaxFeedAgeStillValuesForLiquidation() external {
+        vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        (uint256 value,,,) = oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+        assertApproxEqRel(value, _expectedNvdaValue(), 1e12);
+    }
+
+    function testZeroOrFutureUpdatedAtFailsClosed() external {
+        nvdaFeed.setUpdatedAt(0);
+        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
+        nvdaFeed.setUpdatedAt(block.timestamp + 1);
+        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
     }
 
     function testUsdcReferenceStaleFreezesEveryEquity() external {

@@ -70,7 +70,10 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     // Oracle parameters (plan §3)
     uint16 internal constant MAX_POOL_PRICE_DIFFERENCE = 300; // 3%
     uint32 internal constant TWAP_SECONDS = 60;
-    uint32 internal constant EQUITY_MAX_FEED_AGE = 108_000; // 30h: > weekday gaps, < 52.45h weekend gap
+    // New debt and risk-increasing collateral operations stop shortly after equity prices stop updating.
+    // This intentionally accepts intermittent weekday borrow pauses because the public feeds have a 24h heartbeat.
+    uint32 internal constant EQUITY_MAX_FEED_AGE = 7_200; // 2h operational window
+    uint32 internal constant EQUITY_LIQUIDATION_MAX_FEED_AGE = 108_000; // 30h liquidation-only window
     uint16 internal constant EQUITY_MAX_DIFFERENCE = 300; // 3%, never above (doubles as multiplier-error tolerance)
     uint32 internal constant USDC_MAX_FEED_AGE = 86_400;
 
@@ -254,7 +257,10 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     function _requireFreshFeed(address feed, uint32 maxFeedAge, string memory label) internal view returns (int256) {
         (, int256 answer,, uint256 updatedAt,) = AggregatorV3Interface(feed).latestRoundData();
         require(answer > 0, string.concat("CoinbaseEquity: feed answer <= 0 ", label));
-        require(updatedAt + maxFeedAge >= block.timestamp, string.concat("CoinbaseEquity: feed stale ", label));
+        require(
+            updatedAt != 0 && updatedAt <= block.timestamp && block.timestamp - updatedAt <= maxFeedAge,
+            string.concat("CoinbaseEquity: feed stale ", label)
+        );
         return answer;
     }
 

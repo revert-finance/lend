@@ -4,17 +4,14 @@ pragma solidity ^0.8.0;
 import "./CoinbaseEquityBaseConfig.s.sol";
 import "../src/V3Vault.sol";
 
-/// @notice Weekend freeze / unfreeze for the Coinbase equity vault (plan WP4/WP6).
+/// @notice Emergency borrow freeze / unfreeze for the Coinbase equity vault (plan WP4/WP6).
 ///         setLimits is owner-only (no emergencyAdmin) and the owner is the Safe, so these scripts
 ///         never broadcast. They read the live tuple, compute the target, simulate it as the owner
 ///         (forge script without --broadcast is a simulation) and print the exact Safe calldata.
 ///
-///         FreezeBorrows:   (minLoanSize, globalLendLimit, currentDebt, 0, 0)   - Friday 15:00 ET
+///         FreezeBorrows:   (minLoanSize, globalLendLimit, 0, 0, 0)
 ///         UnfreezeBorrows: manifest live tuple                                  - after the first
-///                          post-closure print AND |feed - TWAP| < 2% sustained (runbook)
-///
-///         Note: a frozen globalDebtLimit caps *total* debt; amounts repaid during the weekend can be
-///         re-borrowed up to the frozen total (verified in V3VaultB20.t.sol).
+///                          fresh print AND |feed - TWAP| < 2% sustained (runbook)
 abstract contract CoinbaseEquityBorrowLimits is CoinbaseEquityBaseConfig {
     function _vault() internal returns (V3Vault vault) {
         require(block.chainid == BASE_CHAIN_ID, "BorrowLimits: wrong chain");
@@ -61,7 +58,7 @@ abstract contract CoinbaseEquityBorrowLimits is CoinbaseEquityBaseConfig {
 contract FreezeBorrows is CoinbaseEquityBorrowLimits {
     function run() external {
         V3Vault vault = _vault();
-        _apply(vault, "FREEZE setLimits(minLoan, lendLimit, currentDebt, 0, 0)", _currentDebt(vault), 0, 0);
+        _apply(vault, "FREEZE setLimits(minLoan, lendLimit, 0, 0, 0)", 0, 0, 0);
     }
 }
 

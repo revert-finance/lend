@@ -6,8 +6,9 @@ batched JSON-RPC, and report every gap > 12h (weekend, holiday, weekday), the cu
 the live feed-vs-pool divergence (one sample; run from cron overnight to accumulate).
 
 Env: BASE_RPC_URL or ALCHEMY_API_KEY; ROUNDS (default 400); BLOCK (default latest).
-Output: results/feed_roundwalk-<block>.json and a summary on stdout. Exit 1 if any feed is stale beyond
-maxFeedAge (108000s) or any live divergence exceeds 3%.
+Output: results/feed_roundwalk-<block>.json and a summary on stdout. Exit 1 if any feed is outside
+the 2h operational window or any live divergence exceeds 3%; distinguish liquidation-only from the
+critical state beyond the 30h liquidation window.
 """
 import json, math, os, sys, time, urllib.request
 from datetime import datetime, timezone, timedelta
@@ -15,7 +16,9 @@ from datetime import datetime, timezone, timedelta
 RPC = os.environ.get("BASE_RPC_URL") or (
     "https://base-mainnet.g.alchemy.com/v2/" + os.environ["ALCHEMY_API_KEY"])
 ROUNDS = int(os.environ.get("ROUNDS", "400"))
-MAX_FEED_AGE = 108_000
+OPERATIONAL_MAX_FEED_AGE = 7_200
+LIQUIDATION_MAX_FEED_AGE = 108_000
+USDC_MAX_FEED_AGE = 86_400
 MAX_DIFFERENCE = 0.03
 GAP_THRESHOLD = 12 * 3600
 ET = timezone(timedelta(hours=-4))  # EDT; good enough for session labelling
@@ -129,27 +132,46 @@ def main():
         f["maxWeekdayGapHours"] = max([g["hours"] for g in gaps if g["kind"] == "weekday"], default=0)
         f["maxAbsReopenStepPct"] = max([abs(g["stepPct"]) for g in gaps], default=0)
 
+    for f in feeds:
+        age = f["ageSeconds"]
+        f["oracleState"] = ("invalid-timestamp" if f["updatedAt"] == 0 or age < 0 else
+                            "normal" if age <= OPERATIONAL_MAX_FEED_AGE else
+                            "liquidation-only" if age <= LIQUIDATION_MAX_FEED_AGE else
+                            "valuation-blackout")
+
+    usdc_age = now - usdc_updated
+    usdc_invalid = usdc_updated == 0 or usdc_age < 0
+    usdc_stale = usdc_invalid or usdc_age > USDC_MAX_FEED_AGE
     out = dict(block=block, timestamp=now, usdcPrice=usdc_price, usdcFeedAgeSeconds=now - usdc_updated,
-               maxFeedAge=MAX_FEED_AGE, maxDifference=MAX_DIFFERENCE, feeds=feeds)
+               usdcOracleState="invalid-timestamp" if usdc_invalid else "stale" if usdc_stale else "normal",
+               usdcMaxFeedAge=USDC_MAX_FEED_AGE,
+               operationalMaxFeedAge=OPERATIONAL_MAX_FEED_AGE,
+               liquidationMaxFeedAge=LIQUIDATION_MAX_FEED_AGE,
+               maxDifference=MAX_DIFFERENCE, feeds=feeds)
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"feed_roundwalk-{block}.json")
     with open(path, "w") as fh:
         json.dump(out, fh, indent=1)
 
-    fail = False
-    print(f"block {block}  {datetime.fromtimestamp(now, ET).strftime('%a %Y-%m-%d %H:%M ET')}  USDC {usdc_price:.4f} (age {now - usdc_updated}s)")
+    fail = usdc_stale
+    print(f"block {block}  {datetime.fromtimestamp(now, ET).strftime('%a %Y-%m-%d %H:%M ET')}  "
+          f"USDC {usdc_price:.4f} (age {usdc_age}s{' STALE' if usdc_stale else ''})")
     print(f"{'feed':7} {'age':>7} {'share$':>10} {'mult':>12} {'token$':>10} {'pool$':>10} {'div%':>6} {'rounds':>6} {'wknd h':>7} {'wkday h':>8} {'step%':>6}")
     for f in feeds:
-        stale = f["ageSeconds"] > MAX_FEED_AGE
+        invalid_timestamp = f["oracleState"] == "invalid-timestamp"
+        operational_stale = invalid_timestamp or f["ageSeconds"] > OPERATIONAL_MAX_FEED_AGE
+        liquidation_stale = invalid_timestamp or f["ageSeconds"] > LIQUIDATION_MAX_FEED_AGE
         div_bad = f["divergence"] > MAX_DIFFERENCE
-        fail |= stale or div_bad
+        fail |= operational_stale or div_bad
         print(f"{f['symbol']:7} {f['ageSeconds']:>7} {f['shareAnswer']:>10.2f} {f['multiplier']:>12.9f} {f['tokenAnswer']:>10.2f} "
               f"{f['poolUsdPerToken']:>10.2f} {100 * f['divergence']:>6.2f} {f['roundsWalked']:>6} {f['maxWeekendGapHours']:>7.1f} "
-              f"{f['maxWeekdayGapHours']:>8.1f} {f['maxAbsReopenStepPct']:>6.2f}{'  STALE' if stale else ''}{'  DIVERGED' if div_bad else ''}")
+              f"{f['maxWeekdayGapHours']:>8.1f} {f['maxAbsReopenStepPct']:>6.2f}"
+              f"{'  INVALID-TIMESTAMP' if invalid_timestamp else '  VALUATION-BLACKOUT' if liquidation_stale else '  LIQUIDATION-ONLY' if operational_stale else ''}"
+              f"{'  DIVERGED' if div_bad else ''}")
     print(f"written {path}")
     if fail:
-        print("ALERT: stale feed or divergence above tolerance")
+        print("ALERT: operationally stale feed, liquidation blackout, or divergence above tolerance")
         sys.exit(1)
     print("OK")
 

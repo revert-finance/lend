@@ -23,7 +23,8 @@ abstract contract B20TestBase is AerodromeTestBase {
     uint32 constant CF_50 = 2_147_483_648;
     uint32 constant CAP_NVDA_PILOT = 150_323_855; // 3.5% of lent
     uint32 constant CAP_MSFT_PILOT = 107_374_182; // 2.5% of lent
-    uint32 constant EQUITY_MAX_FEED_AGE = 108_000; // 30h
+    uint32 constant EQUITY_MAX_FEED_AGE = 7_200; // 2h operational window
+    uint32 constant EQUITY_LIQUIDATION_MAX_FEED_AGE = 108_000; // 30h liquidation-only window
     uint32 constant USDC_MAX_FEED_AGE = 86_400;
     uint16 constant EQUITY_MAX_DIFFERENCE = 300; // 3%
     uint16 constant MAX_POOL_PRICE_DIFFERENCE = 300;
@@ -100,6 +101,7 @@ abstract contract B20TestBase is AerodromeTestBase {
             address(nvdac),
             AggregatorV3Interface(address(nvdaAdapter)),
             EQUITY_MAX_FEED_AGE,
+            EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(nvdaPool)),
             TWAP_SECONDS,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
@@ -109,6 +111,7 @@ abstract contract B20TestBase is AerodromeTestBase {
             address(msftc),
             AggregatorV3Interface(address(msftAdapter)),
             EQUITY_MAX_FEED_AGE,
+            EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(msftPool)),
             TWAP_SECONDS,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,

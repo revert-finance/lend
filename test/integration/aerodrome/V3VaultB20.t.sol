@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 import "./B20TestBase.sol";
 
 /// @notice Vault behaviour for Coinbase B20 equity collateral (plan WP3 bucket 1, proposal §3.3, §4).
-///         Per-name caps on both legs, cross pairs, minLoanSize, the blackout table, the weekend
-///         freeze tuple, and liquidation at pilot factors including the zero-reserve loss path.
+///         Per-name caps on both legs, cross pairs, minLoanSize, the dual-age state table, the
+///         emergency freeze tuple, and liquidation at pilot factors including the zero-reserve loss path.
 contract V3VaultB20Test is B20TestBase {
     uint128 constant NVDA_AMOUNT = 100e8; // ~$21.8K
     uint128 constant MSFT_AMOUNT = 10e8; // ~$5K
@@ -104,13 +104,19 @@ contract V3VaultB20Test is B20TestBase {
 
     // ---- blackout table (proposal §3.3) --------------------------------------------------------------
 
-    function testBlackoutTable() external {
+    function testLiquidationOnlyWindow() external {
         uint256 tokenId = _openNvdaLoan(5_000e6);
         uint256 sharesBefore = _debtShares(tokenId);
 
-        // equity feed goes stale (weekend); USDC stays fresh
+        // Position becomes unhealthy while the last equity print is still fresh.
+        _moveNvda(nvdaTick + DOWN_60);
+        // Read through the mock so the optimizer cannot substitute a post-vm.warp block.timestamp.
+        uint256 equityUpdatedAt = nvdaFeed.updatedAt();
+
+        // The short operational window expires, while the 30h liquidation window remains open.
         vm.warp(block.timestamp + EQUITY_MAX_FEED_AGE + 1);
         usdcRefFeed.setUpdatedAt(block.timestamp);
+        nvdaFeed.setUpdatedAt(equityUpdatedAt);
 
         // deposit collateral: works, never touches the oracle
         uint256 newPosition = _mintNvdaPosition(borrower, NVDA_AMOUNT, 0);
@@ -121,7 +127,59 @@ contract V3VaultB20Test is B20TestBase {
         _expectBorrowRevert(borrower, tokenId, 1_000e6, ChainlinkPriceError.selector);
         _expectBorrowRevert(borrower, newPosition, 1_000e6, ChainlinkPriceError.selector);
 
-        // liquidate: frozen
+        // Normal valuation and collateral removal are frozen.
+        vm.expectRevert(ChainlinkPriceError.selector);
+        vault.loanInfo(tokenId);
+        vm.prank(borrower);
+        vm.expectRevert(ChainlinkPriceError.selector);
+        vault.decreaseLiquidityAndCollect(
+            IVault.DecreaseLiquidityAndCollectParams({
+                tokenId: newPosition,
+                liquidity: 0,
+                amount0Min: 0,
+                amount1Min: 0,
+                feeAmount0: 0,
+                feeAmount1: 0,
+                deadline: block.timestamp + 1,
+                recipient: borrower
+            })
+        );
+
+        // repay: works
+        vm.startPrank(borrower);
+        usdc.approve(address(vault), 100e6);
+        vault.repay(tokenId, 100e6, false);
+        vm.stopPrank();
+        assertLt(_debtShares(tokenId), sharesBefore);
+
+        // Liquidation uses the longer age and remains available.
+        usdc.mint(liquidator, 10_000e6);
+        vm.startPrank(liquidator);
+        usdc.approve(address(vault), 10_000e6);
+        vault.liquidate(
+            IVault.LiquidateParams({
+                tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: liquidator, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+        assertEq(_debtShares(tokenId), 0);
+
+        // lender withdraw: works while liquid USDC remains
+        uint256 lenderBefore = usdc.balanceOf(lender);
+        vm.prank(lender);
+        vault.withdraw(10_000e6, lender, lender);
+        assertEq(usdc.balanceOf(lender) - lenderBefore, 10_000e6);
+    }
+
+    function testLiquidationFailsAfterLongWindow() external {
+        uint256 tokenId = _openNvdaLoan(5_000e6);
+        _moveNvda(nvdaTick + DOWN_60);
+        uint256 equityUpdatedAt = nvdaFeed.updatedAt();
+
+        vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        nvdaFeed.setUpdatedAt(equityUpdatedAt);
+
         usdc.mint(liquidator, 10_000e6);
         vm.startPrank(liquidator);
         usdc.approve(address(vault), 10_000e6);
@@ -132,34 +190,15 @@ contract V3VaultB20Test is B20TestBase {
             })
         );
         vm.stopPrank();
-
-        // loanInfo: reverts (it values the collateral) - monitors must read debt shares directly
-        vm.expectRevert(ChainlinkPriceError.selector);
-        vault.loanInfo(tokenId);
-
-        // repay: works
-        vm.startPrank(borrower);
-        usdc.approve(address(vault), 1_000e6);
-        vault.repay(tokenId, 1_000e6, false);
-        vm.stopPrank();
-        assertLt(_debtShares(tokenId), sharesBefore);
-
-        // lender withdraw: works while liquid USDC remains
-        uint256 lenderBefore = usdc.balanceOf(lender);
-        vm.prank(lender);
-        vault.withdraw(10_000e6, lender, lender);
-        assertEq(usdc.balanceOf(lender) - lenderBefore, 10_000e6);
     }
 
-    // ---- weekend freeze tuple (plan WP4/WP6) ------------------------------------------------------
+    // ---- emergency freeze tuple (plan WP4/WP6) ----------------------------------------------------
 
-    function testFreezeTupleBlocksNewBorrowsButNotRepayOrLiquidate() external {
+    function testEmergencyFreezeBlocksAllNewBorrowsButNotRepayOrLiquidate() external {
         uint256 tokenId = _openNvdaLoan(5_000e6);
-        uint256 frozenDebt = _debt(tokenId);
 
-        // Friday 15:00 ET: owner pins globalDebtLimit to current debt
-        vault.setLimits(MIN_LOAN_SIZE, 2_000_000e6, frozenDebt, 0, 0);
-        assertEq(vault.globalDebtLimit(), frozenDebt);
+        vault.setLimits(MIN_LOAN_SIZE, 2_000_000e6, 0, 0, 0);
+        assertEq(vault.globalDebtLimit(), 0);
 
         _expectBorrowRevert(borrower, tokenId, 1_000e6, GlobalDebtLimit.selector);
 
@@ -167,11 +206,10 @@ contract V3VaultB20Test is B20TestBase {
         usdc.approve(address(vault), 500e6);
         vault.repay(tokenId, 500e6, false);
         vm.stopPrank();
-        assertLt(_debt(tokenId), frozenDebt);
+        assertLt(_debt(tokenId), 5_000e6);
 
-        // repaid headroom can be re-borrowed under the frozen limit: the freeze caps total debt, not borrowing
-        _borrow(borrower, tokenId, 400e6);
-        assertLe(_debt(tokenId), frozenDebt);
+        // Repayment cannot reopen borrowing capacity while the zero ceiling is active.
+        _expectBorrowRevert(borrower, tokenId, 400e6, GlobalDebtLimit.selector);
 
         // gap -60% while frozen: liquidation still works
         _moveNvda(nvdaTick + DOWN_60);

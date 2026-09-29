@@ -15,11 +15,13 @@ policy is *intentional* — do not "fix" it), `docs/agents/protocol-primer.md`.
 **In scope (pilot):** new `V3Oracle`, `InterestRateModel`, `V3Vault`, `FlashloanLiquidator`
 (MinUnstake-bound, no owner), seven `ChainlinkMultiplierFeed` adapters (ownerless, immutable),
 reuse of V3Utils `0xc3cFFd…Fe2dD`,
-deploy/verify/freeze scripts, mock + live-simulation tests, runbook, manifest, go/no-go.
+deploy/verify/emergency-freeze scripts, mock + live-simulation tests, runbook, manifest, go/no-go.
 
 **Out of scope (pilot):** GaugeManager/staking (one-shot `setGaugeManager`; MinUnstake gauge reward
 flow unsimulated; see `docs/investigation-aerodrome-stuck-unstake-71869354.md`), LeverageTransformer,
-AutoRangeAndCompound, AutoExit, frontend, MSTRc, SPCXc. Each may be added later by its own plan.
+AutoRangeAndCompound, AutoExit, frontend, MSTRc, SNDKc, SPCXc. SNDKc was added after the original
+seven-token analysis and has not passed its pool, feed-history or liquidity gates. Each excluded
+asset may be added later by its own plan.
 
 ---
 
@@ -35,11 +37,14 @@ not work.
 ```sh
 git checkout aerodrome-slipstream            # LOCAL branch — see dependency note below
 git checkout -b codex/coinbase-b20-equity-vault
+git checkout -b codex/coinbase-b20-equity-vault-dual-staleness
 ```
 
-**All work in this plan — contracts, tests, scripts, these docs — is committed on
-`codex/coinbase-b20-equity-vault`, never directly on `aerodrome-slipstream`** (decided by Mario,
-2026-09-16). It is merged back by PR when the DoD (§5) is met.
+The original pilot work remains on `codex/coinbase-b20-equity-vault`. The final deployment candidate,
+including the dual-age oracle change, lives on
+`codex/coinbase-b20-equity-vault-dual-staleness`; never deploy from either of the branches used by
+earlier integration deployments. Pin and independently review the exact candidate commit before
+broadcasting, then merge it by PR when the DoD (§5) is met.
 
 **Dependency:** branch off the *local* `aerodrome-slipstream`, not `origin/aerodrome-slipstream`.
 Three commits exist locally but are **not on origin** as of 2026-09-16 (`d4ebac0` design spec,
@@ -76,9 +81,9 @@ into `aerodrome-slipstream`) before this branch's PR. Do not lose them.
   | Arbitrum | Timelock 48h | Safe |
   | Mainnet | Timelock 48h | Safe |
 
-  The choice interacts with `emergencyAdmin = none`: a timelock-owned vault makes `setLimits`
-  48h-gated, so the Friday freeze must be scheduled by Wednesday 15:00 ET and no emergency response
-  can land in under 48h — which is why A was chosen for the pilot. Revisit option C (timelock owner
+  The choice interacts with `emergencyAdmin = none`: a timelock-owned vault makes an incident
+  `setLimits` response 48h-gated, so no emergency response can land in under 48h — which is why A
+  was chosen for the pilot. Revisit option C (timelock owner
   + Safe as `emergencyAdmin`) before raising caps beyond pilot. Scripts hardcode
   `OWNER = 0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9` and assert `owner() == OWNER` on every
   contract post-deploy.
@@ -103,7 +108,8 @@ into `aerodrome-slipstream`) before this branch's PR. Do not lose them.
   used anywhere.
   The role gates exactly two functions — `V3Vault.setLimits` (`V3Vault.sol:875`) and
   `V3Oracle.setOracleMode` (`V3Oracle.sol:293`) — so with it unset both are **multisig-only**.
-  Every Friday freeze and Sunday unfreeze is therefore a multisig transaction (WP6).
+  Any manual incident freeze or restoration is therefore a multisig transaction (WP6). Routine
+  stale-feed transitions are automatic and require no owner transaction.
 - **B20 tokens cannot execute on anvil/revm forks** (native client code, `0xef`). Do not build
   fork-based tests that call `transfer`/`multiplier` on the real tokens; they will revert. See WP3.
   **This also applies to `forge script` itself** (found 2026-09-16): forge runs the script body
@@ -260,11 +266,14 @@ Requirements:
 
 ### WP3 — Tests (three buckets; record the split so nothing is silently waived)
 
-**Bucket 1 — mock-tested, local (`forge test`).** **Status: implemented** (commit `b29f155`):
+**Bucket 1 — mock-tested, local (`forge test`).** **Status: dual-age tests implemented on the
+deployment-candidate branch** (original suite commit `b29f155`):
 `test/integration/aerodrome/B20TestBase.sol`, `mocks/MockB20Token.sol`, `mocks/MockChainlinkFeed.sol`,
-`V3OracleB20.t.sol` (28), `V3VaultB20.t.sol` (11 + 1) — 40 tests green. `MockPool.observe` was
+`V3OracleB20.t.sol` (33), `V3VaultB20.t.sol` (12 + 1) — 46 focused integration tests green on
+2026-09-29. `MockPool.observe` was
 corrected to the Uniswap cumulative sign convention (previous tests only used tick 0); the full Aerodrome
-integration suite (13 suites, 93 tests) and the unit suite (43) pass after the change (run 2026-09-16).
+integration suite (13 suites, **99 tests**) passes with the dual-age change (run 2026-09-29). The
+43-test unit-suite result remains the 2026-09-16 baseline and must be rerun in final CI.
 Add `test/integration/aerodrome/mocks/MockB20Token.sol`: `MockERC20` with 8 decimals plus
 `multiplier()` (settable), `setRevertMultiplier(bool)`, and `setBlocked(address, bool)` making
 `transfer`/`transferFrom` revert for blocked `from`/`to`/`msg.sender` (simulates policy gating).
@@ -282,15 +291,19 @@ Reuse `MockPool`, `MockAerodromePositionManager`, and the existing mock Chainlin
   reference print (10× / 0.1×) → `getValue` reverts on **every** equity via divergence; a USDC move
   to $0.98 (inside 3%) reprices all equities correctly.
   Cover: the `referenceTokenDecimals < tokenDecimals` scaling branch (`V3Oracle.sol:355-363`) with
-  8-dec token vs 6-dec reference against a known price; staleness revert at `maxFeedAge`; divergence
-  revert at `maxDifference`; spot-vs-derived revert at `maxPoolPriceDifference`; blackout table
-  (proposal §3.3) — `create`/deposit succeeds, `borrow` reverts, `liquidate` reverts, `repay`
-  succeeds, lender `withdraw` succeeds; multiplier transition with pool repriced *before* vs *after*
-  the feed print, including auto-recovery at the first adjusted print; reopen-wick scenario.
+  8-dec token vs 6-dec reference against a known price; exact operational-age and liquidation-age
+  boundaries; divergence revert at `maxDifference`; spot-vs-derived revert at
+  `maxPoolPriceDifference`; state table (proposal §3.3) — before 2h both valuation paths succeed;
+  from 2–30h strict valuation, `borrow`, collateral removal and transforms revert while
+  liquidation valuation and `liquidate` succeed; after 30h both valuation paths revert; `create`/
+  deposit, `repay`, and lender `withdraw` remain available without valuation. Include multiplier
+  transition with pool repriced *before* vs *after* the feed print, auto-recovery at the first
+  adjusted print, and the reopen-wick scenario.
 - `test/integration/aerodrome/V3VaultB20Limits.t.sol` — `collateralValueLimitFactorX32` binds on
   **both** legs; caps scale with `lentAssets`; sum-of-caps vs `globalDebtLimit` ordering; the
-  **freeze tuple** `setLimits(minLoan, lendLimit, currentDebt, 0, 0)` blocks new borrows and does
-  **not** block `repay` or `liquidate` (verify `_calculateDailyIncreaseLimit` semantics with mins 0);
+  **emergency freeze tuple** `setLimits(minLoan, lendLimit, 0, 0, 0)` strictly blocks new borrows,
+  including after repayments, and does **not** block `repay` or `liquidate` while the applicable
+  oracle price remains live (verify `_calculateDailyIncreaseLimit` semantics with mins 0);
   `minLoanSize` enforcement; **equity/equity cross pairs**: a mock pool of two configured
   equities is accepted as collateral via `create` with no allowlist; `min(CF0, CF1)` applies; both
   caps bind; both legs revert valuation in the same blackout (no USDC leg).
@@ -310,7 +323,7 @@ smoke test (WP4/§4).** Spike first: check whether Tenderly `simulate-bundle` or
   admin recorded. This is also the WP6 poller.
 - `tickwalk_exit.py` — WP5's model (below).
 - `feed_roundwalk.sh` — walk each aggregator's rounds back ≥ 2 weekends; assert the gap and the
-  weekday maxima; sample feed-vs-pool divergence across an **overnight** session (needed to freeze
+  weekday maxima; sample feed-vs-pool divergence across an **overnight** session (needed to pin
   `maxDifference`).
 - `ring_coverage.sh` — `pool.observe([60, 0])` succeeds on all seven at the pinned block; measured
   ring span (oldest initialized observation age) ≥ 10× `twapSeconds`; report cardinality for
@@ -320,16 +333,23 @@ smoke test (WP4/§4).** Spike first: check whether Tenderly `simulate-bundle` or
 
 **Bucket 3 — accepted-untested (record in proposal §7):** native-client admin behaviour
 (burn/seizure of pool balances, node-release semantics). Cannot be triggered or forked; covered by
-pilot caps, freeze runbook, issuer confirmation.
+pilot caps, automatic age gates, emergency-freeze runbook, issuer confirmation.
 
 ### WP4 — Deployment scripts (dry-run only in this plan)
 
-**Status (2026-09-16): written and committed (`script/CoinbaseEquity*.s.sol`, `script/DeployBaseCoinbaseEquity*.s.sol`, `script/VerifyBaseCoinbaseEquityDeployment.s.sol`); type-checked with the legacy solc pipeline. `DeployBaseCoinbaseEquityAdapters` **dry-run green against live Base** (2026-09-16, no broadcast): live multipliers via `vm.rpc` (GOOGLc `1.000377118676784179e18`, others `1e18`), all seven pool/feed preflights pass, adapter answers == share × multiplier, ~2.79M gas total. `DeployBaseCoinbaseEquityVault` **`DRY_RUN=true` Stage-A dry-run green against live Base** (2026-09-16, `--skip-simulation`, no broadcast): inline adapters, IRM, oracle with 8 `setTokenConfig`, vault with 7 configs + `globalDebtLimit = 0` + transformer, liquidator, `pendingOwner` assertions, three Safe calldata blobs printed. `Verify` and `CoinbaseEquityBorrowLimits` compile; their live runs need a deployed vault (Stage A) and are part of the deployment day itself. Two mechanics to respect on deploy day: (1) **force-rebuild before broadcasting** (`rm -rf out/V3Vault.sol out/V3Oracle.sol out/InterestRateModel.sol out/FlashloanLiquidator.sol && forge build`) — a stale `out/V3Vault.json` from an older compile made forge mis-slice the constructor args of the `new V3Vault(...)` tx ("buffer overrun while deserializing", foundry #8465-shaped) until V3Vault was recompiled in the same job as the script; (2) **`--skip-simulation` is mandatory** — forge's post-run replay of the bundle has no stubs and fails with `OpcodeNotFound` on every B20 `decimals()` call (observed).** One shared config contract holds every
+**Status (2026-09-29): dual-age contracts and scripts compile; a fresh live Base dry-run is still
+required before Stage A.** The 2026-09-16 adapter and Stage-A dry-runs predate the dual-age core and
+parameter changes and are historical evidence only; they do not satisfy the current go/no-go gate.
+They established the B20 `vm.rpc`/stub mechanism, all seven original pool/feed preflights and the
+deployment transaction shape. `Verify` and `CoinbaseEquityBorrowLimits` compile; their live runs need
+a deployed vault (Stage A) and are part of the deployment day itself. Two mechanics to respect on
+deploy day: (1) **force-rebuild before broadcasting** (`rm -rf out/V3Vault.sol out/V3Oracle.sol out/InterestRateModel.sol out/FlashloanLiquidator.sol && forge build`) — a stale `out/V3Vault.json` from an older compile made forge mis-slice the constructor args of the `new V3Vault(...)` tx ("buffer overrun while deserializing", foundry #8465-shaped) until V3Vault was recompiled in the same job as the script; (2) **`--skip-simulation` is mandatory** — forge's post-run replay of the bundle has no stubs and fails with `OpcodeNotFound` on every B20 `decimals()` call (observed).** One shared config contract holds every
 address and parameter so the scripts cannot drift: `script/CoinbaseEquityBaseConfig.s.sol`
 (`_equities()` table, `_validateEquityPool` incl. the `observe([60,0])` gate, `_requireFreshFeed`,
 `_logSafeTx`). Scripts: `DeployBaseCoinbaseEquityAdapters.s.sol`, `DeployBaseCoinbaseEquityVault.s.sol`,
 `VerifyBaseCoinbaseEquityDeployment.s.sol`, `CoinbaseEquityBorrowLimits.s.sol` (`FreezeBorrows` +
-`UnfreezeBorrows`). Adapter addresses flow between scripts as `ADAPTER_<SYMBOL>` env vars (logged by
+`UnfreezeBorrows`, incident use only). Adapter addresses flow between scripts as
+`ADAPTER_<SYMBOL>` env vars (logged by
 the adapter script). `foundry.toml` grants no `fs_permissions`, so scripts **log** rather than
 `vm.writeJson`; the WP7 manifest is assembled by hand from the logs and checked by the verify script.
 Dry-runs must target a **live Base RPC** (the stub's multiplier comes from `eth_call` on the node);
@@ -353,14 +373,16 @@ Preflight (`_validateDeploymentConfig`, all `require`):
   **`pool.observe([60, 0])` succeeds** (not a cardinality number — see WP0.1).
 - For each adapter: `adapter.feed() == expected feed`, `adapter.token() == expected token`,
   `adapter.decimals() == 8`, `adapter.latestRoundData()` succeeds and `updatedAt` within
-  `maxFeedAge`; USDC raw feed fresh within 86400.
+  the 2h operational `maxFeedAge`; USDC raw feed fresh within 86400.
 - `V3Utils(0xc3cF…).owner() == MULTISIG && pendingOwner() == address(0)` (WP0.2 accepted).
 Broadcast:
 1. `InterestRateModel(0, Q64*13/100, Q64*300/100, Q64*90/100)` **[confirm, §7]**.
 2. `V3Oracle(npm, USDC, address(0))`; `setMaxPoolPriceDifference(300)`;
    `setSequencerUptimeFeed(0xBCF8…6433)`; `setTokenConfig(USDC, usdcFeed, 86400, pool=0, 0,
    Mode.CHAINLINK, 0)` (forced for reference token; raw feed, as on every live vault); for each equity
-   `setTokenConfig(token, adapter, 108000, pool, 60, Mode.CHAINLINK_TWAP_VERIFY, 300)`.
+   `setTokenConfig(token, adapter, 7200, 108000, pool, 60,
+   Mode.CHAINLINK_TWAP_VERIFY, 300)`; the first age is used by all ordinary valuation and the second
+   only by the liquidation entry point.
    **Do not call `setEmergencyAdmin`** — leave `address(0)`, matching the live Aerodrome oracle.
 3. `V3Vault("Revert Lend Coinbase Equities USDC", "rlCbEqUSDC", USDC, npm, irm, oracle)`
    **[name/symbol: suggestion]**; `setTokenConfig` for USDC (85%, uncapped) and the seven equities
@@ -385,8 +407,8 @@ prints): the accept batch; `V3Utils.setVault(vault)` (owner-only; reuse
   position) within 3% of the adapter answer;
   `observe([60,0])` ×7; sequencer feed; **`emergencyAdmin() == address(0)` on both vault and
   oracle**; `owner() == MULTISIG && pendingOwner() == 0` on vault, oracle, V3Utils; IRM `owner()`;
-  adapters have no owner (assert no `owner()` selector); `globalDebtLimit == 0`; all token configs
-  == manifest.
+  adapters have no owner (assert no `owner()` selector); `globalDebtLimit == 0`; all token configs,
+  operational ages and liquidation ages == manifest.
 - `--stage b` (after the smoke test, before caps are raised): everything above plus the smoke-test
   evidence (tx hashes read from the manifest) and the final limits tuple.
 It does **not** simulate borrow/repay/liquidate via `eth_call` — stateless calls cannot chain and
@@ -397,17 +419,19 @@ forks cannot execute B20. That is the on-chain smoke test:
 small B20/USDC position per pair, borrows `minLoanSize`, repays; one position is pushed under the
 threshold by borrowing at max and waiting for a feed move (or a temporary CF tweak on that token
 config from the Safe — decide in review) and liquidated by the named liquidator (WP5) using `amountIn = 0`
-inventory-take; then everything is unwound and `globalDebtLimit` returns to `0` for the weekend
-dry-run (§4 #7). Record every tx hash in the manifest. This is the only place borrow → liquidate
+inventory-take; then everything is unwound and `globalDebtLimit` returns to `0` for the automatic
+age-transition rehearsal (§4 #7). Record every tx hash in the manifest. This is the only place borrow → liquidate
 is exercised against real B20 semantics before lenders are exposed.
 
-**`script/CoinbaseEquityBorrowLimits.s.sol` (`FreezeBorrows` / `UnfreezeBorrows`)** — `setLimits` is **owner-only**
-here (no `emergencyAdmin`) and the owner is the multisig, so these scripts **do not broadcast from
-`deployer`**. They read the current tuple and debt, compute the target
-`(minLoan, lendLimit, currentDebt, 0, 0)` (freeze) or the manifest tuple (unfreeze), print the exact
+**`script/CoinbaseEquityBorrowLimits.s.sol` (`FreezeBorrows` / `UnfreezeBorrows`)** — this is an
+incident backstop, not a weekly scheduler. `setLimits` is **owner-only** here (no `emergencyAdmin`)
+and the owner is the multisig, so these scripts **do not broadcast from `deployer`**. They read the
+current tuple and debt for operator context, compute the target
+`(minLoan, lendLimit, 0, 0, 0)` (strict freeze) or the manifest tuple (unfreeze), print the exact
 Safe calldata (`abi.encodeWithSignature("setLimits(uint256,uint256,uint256,uint256,uint256)", …)`
-plus `to`/`value`), and when run against a fork simulate the call and assert that `borrow` reverts
-while `repay` and `liquidate` succeed. The runbook (WP6) owns the schedule and the Safe template.
+plus `to`/`value`), and when run against a fork simulate the call and assert that `borrow` remains
+blocked after a repayment while `repay` and fresh-price `liquidate` succeed. The runbook (WP6) owns
+the incident criteria and Safe template.
 
 **Update `script/ConfigureV3Utils.s.sol`** only if its `PRIVATE_KEY` requirement blocks the
 keystore flow (it currently reads `vm.envUint("PRIVATE_KEY")` — same change as
@@ -440,7 +464,10 @@ Record which one in the manifest. Half-size caps remain placeholders until then.
 
 ### WP6 — Monitoring and runbook: `docs/runbook-coinbase-equity-vault.md`
 
-**Status (2026-09-16): draft written** — sensors mapped to the `script/sim/*` scripts with thresholds, Friday/Sunday procedures with the exact tuples and the printed-calldata flow, NYSE closure calendar, blackout table for users, six incident procedures, dress-rehearsal weekend. Placeholders remain for the named liquidator, the weekend signing quorum and the reserve seed (plan §7).
+**Status (2026-09-29): dual-age draft written** — sensors mapped to the `script/sim/*` scripts with
+thresholds, automatic 2h/30h behavior, a strict-zero emergency Safe procedure, NYSE closure
+calendar, state table for users, six incident procedures, and a dress-rehearsal weekend.
+Placeholders remain for the named liquidator, incident signing coverage and reserve seed (plan §7).
 
 Sensors:
 - **Policy-registry poller** (≥1/min; `script/sim/policy_registry.sh` in loop mode): for each
@@ -453,31 +480,31 @@ Sensors:
 - **`multiplier()` poller** on all seven. Any change → page + freeze borrows; check feed freshness
   before unfreezing (the stale-feed-across-the-flip window auto-recovers at the first adjusted print
   — do not "fix" it).
-- **Feed age**: alert 12h weekday / 20h weekend; page at 25h. Routine 5–7h intraday staleness is
-  normal — do not alert below 12h.
+- **Feed age**: warn at 90m; at 2h verify that strict valuation and risk-increasing actions fail
+  while liquidation valuation still works; page at 12h on a weekday; before 30h escalate loss of
+  liquidation coverage. A 24h feed heartbeat means intermittent weekday liquidation-only periods
+  are an explicit availability tradeoff, not an anomaly by themselves.
 - **Divergence**: |feed−spot| and |feed−TWAP| per name; alert at 50% of thresholds (1.5%).
 - **Ring coverage**: alert if any pool's measured observation span < 10× `twapSeconds`.
-- **Debt tracking must not use `loanInfo()`**: it values the collateral and reverts for the whole
-  blackout (verified in `V3VaultB20.t.sol::testBlackoutTable`). Monitors compute debt as
-  `loans(tokenId)` shares × `lastDebtExchangeRateX96 / Q96`, and health from the last good price.
-- **Freeze tuple nuance** (verified): `globalDebtLimit = currentDebt` caps *total* debt, so amounts
-  repaid during the weekend can be re-borrowed up to the frozen total. Acceptable — net exposure
-  cannot grow — but the runbook should say so rather than promise "no borrowing".
+- **Debt tracking must not use `loanInfo()` after 2h**: it deliberately uses strict valuation.
+  Monitors compute debt as `loans(tokenId)` shares × `lastDebtExchangeRateX96 / Q96`; between 2h
+  and 30h they obtain collateral value from `oracle.getValueForLiquidation(...)`.
+- **Emergency freeze tuple** (verified): `globalDebtLimit = 0` is strict, so repayments cannot
+  reopen capacity. It is reserved for issuer, policy, multiplier or oracle incidents; ordinary feed
+  staleness is enforced automatically by the oracle.
 - **Cross pairs**: enumerate deposited positions nightly; alert on any position whose two legs are
   both equities (see §2.8) and report its debt against both caps.
-Freeze procedure: responsible account/automation; exact five-tuples before/after; **Friday 15:00 ET**
-deadline; NYSE holiday and early-close calendar; per-name halt logic; success/failure/missed-tx
-monitoring; restoration = first post-closure print **and** |feed−TWAP| < 2% sustained; manual
-fallback owner; pre-weekend scan of loans near threshold. State that deposits cannot be frozen. **There is no
-`emergencyAdmin`**: the freeze and the unfreeze are each a multisig `setLimits` transaction, so the
-runbook must name the **weekend signing quorum** (who is on call at Friday 15:00 ET and Sunday
-evening), the Safe transaction template, and what happens if quorum is missed — borrows stay open
-into the blind window and the pre-weekend near-threshold scan becomes the only defence. Optional
-follow-up, out of pilot scope: a narrowly-scoped Safe module or scheduled transaction limited to the
-two tuples. Incident procedures: feed failure, corporate action, issuer policy change, failed/late
-liquidation, lender run during blackout.
-Acceptance: the freeze/unfreeze cycle is **exercised through one full weekend** on the deployed
-(borrow-disabled) vault before borrows are enabled, with logs attached.
+Automatic-transition procedure: record the last good update, verify strict actions reject at 2h,
+verify liquidation valuation remains available until 30h, and verify strict operation recovers only
+after a fresh print also passes the TWAP checks. Keep the NYSE holiday and early-close calendar for
+staffing and expected-gap classification, not for contract control. State that deposits and
+repayments remain available. **There is no `emergencyAdmin`**: a manual incident freeze and its
+restoration are multisig `setLimits` transactions, so the runbook must name incident signing
+coverage, the Safe transaction template and restoration criteria. Incident procedures: feed
+failure, corporate action, issuer policy change, failed/late liquidation, lender run during
+blackout. Acceptance: the automatic 2h transition, 30h cutoff and fresh-print recovery are observed
+through one full weekend on the deployed borrow-disabled vault; separately exercise the strict-zero
+emergency freeze/unfreeze once, with logs attached.
 
 ### WP6b — Equity/equity cross pairs (decision, not a frontend setting)
 
@@ -529,7 +556,8 @@ legal sign-off reference.
 | Oracle `maxPoolPriceDifference` | 3% | `300` | §3.1 |
 | Equity oracle mode | `CHAINLINK_TWAP_VERIFY` | enum | §3.1 |
 | Equity `twapSeconds` | 60 s | `60` | §3.1 (a 360 ring cannot fail a 60 s window; see WP0.1) |
-| Equity `maxFeedAge` | 30 h | `108000` | §3.1 (>24h weekday gaps, <52.45h weekend) |
+| Equity operational `maxFeedAge` | 2 h | `7200` | §3.1; gates every ordinary valuation and risk-increasing action |
+| Equity liquidation `maxFeedAge` | 30 h | `108000` | §3.1; used only by `liquidate()` through the distinct oracle entry point |
 | Equity `maxDifference` | 3% | `300` | §3.1 — never above; validate overnight |
 | USDC oracle mode | `CHAINLINK` (forced) | enum | `setTokenConfig` L261–278 |
 | USDC `maxFeedAge` | 24 h | `86400` | house convention |
@@ -550,7 +578,7 @@ legal sign-off reference.
 | `setLimits` at deploy (Stage A) | borrows disabled | `(1_000e6, 2_000_000e6, 0, 200_000e6, 100_000e6)` | §4.4 |
 | `setLimits` smoke test (Stage B) | tiny | `(1_000e6, 2_000_000e6, 3 × minLoanSize, 200_000e6, 100_000e6)` | WP4 smoke |
 | `setLimits` live | | `(1_000e6, 2_000_000e6, 1_000_000e6, 200_000e6, 100_000e6)` | §4.4; `minLoanSize` to be derived |
-| `setLimits` weekend freeze | | `(1_000e6, 2_000_000e6, currentDebt, 0, 0)` | WP4/WP6 — verify in WP3 |
+| `setLimits` emergency freeze | strict zero | `(1_000e6, 2_000_000e6, 0, 0, 0)` | WP4/WP6 — incident use; verify repayment cannot reopen capacity |
 | Pool cardinality | optional | `2048` on the three 360-ring pools, if bumped at all; gate is `observe([60,0])` + span ≥ 10× | WP0.1 |
 | Cross pairs (equity/equity) | accept + monitor (decided) | no allowlist; caps bind both legs; nightly scan | WP6b |
 | Named liquidator | account, capital, B20 eligibility | **TBD** | WP5 gate |
@@ -573,7 +601,7 @@ Feed, token and pool addresses per asset are in proposal §2.1, §2.3, §2.5.
 | 4 | A | `VerifyBaseCoinbaseEquityDeployment --stage a` | read-only | 3b; all green |
 | 5 | B | `V3Utils.setVault(vault)` | **multisig** | 1b, 4 |
 | 6 | B | **On-chain smoke test**: `setLimits(…, 3 × minLoanSize, …)`; deposit/borrow/repay per pair; one real liquidation by the named liquidator; unwind; `setLimits(…, 0, …)` | **multisig** + team accounts + liquidator | 5; WP5 liquidator gate |
-| 7 | B | Enable monitoring (incl. policy-registry poller); **run one full weekend** with borrows disabled; exercise freeze/unfreeze tuples | ops + **multisig** (each `setLimits` is a Safe tx) | 6; logs attached |
+| 7 | B | Enable monitoring (incl. policy-registry poller); **run one full weekend** with borrows disabled; observe 2h/30h automatic transitions and recovery; separately exercise the emergency zero freeze/unfreeze | ops + **multisig** only for emergency drill | 6; logs attached |
 | 8 | B | `VerifyBaseCoinbaseEquityDeployment --stage b`; `setLimits(..., globalDebtLimit = 1_000_000e6, ...)` — borrows open at pilot caps | **multisig** | §6 Stage-B gates all green |
 | 9 | post | After ≥4 clean weekends + seeded reserves: evaluate CF/cap ramp | multisig | monitoring data |
 
@@ -587,11 +615,14 @@ Feed, token and pool addresses per asset are in proposal §2.1, §2.3, §2.5.
 - WP2 merged with an independent review comment on the exact diff.
 - WP3 bucket 1 green in CI; bucket 2 scripts runnable and outputs committed under `script/sim/results/`
   for a pinned block; bucket 3 recorded.
+- Optimized runtime sizes recorded from the exact candidate build; `V3Vault` and `V3Oracle` are both
+  below the 24,576-byte EIP-170 limit. Recheck after every source or compiler-setting change.
 - WP4 scripts dry-run green against live Base at a recent block (`forge script … --rpc-url …`
   without `--broadcast`), preflight assertions all passing.
 - WP5 model reproduced at two blocks; pilot caps in manifest justified by it or divergence accepted;
   liquidation-readiness route (1/2/3) chosen and, if (2), the liquidator named.
-- WP6 runbook written; freeze/unfreeze scripts dry-run; policy-registry poller runs against live Base.
+- WP6 runbook written; automatic age transition tested; emergency freeze/unfreeze scripts dry-run;
+  policy-registry poller runs against live Base.
 - WP6b: accept+monitor recorded; cross-pair scan in the runbook.
 - WP7 manifest schema filled with everything known pre-deploy; go/no-go list (§6) instantiated.
 - Proposal §7 updated: every [assumption] either converted to [verified] or moved to [accepted risk]
@@ -617,8 +648,12 @@ a Stage-B artefact.
       (or exclusion chosen)
 - [ ] `ChainlinkMultiplierFeed` (multiplier only, ownerless) merged, independently reviewed,
       matrix tested; garbage-print divergence tests (equity and USDC) green
-- [ ] `twapSeconds`, `maxDifference`, `maxPoolPriceDifference`, `maxFeedAge` pinned; overnight
-      divergence samples support `maxDifference = 300`
+- [ ] `twapSeconds`, `maxDifference`, `maxPoolPriceDifference`, operational `maxFeedAge` and
+      liquidation `maxFeedAge` pinned; overnight divergence samples support `maxDifference = 300`
+- [ ] Dual-age `V3Oracle`/`V3Vault` diff independently audited: only `liquidate()` can reach the
+      relaxed oracle entry point; action-level and exact-boundary tests green
+- [ ] Exact candidate built with pinned settings; deployed runtime sizes attached and below 24,576
+      bytes (`V3Vault` currently 23,763; `V3Oracle` 22,837), with no unreviewed source change afterward
 - [ ] Cross-pair handling recorded as accepted risk in the proposal; nightly scan specified in runbook
 - [ ] Explicit CF line (55/50 launch; ramp conditions) recorded
 - [ ] `minLoanSize` derived from measured gas + stressed exit; IRM parameters confirmed
@@ -642,10 +677,10 @@ green; `emergencyAdmin() == address(0)` on vault and oracle; `globalDebtLimit ==
 - [ ] Caps supported by WP5 stressed-exit model, or half-size pilot explicitly accepted *and* the
       liquidator gate above passed
 - [ ] Reserve seeding done (amount, funder) or first-loss socialisation explicitly accepted
-- [ ] Freeze/unfreeze **exercised over one full weekend on the deployed vault**; runbook names
-      accounts, tuples, deadline, calendar, restoration, fallback
-- [ ] **Multisig weekend signing quorum committed** for Friday freeze / Sunday unfreeze, with a
-      tested Safe tx template
+- [ ] Automatic 2h liquidation-only transition, 30h valuation cutoff and fresh-print recovery
+      observed over one full weekend on the deployed borrow-disabled vault
+- [ ] Strict-zero emergency freeze/unfreeze exercised separately; runbook names accounts, tuple,
+      incident criteria, restoration criteria and fallback; incident signing coverage confirmed
 - [ ] Monitoring live: policy-registry poller, canary, multiplier poller, feed age, divergence,
       ring coverage, cross-pair scan
 - [ ] `Verify --stage b` green; manifest complete; independent reviewer has checked final commit,
@@ -661,7 +696,7 @@ cancellation. **Do not force a deployment recommendation.**
 | Decision | Blocks | Default if none |
 | --- | --- | --- |
 | ~~Vault owner: Safe or 48h timelock?~~ **Decided: A — Safe `0x45B22086…1cc9`, no timelock, `emergencyAdmin = none` (all as rlAeroUSDC).** Option C (48h timelock owner + Safe as `emergencyAdmin`) is the recorded candidate for post-pilot hardening before caps are raised | WP4, WP6 | — |
-| Weekend multisig signing quorum (Friday 15:00 ET freeze, Sunday-evening unfreeze) — `emergencyAdmin` itself is decided: none | WP6 | — |
+| Incident multisig signing coverage for manual emergency freeze/restoration — `emergencyAdmin` itself is decided: none | WP6 | — |
 | Reserve seed amount and funder (≥ $40–100K suggested) | #7 in §4 | explicit first-loss acceptance |
 | ~~Adapter answer bounds (equity + USDC)~~ **Decided: none** — redundant with TWAP divergence; matches live vaults | — | — |
 | ~~Cross pairs~~ **Decided: accept + monitor** (no allowlist at pilot; caps bind both legs; nightly scan) | — | — |

@@ -26,8 +26,10 @@ Slipstream LP positions (MinUnstake factory) containing **Coinbase B20 tokenized
 - Launch collateral factors **55%** (AAPLc, MSFTc, GOOGLc, AMZNc, METAc) and **50%** (NVDAc, TSLAc),
   with an evidence-gated ramp to 60/55.
 - Hard per-name debt caps as **concentration limits**, at **half size for the pilot**.
-- A **~22h weekend liquidation blackout** is accepted by design (fail-closed oracle), with a Friday
-  borrow freeze and monitoring that has been exercised through a full weekend before borrows open.
+- A **2h operational feed-age limit** automatically blocks new debt and risk-increasing collateral
+  operations; liquidation alone retains the existing 30h window. The remaining **~22h weekend
+  liquidation blackout** is accepted by design. Manual `globalDebtLimit = 0` is an emergency fallback,
+  not a weekly procedure.
 - MSTRc and SPCXc excluded. No staking (GaugeManager) at pilot. V3Utils is the only transformer at pilot.
 
 ---
@@ -204,11 +206,11 @@ A 72.5h gap was observed over Labor Day weekend.
 | NVDAc | 363 | 77.9 | 17.6 | 1.18% | 0.10% |
 | TSLAc | 400 | 76.0 | 18.6 | 1.01% | 0.29% |
 
-Three-day weekends produce **76–82h** closures (the 52.45h figure is an ordinary weekend); with
-`maxFeedAge` 30h that only lengthens the blackout, it does not fail open. **Weekday gaps reach exactly
-24.0h** on several feeds, leaving 6h of margin under 108000s — a spurious weekday blackout is the
-failure mode if that margin is ever crossed. **[review question: 30h vs 36h]** Reopen steps in the
-window never exceeded 1.4%; live divergence 0.03–0.29% supports `maxDifference = 300`.
+Three-day weekends produce **76–82h** closures (the 52.45h figure is an ordinary weekend). Weekday
+gaps reach 24h and the public feeds have a 24h heartbeat, so the 2h operational threshold deliberately
+causes intermittent weekday borrow pauses. This is a liveness cost, not a liquidation outage:
+liquidation retains the 30h threshold. Reopen steps in the window never exceeded 1.4%; live
+divergence 0.03–0.29% supports `maxDifference = 300`.
 
 Live feed-vs-pool divergence, regular session (single sample; overnight sampling still required):
 NVDAc 0.33% · METAc 0.22% · GOOGLc 0.14% · AMZNc 0.07% · AAPLc 0.05% · MSFTc 0.00%.
@@ -266,15 +268,21 @@ USDC print is caught indirectly: it moves the Chainlink-derived equity prices bu
 TWAPs, so all seven equities diverge and the vault fails closed (§2.6).
 
 Equities: `Mode.CHAINLINK_TWAP_VERIFY`, feed = **`ChainlinkMultiplierFeed` adapter** (§3.2), pool =
-the USDC pool in §2.3, `twapSeconds` **60**, `maxFeedAge` **108000** (30h), `maxDifference` **300**
-(3%). Global `maxPoolPriceDifference` **300**.
+the USDC pool in §2.3, `twapSeconds` **60**, operational `maxFeedAge` **7200** (2h), liquidation
+`maxFeedAge` **108000** (30h), `maxDifference` **300** (3%). Global
+`maxPoolPriceDifference` **300**.
+
+The existing seven-argument `setTokenConfig` remains ABI-compatible and sets both ages to the same
+value. Existing deployment scripts and any newly deployed non-equity vault therefore retain the
+original single-window behavior. Only the new eight-argument overload opts a token into distinct
+operational and liquidation ages.
 
 Three independent fail-closed checks can revert valuation for an asset, and the blackout starts at
 whichever fires first:
 
-1. **Staleness** (`_getChainlinkPriceX96`): `updatedAt + maxFeedAge < now`. Fires ~30h after the last
-   Friday print (Sat ~21:30 ET). Bounds: > ~24h or 16.8h weekday gaps revert spuriously; < 52.45h or
-   the check is decorative.
+1. **Staleness** (`_getChainlinkPriceX96`): normal valuation rejects after 2h; the liquidation-only
+   entry point rejects after 30h. `updatedAt == 0` and future timestamps also reject. This creates an
+   automatic middle state where debt cannot grow but liquidation remains available.
 2. **Chainlink vs TWAP divergence** (`_requireMaxDifference`, L381–383) > 3%. Observed 0.00–0.33%
    regular-session; structural floor ~0.5% (feed deviation threshold). **Do not exceed 300** — it
    doubles as the silent-multiplier-error tolerance (§3.2). Validate on overnight samples first.
@@ -289,10 +297,11 @@ Current `V3Oracle` values `rawUnits × feedPrice` and never reads `multiplier()`
 feed ≤30h-fresh and the pool untradeable (TWAP frozen); both checks pass while collateral is impaired,
 and deposits remain open, so impaired LP can be deposited and borrowed against.
 
-Fix — a ~20-line `AggregatorV3Interface` adapter per equity, no audited-code change, **immutable
-and ownerless** (nothing to administer; replacing one is a new deploy + `setTokenConfig` from the
-Safe). If Chainlink confirms token-basis units the adapter is not needed and the raw feeds are wired
-directly:
+Fix — a small `AggregatorV3Interface` adapter per equity, **immutable and ownerless** (nothing to
+administer; replacing one is a new deploy + `setTokenConfig` from the Safe). This deployment branch
+also changes `V3Oracle`/`V3Vault` for dual feed-age contexts; the earlier "no audited-core change"
+claim no longer applies. If Chainlink confirms token-basis units the adapter is not needed and the
+raw feeds are wired directly:
 
 ```
 ChainlinkMultiplierFeed.latestRoundData():
@@ -326,17 +335,17 @@ Answer bounds (C4 #446) were considered and dropped as redundant with the ±3% T
    (redemption-layer only). If balances can mutate, v3 pool accounting breaks and this collateral
    type is undeployable regardless of oracle design.
 
-### 3.3 What a blackout freezes (corrected) [verified]
+### 3.3 Feed-age state machine [verified]
 
-| Operation | During blackout |
-| --- | --- |
-| Lender `withdraw` / `redeem` | works — but only while the vault holds liquid USDC; first-mover withdrawals concentrate risk on remaining lenders |
-| Borrower `repay` | works |
-| **Deposit collateral** (`create` / `onERC721Received`) | **works** — never touches the oracle; the Friday freeze cannot stop pre-positioning |
-| `borrow` / increase debt | frozen |
-| **`liquidate`** | **frozen** — the safety-critical loss |
-| indebted `transform` (V3Utils etc.) | frozen |
-| `loanInfo()` view | **reverts** — it values the collateral; frontends and monitors must derive debt from `loans(tokenId)` shares × `lastDebtExchangeRateX96` (found by WP3 tests) |
+| Operation | 2–30h: liquidation-only | >30h: full valuation blackout |
+| --- | --- | --- |
+| Lender `withdraw` / `redeem` | works while liquid USDC remains | same |
+| Borrower `repay` | works | works |
+| **Deposit collateral** (`create` / `onERC721Received`) | works | works |
+| `borrow` / increase debt | frozen | frozen |
+| collateral removal / indebted transform / staking | frozen | frozen |
+| **`liquidate`** | **works**, subject to unchanged TWAP/divergence checks | **frozen** |
+| `loanInfo()` view | reverts on the strict path; liquidators use `getValueForLiquidation()` plus debt shares | reverts |
 
 Fail-closed is the documented protocol policy (`docs/agents/risk-and-acceptability.md`, "Oracle-Failure
 Policy"). Borrowers cannot withdraw collateral or add debt during it, so nothing can be extracted;
@@ -352,20 +361,18 @@ pool as sole price authority; (3) its benefit concentrates exactly where it is l
 `CHAINLINK_TWAP_VERIFY` unless new evidence supports a better independent 24/7 reference; do not use
 the 60s TWAP as routine sole oracle or automatic emergency fallback.
 
-### 3.5 Required operational mitigation: Friday borrow freeze [blocker — WP4/WP6]
+### 3.5 Automatic borrow circuit breaker and manual emergency fallback [blocker — WP3/WP6]
 
-Because the buffer must absorb the whole weekend unaided, borrowing must be frozen before the blind
-window. The plan specifies: the account/automation responsible; the exact `setLimits` five-tuple
-before/after (`globalDebtLimit ≈ current debt`); Friday 15:00 ET deadline; holiday/early-close
-calendar; per-name halt logic; monitoring of success/failure; restoration conditions (first
-post-closure print **and** |feed−TWAP| < 2% sustained); manual fallback owner; pre-weekend scan of
-loans near threshold. It must be **exercised through one full weekend before borrows are enabled**.
+The oracle automatically blocks all normal valuation after 2h without a fresh equity print while
+retaining liquidation valuation through 30h. No transaction, keeper or calendar is needed for this
+transition or its recovery. A full weekend dress rehearsal must demonstrate the 2h transition, 30h
+liquidation cutoff and recovery at fresh prints before borrows are enabled. For unrelated incidents,
+the Safe can strictly freeze all new borrowing with `globalDebtLimit = 0`; repayment cannot reopen
+capacity under that ceiling.
 **No `emergencyAdmin` is set (`address(0)`), matching every live Revert Lend vault and oracle on
 every chain — the role has never been set anywhere (zero `SetEmergencyAdmin` events house-wide)
-[verified].** The role gates only `V3Vault.setLimits` and `V3Oracle.setOracleMode`; with it unset both
-are **multisig-only**, so the Friday freeze and the Sunday unfreeze are each a multisig transaction.
-Trade-off accepted: no hot key holds limit-rewriting authority, at the cost of needing signer quorum
-every weekend — a missed Friday quorum leaves borrows open into the blind window **[accepted risk]**.
+[verified].** `V3Vault.setLimits` and `V3Oracle.setOracleMode` remain multisig-only. This no longer
+creates a recurring weekend dependency; it affects only manual incident response.
 
 ---
 
@@ -406,7 +413,10 @@ Ramp only after ≥4 clean weekends of monitoring data **and** seeded reserves.
 
 **Excluded:** MSTRc — a leveraged bitcoin proxy; **bitcoin trades all weekend**, so its fair value
 moves inside the blind window (the one name where the blackout is a live mechanism, not a tail).
-SPCXc — recent IPO, no volatility history (~−30% from day-one close in six weeks).
+SPCXc — recent IPO, no volatility history (~−30% from day-one close in six weeks). SNDKc — added
+after the original seven-token analysis and not yet evaluated against this proposal's pool,
+feed-history, policy and stressed-exit gates. There are ten Coinbase equity tokens in the current
+catalog; this pilot deliberately configures seven.
 
 ### 4.3 Per-name debt caps — concentration limits, half-size pilot
 
@@ -476,7 +486,8 @@ transforms (no compounding) may still be accepted separately.
 
 **Staged deployment:** Stage A deploys everything inert (`globalDebtLimit = 0`, no `setVault`) and
 is gated only on pre-deployment evidence; Stage B (smoke test with a tiny debt limit, one real
-liquidation, one full weekend of freeze/unfreeze, then caps) is gated on evidence from the Stage-A
+liquidation, one full weekend observing the automatic 2h/30h transitions plus a separate emergency
+freeze drill, then caps) is gated on evidence from the Stage-A
 deployment. Stateless `eth_call` simulation cannot chain borrow → repay → liquidate and forks cannot
 run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLoanSize`.
 
@@ -493,17 +504,18 @@ run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLo
 | R5 | High | B20 is native-client code; issuer blocking, pause, burn, seizure possible | Mario/legal | policy state **is pollable** via registry `0x8453…0002` → poller on every protocol address (WP6); role holders from logs + legal (WP1); canary; pilot caps; **exclusion remains a possible outcome** | **open — WP1** |
 | R6 | Med | `maxPoolPriceDifference` unchosen; reopen wicks extend blackouts | eng | 300, consequence in runbook; wick scenarios in tests | resolved in §3.1 |
 | R7 | Med | V3Utils owned by hot key | Mario | `Ownable2Step`: hot key `transferOwnership`, **Safe `acceptOwnership`**; verify `owner()==Safe && pendingOwner()==0` before `setVault` | **open — WP0** |
-| R8 | Med | No `emergencyAdmin` (matches live): freeze/unfreeze are multisig txs every weekend; missed quorum = borrows open into the blind window | Mario | weekend signing quorum + Safe tx template committed; pre-weekend near-threshold scan | **address decided; quorum open — WP6** |
+| R8 | Med | Dual-age implementation changes previously audited `V3Oracle`/`V3Vault`; a permissive call-site mistake could authorize borrowing with the 30h liquidation price | eng | separate `getValue` / `getValueForLiquidation` entry points; only `liquidate()` calls the latter; boundary and action-level tests; independent core review | **open — WP3** |
 | R9 | Med | Zero reserves → first loss to lenders | Mario | seed ≥$40–100K or explicit acceptance | **decision** |
-| R10 | Med | Deposits cannot be frozen; pre-positioning before weekend | eng | borrowing frozen instead; documented | accepted |
+| R10 | Med | Deposits cannot be frozen; pre-positioning before a stale-price window | eng | risk-increasing actions stop automatically after 2h; deposits and repayments intentionally remain available | accepted |
 | R11 | Low | C4 #446 min/max bounds absent (house-wide) | eng | covered here by `CHAINLINK_TWAP_VERIFY` divergence on equities and, indirectly, on the USDC reference; bounds dropped as redundant | **accepted — matches live** |
 | R12 | Low | `minLoanSize` $100 uneconomic to liquidate | risk | ≥$1,000, derived from gas + exit | resolved in §4.4 |
 | R13 | Low | Existing tests can't exercise B20 on anvil | eng | three-bucket test split (plan §WP3) | planned |
-| R14 | Med | Ownership: CF/cap/config changes land with 2 Safe signatures, no timelock (older lend vaults sit behind a 48h timelock). Accepted for the pilot because the weekly freeze needs a fast `setLimits` and `emergencyAdmin` is unset | Mario | pilot caps bound the blast radius; revisit option C (timelock owner + Safe as `emergencyAdmin`) before raising caps | **decided (A) — accepted risk** |
+| R14 | Med | Ownership: CF/cap/config changes land with 2 Safe signatures, no timelock (older lend vaults sit behind a 48h timelock) | Mario | automatic age gate removes the weekly owner action; pilot caps bound the blast radius; revisit timelock ownership before raising caps | **decided (A) — accepted risk** |
 | R15 | Low | USDC reference feed in forced `CHAINLINK` mode has no direct TWAP check; it divides every equity price | eng | a bad USDC print diverges all seven equity legs from their TWAPs → vault-wide fail-closed; no exploitable path; same as every live vault | **accepted — covered by R11 reasoning** |
 | R16 | **High** | **Issuer control surface is three plain EOAs**: policy-5 admin `0xEC0F05…2812` (transfer/mint gating), `DEFAULT_ADMIN_ROLE` `0x38467b…72b1` (can grant any role incl. SEIZE), `PAUSE/UNPAUSE_ROLE` `0x2fb501…bcdd` — identical on all seven tokens; no SEIZE holder today | Mario | Coinbase to explain key custody/process for all three (WP1.3); pollers on `policyAdmin`/`pendingPolicyAdmin` and on role logs (`roles_from_logs.py` with `LAST=`); pilot caps; exclusion possible | **open — WP1** |
 | R17 | Med | Equity/equity crosses depositable permissionlessly; riskier than equity/USDC (no USDC leg, correlated legs, joint blackout); frontend hiding is not a control | Mario/eng | **accept + monitor** (decided 2026-09-16): caps bind both legs; nightly cross-pair scan; allowlist deferred to pre-ramp review | **accepted risk** |
 | R18 | Med | Ownership mis-sequencing: `Ownable2Step` transfers left unaccepted leave the hot key as owner; `FlashloanLiquidator` has no owner | eng | scripts assert `pendingOwner`, print Safe accept batches; verify asserts `owner`+`pendingOwner`; manifest records both | planned — WP4 |
+| R19 | Med | `V3Vault` has little EIP-170 bytecode headroom; an earlier dual-age implementation shape compiled to 25,360 bytes and was undeployable | eng | preserve the original strict helper and isolate the liquidation helper; exact candidate currently 23,763 bytes vs 24,576 limit; make runtime-size output a Stage-A gate and recheck after any source/compiler change | **resolved in candidate; gate remains** |
 
 ---
 
@@ -513,19 +525,21 @@ run B20, so the smoke test is real transactions at `globalDebtLimit = 3 × minLo
 ~10–19% historical max negative gap; IRM parameters fit target utilisation; who controls the
 policy-admin EOA. (Policy-5 blocklist semantics: now **verified** via the registry.)
 
-**Accepted risks (carried deliberately):** native-client B20 semantics not auditable; ~22h weekly
-liquidation blackout (+ holidays); post-gap DEX exit near zero (pilot caps, 0x, or inventory-only);
-deposits open during blackout; liquidation penalty band fixed at 2–10%.
+**Accepted risks (carried deliberately):** native-client B20 semantics not auditable; intermittent
+weekday operational pauses from the 2h limit; ~22h weekly liquidation blackout (+ holidays);
+post-gap DEX exit near zero (pilot caps, 0x, or inventory-only); deposits open during blackout;
+liquidation penalty band fixed at 2–10%.
 
 **Unresolved blockers — Stage A (no deployment until closed):** V3Utils ownership transferred
 **and accepted**; WP1 written confirmations (Chainlink units, Coinbase multiplier/balance semantics,
-policy-admin EOA control, role enumeration, legal); WP2 adapter with independent review;
+policy-admin EOA control, role enumeration, legal); WP2 adapter and dual-age core changes with
+independent review;
 minLoan/IRM specified;
 `observe([60,0])` gate green.
 **Unresolved blockers — Stage B (borrows stay disabled until closed):** on-chain smoke test with one
 real liquidation; liquidation-readiness route documented (stressed liquidity, named liquidator, or
-capital-derived caps); stressed-exit model supporting caps; freeze/unfreeze exercised over one full
-weekend on the deployed vault; weekend quorum; reserves decision; monitoring live incl. registry
+capital-derived caps); automatic 2h/30h transitions exercised over one full weekend on the deployed
+vault; emergency zero-limit drill; reserves decision; monitoring live incl. registry
 poller. If any cannot be satisfied: smaller pilot, different parameters, different design, or
 cancellation — **do not force a deployment recommendation.**
 

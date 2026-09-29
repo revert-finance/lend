@@ -73,6 +73,7 @@ contract DeployBaseCoinbaseEquityVault is CoinbaseEquityBaseConfig {
                 eq[i].token,
                 AggregatorV3Interface(adapters[i]),
                 EQUITY_MAX_FEED_AGE,
+                EQUITY_LIQUIDATION_MAX_FEED_AGE,
                 IUniswapV3Pool(eq[i].pool),
                 TWAP_SECONDS,
                 V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
