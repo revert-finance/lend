@@ -1,5 +1,5 @@
 {
-  "$comment": "Manifest of record for the Coinbase B20 equity-collateral vault on Base (plan WP7). Values under 'deployed' are filled from script logs after each stage; everything else mirrors script/CoinbaseEquityBaseConfig.s.sol and is asserted by VerifyBaseCoinbaseEquityDeployment.",
+  "$comment": "Manifest of record for the Coinbase B20 equity-collateral vault on Base. Values under 'deployed' are filled from script logs after each stage; everything else mirrors script/CoinbaseEquityBaseConfig.s.sol and is asserted by VerifyBaseCoinbaseEquityDeployment.",
   "chainId": 8453,
   "branch": "codex/coinbase-b20-equity-vault-dual-staleness",
   "stage": "pre-deployment",
@@ -9,10 +9,6 @@
     "oracle": {"address": null, "owner": "0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9", "pendingOwner": "0x0000000000000000000000000000000000000000", "emergencyAdmin": "0x0000000000000000000000000000000000000000", "ownership": "Ownable2Step (Safe accepted tx: null)", "tx": null},
     "vault": {"address": null, "owner": "0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9", "pendingOwner": "0x0000000000000000000000000000000000000000", "emergencyAdmin": "0x0000000000000000000000000000000000000000", "ownership": "Ownable2Step (Safe accepted tx: null)", "tx": null},
     "flashloanLiquidator": {"address": null, "ownership": "none", "tx": null},
-    "adapters": {
-      "AAPLc": null, "MSFTc": null, "GOOGLc": null, "AMZNc": null, "METAc": null, "NVDAc": null, "TSLAc": null,
-      "ownership": "none (immutable)"
-    },
     "v3UtilsSetVaultTx": null,
     "smokeTest": {"setLimitsTinyTx": null, "borrowTxs": [], "repayTxs": [], "liquidationTx": null, "liquidator": null, "resetToZeroTx": null},
     "ageTransitionRehearsal": {"operationalCutoffObservedAt": null, "liquidationCutoffObservedAt": null, "freshPrintRecoveryObservedAt": null, "sensorLogs": null},
@@ -34,7 +30,7 @@
     "constructor": {"npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53", "referenceToken": "USDC", "chainlinkReferenceToken": "0x0000000000000000000000000000000000000000"},
     "maxPoolPriceDifference": 300,
     "usdc": {"feed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B", "maxFeedAge": 86400, "mode": "CHAINLINK (forced for referenceToken)"},
-    "equities": {"operationalMaxFeedAge": 7200, "liquidationMaxFeedAge": 108000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "ChainlinkMultiplierFeed adapter (feed, token)"}
+    "equities": {"operationalMaxFeedAge": 7200, "liquidationMaxFeedAge": 108000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "raw Chainlink token-total-return feed; multiplier already included"}
   },
   "vault": {
     "name": "Revert Lend Coinbase Equities USDC",
@@ -73,11 +69,13 @@
     "multipliers": {"GOOGLc": "1000377118676784179", "others": "1000000000000000000"}
   },
   "evidence": {
-    "unitTests": "test/unit/ChainlinkMultiplierFeed.t.sol",
     "integrationTests": ["test/integration/aerodrome/V3OracleB20.t.sol", "test/integration/aerodrome/V3VaultB20.t.sol"],
     "liveChecks": "script/sim/results/",
     "stressedExitModel": ["script/sim/results/tickwalk_exit-51372341.json", "script/sim/results/tickwalk_exit-51352341.json"],
-    "adapterDryRun": "forge script DeployBaseCoinbaseEquityAdapters --rpc-url <base> (2026-09-16, no broadcast): 7 adapters, ~2.79M gas"
+    "feedSemantics": "https://docs.chain.link/data-feeds/tokenized-equity-feeds/coinbase",
+    "rawFeedDeploymentDryRun": null,
+    "historicalSimulationNote": "Pre-2026-10-01 outputs used a superseded share-price assumption; divergence and corporate-action evidence must be regenerated.",
+    "corporateActionDetection": "UNRESOLVED: raw-feed staleness does not immediately detect a registry pause or an unpublished multiplier change"
   },
   "decisions": {
     "owner": "A: Safe 2-of-3, no timelock (as rlAeroUSDC)",

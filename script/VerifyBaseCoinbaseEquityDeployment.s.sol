@@ -7,23 +7,21 @@ import "../src/InterestRateModel.sol";
 import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
 import "../src/utils/FlashloanLiquidator.sol";
-import "../src/utils/ChainlinkMultiplierFeed.sol";
 import "../src/transformers/V3Utils.sol";
 
-/// @notice Read-only postcondition check for the Coinbase equity vault (plan WP4 / §6).
-///         Env: ORACLE, VAULT, IRM, LIQUIDATOR, ADAPTER_* and STAGE ("a" or "b").
+/// @notice Read-only postcondition check for the Coinbase equity vault.
+///         Env: ORACLE, VAULT, IRM, LIQUIDATOR and STAGE ("a" or "b").
 ///         Stage A: everything deployed, Safe has accepted, borrows disabled, no setVault yet.
 ///         Stage B: additionally V3Utils.vaults(vault) is true; globalDebtLimit is 0 (weekend dry-run)
 ///         or the live value (borrows open).
 ///         Does not simulate borrow/repay/liquidate: stateless calls cannot chain and forks cannot run
 ///         B20 code - that is the on-chain smoke test. Run against a live Base RPC only.
 contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
-    uint256 internal constant IMPLIED_PRICE_TOLERANCE_X10000 = 300; // adapter vs oracle quote, 3%
+    uint256 internal constant IMPLIED_PRICE_TOLERANCE_X10000 = 300; // raw token feed vs oracle quote, 3%
 
     function run() external {
         Equity[7] memory eq = _equities();
-        _installLocalB20Stubs(eq); // adapters and setTokenConfig'd tokens are read through the stubs (live multiplier)
-        address[7] memory adapters = _readAdapters(eq);
+        _installLocalB20Stubs(eq); // B20 decimals are read through local stand-ins
         V3Oracle oracle = V3Oracle(vm.envAddress("ORACLE"));
         V3Vault vault = V3Vault(vm.envAddress("VAULT"));
         InterestRateModel irm = InterestRateModel(vm.envAddress("IRM"));
@@ -37,7 +35,7 @@ contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
         _requireCode(address(liquidator), "Verify: liquidator missing code");
 
         _verifyOwnership(oracle, vault, irm);
-        _verifyOracle(oracle, eq, adapters);
+        _verifyOracle(oracle, eq);
         _verifyVault(vault, oracle, irm, eq);
         _verifyLiquidator(liquidator);
         _verifyStage(vault, stageB);
@@ -61,7 +59,7 @@ contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
         require(vault.emergencyAdmin() == address(0), "Verify: vault emergencyAdmin");
     }
 
-    function _verifyOracle(V3Oracle oracle, Equity[7] memory eq, address[7] memory adapters) internal view {
+    function _verifyOracle(V3Oracle oracle, Equity[7] memory eq) internal view {
         require(address(oracle.nonfungiblePositionManager()) == AERODROME_NPM, "Verify: oracle NPM");
         require(oracle.factory() == AERODROME_FACTORY, "Verify: oracle factory");
         require(oracle.referenceToken() == USDC, "Verify: oracle referenceToken");
@@ -89,7 +87,7 @@ contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
                 uint16 maxDifference
             ) = oracle.feedConfigs(eq[i].token);
             string memory s = eq[i].symbol;
-            require(address(feed) == adapters[i], string.concat("Verify: feed ", s));
+            require(address(feed) == eq[i].feed, string.concat("Verify: feed ", s));
             require(maxFeedAge == EQUITY_MAX_FEED_AGE, string.concat("Verify: maxFeedAge ", s));
             require(
                 oracle.liquidationMaxFeedAge(eq[i].token) == EQUITY_LIQUIDATION_MAX_FEED_AGE,
@@ -102,17 +100,16 @@ contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
             require(mode == V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, string.concat("Verify: mode ", s));
             require(maxDifference == EQUITY_MAX_DIFFERENCE, string.concat("Verify: maxDifference ", s));
 
-            ChainlinkMultiplierFeed adapter = ChainlinkMultiplierFeed(adapters[i]);
-            require(address(adapter.feed()) == eq[i].feed, string.concat("Verify: adapter feed ", s));
-            require(address(adapter.token()) == eq[i].token, string.concat("Verify: adapter token ", s));
-            int256 tokenAnswer = _requireFreshFeed(adapters[i], EQUITY_MAX_FEED_AGE, s);
+            _requireCode(eq[i].feed, string.concat("Verify: feed missing code ", s));
+            require(AggregatorV3Interface(eq[i].feed).decimals() == 8, string.concat("Verify: feed decimals ", s));
+            int256 tokenAnswer = _requireFreshFeed(eq[i].feed, EQUITY_MAX_FEED_AGE, s);
 
             // end-to-end quote through the oracle (all three checks run): 1 token -> USDC
             uint256 quoted = oracle.getTokenValue(eq[i].token, 1e8, USDC);
             uint256 expected = uint256(tokenAnswer) / 100; // 8-dec USD per token -> 6-dec USDC
             uint256 diff = quoted > expected ? quoted - expected : expected - quoted;
             require(diff * 10_000 / expected <= IMPLIED_PRICE_TOLERANCE_X10000, string.concat("Verify: quote ", s));
-            console2.log(s, "quote USDC per token", quoted, "adapter");
+            console2.log(s, "quote USDC per token", quoted, "raw token feed");
             console2.log("        ", expected);
         }
     }

@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import "./B20TestBase.sol";
 
-/// @notice Oracle behaviour for Coinbase B20 equity collateral (plan WP3 bucket 1, proposal §3).
+/// @notice Oracle behaviour for Coinbase B20 equity collateral.
 ///         Covers the 8-vs-6 decimal scaling branch, the three fail-closed checks, garbage prints on
-///         the equity and USDC-reference feeds, and every row of the multiplier matrix (§3.2).
+///         the equity and USDC-reference feeds, token-basis corporate actions and the delayed stale-feed cutoff.
 contract V3OracleB20Test is B20TestBase {
     uint128 constant NVDA_AMOUNT = 100e8; // 100 NVDAc ~ $21.8K
     uint128 constant MSFT_AMOUNT = 10e8; // 10 MSFTc ~ $5K
@@ -41,7 +41,7 @@ contract V3OracleB20Test is B20TestBase {
         assertEq(uint8(mode), uint8(V3Oracle.Mode.CHAINLINK));
         (AggregatorV3Interface feed,,,,,,, V3Oracle.Mode nvdaMode, uint16 maxDifference) =
             oracle.feedConfigs(address(nvdac));
-        assertEq(address(feed), address(nvdaAdapter));
+        assertEq(address(feed), address(nvdaFeed));
         assertEq(uint8(nvdaMode), uint8(V3Oracle.Mode.CHAINLINK_TWAP_VERIFY));
         assertEq(maxDifference, EQUITY_MAX_DIFFERENCE);
         assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_LIQUIDATION_MAX_FEED_AGE);
@@ -51,7 +51,7 @@ contract V3OracleB20Test is B20TestBase {
         vm.expectRevert(InvalidConfig.selector);
         oracle.setTokenConfig(
             address(nvdac),
-            AggregatorV3Interface(address(nvdaAdapter)),
+            AggregatorV3Interface(address(nvdaFeed)),
             EQUITY_LIQUIDATION_MAX_FEED_AGE + 1,
             EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(nvdaPool)),
@@ -64,7 +64,7 @@ contract V3OracleB20Test is B20TestBase {
     function testLegacySetterPreservesConfiguredLiquidationAge() external {
         oracle.setTokenConfig(
             address(nvdac),
-            AggregatorV3Interface(address(nvdaAdapter)),
+            AggregatorV3Interface(address(nvdaFeed)),
             EQUITY_MAX_FEED_AGE,
             IUniswapV3Pool(address(nvdaPool)),
             TWAP_SECONDS,
@@ -77,7 +77,7 @@ contract V3OracleB20Test is B20TestBase {
     function testLegacySetterUsesOperationalAgeForFirstConfiguration() external {
         oracle.setTokenConfig(
             address(aero),
-            AggregatorV3Interface(address(nvdaAdapter)),
+            AggregatorV3Interface(address(nvdaFeed)),
             EQUITY_MAX_FEED_AGE,
             IUniswapV3Pool(address(0)),
             0,
@@ -88,7 +88,7 @@ contract V3OracleB20Test is B20TestBase {
 
         oracle.setTokenConfig(
             address(aero),
-            AggregatorV3Interface(address(nvdaAdapter)),
+            AggregatorV3Interface(address(nvdaFeed)),
             EQUITY_MAX_FEED_AGE / 2,
             IUniswapV3Pool(address(0)),
             0,
@@ -178,12 +178,12 @@ contract V3OracleB20Test is B20TestBase {
     // ---- check 2: chainlink vs TWAP divergence ----------------------------------------------------
 
     function testFeedTwapDivergenceAbove3PercentFailsClosed() external {
-        nvdaFeed.setAnswer(_fairShareAnswer(nvdaTick, 1e18) * 104 / 100);
+        nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick) * 104 / 100);
         _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
     }
 
     function testFeedTwapDivergenceBelow3PercentValuesOnChainlink() external {
-        nvdaFeed.setAnswer(_fairShareAnswer(nvdaTick, 1e18) * 102 / 100);
+        nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick) * 102 / 100);
         // CHAINLINK_TWAP_VERIFY: chainlink is the price, TWAP only verifies
         assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue() * 102 / 100, 1e14);
     }
@@ -210,7 +210,7 @@ contract V3OracleB20Test is B20TestBase {
     // ---- garbage prints: what replaces C4 #446 answer bounds here ------------------------------
 
     function testGarbageEquityPrintFailsClosed() external {
-        int256 fair = _fairShareAnswer(nvdaTick, 1e18);
+        int256 fair = _fairTokenAnswer(nvdaTick);
         nvdaFeed.setAnswer(fair * 10);
         _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
         nvdaFeed.setAnswer(fair / 10);
@@ -239,79 +239,77 @@ contract V3OracleB20Test is B20TestBase {
         _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
     }
 
-    // ---- multiplier matrix (proposal §3.2) ---------------------------------------------------------
+    // ---- token-basis corporate actions ------------------------------------------------------------
 
-    function testDividendMultiplierTracksWithoutOutage() external {
+    function testDividendIsIncludedExactlyOnceInFeed() external {
         nvdac.setMultiplier(GOOGL_DIVIDEND_MULTIPLIER);
-        uint256 expected = FullMath.mulDiv(_expectedNvdaValue(), GOOGL_DIVIDEND_MULTIPLIER, 1e18);
-        assertApproxEqRel(_value(nvdaPos), expected, 1e13);
+        int256 tokenAnswer =
+            int256(FullMath.mulDiv(uint256(_fairTokenAnswer(nvdaTick)), GOOGL_DIVIDEND_MULTIPLIER, 1e18));
+        nvdaFeed.setAnswer(tokenAnswer);
+        uint256 expected = FullMath.mulDiv(NVDA_AMOUNT, uint256(tokenAnswer), 1e10);
+        assertApproxEqAbs(_value(nvdaPos), expected, 1);
     }
 
-    function testForwardSplitMultiplierFlipsBeforeFeedIsBoundedOutage() external {
-        // 2:1 split: token now = 2 shares. Pool (token terms) unchanged; feed still prints the pre-split share price.
-        nvdac.setMultiplier(2e18);
-        _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
-        // first post-split print halves the share price: auto-recovery, no admin action
-        nvdaFeed.setAnswer(_fairShareAnswer(nvdaTick, 2e18));
-        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
+    function testForwardSplitKeepsTokenPriceContinuous() external {
+        uint256 beforeValue = _value(nvdaPos);
+        // Underlying share price divides by ten and multiplier grows tenfold.
+        // Chainlink publishes their product; the pool and token price remain unchanged.
+        nvdac.setMultiplier(10e18);
+        nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick));
+        assertEq(_value(nvdaPos), beforeValue);
     }
 
-    function testForwardSplitFeedAdjustsBeforeMultiplierIsBoundedOutage() external {
-        nvdaFeed.setAnswer(_fairShareAnswer(nvdaTick, 2e18));
-        _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
-        nvdac.setMultiplier(2e18);
-        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
+    function testReverseSplitKeepsTokenPriceContinuous() external {
+        uint256 beforeValue = _value(nvdaPos);
+        nvdac.setMultiplier(0.1e18);
+        nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick));
+        assertEq(_value(nvdaPos), beforeValue);
     }
 
-    function testReverseSplitIsBoundedOutage() external {
-        nvdac.setMultiplier(0.5e18);
-        _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
-        nvdaFeed.setAnswer(_fairShareAnswer(nvdaTick, 0.5e18));
-        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
-    }
-
-    // the fail-open path the adapter exists to close: issuer halves the multiplier while transfers are
-    // gated, so the pool cannot reprice and the feed stays fresh
-    function testEmergencyMultiplierCutWithFrozenPoolFailsClosed() external {
-        nvdac.setMultiplier(0.5e18);
-        _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
-    }
-
-    function testRawFeedConfigurationWouldFailOpenOnMultiplierCut() external {
-        // control: configure NVDAc on the raw Chainlink feed (no adapter), as a naive deployment would
-        oracle.setTokenConfig(
-            address(nvdac),
-            AggregatorV3Interface(address(nvdaFeed)),
-            EQUITY_MAX_FEED_AGE,
-            IUniswapV3Pool(address(nvdaPool)),
-            TWAP_SECONDS,
-            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            EQUITY_MAX_DIFFERENCE
-        );
-        nvdac.setMultiplier(0.5e18);
-        // both checks pass while the collateral is worth half: impaired LP would be borrowable against
-        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
-    }
-
-    function testFatFingeredMultiplierInsideToleranceIsAccepted() external {
-        nvdac.setMultiplier(1.02e18);
-        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue() * 102 / 100, 1e14);
-    }
-
-    function testFatFingeredMultiplierOutsideToleranceFailsClosed() external {
-        nvdac.setMultiplier(1.04e18);
-        _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
-    }
-
-    function testMultiplierRevertFailsClosed() external {
+    function testTokenFeedDoesNotReadMultiplier() external {
+        uint256 beforeValue = _value(nvdaPos);
         nvdac.setRevertMultiplier(true);
-        vm.expectRevert("B20: not implemented");
-        oracle.getValue(nvdaPos, address(usdc), false);
+        assertEq(_value(nvdaPos), beforeValue);
     }
 
-    function testZeroMultiplierFailsClosed() external {
-        nvdac.setMultiplier(0);
+    function testPublishedMultiplierCutDivergesFromFrozenPool() external {
+        nvdac.setMultiplier(0.5e18);
+        nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick) / 2);
+        _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
+        vm.expectRevert(PriceDifferenceExceeded.selector);
+        oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+    }
+
+    function testPausedFeedDoesNotImmediatelyRejectMultiplierCut() external {
+        uint256 beforeValue = _value(nvdaPos);
+        uint256 lastPrint = nvdaFeed.updatedAt();
+        nvdac.setMultiplier(0.5e18);
+        // Known residual risk: no updated print or pool repricing, and no registry pause check.
+        // Holding the last price does not invalidate it until its applicable age limit expires.
+        assertEq(_value(nvdaPos), beforeValue);
+
+        vm.warp(lastPrint + EQUITY_MAX_FEED_AGE + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
         _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
+        (uint256 liquidationValue,,,) = oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+        assertEq(liquidationValue, beforeValue);
+
+        vm.warp(lastPrint + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        vm.expectRevert(ChainlinkPriceError.selector);
+        oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+    }
+
+    function testSplitPauseRecoversOnFreshTokenPrintWithoutReconfiguration() external {
+        uint256 beforeValue = _value(nvdaPos);
+        uint256 lastPrint = nvdaFeed.updatedAt();
+        nvdac.setMultiplier(10e18);
+        vm.warp(lastPrint + EQUITY_MAX_FEED_AGE + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
+        // Issuer unpauses after share price and multiplier align; total-return price is continuous.
+        nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick));
+        assertEq(_value(nvdaPos), beforeValue);
     }
 
     // ---- market moves ------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chainlink round walk for the Coinbase equity feeds (plan WP3 bucket 2 / proposal §2.5).
+"""Chainlink round walk for the Coinbase equity feeds.
 
 For each feed: resolve the aggregator behind the proxy, walk `getRoundData` back ROUNDS rounds with
 batched JSON-RPC, and report every gap > 12h (weekend, holiday, weekday), the current staleness, and
@@ -92,11 +92,11 @@ def main():
         # pool price: token1 per token0 raw = NVDAc-units per USDC-unit; invert and scale 8/6 decimals
         p_raw = (sqrt / 2 ** 96) ** 2
         pool_usd_per_token = (1 / p_raw) * 1e8 / 1e6 * usdc_price
-        feed_usd_per_share = word(live, 1) / 1e8
-        feed_usd_per_token = feed_usd_per_share * mult
+        # The published answer already includes the B20 multiplier; never multiply it again.
+        feed_usd_per_token = word(live, 1) / 1e8
         divergence = abs(feed_usd_per_token - pool_usd_per_token) / pool_usd_per_token
         feeds.append(dict(symbol=sym, feed=feed, aggregator=agg, multiplier=mult, latestRoundId=word(live, 0),
-                          shareAnswer=feed_usd_per_share, tokenAnswer=feed_usd_per_token, updatedAt=word(live, 3),
+                          priceBasis="token-total-return", tokenAnswer=feed_usd_per_token, updatedAt=word(live, 3),
                           ageSeconds=now - word(live, 3), poolUsdPerToken=pool_usd_per_token, divergence=divergence))
 
     # phase 2: latestRound on each aggregator, then getRoundData back ROUNDS rounds in batches
@@ -157,14 +157,14 @@ def main():
     fail = usdc_stale
     print(f"block {block}  {datetime.fromtimestamp(now, ET).strftime('%a %Y-%m-%d %H:%M ET')}  "
           f"USDC {usdc_price:.4f} (age {usdc_age}s{' STALE' if usdc_stale else ''})")
-    print(f"{'feed':7} {'age':>7} {'share$':>10} {'mult':>12} {'token$':>10} {'pool$':>10} {'div%':>6} {'rounds':>6} {'wknd h':>7} {'wkday h':>8} {'step%':>6}")
+    print(f"{'feed':7} {'age':>7} {'mult':>12} {'token$':>10} {'pool$':>10} {'div%':>6} {'rounds':>6} {'wknd h':>7} {'wkday h':>8} {'step%':>6}")
     for f in feeds:
         invalid_timestamp = f["oracleState"] == "invalid-timestamp"
         operational_stale = invalid_timestamp or f["ageSeconds"] > OPERATIONAL_MAX_FEED_AGE
         liquidation_stale = invalid_timestamp or f["ageSeconds"] > LIQUIDATION_MAX_FEED_AGE
         div_bad = f["divergence"] > MAX_DIFFERENCE
         fail |= operational_stale or div_bad
-        print(f"{f['symbol']:7} {f['ageSeconds']:>7} {f['shareAnswer']:>10.2f} {f['multiplier']:>12.9f} {f['tokenAnswer']:>10.2f} "
+        print(f"{f['symbol']:7} {f['ageSeconds']:>7} {f['multiplier']:>12.9f} {f['tokenAnswer']:>10.2f} "
               f"{f['poolUsdPerToken']:>10.2f} {100 * f['divergence']:>6.2f} {f['roundsWalked']:>6} {f['maxWeekendGapHours']:>7.1f} "
               f"{f['maxWeekdayGapHours']:>8.1f} {f['maxAbsReopenStepPct']:>6.2f}"
               f"{'  INVALID-TIMESTAMP' if invalid_timestamp else '  VALUATION-BLACKOUT' if liquidation_stale else '  LIQUIDATION-ONLY' if operational_stale else ''}"

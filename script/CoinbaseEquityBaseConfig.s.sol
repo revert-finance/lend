@@ -18,7 +18,7 @@ interface VmRpc {
 /// @notice Local-only stand-in for a B20 token, etched at the real token address during a script run.
 /// @dev B20 tokens are native client code (`0xef`): a live Base node executes them, revm cannot. forge
 ///      always runs the script body locally, so any path that touches a B20 token (setTokenConfig ->
-///      decimals(), adapter -> multiplier()) would revert before a single tx is broadcast. The stub
+///      decimals()) would revert before a single tx is broadcast. The stub
 ///      returns 8 decimals and the multiplier read from the live node via eth_call. It never leaves the
 ///      local run: broadcast txs execute against the real token on chain. Broadcast with
 ///      `--skip-simulation` so forge does not re-simulate the tx bundle without the stubs.
@@ -35,8 +35,8 @@ contract LocalB20Stub is IB20Multiplier {
 }
 
 /// @notice Single source of truth for the Coinbase B20 equity-collateral vault on Base:
-///         every address and parameter in docs/plan-coinbase-equity-collateral-base-deployment.md §3.
-///         Shared by the adapter deploy, vault deploy, verify and freeze scripts so they cannot drift.
+///         the addresses and parameters recorded in deployments/base-coinbase-equity.json.
+///         Shared by the vault deploy, verify and freeze scripts so they cannot drift.
 abstract contract CoinbaseEquityBaseConfig is Script {
     uint256 internal constant BASE_CHAIN_ID = 8453;
     uint256 internal constant Q32 = 2 ** 32;
@@ -54,7 +54,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     address internal constant AERODROME_SWAP_ROUTER = 0x6Cb442acF35158D5eDa88fe602221b67B400Be3E;
     address internal constant ZEROX_ALLOWANCE_HOLDER = 0x0000000000001fF3684f28c67538d4D072C22734;
 
-    // Reused MinUnstake-bound V3Utils (script/DEPLOY_AERODROME_V3UTILS.md); must be Safe-owned first
+    // Reused MinUnstake-bound V3Utils; must be Safe-owned first
     address internal constant V3_UTILS = 0xc3cFFd675433f53aCc68D31288a4d31C085Fe2dD;
 
     // Production roles: 2-of-3 Safe, as rlAeroUSDC. No emergencyAdmin anywhere in the house.
@@ -67,17 +67,17 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     // B20 policy registry precompile (monitoring only; not read by the protocol)
     address internal constant B20_POLICY_REGISTRY = 0x8453000000000000000000000000000000000002;
 
-    // Oracle parameters (plan §3)
+    // Oracle parameters
     uint16 internal constant MAX_POOL_PRICE_DIFFERENCE = 300; // 3%
     uint32 internal constant TWAP_SECONDS = 60;
     // New debt and risk-increasing collateral operations stop shortly after equity prices stop updating.
     // This intentionally accepts intermittent weekday borrow pauses because the public feeds have a 24h heartbeat.
     uint32 internal constant EQUITY_MAX_FEED_AGE = 7_200; // 2h operational window
     uint32 internal constant EQUITY_LIQUIDATION_MAX_FEED_AGE = 108_000; // 30h liquidation-only window
-    uint16 internal constant EQUITY_MAX_DIFFERENCE = 300; // 3%, never above (doubles as multiplier-error tolerance)
+    uint16 internal constant EQUITY_MAX_DIFFERENCE = 300; // 3% feed/pool divergence tolerance
     uint32 internal constant USDC_MAX_FEED_AGE = 86_400;
 
-    // Vault parameters (plan §3)
+    // Vault parameters
     string internal constant VAULT_NAME = "Revert Lend Coinbase Equities USDC";
     string internal constant VAULT_SYMBOL = "rlCbEqUSDC";
     uint32 internal constant CF_USDC_X32 = 3_650_722_201; // 85%
@@ -103,11 +103,10 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     struct Equity {
         string symbol;
         address token; // B20 token, 8 decimals
-        address feed; // Chainlink "Coinbase TICKER", 8 decimals, per share
+        address feed; // Chainlink "Coinbase TICKER", 8 decimals, per token (multiplier already included)
         address pool; // MinUnstake token/USDC pool, tickSpacing 10, token0 == USDC
         uint32 collateralFactorX32;
         uint32 collateralValueLimitFactorX32;
-        string adapterEnv; // env var carrying the deployed ChainlinkMultiplierFeed address
     }
 
     function _equities() internal pure returns (Equity[7] memory e) {
@@ -117,8 +116,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0x787f13dEa48Db0897CbCDD985de77809D837F988,
             0xA3b1E3f9747065e2073722Ff4c9027d3eA4994F0,
             CF_55_X32,
-            CAP_AAPLC_X32,
-            "ADAPTER_AAPLC"
+            CAP_AAPLC_X32
         );
         e[1] = Equity(
             "MSFTc",
@@ -126,8 +124,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0xeB10A6c9aa7E537aEd766C08c35Dae35B321b18c,
             0x7103eB3c9590d1281f7dc03b2A9EE27C39dF5D54,
             CF_55_X32,
-            CAP_MSFTC_X32,
-            "ADAPTER_MSFTC"
+            CAP_MSFTC_X32
         );
         e[2] = Equity(
             "GOOGLc",
@@ -135,8 +132,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0x5bF49E0ffA937CE2FfF033c739aD7C634c4D34F2,
             0xB1987CAD1682841b4b641d50E520777eC5Ab5542,
             CF_55_X32,
-            CAP_GOOGLC_X32,
-            "ADAPTER_GOOGLC"
+            CAP_GOOGLC_X32
         );
         e[3] = Equity(
             "AMZNc",
@@ -144,8 +140,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0x06A8E4b3aBB3B7543d8396FB2B763d22820cB295,
             0xd03Bc8C7F2FAedCe2aac81bF0444AEA08Ea06E9b,
             CF_55_X32,
-            CAP_AMZNC_X32,
-            "ADAPTER_AMZNC"
+            CAP_AMZNC_X32
         );
         e[4] = Equity(
             "METAc",
@@ -153,8 +148,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0x6526aE6797A76123638b863AeE4dD27Ba4E4b27D,
             0xEAF57753BC382E0324a1D43F72E7027705a2273E,
             CF_55_X32,
-            CAP_METAC_X32,
-            "ADAPTER_METAC"
+            CAP_METAC_X32
         );
         e[5] = Equity(
             "NVDAc",
@@ -162,8 +156,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0x04689a41629776563E6822F76f2e57D148d28513,
             0x853F5f1B92b16714Fe6CDA67CAad0856B83C7ab9,
             CF_50_X32,
-            CAP_NVDAC_X32,
-            "ADAPTER_NVDAC"
+            CAP_NVDAC_X32
         );
         e[6] = Equity(
             "TSLAc",
@@ -171,8 +164,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             0xFaf869185383a24F8cb00e27BdA6b63B9905DCb4,
             0x469337fDcc5E8f38e2E4B670B04F57865D13a7BB,
             CF_50_X32,
-            CAP_TSLAC_X32,
-            "ADAPTER_TSLAC"
+            CAP_TSLAC_X32
         );
     }
 
@@ -181,7 +173,10 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     /// @dev live multiplier() via eth_call executed by the node (native B20 code); reverts if unavailable
     function _liveMultiplier(address token) internal returns (uint256) {
         string memory params = string.concat(
-            '[{"to":"', vm.toString(token), '","data":"', vm.toString(abi.encodeWithSelector(IB20Multiplier.multiplier.selector)),
+            '[{"to":"',
+            vm.toString(token),
+            '","data":"',
+            vm.toString(abi.encodeWithSelector(IB20Multiplier.multiplier.selector)),
             '"},"latest"]'
         );
         bytes memory data = VmRpc(address(vm)).rpc("eth_call", params);
@@ -199,13 +194,6 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             vm.etch(e[i].token, type(LocalB20Stub).runtimeCode);
             vm.store(e[i].token, bytes32(0), bytes32(m));
             console2.log("LOCAL_B20_STUB", e[i].symbol, "multiplier", m);
-        }
-    }
-
-    function _readAdapters(Equity[7] memory e) internal returns (address[7] memory adapters) {
-        for (uint256 i = 0; i < 7; i++) {
-            adapters[i] = vm.envAddress(e[i].adapterEnv);
-            _requireCode(adapters[i], string.concat("CoinbaseEquity: adapter missing code ", e[i].symbol));
         }
     }
 
@@ -228,7 +216,7 @@ abstract contract CoinbaseEquityBaseConfig is Script {
         );
     }
 
-    /// @dev pool linkage plus the TWAP liveness gate: observe([twap, 0]) must succeed (plan WP0.1)
+    /// @dev pool linkage plus the TWAP liveness gate: observe([twap, 0]) must succeed
     function _validateEquityPool(Equity memory e) internal view {
         _requireCode(e.pool, string.concat("CoinbaseEquity: pool missing code ", e.symbol));
         IAerodromeSlipstreamPool pool = IAerodromeSlipstreamPool(e.pool);
@@ -245,7 +233,10 @@ abstract contract CoinbaseEquityBaseConfig is Script {
             _readAddress(e.pool, "factory()") == AERODROME_FACTORY,
             string.concat("CoinbaseEquity: pool factory mismatch ", e.symbol)
         );
-        require(_readAddress(e.pool, "nft()") == AERODROME_NPM, string.concat("CoinbaseEquity: pool NPM mismatch ", e.symbol));
+        require(
+            _readAddress(e.pool, "nft()") == AERODROME_NPM,
+            string.concat("CoinbaseEquity: pool NPM mismatch ", e.symbol)
+        );
 
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = TWAP_SECONDS;

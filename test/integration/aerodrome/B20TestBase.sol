@@ -9,15 +9,14 @@ import "./mocks/MockChainlinkFeed.sol";
 import "./mocks/MockB20Token.sol";
 
 import "../../../src/InterestRateModel.sol";
-import "../../../src/utils/ChainlinkMultiplierFeed.sol";
 
 /// @notice Test base for the Coinbase B20 equity-collateral vault design
-///         (docs/plan-coinbase-equity-collateral-base-deployment.md, WP3 bucket 1).
+///         using the parameters in deployments/base-coinbase-equity.json.
 ///         Reuses the Aerodrome mocks, then replaces `oracle` and `vault` with the
 ///         B20 configuration: USDC reference on its raw feed (forced CHAINLINK), equities in
-///         CHAINLINK_TWAP_VERIFY through ChainlinkMultiplierFeed adapters, pilot factors and caps.
+///         CHAINLINK_TWAP_VERIFY on raw token-basis feeds, pilot factors and caps.
 abstract contract B20TestBase is AerodromeTestBase {
-    // manifest values (plan §3)
+    // manifest values
     uint32 constant CF_85 = 3_650_722_201;
     uint32 constant CF_55 = 2_362_232_012;
     uint32 constant CF_50 = 2_147_483_648;
@@ -45,8 +44,6 @@ abstract contract B20TestBase is AerodromeTestBase {
     MockChainlinkFeed public usdcRefFeed;
     MockChainlinkFeed public nvdaFeed;
     MockChainlinkFeed public msftFeed;
-    ChainlinkMultiplierFeed public nvdaAdapter;
-    ChainlinkMultiplierFeed public msftAdapter;
     MockPool public nvdaPool;
     MockPool public msftPool;
     MockPool public crossPool;
@@ -74,11 +71,6 @@ abstract contract B20TestBase is AerodromeTestBase {
         usdcRefFeed = new MockChainlinkFeed(1e8, 8);
         nvdaFeed = new MockChainlinkFeed(1, 8);
         msftFeed = new MockChainlinkFeed(1, 8);
-        nvdaAdapter =
-            new ChainlinkMultiplierFeed(AggregatorV3Interface(address(nvdaFeed)), IB20Multiplier(address(nvdac)));
-        msftAdapter =
-            new ChainlinkMultiplierFeed(AggregatorV3Interface(address(msftFeed)), IB20Multiplier(address(msftc)));
-
         nvdaPool = _deployPool(address(nvdac), address(usdc));
         msftPool = _deployPool(address(msftc), address(usdc));
         crossPool = _deployPool(address(nvdac), address(msftc));
@@ -99,7 +91,7 @@ abstract contract B20TestBase is AerodromeTestBase {
         );
         oracle.setTokenConfig(
             address(nvdac),
-            AggregatorV3Interface(address(nvdaAdapter)),
+            AggregatorV3Interface(address(nvdaFeed)),
             EQUITY_MAX_FEED_AGE,
             EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(nvdaPool)),
@@ -109,7 +101,7 @@ abstract contract B20TestBase is AerodromeTestBase {
         );
         oracle.setTokenConfig(
             address(msftc),
-            AggregatorV3Interface(address(msftAdapter)),
+            AggregatorV3Interface(address(msftFeed)),
             EQUITY_MAX_FEED_AGE,
             EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(msftPool)),
@@ -163,10 +155,9 @@ abstract contract B20TestBase is AerodromeTestBase {
         return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
     }
 
-    /// @dev the per-share Chainlink answer (8 decimals) that makes the adapter agree with the pool
-    function _fairShareAnswer(int24 refTick, uint256 multiplier) internal pure returns (int256) {
-        uint256 tokenAnswer = FullMath.mulDiv(_refPriceX96(refTick), FEED_UNITS_PER_REF_PRICE, Q96);
-        return int256(FullMath.mulDiv(tokenAnswer, 1e18, multiplier));
+    /// @dev Chainlink's total-return token answer (8 decimals), with the multiplier already included.
+    function _fairTokenAnswer(int24 refTick) internal pure returns (int256) {
+        return int256(FullMath.mulDiv(_refPriceX96(refTick), FEED_UNITS_PER_REF_PRICE, Q96));
     }
 
     function _syncCrossPool() internal {
@@ -176,27 +167,19 @@ abstract contract B20TestBase is AerodromeTestBase {
         crossPool.setSqrtPriceX96(TickMath.getSqrtRatioAtTick(crossTick));
     }
 
-    /// @dev market move: pool and feed reprice together, feed adjusted for the current multiplier
+    /// @dev market move: pool and total-return token feed reprice together
     function _moveNvda(int24 refTick) internal {
         nvdaTick = refTick;
         _setRefTick(nvdaPool, address(nvdac), refTick);
-        nvdaFeed.setAnswer(_fairShareAnswer(refTick, _multiplierOf(nvdac)));
+        nvdaFeed.setAnswer(_fairTokenAnswer(refTick));
         _syncCrossPool();
     }
 
     function _moveMsft(int24 refTick) internal {
         msftTick = refTick;
         _setRefTick(msftPool, address(msftc), refTick);
-        msftFeed.setAnswer(_fairShareAnswer(refTick, _multiplierOf(msftc)));
+        msftFeed.setAnswer(_fairTokenAnswer(refTick));
         _syncCrossPool();
-    }
-
-    function _multiplierOf(MockB20Token token) internal view returns (uint256) {
-        try token.multiplier() returns (uint256 m) {
-            return m == 0 ? 1e18 : m;
-        } catch {
-            return 1e18;
-        }
     }
 
     function _refreshFeeds() internal {
