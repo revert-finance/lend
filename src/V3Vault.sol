@@ -257,32 +257,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    /// @notice Retrieves loan details using the oracle's liquidation feed-age window.
-    /// @dev Intended for liquidation tooling. Ordinary loan reads retain the stricter operational window.
-    function loanInfoForLiquidation(uint256 tokenId)
-        external
-        view
-        override
-        returns (
-            uint256 debt,
-            uint256 fullValue,
-            uint256 collateralValue,
-            uint256 liquidationCost,
-            uint256 liquidationValue
-        )
-    {
-        (uint256 newDebtExchangeRateX96,) = _calculateGlobalInterest();
-
-        debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
-
-        bool isHealthy;
-        (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthyForLiquidation(tokenId, debt);
-
-        if (!isHealthy) {
-            (liquidationValue, liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
-        }
-    }
-
     /// @notice Retrieves owner of a loan
     /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
     /// @return owner Owner of the loan
@@ -771,7 +745,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         state.debt = _convertToAssets(debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
 
         (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) =
-            _checkLoanIsHealthyForLiquidation(params.tokenId, state.debt);
+            _checkLoanIsHealthy(params.tokenId, state.debt, false);
         if (state.isHealthy) {
             revert NotLiquidatable();
         }
@@ -1508,18 +1482,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
         collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
         isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
-    }
-
-    function _checkLoanIsHealthyForLiquidation(uint256 tokenId, uint256 debt)
-        internal
-        view
-        returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
-    {
-        bool ignoreFees = _isStaked(tokenId);
-        (fullValue, feeValue,,) = oracle.getValueForLiquidation(tokenId, address(asset), ignoreFees);
-        uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
-        collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
-        isHealthy = collateralValue >= debt;
     }
 
     function _isStaked(uint256 tokenId) private view returns (bool) {

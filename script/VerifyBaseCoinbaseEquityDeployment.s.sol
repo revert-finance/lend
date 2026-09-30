@@ -89,10 +89,6 @@ contract VerifyBaseCoinbaseEquityDeployment is CoinbaseEquityBaseConfig {
             string memory s = eq[i].symbol;
             require(address(feed) == eq[i].feed, string.concat("Verify: feed ", s));
             require(maxFeedAge == EQUITY_MAX_FEED_AGE, string.concat("Verify: maxFeedAge ", s));
-            require(
-                oracle.liquidationMaxFeedAge(eq[i].token) == EQUITY_LIQUIDATION_MAX_FEED_AGE,
-                string.concat("Verify: liquidationMaxFeedAge ", s)
-            );
             require(feedDecimals == 8 && tokenDecimals == 8, string.concat("Verify: decimals ", s));
             require(twapSeconds == TWAP_SECONDS, string.concat("Verify: twapSeconds ", s));
             require(address(pool) == eq[i].pool, string.concat("Verify: pool ", s));

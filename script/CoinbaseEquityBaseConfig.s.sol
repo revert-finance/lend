@@ -70,10 +70,10 @@ abstract contract CoinbaseEquityBaseConfig is Script {
     // Oracle parameters
     uint16 internal constant MAX_POOL_PRICE_DIFFERENCE = 300; // 3%
     uint32 internal constant TWAP_SECONDS = 60;
-    // New debt and risk-increasing collateral operations stop shortly after equity prices stop updating.
-    // This intentionally accepts intermittent weekday borrow pauses because the public feeds have a 24h heartbeat.
-    uint32 internal constant EQUITY_MAX_FEED_AGE = 7_200; // 2h operational window
-    uint32 internal constant EQUITY_LIQUIDATION_MAX_FEED_AGE = 108_000; // 30h liquidation-only window
+    // Shared age for all operations, including borrowing and liquidation.
+    // Shared 5-day cutoff accommodates long holidays plus a pre-close update gap.
+    // Not a market-status or corporate-action pause detector; pool divergence checks still apply.
+    uint32 internal constant EQUITY_MAX_FEED_AGE = 432_000; // 120h
     uint16 internal constant EQUITY_MAX_DIFFERENCE = 300; // 3% feed/pool divergence tolerance
     uint32 internal constant USDC_MAX_FEED_AGE = 86_400;
 

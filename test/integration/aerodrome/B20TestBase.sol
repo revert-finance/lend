@@ -22,8 +22,7 @@ abstract contract B20TestBase is AerodromeTestBase {
     uint32 constant CF_50 = 2_147_483_648;
     uint32 constant CAP_NVDA_PILOT = 150_323_855; // 3.5% of lent
     uint32 constant CAP_MSFT_PILOT = 107_374_182; // 2.5% of lent
-    uint32 constant EQUITY_MAX_FEED_AGE = 7_200; // 2h operational window
-    uint32 constant EQUITY_LIQUIDATION_MAX_FEED_AGE = 108_000; // 30h liquidation-only window
+    uint32 constant EQUITY_MAX_FEED_AGE = 432_000; // shared 120h window
     uint32 constant USDC_MAX_FEED_AGE = 86_400;
     uint16 constant EQUITY_MAX_DIFFERENCE = 300; // 3%
     uint16 constant MAX_POOL_PRICE_DIFFERENCE = 300;
@@ -93,7 +92,6 @@ abstract contract B20TestBase is AerodromeTestBase {
             address(nvdac),
             AggregatorV3Interface(address(nvdaFeed)),
             EQUITY_MAX_FEED_AGE,
-            EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(nvdaPool)),
             TWAP_SECONDS,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
@@ -103,14 +101,13 @@ abstract contract B20TestBase is AerodromeTestBase {
             address(msftc),
             AggregatorV3Interface(address(msftFeed)),
             EQUITY_MAX_FEED_AGE,
-            EQUITY_LIQUIDATION_MAX_FEED_AGE,
             IUniswapV3Pool(address(msftPool)),
             TWAP_SECONDS,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             EQUITY_MAX_DIFFERENCE
         );
 
-        // live Aerodrome IRM parameters; the mock IRM's 1%/s rate is unusable across a 30h blackout
+        // live Aerodrome IRM parameters; the mock IRM's 1%/s rate is unusable across a multi-day closure
         InterestRateModel b20Irm = new InterestRateModel(0, Q64 * 13 / 100, Q64 * 300 / 100, Q64 * 90 / 100);
 
         vault = new V3Vault("Revert Lend Coinbase Equities USDC", "rlCbEqUSDC", address(usdc), npm, b20Irm, oracle);

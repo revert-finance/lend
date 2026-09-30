@@ -14,12 +14,6 @@ interface IV3Oracle {
         view
         returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96);
 
-    // gets value using the liquidation-only feed-age window
-    function getValueForLiquidation(uint256 tokenId, address token, bool ignoreFees)
-        external
-        view
-        returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96);
-
     // gets breakdown of position specifying liquidity amounts and available fee amounts
     function getPositionBreakdown(uint256 tokenId)
         external

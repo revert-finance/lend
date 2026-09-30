@@ -44,58 +44,25 @@ contract V3OracleB20Test is B20TestBase {
         assertEq(address(feed), address(nvdaFeed));
         assertEq(uint8(nvdaMode), uint8(V3Oracle.Mode.CHAINLINK_TWAP_VERIFY));
         assertEq(maxDifference, EQUITY_MAX_DIFFERENCE);
-        assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_LIQUIDATION_MAX_FEED_AGE);
+        (, uint32 maxFeedAge,,,,,,,) = oracle.feedConfigs(address(nvdac));
+        assertEq(maxFeedAge, EQUITY_MAX_FEED_AGE);
     }
 
-    function testOperationalAgeCannotExceedLiquidationAge() external {
-        vm.expectRevert(InvalidConfig.selector);
+    function testSetterUpdatesSharedAge() external {
         oracle.setTokenConfig(
             address(nvdac),
             AggregatorV3Interface(address(nvdaFeed)),
-            EQUITY_LIQUIDATION_MAX_FEED_AGE + 1,
-            EQUITY_LIQUIDATION_MAX_FEED_AGE,
+            1 hours,
             IUniswapV3Pool(address(nvdaPool)),
             TWAP_SECONDS,
             V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
             EQUITY_MAX_DIFFERENCE
         );
-    }
-
-    function testLegacySetterPreservesConfiguredLiquidationAge() external {
-        oracle.setTokenConfig(
-            address(nvdac),
-            AggregatorV3Interface(address(nvdaFeed)),
-            EQUITY_MAX_FEED_AGE,
-            IUniswapV3Pool(address(nvdaPool)),
-            TWAP_SECONDS,
-            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            EQUITY_MAX_DIFFERENCE
-        );
-        assertEq(oracle.liquidationMaxFeedAge(address(nvdac)), EQUITY_LIQUIDATION_MAX_FEED_AGE);
-    }
-
-    function testLegacySetterUsesOperationalAgeForFirstConfiguration() external {
-        oracle.setTokenConfig(
-            address(aero),
-            AggregatorV3Interface(address(nvdaFeed)),
-            EQUITY_MAX_FEED_AGE,
-            IUniswapV3Pool(address(0)),
-            0,
-            V3Oracle.Mode.CHAINLINK,
-            0
-        );
-        assertEq(oracle.liquidationMaxFeedAge(address(aero)), EQUITY_MAX_FEED_AGE);
-
-        oracle.setTokenConfig(
-            address(aero),
-            AggregatorV3Interface(address(nvdaFeed)),
-            EQUITY_MAX_FEED_AGE / 2,
-            IUniswapV3Pool(address(0)),
-            0,
-            V3Oracle.Mode.CHAINLINK,
-            0
-        );
-        assertEq(oracle.liquidationMaxFeedAge(address(aero)), EQUITY_MAX_FEED_AGE / 2);
+        (, uint32 maxFeedAge,,,,,,,) = oracle.feedConfigs(address(nvdac));
+        assertEq(maxFeedAge, 1 hours);
+        vm.warp(nvdaFeed.updatedAt() + 1 hours + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
     }
 
     // ---- decimal scaling (V3Oracle referenceTokenDecimals < tokenDecimals branch) ------------
@@ -126,27 +93,22 @@ contract V3OracleB20Test is B20TestBase {
         assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
     }
 
-    function testTwentyFourHourGapIsLiquidationOnly() external {
-        vm.warp(block.timestamp + 24 hours);
+    function testQuietWeekdayStillValues() external {
+        vm.warp(nvdaFeed.updatedAt() + 24 hours);
         usdcRefFeed.setUpdatedAt(block.timestamp);
-        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
-        (uint256 value,,,) = oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
-        assertApproxEqRel(value, _expectedNvdaValue(), 1e12);
+        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
     }
 
-    function testBeyondLiquidationMaxFeedAgeFailsBothPaths() external {
-        vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
+    function testWeekendStillValues() external {
+        vm.warp(nvdaFeed.updatedAt() + 48 hours);
         usdcRefFeed.setUpdatedAt(block.timestamp);
-        _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
-        vm.expectRevert(ChainlinkPriceError.selector);
-        oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
+        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
     }
 
-    function testAtExactlyLiquidationMaxFeedAgeStillValuesForLiquidation() external {
-        vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE);
+    function testLongHolidayPlusPreCloseGapStillValues() external {
+        vm.warp(nvdaFeed.updatedAt() + 116 hours + 35 minutes);
         usdcRefFeed.setUpdatedAt(block.timestamp);
-        (uint256 value,,,) = oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
-        assertApproxEqRel(value, _expectedNvdaValue(), 1e12);
+        assertApproxEqRel(_value(nvdaPos), _expectedNvdaValue(), 1e12);
     }
 
     function testZeroOrFutureUpdatedAtFailsClosed() external {
@@ -276,8 +238,6 @@ contract V3OracleB20Test is B20TestBase {
         nvdac.setMultiplier(0.5e18);
         nvdaFeed.setAnswer(_fairTokenAnswer(nvdaTick) / 2);
         _expectValueRevert(nvdaPos, PriceDifferenceExceeded.selector);
-        vm.expectRevert(PriceDifferenceExceeded.selector);
-        oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
     }
 
     function testPausedFeedDoesNotImmediatelyRejectMultiplierCut() external {
@@ -291,13 +251,6 @@ contract V3OracleB20Test is B20TestBase {
         vm.warp(lastPrint + EQUITY_MAX_FEED_AGE + 1);
         usdcRefFeed.setUpdatedAt(block.timestamp);
         _expectValueRevert(nvdaPos, ChainlinkPriceError.selector);
-        (uint256 liquidationValue,,,) = oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
-        assertEq(liquidationValue, beforeValue);
-
-        vm.warp(lastPrint + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
-        usdcRefFeed.setUpdatedAt(block.timestamp);
-        vm.expectRevert(ChainlinkPriceError.selector);
-        oracle.getValueForLiquidation(nvdaPos, address(usdc), false);
     }
 
     function testSplitPauseRecoversOnFreshTokenPrintWithoutReconfiguration() external {

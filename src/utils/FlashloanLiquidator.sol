@@ -52,7 +52,7 @@ contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
             revert Unauthorized();
         }
 
-        (,,, uint256 liquidationCost, uint256 liquidationValue) = params.vault.loanInfoForLiquidation(params.tokenId);
+        (,,, uint256 liquidationCost, uint256 liquidationValue) = params.vault.loanInfo(params.tokenId);
         if (liquidationValue == 0) {
             revert NotLiquidatable();
         }

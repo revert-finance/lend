@@ -11,7 +11,7 @@
     "flashloanLiquidator": {"address": null, "ownership": "none", "tx": null},
     "v3UtilsSetVaultTx": null,
     "smokeTest": {"setLimitsTinyTx": null, "borrowTxs": [], "repayTxs": [], "liquidationTx": null, "liquidator": null, "resetToZeroTx": null},
-    "ageTransitionRehearsal": {"operationalCutoffObservedAt": null, "liquidationCutoffObservedAt": null, "freshPrintRecoveryObservedAt": null, "sensorLogs": null},
+    "ageTransitionRehearsal": {"sharedCutoffObservedAt": null, "freshPrintRecoveryObservedAt": null, "sensorLogs": null},
     "emergencyFreezeDrill": {"freezeTx": null, "unfreezeTx": null, "signers": []},
     "borrowsOpenedTx": null
   },
@@ -30,7 +30,7 @@
     "constructor": {"npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53", "referenceToken": "USDC", "chainlinkReferenceToken": "0x0000000000000000000000000000000000000000"},
     "maxPoolPriceDifference": 300,
     "usdc": {"feed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B", "maxFeedAge": 86400, "mode": "CHAINLINK (forced for referenceToken)"},
-    "equities": {"operationalMaxFeedAge": 7200, "liquidationMaxFeedAge": 108000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "raw Chainlink token-total-return feed; multiplier already included"}
+    "equities": {"maxFeedAge": 432000, "twapSeconds": 60, "mode": "CHAINLINK_TWAP_VERIFY", "maxDifference": 300, "feed": "raw Chainlink token-total-return feed; multiplier already included"}
   },
   "vault": {
     "name": "Revert Lend Coinbase Equities USDC",
@@ -74,10 +74,11 @@
     "stressedExitModel": ["script/sim/results/tickwalk_exit-51372341.json", "script/sim/results/tickwalk_exit-51352341.json"],
     "feedSemantics": "https://docs.chain.link/data-feeds/tokenized-equity-feeds/coinbase",
     "rawFeedDeploymentDryRun": null,
-    "historicalSimulationNote": "Pre-2026-10-01 outputs used a superseded share-price assumption; divergence and corporate-action evidence must be regenerated.",
+    "historicalSimulationNote": "Existing outputs predate the raw-token-feed and shared-age configuration; divergence, feed-age states and corporate-action evidence must be regenerated.",
     "corporateActionDetection": "UNRESOLVED: raw-feed staleness does not immediately detect a registry pause or an unpublished multiplier change"
   },
   "decisions": {
+    "sharedFeedAge": "Confirmed: 120h (432000 seconds) for all equity operations; accepts held prices while pool divergence checks pass",
     "owner": "A: Safe 2-of-3, no timelock (as rlAeroUSDC)",
     "emergencyAdmin": "none (house-wide)",
     "oracleMode": "CHAINLINK_TWAP_VERIFY",

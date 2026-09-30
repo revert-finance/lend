@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 
 import "./B20TestBase.sol";
 
-/// @notice Vault behaviour for Coinbase B20 equity collateral (plan WP3 bucket 1, proposal §3.3, §4).
-///         Per-name caps on both legs, cross pairs, minLoanSize, the dual-age state table, the
+/// @notice Vault behaviour for Coinbase B20 equity collateral.
+///         Per-name caps on both legs, cross pairs, minLoanSize, the shared feed-age cutoff, the
 ///         emergency freeze tuple, and liquidation at pilot factors including the zero-reserve loss path.
 contract V3VaultB20Test is B20TestBase {
     uint128 constant NVDA_AMOUNT = 100e8; // ~$21.8K
@@ -102,42 +102,92 @@ contract V3VaultB20Test is B20TestBase {
         _borrow(borrower, tokenId, MIN_LOAN_SIZE);
     }
 
-    // ---- blackout table (proposal §3.3) --------------------------------------------------------------
+    // ---- shared feed-age policy ---------------------------------------------------------------
 
-    function testLiquidationOnlyWindow() external {
+    function testWeekendBorrowAndCollateralRemovalRemainAvailable() external {
         uint256 tokenId = _openNvdaLoan(5_000e6);
-        uint256 sharesBefore = _debtShares(tokenId);
-
-        // Position becomes unhealthy while the last equity print is still fresh.
-        _moveNvda(nvdaTick + DOWN_60);
-        // Read through the mock so the optimizer cannot substitute a post-vm.warp block.timestamp.
-        uint256 equityUpdatedAt = nvdaFeed.updatedAt();
-
-        // The short operational window expires, while the 30h liquidation window remains open.
-        vm.warp(block.timestamp + EQUITY_MAX_FEED_AGE + 1);
+        vm.warp(nvdaFeed.updatedAt() + 48 hours);
         usdcRefFeed.setUpdatedAt(block.timestamp);
-        nvdaFeed.setUpdatedAt(equityUpdatedAt);
 
-        // deposit collateral: works, never touches the oracle
-        uint256 newPosition = _mintNvdaPosition(borrower, NVDA_AMOUNT, 0);
-        _deposit(borrower, newPosition);
+        _borrow(borrower, tokenId, 500e6);
+        assertGt(_debt(tokenId), 5_500e6); // includes interest accrued over the closure
+        uint256 newPosition = _openNvdaLoan(1_000e6);
         assertEq(vault.ownerOf(newPosition), borrower);
 
-        // borrow: frozen
-        _expectBorrowRevert(borrower, tokenId, 1_000e6, ChainlinkPriceError.selector);
-        _expectBorrowRevert(borrower, newPosition, 1_000e6, ChainlinkPriceError.selector);
+        // The generic NPM mock sweeps all fees even when both requested maxima are zero.
+        // Model a real zero-amount collect so the collateral health check sees unchanged inventory.
+        vm.mockCall(address(npm), abi.encodeWithSelector(npm.collect.selector), abi.encode(uint256(0), uint256(0)));
+        vm.prank(borrower);
+        vault.decreaseLiquidityAndCollect(
+            IVault.DecreaseLiquidityAndCollectParams({
+                tokenId: tokenId,
+                liquidity: 0,
+                amount0Min: 0,
+                amount1Min: 0,
+                feeAmount0: 0,
+                feeAmount1: 0,
+                deadline: block.timestamp + 1,
+                recipient: borrower
+            })
+        );
+        vm.clearMockedCalls();
 
-        // Normal valuation and collateral removal are frozen.
+        uint256 sharesBefore = _debtShares(tokenId);
+        vm.startPrank(borrower);
+        usdc.approve(address(vault), 100e6);
+        vault.repay(tokenId, 100e6, false);
+        vm.stopPrank();
+        assertLt(_debtShares(tokenId), sharesBefore);
+
+        uint256 lenderBefore = usdc.balanceOf(lender);
+        vm.prank(lender);
+        vault.withdraw(10_000e6, lender, lender);
+        assertEq(usdc.balanceOf(lender) - lenderBefore, 10_000e6);
+    }
+
+    function testWeekendLiquidationUsesStandardLoanInfo() external {
+        uint256 tokenId = _openNvdaLoan(5_000e6);
+        _moveNvda(nvdaTick + DOWN_60);
+        vm.warp(nvdaFeed.updatedAt() + 48 hours);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        (,,, uint256 cost, uint256 value) = vault.loanInfo(tokenId);
+        assertGt(cost, 0);
+        assertGt(value, cost);
+        _liquidate(liquidator, tokenId);
+        assertEq(_debtShares(tokenId), 0);
+    }
+
+    function testBorrowAtExactlySharedCutoff() external {
+        uint256 tokenId = _openNvdaLoan(5_000e6);
+        vm.warp(nvdaFeed.updatedAt() + EQUITY_MAX_FEED_AGE);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        _borrow(borrower, tokenId, 500e6);
+        assertGt(_debt(tokenId), 5_500e6);
+    }
+
+    function testLiquidationAtExactlySharedCutoff() external {
+        uint256 tokenId = _openNvdaLoan(5_000e6);
+        _moveNvda(nvdaTick + DOWN_60);
+        vm.warp(nvdaFeed.updatedAt() + EQUITY_MAX_FEED_AGE);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+        _liquidate(liquidator, tokenId);
+        assertEq(_debtShares(tokenId), 0);
+    }
+
+    function testSharedCutoffBlocksRiskOperationsButNotRepayAndRecovers() external {
+        uint256 tokenId = _openNvdaLoan(5_000e6);
+        _moveNvda(nvdaTick + DOWN_60);
+        vm.warp(nvdaFeed.updatedAt() + EQUITY_MAX_FEED_AGE + 1);
+        usdcRefFeed.setUpdatedAt(block.timestamp);
+
+        _expectBorrowRevert(borrower, tokenId, 1_000e6, ChainlinkPriceError.selector);
         vm.expectRevert(ChainlinkPriceError.selector);
         vault.loanInfo(tokenId);
-        (,,, uint256 liquidationCost, uint256 liquidationValue) = vault.loanInfoForLiquidation(tokenId);
-        assertGt(liquidationCost, 0);
-        assertGt(liquidationValue, liquidationCost);
         vm.prank(borrower);
         vm.expectRevert(ChainlinkPriceError.selector);
         vault.decreaseLiquidityAndCollect(
             IVault.DecreaseLiquidityAndCollectParams({
-                tokenId: newPosition,
+                tokenId: tokenId,
                 liquidity: 0,
                 amount0Min: 0,
                 amount1Min: 0,
@@ -148,54 +198,28 @@ contract V3VaultB20Test is B20TestBase {
             })
         );
 
-        // repay: works
+        usdc.mint(liquidator, 10_000e6);
+        vm.startPrank(liquidator);
+        usdc.approve(address(vault), 10_000e6);
+        vm.expectRevert(ChainlinkPriceError.selector);
+        vault.liquidate(
+            IVault.LiquidateParams({
+                tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: liquidator, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+
+        uint256 sharesBefore = _debtShares(tokenId);
         vm.startPrank(borrower);
         usdc.approve(address(vault), 100e6);
         vault.repay(tokenId, 100e6, false);
         vm.stopPrank();
         assertLt(_debtShares(tokenId), sharesBefore);
 
-        // Liquidation uses the longer age and remains available.
-        usdc.mint(liquidator, 10_000e6);
-        vm.startPrank(liquidator);
-        usdc.approve(address(vault), 10_000e6);
-        vault.liquidate(
-            IVault.LiquidateParams({
-                tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: liquidator, deadline: block.timestamp + 1
-            })
-        );
-        vm.stopPrank();
+        // Fresh token-price publication restores valuation and liquidation, without reconfiguration.
+        _refreshFeeds();
+        _liquidate(liquidator, tokenId);
         assertEq(_debtShares(tokenId), 0);
-
-        // lender withdraw: works while liquid USDC remains
-        uint256 lenderBefore = usdc.balanceOf(lender);
-        vm.prank(lender);
-        vault.withdraw(10_000e6, lender, lender);
-        assertEq(usdc.balanceOf(lender) - lenderBefore, 10_000e6);
-    }
-
-    function testLiquidationFailsAfterLongWindow() external {
-        uint256 tokenId = _openNvdaLoan(5_000e6);
-        _moveNvda(nvdaTick + DOWN_60);
-        uint256 equityUpdatedAt = nvdaFeed.updatedAt();
-
-        vm.warp(block.timestamp + EQUITY_LIQUIDATION_MAX_FEED_AGE + 1);
-        usdcRefFeed.setUpdatedAt(block.timestamp);
-        nvdaFeed.setUpdatedAt(equityUpdatedAt);
-
-        vm.expectRevert(ChainlinkPriceError.selector);
-        vault.loanInfoForLiquidation(tokenId);
-
-        usdc.mint(liquidator, 10_000e6);
-        vm.startPrank(liquidator);
-        usdc.approve(address(vault), 10_000e6);
-        vm.expectRevert(ChainlinkPriceError.selector);
-        vault.liquidate(
-            IVault.LiquidateParams({
-                tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: liquidator, deadline: block.timestamp + 1
-            })
-        );
-        vm.stopPrank();
     }
 
     // ---- emergency freeze tuple (plan WP4/WP6) ----------------------------------------------------

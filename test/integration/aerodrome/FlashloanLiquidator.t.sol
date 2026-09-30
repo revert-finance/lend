@@ -23,7 +23,7 @@ contract MockFlashVault {
         return address(assetToken);
     }
 
-    function loanInfoForLiquidation(uint256)
+    function loanInfo(uint256)
         external
         view
         returns (

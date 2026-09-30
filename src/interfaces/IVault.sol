@@ -30,16 +30,6 @@ interface IVault is IERC4626 {
             uint256 liquidationCost,
             uint256 liquidationValue
         );
-    function loanInfoForLiquidation(uint256 tokenId)
-        external
-        view
-        returns (
-            uint256 debt,
-            uint256 fullValue,
-            uint256 collateralValue,
-            uint256 liquidationCost,
-            uint256 liquidationValue
-        );
 
     function ownerOf(uint256 tokenId) external returns (address);
 

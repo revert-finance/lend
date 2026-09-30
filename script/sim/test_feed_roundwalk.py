@@ -14,7 +14,7 @@ def encoded(*values):
 
 
 class FeedRoundwalkTest(unittest.TestCase):
-    def run_monitor(self, multiplier, token_price=100):
+    def run_monitor(self, multiplier, token_price=100, age=0):
         now = 1_710_000_000
         equity = monitor.EQUITIES[0]
 
@@ -40,7 +40,8 @@ class FeedRoundwalkTest(unittest.TestCase):
                         self.assertIn(selector, (
                             monitor.SEL["latestRoundData()"], monitor.SEL["getRoundData(uint80)"]))
                         price = 1 if call["to"] == monitor.USDC_FEED else token_price
-                        result = encoded(1, price * 10 ** 8, now, now, 1)
+                        updated = now if call["to"] == monitor.USDC_FEED else now - age
+                        result = encoded(1, price * 10 ** 8, updated, updated, 1)
                 else:
                     self.fail(f"Unexpected RPC method: {method}")
                 results.append({"id": request["id"], "result": result})
@@ -69,6 +70,23 @@ class FeedRoundwalkTest(unittest.TestCase):
                 self.assertEqual(feed["multiplier"], multiplier / 10 ** 18)
                 self.assertEqual(feed["divergence"], 0)
                 self.assertEqual(exit_code, 0)
+
+    def test_weekend_holiday_and_shared_cutoff(self):
+        for age in (24 * 3600, 48 * 3600, 116 * 3600 + 35 * 60, monitor.EQUITY_MAX_FEED_AGE):
+            with self.subTest(age=age):
+                feed, exit_code = self.run_monitor(10 ** 18, age=age)
+                self.assertEqual(feed["oracleState"], "normal")
+                self.assertEqual(exit_code, 0)
+        feed, exit_code = self.run_monitor(10 ** 18, age=monitor.EQUITY_MAX_FEED_AGE + 1)
+        self.assertEqual(feed["oracleState"], "valuation-blackout")
+        self.assertEqual(exit_code, 1)
+
+    def test_invalid_timestamp_alerts(self):
+        for age in (-1, 1_710_000_000):
+            with self.subTest(age=age):
+                feed, exit_code = self.run_monitor(10 ** 18, age=age)
+                self.assertEqual(feed["oracleState"], "invalid-timestamp")
+                self.assertEqual(exit_code, 1)
 
     def test_real_token_price_divergence_still_alerts(self):
         feed, exit_code = self.run_monitor(10 ** 19, token_price=104)
