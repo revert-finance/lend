@@ -6,6 +6,7 @@ optimizer = true
 optimizer_runs = 25
 via_ir = true
 solc = "0.8.24"
+fs_permissions = [{ access = "read", path = "./fixtures/upstream-gauge/out" }]
 
 [lint]
 exclude_lints = [

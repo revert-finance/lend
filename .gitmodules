@@ -18,3 +18,9 @@
 	path = lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
 	branch = v4.9.6
+[submodule "lib/aero-slipstream"]
+	path = lib/aero-slipstream
+	url = https://github.com/dromos-labs/metadex-slipstream-public.git
+[submodule "lib/openzeppelin-v3"]
+	path = lib/openzeppelin-v3
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts.git

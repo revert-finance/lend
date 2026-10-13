@@ -83,7 +83,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         emit WithdrawerChanged(msg.sender);
     }
 
-    function setGauge(address pool, address gauge) external override onlyOwner {
+    function setGauge(address pool, address gauge) public virtual override onlyOwner {
         if (pool == address(0) || gauge == address(0)) {
             revert InvalidConfig();
         }
@@ -134,7 +134,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         emit WithdrawerChanged(_withdrawer);
     }
 
-    function withdrawBalances(address[] calldata tokens, address to) external override {
+    function withdrawBalances(address[] calldata tokens, address to) external virtual override {
         if (msg.sender != withdrawer) {
             revert Unauthorized();
         }
@@ -231,7 +231,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         address owner = vault.ownerOf(tokenId);
         _claimAndSendRewardsBestEffort(gauge, tokenId, owner);
-        IGauge(gauge).withdraw(tokenId);
+        _withdrawFromGauge(gauge, tokenId, owner);
         // Intentionally no token0/token1 forwarding on plain unstake:
         // while staked in Slipstream gauge, swap fees accrue to gauge-side accounting (not as NFT collectable fees),
         // and CLGauge.deposit already collects any pre-stake NFT fees when staking.
@@ -283,7 +283,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             return (0, 0, 0);
         }
 
-        IGauge(state.gauge).withdraw(tokenId);
+        _withdrawFromGauge(state.gauge, tokenId, state.owner);
         state = _swapAeroForPosition(state, aeroSplitBps);
         state = _addLiquidity(state, tokenId, deadline);
         uint256 token0BeforeDeposit = IERC20(state.token0).balanceOf(address(this));
@@ -320,13 +320,17 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         _sendAeroIfAny(recipient, aeroAmount);
     }
 
-    function _claimRewardsToSelf(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
+    function _withdrawFromGauge(address gauge, uint256 tokenId, address) internal virtual {
+        IGauge(gauge).withdraw(tokenId);
+    }
+
+    function _claimRewardsToSelf(address gauge, uint256 tokenId) internal virtual returns (uint256 aeroAmount) {
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         IGauge(gauge).getReward(tokenId);
         aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
     }
 
-    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
+    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal virtual returns (uint256 aeroAmount) {
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         // Liveness over reward payout: unstake/remove/liquidation must not depend on a successful reward claim.
         try IGauge(gauge).getReward(tokenId) {
