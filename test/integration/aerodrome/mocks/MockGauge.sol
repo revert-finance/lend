@@ -6,7 +6,15 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "../../../../src/interfaces/aerodrome/IGauge.sol";
 
+import {LeafVoterFixture} from "../../../mocks/AeroDeliveryFixture.sol";
+
 contract MockGauge is IGauge {
+    address public immutable pool;
+    address public immutable voter;
+    mapping(address => uint256) public deferredEmissions;
+
+    function nft() external view returns (address) { return stake; }
+
     using SafeERC20 for IERC20;
 
     IERC20 internal immutable _rewardToken;
@@ -28,7 +36,9 @@ contract MockGauge is IGauge {
     uint256 public totalSupply;
     uint256 public rewardRate = 1e18; // 1 AERO per block per token
     
-    constructor(address rewardTokenAddress, address _stake) {
+    constructor(address rewardTokenAddress, address _stake, address _pool) {
+        pool = _pool;
+        voter = address(new LeafVoterFixture(rewardTokenAddress));
         _rewardToken = IERC20(rewardTokenAddress);
         stake = _stake;
     }
@@ -70,6 +80,16 @@ contract MockGauge is IGauge {
         totalSupply--;
         
         emit Withdraw(msg.sender, tokenId, 1);
+    }
+
+    // Controlled Aero claim surface for vault regression tests. Full deferral semantics
+    // are exercised by the dedicated receipt-accounting and pinned upstream-gauge suites.
+    function claimEmissions(address account, address recipient, uint256[] calldata ids) external {
+        require(msg.sender == account, "Not account");
+        for (uint256 i; i < ids.length; ++i) require(tokenOwners[ids[i]] == account, "Not owner");
+        uint256 reward = ids.length * rewardRate + rewards[account];
+        rewards[account] = 0;
+        if (reward > 0) _rewardToken.safeTransfer(recipient, reward);
     }
 
     function getReward() external {

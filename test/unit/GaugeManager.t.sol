@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 
 import "../../src/GaugeManager.sol";
+import {LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../../src/interfaces/aerodrome/IGauge.sol";
 import "../../src/utils/Constants.sol";
@@ -308,6 +309,9 @@ contract MockNPM is ERC721 {
 }
 
 contract MockGauge is IGauge {
+    address public immutable pool;
+    address public immutable voter;
+    mapping(address => uint256) public deferredEmissions;
     IERC721 public immutable nft;
     IERC20 public immutable rewardToken;
 
@@ -321,7 +325,9 @@ contract MockGauge is IGauge {
     uint256 public withdrawPayout0;
     uint256 public withdrawPayout1;
 
-    constructor(IERC721 _nft, IERC20 _rewardToken) {
+    constructor(IERC721 _nft, IERC20 _rewardToken, address _pool) {
+        pool = _pool;
+        voter = address(new LeafVoterFixture(address(_rewardToken)));
         nft = _nft;
         rewardToken = _rewardToken;
     }
@@ -377,7 +383,15 @@ contract MockGauge is IGauge {
         nft.transferFrom(address(this), msg.sender, tokenId);
     }
 
-    function getReward(uint256 tokenId) external override {
+    function claimEmissions(address account, address recipient, uint256[] calldata ids) external {
+        require(msg.sender == account && recipient == account, "not account");
+        for (uint256 i; i < ids.length; ++i) {
+            require(staker[ids[i]] == account, "not staker");
+            getReward(ids[i]);
+        }
+    }
+
+    function getReward(uint256 tokenId) public override {
         if (revertOnGetReward) {
             revert("reward revert");
         }
@@ -423,7 +437,7 @@ contract GaugeManagerUnitTest is Test {
         aeroWethPool = new MockPool(address(aero), address(weth), 200);
 
         npm = new MockNPM(address(factory), address(weth));
-        gauge = new MockGauge(IERC721(address(npm)), IERC20(address(aero)));
+        gauge = new MockGauge(IERC721(address(npm)), IERC20(address(aero)), address(usdcDaiPool));
         vault = new MockVault();
 
         usdcDaiPool.setGauge(address(gauge));
@@ -558,6 +572,7 @@ contract GaugeManagerUnitTest is Test {
         vault.setOwner(tokenId, ALICE);
 
         MockPool usdcWethPool = new MockPool(address(usdc), address(weth), 100);
+        gauge = new MockGauge(IERC721(address(npm)), IERC20(address(aero)), address(usdcWethPool));
         usdcWethPool.setGauge(address(gauge));
         factory.setPool(address(usdc), address(weth), 100, address(usdcWethPool));
         gaugeManager.setGauge(address(usdcWethPool), address(gauge));

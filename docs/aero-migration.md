@@ -1,6 +1,6 @@
 # Aero reward ownership adapter
 
-Updated: 2026-10-13
+Updated: 2026-10-14
 
 This is the first contract implementation slice, based on Lend's deployed
 Aerodrome source baseline `ff9e75afbdd9af847e5a5c026466e179027da490`.
@@ -12,7 +12,15 @@ must remain available for runoff. No production transaction has been sent.
 
 ## Supported settlement mode
 
-`AeroGaugeManager` supports the direct **leaf receipt-token** delivery path only.
+On this branch, `src/GaugeManager.sol` implements the Aero changes directly.
+The initial `AeroGaugeManager` subclass has been removed; there is one production
+manager implementation. Compare it against the deployed Aerodrome baseline with:
+
+```bash
+git diff ff9e75afbdd9af847e5a5c026466e179027da490 -- src/GaugeManager.sol src/interfaces/aero/IAeroGauge.sol
+```
+
+`GaugeManager` supports the direct **leaf receipt-token** delivery path only.
 Its inherited `aeroToken` getter refers to the local `RECEIPT_TOKEN`, not the old
 AERO token or necessarily the root token. The manager checks the gauge's NPM,
 pool, voter receipt token, and handler receipt-token/voter bindings when registering
@@ -108,6 +116,22 @@ test-only mutability warning, all eight deployment tests passed again. The local
 script simulation succeeded without broadcast (reported gas 4,818,257). These
 checks cover the audit fixes; the target-chain limitations above still apply.
 
+October 14 consolidation validation: the local unit and mock-vault suites passed
+**106 tests across 18 suites**, including the receipt-accounting fuzz test (256
+cases), upstream-gauge tests, liquidation, removal, transformations and compounding:
+
+```bash
+forge test --match-path 'test/{unit,integration/aerodrome}/*.t.sol'
+```
+
+These now exercise the single `GaugeManager` implementation with Aero-compatible
+gauge fixtures. Its external function/event/error signatures match the earlier
+adapter. Legacy Base gauge fork tests are specific to the `aerodrome-slipstream`
+version and must be run from that baseline; this consolidation does not establish
+final Base Aero compatibility.
+The local deployment script also succeeded without broadcast, deploying
+`GaugeManager` (reported gas 4,812,239).
+
 Production entrypoint: `script/DeployAeroGaugeManager.s.sol:DeployAeroGaugeManager`.
 This script deploys **only the manager**, configures gauges/optional reward routes,
 binds a separately prepared fresh vault, sets the withdrawer and starts two-step
@@ -153,7 +177,7 @@ forge script script/DeployAeroGaugeManager.s.sol:DeployAeroGaugeManager --rpc-ur
 the deployed `AERO_MANAGER`, is:
 
 ```bash
-forge verify-contract "$AERO_MANAGER" src/AeroGaugeManager.sol:AeroGaugeManager --chain "$AERO_CHAIN_ID" --watch --etherscan-api-key "$ETHERSCAN_API_KEY" --constructor-args "$(cast abi-encode 'constructor(address,address,address,address,address)' "$AERO_NPM" "$AERO_RECEIPT_TOKEN" "$AERO_NEW_VAULT" "$AERO_ROUTER" "$AERO_ALLOWANCE_HOLDER")"
+forge verify-contract "$AERO_MANAGER" src/GaugeManager.sol:GaugeManager --chain "$AERO_CHAIN_ID" --watch --etherscan-api-key "$ETHERSCAN_API_KEY" --constructor-args "$(cast abi-encode 'constructor(address,address,address,address,address)' "$AERO_NPM" "$AERO_RECEIPT_TOKEN" "$AERO_NEW_VAULT" "$AERO_ROUTER" "$AERO_ALLOWANCE_HOLDER")"
 ```
 
 After broadcast, verify source, immutable bindings, every configured gauge/route,
@@ -166,8 +190,8 @@ the new vault deployment flow and must be completed before enabling users.
 
 Preflight mirrors the manager's pool-to-gauge check and reward-route token/factory
 validation, including rejecting zero/receipt-token reward bases and allowing a
-zero pool to remove a route. The adapter's `setGauge` override also explicitly
-declares `onlyOwner`; the base call retains its own guard.
+zero pool to remove a route. `GaugeManager.setGauge` retains the original explicit
+`onlyOwner` guard; it no longer depends on a superclass call for authorization.
 
 Foundry executes the script and normally simulates its collected transactions
 before broadcasting. Invalid static configuration should therefore fail before

@@ -2,6 +2,17 @@
 
 Smart contracts for the Revert Lend protocol.
 
+This is the standalone **Aero** integration branch. `src/GaugeManager.sol` contains
+the receipt-token claim and deferred reward accounting directly. Use the
+[Aero migration runbook](docs/aero-migration.md) for its deployment inputs and
+local validation commands, including the upstream gauge fixture build.
+
+The legacy Base deployment runbook below, `DeployAerodromeProtocol.s.sol`, and
+`BaseAerodromeIntegration.t.sol` target old Aerodrome gauges. Run those from the
+`aerodrome-slipstream` baseline (`ff9e75afbdd9af847e5a5c026466e179027da490`), not
+against this branch's Aero manager. The remaining replacement protocol deployment
+and final Base fork validation are still pending.
+
 ## Setup
 
 1. Install Foundry: https://book.getfoundry.sh/getting-started/installation

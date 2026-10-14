@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
-import "../src/AeroGaugeManager.sol";
+import "../src/GaugeManager.sol";
 
 interface IAeroVaultSetup {
     function owner() external view returns (address);
@@ -31,11 +31,11 @@ contract DeployAeroGaugeManager is Script {
         address[] rewardPools;
     }
 
-    function run() public returns (AeroGaugeManager manager) {
+    function run() public returns (GaugeManager manager) {
         Config memory c = _loadConfig();
         _validate(c);
         vm.startBroadcast(c.deployer);
-        manager = new AeroGaugeManager(
+        manager = new GaugeManager(
             INonfungiblePositionManager(c.npm), IERC20(c.receiptToken), IVault(c.vault), c.router, c.allowanceHolder
         );
         manager.setWithdrawer(c.withdrawer);

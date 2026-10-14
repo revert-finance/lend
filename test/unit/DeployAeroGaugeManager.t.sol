@@ -24,7 +24,7 @@ contract DeployAeroGaugeManagerTest is Test {
 
     function testDeployBindsVaultConfiguresRoutesAndTransfersOwnershipInTwoSteps() public {
         DeployAeroGaugeManager.Config memory c = script.config();
-        AeroGaugeManager manager = script.run();
+        GaugeManager manager = script.run();
         assertEq(IAeroVaultSetup(c.vault).gaugeManager(), address(manager));
         assertEq(address(manager.vault()), c.vault);
         assertEq(address(manager.aeroToken()), c.receiptToken);

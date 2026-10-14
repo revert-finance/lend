@@ -380,8 +380,8 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
             address(0)
         );
 
-        usdcDaiGauge = new MockGauge(address(aero), address(npm));
-        wethUsdcGauge = new MockGauge(address(aero), address(npm));
+        usdcDaiGauge = new MockGauge(address(aero), address(npm), address(usdcDaiPool));
+        wethUsdcGauge = new MockGauge(address(aero), address(npm), address(wethUsdcPool));
 
         MockPool(usdcDaiPool).setGauge(address(usdcDaiGauge));
         MockPool(wethUsdcPool).setGauge(address(wethUsdcGauge));

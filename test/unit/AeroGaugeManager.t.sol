@@ -2,33 +2,13 @@
 pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
-import {AeroGaugeManager} from "../../src/AeroGaugeManager.sol";
+import {GaugeManager} from "../../src/GaugeManager.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {LeafDeliveryFixture, LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
-
-/// @dev Models the pinned upstream claim/defer semantics, not a substitute for upstream bytecode tests.
-contract LeafDeliveryFixture {
-    address public immutable RECEIPT_TOKEN;
-    address public immutable LEAF_VOTER;
-
-    constructor(address token, address voter) {
-        RECEIPT_TOKEN = token;
-        LEAF_VOTER = voter;
-    }
-}
-
-contract LeafVoterFixture {
-    address public immutable RECEIPT_TOKEN;
-    address public immutable EMISSIONS_HANDLER;
-
-    constructor(address token) {
-        RECEIPT_TOKEN = token;
-        EMISSIONS_HANDLER = address(new LeafDeliveryFixture(token, address(this)));
-    }
-}
 
 // The root handler has LEAF_VOTER/pendingRedeems but no receipt-token delivery getter.
 contract RootDeliveryFixture {
@@ -151,7 +131,7 @@ contract AeroGaugeManagerTest is Test {
     MockNPM npm;
     MockVault vault;
     AeroGaugeFixture gauge;
-    AeroGaugeManager manager;
+    GaugeManager manager;
 
     function setUp() public {
         token = new MockERC20Token("Aero receipt", "rAERO");
@@ -164,7 +144,7 @@ contract AeroGaugeManagerTest is Test {
         vault = new MockVault();
         gauge = new AeroGaugeFixture(IERC721(address(npm)), address(pool), token);
         pool.setGauge(address(gauge));
-        manager = new AeroGaugeManager(
+        manager = new GaugeManager(
             INonfungiblePositionManager(address(npm)),
             IERC20(address(token)),
             IVault(address(vault)),
@@ -234,13 +214,13 @@ contract AeroGaugeManagerTest is Test {
         vault.setOwner(1, BOB);
         gauge.setMintFails(false);
         vm.prank(BOB);
-        vm.expectRevert(AeroGaugeManager.NoDeferredClaim.selector);
+        vm.expectRevert(GaugeManager.NoDeferredClaim.selector);
         manager.claimDeferredRewards(address(gauge), 0, BOB);
         vm.prank(ALICE);
         manager.claimDeferredRewards(address(gauge), 0, ALICE);
         assertEq(token.balanceOf(ALICE), 100 ether);
         vm.prank(ALICE);
-        vm.expectRevert(AeroGaugeManager.NoDeferredClaim.selector);
+        vm.expectRevert(GaugeManager.NoDeferredClaim.selector);
         manager.claimDeferredRewards(address(gauge), 0, ALICE);
     }
 
@@ -368,9 +348,9 @@ contract AeroGaugeManagerTest is Test {
     }
 
     function testUnauthorizedPaths() public {
-        vm.expectRevert(AeroGaugeManager.OnlySelf.selector);
+        vm.expectRevert(GaugeManager.OnlySelf.selector);
         manager.claimPositionToSelf(address(gauge), 1);
-        vm.expectRevert(AeroGaugeManager.UnknownGauge.selector);
+        vm.expectRevert(GaugeManager.UnknownGauge.selector);
         manager.recoverDeferredRewards(address(0xBAD));
         vm.prank(BOB);
         vm.expectRevert();
@@ -396,14 +376,14 @@ contract AeroGaugeManagerTest is Test {
 
     function testRejectsWrongReceiptToken() public {
         gauge.setVoter(address(new LeafVoterFixture(address(usdc))));
-        vm.expectRevert(AeroGaugeManager.UnsupportedRewardDelivery.selector);
+        vm.expectRevert(GaugeManager.UnsupportedRewardDelivery.selector);
         manager.setGauge(address(pool), address(gauge));
     }
 
     function testRejectsHandlerBoundToAnotherVoter() public {
         address handler = address(new LeafDeliveryFixture(address(token), address(0xBAD)));
         gauge.setVoter(address(new DeliveryConfigFixture(address(token), handler)));
-        vm.expectRevert(AeroGaugeManager.UnsupportedRewardDelivery.selector);
+        vm.expectRevert(GaugeManager.UnsupportedRewardDelivery.selector);
         manager.setGauge(address(pool), address(gauge));
     }
 

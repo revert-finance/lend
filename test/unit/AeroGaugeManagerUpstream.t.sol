@@ -2,13 +2,13 @@
 pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
-import {AeroGaugeManager} from "../../src/AeroGaugeManager.sol";
+import {GaugeManager} from "../../src/GaugeManager.sol";
 import {IAeroGauge} from "../../src/interfaces/aero/IAeroGauge.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
-import {LeafVoterFixture} from "./AeroGaugeManager.t.sol";
+import {LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
 
 interface IInitializeGauge {
     function initialize(address, address, address, address, int24, bool) external;
@@ -107,7 +107,7 @@ contract AeroGaugeManagerUpstreamTest is Test {
     EmissionsVoterFixture voter;
     GaugeConfigFixture config;
     IAeroGauge gauge;
-    AeroGaugeManager manager;
+    GaugeManager manager;
 
     function setUp() public {
         token = new MockERC20Token("Receipt", "rAERO");
@@ -130,7 +130,7 @@ contract AeroGaugeManagerUpstreamTest is Test {
         vm.prank(address(config));
         IInitializeGauge(address(gauge)).initialize(address(pool), address(0), token0, token1, 100, true);
         pool.setGauge(address(gauge));
-        manager = new AeroGaugeManager(
+        manager = new GaugeManager(
             INonfungiblePositionManager(address(npm)),
             IERC20(address(token)),
             IVault(address(vault)),

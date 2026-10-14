@@ -9,6 +9,7 @@ interface IAeroGauge {
     function deferredEmissions(address account) external view returns (uint256);
     function earned(address account, uint256[] calldata tokenIds) external view returns (uint256);
     function claimEmissions(address account, address recipient, uint256[] calldata tokenIds) external;
+    function deposit(uint256 tokenId) external;
     function withdraw(uint256 tokenId) external;
 }
 

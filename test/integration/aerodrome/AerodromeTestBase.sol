@@ -234,8 +234,8 @@ abstract contract AerodromeTestBase is Test, Constants {
         );
 
         // Deploy gauges
-        usdcDaiGauge = new MockGauge(address(aero), address(npm));
-        wethUsdcGauge = new MockGauge(address(aero), address(npm));
+        usdcDaiGauge = new MockGauge(address(aero), address(npm), address(usdcDaiPool));
+        wethUsdcGauge = new MockGauge(address(aero), address(npm), address(wethUsdcPool));
 
         // Set gauges on the pools (required for validation)
         MockPool(usdcDaiPool).setGauge(address(usdcDaiGauge));
