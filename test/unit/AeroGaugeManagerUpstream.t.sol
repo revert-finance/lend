@@ -7,8 +7,9 @@ import {IAeroGauge} from "../../src/interfaces/aero/IAeroGauge.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
+import {Constants} from "../../src/utils/Constants.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
-import {LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {LeafVoterFixture, AeroGaugeFactoryFixture} from "../mocks/AeroDeliveryFixture.sol";
 
 interface IInitializeGauge {
     function initialize(address, address, address, address, int24, bool) external;
@@ -71,27 +72,6 @@ contract EmissionsVoterFixture is LeafVoterFixture {
     }
 }
 
-contract GaugeConfigFixture {
-    uint256 public minBlocks;
-    uint256 public penalty;
-    address public referral;
-    uint256 public referralShare;
-
-    function setConfig(uint256 blocks_, uint256 penalty_, address referral_, uint256 share_) external {
-        minBlocks = blocks_;
-        penalty = penalty_;
-        referral = referral_;
-        referralShare = share_;
-    }
-
-    function effectivePenaltyConfig(address) external view returns (uint256, uint256) {
-        return (minBlocks, penalty);
-    }
-
-    function referralConfig(address) external view returns (address, uint256) {
-        return (referral, referralShare);
-    }
-}
 
 /// @dev Executes the unmodified, pinned upstream CLGauge bytecode with controlled pool/voter/NPM dependencies.
 /// This verifies upstream gauge semantics; it is not a full Aero deployment or production fork.
@@ -105,9 +85,10 @@ contract AeroGaugeManagerUpstreamTest is Test {
     MockVault vault;
     RewardGrowthPoolFixture pool;
     EmissionsVoterFixture voter;
-    GaugeConfigFixture config;
+    AeroGaugeFactoryFixture config;
     IAeroGauge gauge;
     GaugeManager manager;
+    uint256 receiptSideSplit;
 
     function setUp() public {
         token = new MockERC20Token("Receipt", "rAERO");
@@ -118,7 +99,7 @@ contract AeroGaugeManagerUpstreamTest is Test {
         npm = new CollectingNPMFixture(address(factory), address(usdc));
         vault = new MockVault();
         voter = new EmissionsVoterFixture(address(token));
-        config = new GaugeConfigFixture();
+        config = new AeroGaugeFactoryFixture();
         gauge = IAeroGauge(
             deployCode(
                 "fixtures/upstream-gauge/out/CLGauge.sol/CLGauge.json",
@@ -138,6 +119,8 @@ contract AeroGaugeManagerUpstreamTest is Test {
             address(0)
         );
         manager.setGauge(address(pool), address(gauge));
+        // Routing the whole reward to the receipt-token side lets compounding run without a swap route.
+        receiptSideSplit = token0 == address(token) ? 10_000 : 0;
         _stake(1, ALICE);
         _stake(2, BOB);
     }
@@ -207,5 +190,63 @@ contract AeroGaugeManagerUpstreamTest is Test {
         voter.setMintFails(false);
         vm.prank(ALICE);
         assertEq(manager.claimDeferredRewards(address(gauge), 0, ALICE), 72);
+    }
+
+    /// @dev Only the prank precedes the compound call, so a preceding expectRevert targets the compound.
+    function _compoundAll(uint256 id) private returns (uint256 compounded) {
+        vm.prank(ALICE);
+        (compounded,,) = manager.compoundRewards(id, 0, receiptSideSplit, block.timestamp);
+    }
+
+    function testCompoundInsidePenaltyWindowRevertsInsteadOfForfeiting() public {
+        // 20% of any claim made within 1000 blocks of the position's last deposit is forfeited upstream.
+        config.setConfig(1000, 200_000, address(0), 0);
+        uint256 depositBlock0 = gauge.depositBlock(1);
+        assertEq(manager.penaltyWindowEnd(1), depositBlock0 + 1000);
+        pool.setGrowth(10 * Q128); // 100 accrued for liquidity 10
+
+        vm.roll(depositBlock0 + 999);
+        vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
+        _compoundAll(1);
+        assertEq(voter.forfeited(), 0);
+
+        vm.roll(depositBlock0 + 1000);
+        assertEq(_compoundAll(1), 100);
+        assertEq(voter.forfeited(), 0);
+        // Restaking reset the upstream clock, so the next compound has to wait for the new window.
+        assertEq(gauge.depositBlock(1), block.number);
+        assertEq(manager.penaltyWindowEnd(1), block.number + 1000);
+
+        vm.roll(block.number + 10);
+        pool.setGrowth(20 * Q128); // another 110 for liquidity 11
+        assertEq(manager.positionRewards(1), 88); // upstream earned() nets the penalty out
+        vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
+        _compoundAll(1);
+        assertEq(voter.forfeited(), 0);
+        assertEq(npm.ownerOf(1), address(gauge));
+
+        vm.roll(manager.penaltyWindowEnd(1));
+        assertEq(manager.positionRewards(1), 110);
+        assertEq(_compoundAll(1), 110);
+        assertEq(voter.forfeited(), 0);
+    }
+
+    function testPenaltyWindowEndIsZeroWithoutPenaltyAndRequiresStake() public {
+        assertEq(manager.penaltyWindowEnd(1), 0);
+        config.setConfig(1000, 0, address(0), 0);
+        assertEq(manager.penaltyWindowEnd(1), 0);
+        pool.setGrowth(10 * Q128);
+        assertEq(_compoundAll(1), 100);
+        _withdraw(1);
+        vm.expectRevert(Constants.NotStaked.selector);
+        manager.penaltyWindowEnd(1);
+    }
+
+    function testVaultCompoundInsidePenaltyWindowReverts() public {
+        config.setConfig(1000, 200_000, address(0), 0);
+        pool.setGrowth(10 * Q128);
+        vm.prank(address(vault));
+        vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
+        manager.compoundRewards(1, 0, 10_000, block.timestamp);
     }
 }

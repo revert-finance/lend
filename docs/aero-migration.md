@@ -74,6 +74,29 @@ Compounding requires actual local receipt-token swap liquidity and valid TWAPs.
 Old AERO routes cannot simply be copied. Leave reward routes empty until verified;
 staking, withdrawal and standalone claims do not need those routes.
 
+## Early-unstake penalty window
+
+CLGauge records `depositBlock[tokenId]` on every deposit. While
+`block.number < depositBlock + minStakeBlocks` (from
+`CLGaugeFactory.effectivePenaltyConfig(gauge)`), every claim forfeits
+`penaltyRate / 1e6` of the position's reward to the voter. The pinned upstream
+defaults are 5 blocks and 100%; governance can raise the block count per gauge.
+Upstream `earned()`, and therefore `positionRewards()`, already report the net.
+
+Compounding withdraws and re-deposits the NFT, which restarts that clock.
+`compoundRewards` therefore reverts with `InsidePenaltyWindow` while the position
+is inside the window: neither the compound's own claim nor a keeper loop that
+compounds more often than `minStakeBlocks` can forfeit rewards.
+`penaltyWindowEnd(tokenId)` returns the first block at which the next compound
+is allowed (0 when no penalty applies). Keepers driving `AutoRangeAndCompound`
+through `transformWithRewardCompound` must schedule at or after that block; an
+earlier call reverts the whole transform. Every `V3Vault.transform` of a staked
+position, including re-ranges without reward compounding, also unstakes and
+restakes: the upstream withdraw claims the position at the penalized rate inside
+the window and the new deposit restarts the clock, so space re-range cadences by
+at least `minStakeBlocks` too. Direct `claimRewards` calls inside the window stay
+the owner's choice and pay the upstream-netted amount.
+
 ## Reproduce the checks
 
 Working directory: `protocols/lend` in this chamber. Use Foundry with solc 0.8.24

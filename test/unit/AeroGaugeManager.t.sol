@@ -6,7 +6,7 @@ import {GaugeManager} from "../../src/GaugeManager.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {LeafDeliveryFixture, LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {LeafDeliveryFixture, LeafVoterFixture, AeroGaugeFactoryFixture} from "../mocks/AeroDeliveryFixture.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
 
@@ -28,10 +28,12 @@ contract DeliveryConfigFixture {
 
 contract AeroGaugeFixture {
     address public voter;
+    address public immutable gaugeFactory;
     IERC721 public immutable nft;
     address public immutable pool;
     MockERC20Token public immutable token;
     mapping(uint256 => address) public staker;
+    mapping(uint256 => uint256) public depositBlock;
     mapping(uint256 => uint256) public rewards;
     mapping(address => uint256) public deferredEmissions;
     bool public mintFails;
@@ -46,6 +48,7 @@ contract AeroGaugeFixture {
         pool = pool_;
         token = token_;
         voter = address(new LeafVoterFixture(address(token_)));
+        gaugeFactory = address(new AeroGaugeFactoryFixture());
     }
 
     function setVoter(address value) external {
@@ -81,6 +84,7 @@ contract AeroGaugeFixture {
         require(!depositsDisabled, "retired");
         nft.transferFrom(msg.sender, address(this), id);
         staker[id] = msg.sender;
+        depositBlock[id] = block.number;
     }
 
     function earned(address account, uint256[] calldata ids) external view returns (uint256 amount) {
@@ -113,6 +117,7 @@ contract AeroGaugeFixture {
         uint256 amount = rewards[id] + withdrawalReward;
         delete rewards[id];
         delete staker[id];
+        delete depositBlock[id];
         if (mintFails) deferredEmissions[msg.sender] += amount;
         else if (amount != 0) token.mint(msg.sender, amount);
         if (feeAmount != 0) feeToken.mint(msg.sender, feeAmount);

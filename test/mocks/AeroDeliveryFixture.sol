@@ -21,3 +21,26 @@ contract LeafVoterFixture {
         EMISSIONS_HANDLER = address(new LeafDeliveryFixture(token, address(this)));
     }
 }
+
+/// @dev Stands in for CLGaugeFactory's penalty/referral configuration; ABI-compatible with the upstream getters.
+contract AeroGaugeFactoryFixture {
+    uint256 public minStakeBlocks;
+    uint256 public penaltyRate;
+    address public referral;
+    uint256 public referralShare;
+
+    function setConfig(uint256 blocks_, uint256 penalty_, address referral_, uint256 share_) external {
+        minStakeBlocks = blocks_;
+        penaltyRate = penalty_;
+        referral = referral_;
+        referralShare = share_;
+    }
+
+    function effectivePenaltyConfig(address) external view returns (uint256, uint256) {
+        return (minStakeBlocks, penaltyRate);
+    }
+
+    function referralConfig(address) external view returns (address, uint256) {
+        return (referral, referralShare);
+    }
+}

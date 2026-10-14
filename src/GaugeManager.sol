@@ -46,6 +46,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     error DeferredAccountingMismatch();
     error UnknownGauge();
     error OnlySelf();
+    error InsidePenaltyWindow();
     error NoDeferredClaim();
     error UnsupportedRewardDelivery();
 
@@ -315,6 +316,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         CompoundState memory state;
         state.gauge = _requireStakedGauge(tokenId);
+        // Restaking resets the gauge's depositBlock, and any claim inside the window forfeits penaltyRate.
+        if (block.number < _penaltyWindowEnd(state.gauge, tokenId)) revert InsidePenaltyWindow();
         uint24 feeOrTickSpacing;
         (,, state.token0, state.token1, feeOrTickSpacing,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         state.positionPool = _getPool(state.token0, state.token1, feeOrTickSpacing);
@@ -383,6 +386,18 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256[] memory ids = new uint256[](1);
         ids[0] = tokenId;
         return IAeroGauge(gauge).earned(address(this), ids) - IAeroGauge(gauge).deferredEmissions(address(this));
+    }
+
+    /// @notice First block at which compounding no longer forfeits the gauge's early-unstake penalty; 0 if none applies.
+    /// @dev Keepers should schedule compounds and restaking transforms at or after this block.
+    function penaltyWindowEnd(uint256 tokenId) external view returns (uint256) {
+        return _penaltyWindowEnd(_requireStakedGauge(tokenId), tokenId);
+    }
+
+    function _penaltyWindowEnd(address gauge, uint256 tokenId) internal view returns (uint256) {
+        (uint256 minStakeBlocks, uint256 penaltyRate) =
+            IAeroGaugeFactory(IAeroGauge(gauge).gaugeFactory()).effectivePenaltyConfig(gauge);
+        return penaltyRate == 0 ? 0 : IAeroGauge(gauge).depositBlock(tokenId) + minStakeBlocks;
     }
 
     /// @dev External self-call makes recovery + position claim atomic inside the best-effort exit path.

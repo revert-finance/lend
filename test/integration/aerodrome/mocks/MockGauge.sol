@@ -6,12 +6,14 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "../../../../src/interfaces/aerodrome/IGauge.sol";
 
-import {LeafVoterFixture} from "../../../mocks/AeroDeliveryFixture.sol";
+import {LeafVoterFixture, AeroGaugeFactoryFixture} from "../../../mocks/AeroDeliveryFixture.sol";
 
 contract MockGauge is IGauge {
     address public immutable pool;
     address public immutable voter;
+    address public immutable gaugeFactory;
     mapping(address => uint256) public deferredEmissions;
+    mapping(uint256 => uint256) public depositBlock;
 
     function nft() external view returns (address) { return stake; }
 
@@ -39,6 +41,7 @@ contract MockGauge is IGauge {
     constructor(address rewardTokenAddress, address _stake, address _pool) {
         pool = _pool;
         voter = address(new LeafVoterFixture(rewardTokenAddress));
+        gaugeFactory = address(new AeroGaugeFactoryFixture());
         _rewardToken = IERC20(rewardTokenAddress);
         stake = _stake;
     }
@@ -52,6 +55,7 @@ contract MockGauge is IGauge {
         userTokens[msg.sender].push(tokenId);
         balanceOf[msg.sender]++;
         totalSupply++;
+        depositBlock[tokenId] = block.number;
         
         emit Deposit(msg.sender, tokenId, 1);
     }
@@ -75,6 +79,7 @@ contract MockGauge is IGauge {
         IERC721(stake).transferFrom(address(this), msg.sender, tokenId);
         
         delete tokenOwners[tokenId];
+        delete depositBlock[tokenId];
         _removeTokenFromUser(msg.sender, tokenId);
         balanceOf[msg.sender]--;
         totalSupply--;

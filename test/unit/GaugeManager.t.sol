@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 
 import "../../src/GaugeManager.sol";
-import {LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {LeafVoterFixture, AeroGaugeFactoryFixture} from "../mocks/AeroDeliveryFixture.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../../src/interfaces/aerodrome/IGauge.sol";
 import "../../src/utils/Constants.sol";
@@ -311,7 +311,9 @@ contract MockNPM is ERC721 {
 contract MockGauge is IGauge {
     address public immutable pool;
     address public immutable voter;
+    address public immutable gaugeFactory;
     mapping(address => uint256) public deferredEmissions;
+    mapping(uint256 => uint256) public depositBlock;
     IERC721 public immutable nft;
     IERC20 public immutable rewardToken;
 
@@ -328,6 +330,7 @@ contract MockGauge is IGauge {
     constructor(IERC721 _nft, IERC20 _rewardToken, address _pool) {
         pool = _pool;
         voter = address(new LeafVoterFixture(address(_rewardToken)));
+        gaugeFactory = address(new AeroGaugeFactoryFixture());
         nft = _nft;
         rewardToken = _rewardToken;
     }
@@ -365,6 +368,7 @@ contract MockGauge is IGauge {
             IERC20(payoutToken1).transfer(msg.sender, depositPayout1);
         }
         staker[tokenId] = msg.sender;
+        depositBlock[tokenId] = block.number;
     }
 
     function withdraw(uint256 tokenId) external override {
@@ -380,6 +384,7 @@ contract MockGauge is IGauge {
         }
 
         delete staker[tokenId];
+        delete depositBlock[tokenId];
         nft.transferFrom(address(this), msg.sender, tokenId);
     }
 
