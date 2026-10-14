@@ -162,6 +162,33 @@ contract AeroGaugeManagerUpstreamTest is Test {
         assertEq(token.balanceOf(ALICE), 100);
     }
 
+    /// @dev CLGauge._withdraw only mints the exiting position's own reward (_claimOrDeferPositionEmissions);
+    /// the account-wide deferredEmissions bucket is paid out by claimEmissions alone. So an exit while minting
+    /// works again never sweeps another owner's deferral to the exiting owner, and no pre-claim is needed.
+    function testUpstreamWithdrawLeavesOtherOwnersDeferredBucketUntouched() public {
+        pool.setGrowth(10 * Q128);
+        voter.setMintFails(true);
+        _withdraw(1); // Alice's 100 lands in the manager's account bucket
+        assertEq(gauge.deferredEmissions(address(manager)), 100);
+        assertEq(manager.deferredClaims(address(gauge), 0, ALICE), 100);
+
+        voter.setMintFails(false);
+        pool.setGrowth(12 * Q128); // Bob's position has accrued 120 of its own
+        uint256 managerBefore = token.balanceOf(address(manager));
+        _withdraw(2);
+        assertEq(token.balanceOf(BOB), 120, "exiting owner gets exactly the position's reward");
+        assertEq(token.balanceOf(address(manager)), managerBefore, "nothing else was minted to the manager");
+        assertEq(gauge.deferredEmissions(address(manager)), 100, "Alice's bucket is untouched");
+        assertEq(manager.deferredClaims(address(gauge), 0, BOB), 0);
+        assertEq(manager.deferredClaims(address(gauge), 0, ALICE), 100);
+
+        vm.prank(ALICE);
+        assertEq(manager.claimDeferredRewards(address(gauge), 0, ALICE), 100);
+        assertEq(token.balanceOf(ALICE), 100);
+        assertEq(gauge.deferredEmissions(address(manager)), 0);
+        assertEq(manager.reservedRewards(), 0);
+    }
+
     function testUpstreamRecoveryWorksWithoutAnyStakedNFT() public {
         pool.setGrowth(10 * Q128);
         voter.setMintFails(true);
