@@ -132,6 +132,15 @@ final Base Aero compatibility.
 The local deployment script also succeeded without broadcast, deploying
 `GaugeManager` (reported gas 4,812,239).
 
+The subsequent minimal-diff pass restores the original sweep loop, existing
+variable names and formatting. The manager and new interface now differ from
+`ff9e75afbdd9af847e5a5c026466e179027da490` by 187 added / 20 removed lines.
+Reward ownership, recovery batches and reserve protection are unchanged. Keep
+future edits focused on required Aero behavior; avoid unrelated refactors or
+reformatting that obscure the comparison with the deployed implementation.
+The same 18-suite regression command passed again: 106 tests, zero failures or
+skips, including 256 fuzz cases.
+
 Production entrypoint: `script/DeployAeroGaugeManager.s.sol:DeployAeroGaugeManager`.
 This script deploys **only the manager**, configures gauges/optional reward routes,
 binds a separately prepared fresh vault, sets the withdrawer and starts two-step

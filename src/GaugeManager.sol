@@ -158,8 +158,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IAerodromeSlipstreamPool slipstreamPool = IAerodromeSlipstreamPool(pool);
         address token0 = slipstreamPool.token0();
         address token1 = slipstreamPool.token1();
-        if (!(token0 == address(aeroToken) && token1 == baseToken || token0 == baseToken
-                    && token1 == address(aeroToken))) {
+        if (!(token0 == address(aeroToken) && token1 == baseToken || token0 == baseToken && token1 == address(aeroToken)))
+        {
             revert InvalidPool();
         }
 
@@ -181,13 +181,22 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     }
 
     function withdrawBalances(address[] calldata tokens, address to) external override nonReentrant {
-        if (msg.sender != withdrawer) revert Unauthorized();
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
         if (to == address(0)) revert InvalidConfig();
-        for (uint256 i; i < tokens.length; ++i) {
-            IERC20 token = IERC20(tokens[i]);
-            uint256 amount = token.balanceOf(address(this));
-            if (tokens[i] == address(aeroToken)) amount -= reservedRewards;
-            if (amount != 0) token.safeTransfer(to, amount);
+
+        uint256 i;
+        uint256 count = tokens.length;
+        address token;
+        uint256 balance;
+        for (; i < count; ++i) {
+            token = tokens[i];
+            balance = IERC20(token).balanceOf(address(this));
+            if (token == address(aeroToken)) balance -= reservedRewards;
+            if (balance != 0) {
+                IERC20(token).safeTransfer(to, balance);
+            }
         }
     }
 
@@ -293,12 +302,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         emit RewardsClaimed(tokenId, owner, aeroAmount);
     }
 
-    function compoundRewards(uint256 tokenId, uint256 minAeroReward, uint256 aeroSplitBps, uint256 deadline)
-        external
-        override
-        nonReentrant
-        returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
-    {
+    function compoundRewards(
+        uint256 tokenId,
+        uint256 minAeroReward,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
         address owner = _requireVaultOrOwner(tokenId);
         if (aeroSplitBps > 10_000) {
             revert InvalidConfig();
@@ -450,18 +459,18 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
-    function _claimRewardsToSelf(address gauge, uint256 tokenId) internal returns (uint256 amount) {
+    function _claimRewardsToSelf(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
         // Empty-NFT recovery isolates all previous owners' rewards before measuring this position's delta.
         _recoverDeferredRewards(gauge);
-        uint256 beforeBalance = aeroToken.balanceOf(address(this));
+        uint256 aeroBefore = aeroToken.balanceOf(address(this));
         uint256[] memory ids = new uint256[](1);
         ids[0] = tokenId;
         IAeroGauge(gauge).claimEmissions(address(this), address(this), ids);
         if (IAeroGauge(gauge).deferredEmissions(address(this)) != 0) revert DeferredAccountingMismatch();
-        amount = aeroToken.balanceOf(address(this)) - beforeBalance;
+        aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
     }
 
-    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal returns (uint256 amount) {
+    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
         try this.claimPositionToSelf(gauge, tokenId) returns (uint256 claimed) {
             return claimed;
         } catch {
