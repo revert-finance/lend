@@ -130,9 +130,8 @@ contract AtlasTransitionsTest is AerodromeTestBase {
         vm.prank(alice);
         vault.stakePosition(tokenId);
 
-        // Rewards accrue to GaugeManager in the mock gauge (it is the staker).
-        usdcDaiGauge.setRewardRate(0);
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 5e18);
+        // Rewards accrue to the staked position; GaugeManager is the staker in the gauge double.
+        usdcDaiGauge.setReward(tokenId, 5e18);
 
         uint256 beforeBal = aero.balanceOf(alice);
         vm.prank(alice);
@@ -148,10 +147,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
         vm.prank(alice);
         vault.stakePosition(tokenId);
 
-        // Ensure compound path short-circuits (no swaps).
-        usdcDaiGauge.setRewardRate(0);
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 0);
-
+        // No rewards are configured, so the compound path short-circuits (no swaps).
         vm.prank(alice);
         (uint256 aeroAmt, uint256 added0, uint256 added1) =
             gaugeManager.compoundRewards(tokenId, 0, 0, block.timestamp + 1 hours);

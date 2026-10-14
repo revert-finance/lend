@@ -254,7 +254,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vm.stopPrank();
 
         // Set some rewards
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 100e18);
+        usdcDaiGauge.setReward(tokenId, 100e18);
 
         uint256 balanceBefore = aero.balanceOf(alice);
 
@@ -436,7 +436,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         npm.approve(address(vault), tokenId);
         vault.create(tokenId, alice);
         vault.stakePosition(tokenId);
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 10e18);
+        usdcDaiGauge.setReward(tokenId, 10e18);
 
         // Test 1: Try to compound with invalid split (> 10000 bps)
         vm.expectRevert(Constants.InvalidConfig.selector);
@@ -446,7 +446,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000);
 
         // Test 3: Compounding reverts when the required AERO base pool is missing.
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 10e18);
+        usdcDaiGauge.setReward(tokenId, 10e18);
         vm.stopPrank();
         gaugeManager.setRewardBasePool(address(usdc), address(0));
         vm.startPrank(alice);
@@ -456,22 +456,14 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vm.stopPrank();
     }
 
-    function testLiquidateStakedPosition() public {
+    /// @dev Stakes a borrowed USDC/DAI position for alice with `reward` accrued, then crashes DAI so the
+    /// loan is liquidatable. Returns the token and the debt a liquidator has to cover.
+    function _stakedLiquidatablePosition(uint256 reward) private returns (uint256 tokenId, uint256 debt) {
         uint32 cf80Percent = uint32(Q32 * 80 / 100);
         vault.setTokenConfig(address(usdc), cf80Percent, type(uint32).max);
         vault.setTokenConfig(address(dai), cf80Percent, type(uint32).max);
 
-        uint256 tokenId = createPositionProper(
-            alice,
-            address(usdc),
-            address(dai),
-            1,
-            -100,
-            100,
-            1e18,
-            100e6,
-            100e18
-        );
+        tokenId = createPositionProper(alice, address(usdc), address(dai), 1, -100, 100, 1e18, 100e6, 100e18);
 
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
@@ -488,8 +480,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         vault.borrow(tokenId, borrowAmount);
         vm.stopPrank();
 
-        usdcDaiGauge.setRewardRate(0);
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 1e18);
+        usdcDaiGauge.setReward(tokenId, reward);
 
         // Verify position is staked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
@@ -508,25 +499,29 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         vm.warp(block.timestamp + 1 days);
 
-        (uint256 debtCheck,,,,) = vault.loanInfo(tokenId);
+        (debt,,,,) = vault.loanInfo(tokenId);
+    }
 
+    function _liquidateAsBob(uint256 tokenId, uint256 debt) private returns (uint256 amount0, uint256 amount1) {
         // Give Bob enough USDC to cover the debt (debt includes interest accrued)
-        usdc.mint(bob, debtCheck);
+        usdc.mint(bob, debt);
 
-        uint256 aliceAeroBefore = aero.balanceOf(alice);
-
-        // Perform liquidation
         vm.startPrank(bob);
-        usdc.approve(address(vault), debtCheck);
-
-        // Set liquidation parameters
+        usdc.approve(address(vault), debt);
         IVault.LiquidateParams memory params = IVault.LiquidateParams({
             tokenId: tokenId, amount0Min: 0, amount1Min: 0, recipient: bob, deadline: block.timestamp + 1000
         });
+        (amount0, amount1) = vault.liquidate(params);
+        vm.stopPrank();
+    }
+
+    function testLiquidateStakedPosition() public {
+        (uint256 tokenId, uint256 debtCheck) = _stakedLiquidatablePosition(1e18);
+
+        uint256 aliceAeroBefore = aero.balanceOf(alice);
 
         // Liquidate the staked position
-        (uint256 amount0, uint256 amount1) = vault.liquidate(params);
-        vm.stopPrank();
+        (uint256 amount0, uint256 amount1) = _liquidateAsBob(tokenId, debtCheck);
 
         // Verify liquidation succeeded
         assertGt(amount0 + amount1, 0, "Liquidation should return collateral");
@@ -546,5 +541,35 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         // Verify loan is cleared
         (uint256 debt,,,,) = vault.loanInfo(tokenId);
         assertEq(debt, 0, "Debt should be cleared after liquidation");
+    }
+
+    function testLiquidateStakedPositionDefersRewardWhenMintFails() public {
+        (uint256 tokenId, uint256 debtCheck) = _stakedLiquidatablePosition(1e18);
+        usdcDaiGauge.setMintFails(true);
+
+        uint256 aliceAeroBefore = aero.balanceOf(alice);
+
+        // A delivery outage must not block the liquidation; the failed mint becomes a debt to the borrower.
+        (uint256 amount0, uint256 amount1) = _liquidateAsBob(tokenId, debtCheck);
+
+        assertGt(amount0 + amount1, 0, "Liquidation should return collateral");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0), "Position should be unstaked");
+        assertEq(npm.ownerOf(tokenId), address(vault), "NFT should be owned by vault after liquidation");
+        (uint256 debt,,,,) = vault.loanInfo(tokenId);
+        assertEq(debt, 0, "Debt should be cleared after liquidation");
+
+        assertEq(aero.balanceOf(alice), aliceAeroBefore, "nothing is paid while the mint fails");
+        assertEq(usdcDaiGauge.deferredEmissions(address(gaugeManager)), 1e18, "gauge defers to the manager");
+        assertEq(gaugeManager.deferredClaims(address(usdcDaiGauge), 0, alice), 1e18, "deferral belongs to alice");
+        assertEq(gaugeManager.reservedRewards(), 0);
+
+        // Once delivery works again alice claims her batch, whatever happened to the NFT since.
+        usdcDaiGauge.setMintFails(false);
+        vm.prank(alice);
+        assertEq(gaugeManager.claimDeferredRewards(address(usdcDaiGauge), 0, alice), 1e18);
+        assertEq(aero.balanceOf(alice), aliceAeroBefore + 1e18, "deferred reward paid to alice");
+        assertEq(gaugeManager.deferredClaims(address(usdcDaiGauge), 0, alice), 0);
+        assertEq(gaugeManager.reservedRewards(), 0);
+        assertEq(usdcDaiGauge.deferredEmissions(address(gaugeManager)), 0);
     }
 }

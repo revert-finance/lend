@@ -159,8 +159,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
 
-        usdcDaiGauge.setRewardRate(0);
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 7e18);
+        usdcDaiGauge.setReward(tokenId, 7e18);
         npm.setTokensOwed(tokenId, 0, 0);
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 

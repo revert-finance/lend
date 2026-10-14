@@ -94,7 +94,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
         vm.warp(block.timestamp + 1 days);
 
         // Mock the gauge to report rewards (tracked by user)
-        usdcDaiGauge.setRewardForUser(alice, 10e18); // 10 AERO earned
+        usdcDaiGauge.setReward(tokenId, 10e18); // 10 AERO earned
         npm.setTokensOwed(tokenId, 0, 0);
 
         // 3. Prepare AutoRangeAndCompound auto-compound params (no swap, no new liquidity added)
