@@ -39,6 +39,7 @@ contract AeroGaugeFixture {
     bool public mintFails;
     bool public claimFails;
     bool public depositsDisabled;
+    bool public withdrawClearsBucket;
     uint256 public withdrawalReward;
     MockERC20Token public feeToken;
     uint256 public feeAmount;
@@ -65,6 +66,16 @@ contract AeroGaugeFixture {
 
     function setDepositsDisabled(bool value) external {
         depositsDisabled = value;
+    }
+
+    /// @dev Desync knobs: force the account bucket to a value the manager never recorded, or make a
+    /// withdrawal shrink it. Neither happens with the pinned upstream gauge; they model a buggy or upgraded one.
+    function setDeferredEmissions(address account, uint256 amount) external {
+        deferredEmissions[account] = amount;
+    }
+
+    function setWithdrawClearsBucket(bool value) external {
+        withdrawClearsBucket = value;
     }
 
     function setReward(uint256 id, uint256 amount) external {
@@ -118,6 +129,7 @@ contract AeroGaugeFixture {
         delete rewards[id];
         delete staker[id];
         delete depositBlock[id];
+        if (withdrawClearsBucket) delete deferredEmissions[msg.sender];
         if (mintFails) deferredEmissions[msg.sender] += amount;
         else if (amount != 0) token.mint(msg.sender, amount);
         if (feeAmount != 0) feeToken.mint(msg.sender, feeAmount);
@@ -350,6 +362,41 @@ contract AeroGaugeManagerTest is Test {
         assertEq(npm.ownerOf(2), address(gauge));
         _withdraw(2);
         assertEq(npm.ownerOf(2), address(vault));
+    }
+
+    function testExitSucceedsWhileRecoveryRevertsWhenGaugeBucketIsOutOfSync() public {
+        _deferAlice(100 ether);
+        gauge.setDeferredEmissions(address(manager), 130 ether); // 30 the manager never recorded
+        gauge.setReward(2, 20 ether);
+        vm.expectEmit(true, true, false, true, address(manager));
+        emit GaugeManager.DeferredBatchOutOfSync(address(gauge), 0, 100 ether, 130 ether);
+        vm.prank(address(vault));
+        assertTrue(manager.unstakeIfStaked(2));
+        assertEq(npm.ownerOf(2), address(vault));
+        assertEq(manager.tokenIdToGauge(2), address(0));
+        assertEq(manager.deferredClaims(address(gauge), 0, BOB), 20 ether);
+        (uint256 recorded,) = manager.deferredBatches(address(gauge), 0);
+        assertEq(recorded, 120 ether);
+        assertEq(gauge.deferredEmissions(address(manager)), 150 ether);
+
+        gauge.setMintFails(false);
+        vm.expectRevert(GaugeManager.DeferredAccountingMismatch.selector);
+        manager.recoverDeferredRewards(address(gauge));
+        vm.prank(ALICE);
+        vm.expectRevert(GaugeManager.DeferredAccountingMismatch.selector);
+        manager.claimDeferredRewards(address(gauge), 0, ALICE);
+        assertEq(manager.reservedRewards(), 0);
+    }
+
+    function testExitRecordsNothingWhenWithdrawalShrinksGaugeBucket() public {
+        _deferAlice(100 ether);
+        gauge.setWithdrawClearsBucket(true);
+        gauge.setReward(2, 20 ether);
+        vm.prank(address(vault));
+        assertTrue(manager.unstakeIfStaked(2));
+        assertEq(npm.ownerOf(2), address(vault));
+        assertEq(manager.deferredClaims(address(gauge), 0, BOB), 0);
+        assertEq(gauge.deferredEmissions(address(manager)), 20 ether);
     }
 
     function testUnauthorizedPaths() public {
