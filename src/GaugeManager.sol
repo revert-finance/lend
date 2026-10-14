@@ -45,7 +45,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     error DeferredAccountingMismatch();
     error UnknownGauge();
-    error OnlySelf();
     error InsidePenaltyWindow();
     error NoDeferredClaim();
     error UnsupportedRewardDelivery();
@@ -280,7 +279,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
 
         address owner = vault.ownerOf(tokenId);
-        _claimAndSendRewardsBestEffort(gauge, tokenId, owner);
+        // Aero's withdraw already claims the position's net emissions to this contract or defers them.
         _withdrawFromGauge(gauge, tokenId, owner);
         nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
         delete tokenIdToGauge[tokenId];
@@ -401,12 +400,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         return penaltyRate == 0 ? 0 : IAeroGauge(gauge).depositBlock(tokenId) + minStakeBlocks;
     }
 
-    /// @dev External self-call makes recovery + position claim atomic inside the best-effort exit path.
-    /// No reentrancy modifier here: the calling entrypoint holds the lock. Outsiders cannot use this hook.
-    function claimPositionToSelf(address gauge, uint256 tokenId) external returns (uint256) {
-        if (msg.sender != address(this)) revert OnlySelf();
-        return _claimRewardsToSelf(gauge, tokenId);
-    }
 
     function _recoverDeferredRewards(address gauge) internal returns (uint256 amount) {
         if (!knownGauges[gauge]) revert UnknownGauge();
@@ -437,10 +430,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         _sendAeroIfAny(recipient, aeroAmount);
     }
 
-    function _claimAndSendRewardsBestEffort(address gauge, uint256 tokenId, address recipient) internal {
-        uint256 aeroAmount = _claimRewardsToSelfBestEffort(gauge, tokenId);
-        _sendAeroIfAny(recipient, aeroAmount);
-    }
 
     function _withdrawFromGauge(address gauge, uint256 tokenId, address owner) internal {
         uint256 batch = currentDeferredBatch[gauge];
@@ -484,14 +473,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
     }
 
-    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
-        try this.claimPositionToSelf(gauge, tokenId) returns (uint256 claimed) {
-            return claimed;
-        } catch {
-            // A withdrawal can still release the NFT and record the failed mint as an owner-attributed debt.
-            return 0;
-        }
-    }
 
     function _requireVaultCaller() internal view {
         if (msg.sender != address(vault)) {

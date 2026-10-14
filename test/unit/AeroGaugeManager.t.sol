@@ -286,7 +286,7 @@ contract AeroGaugeManagerTest is Test {
         assertEq(gauge.deferredEmissions(address(manager)), 120 ether);
     }
 
-    function testSuccessfulWithdrawalPayoutAfterPreclaimFailureBelongsToOwner() public {
+    function testWithdrawalPayoutBelongsToOwnerEvenWhenStandaloneClaimsAreUnavailable() public {
         gauge.setReward(1, 10 ether);
         gauge.setClaimFails(true);
         _withdraw(1);
@@ -400,8 +400,6 @@ contract AeroGaugeManagerTest is Test {
     }
 
     function testUnauthorizedPaths() public {
-        vm.expectRevert(GaugeManager.OnlySelf.selector);
-        manager.claimPositionToSelf(address(gauge), 1);
         vm.expectRevert(GaugeManager.UnknownGauge.selector);
         manager.recoverDeferredRewards(address(0xBAD));
         vm.prank(BOB);

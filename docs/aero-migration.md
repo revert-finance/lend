@@ -42,12 +42,15 @@ Primary source snapshots:
 
 ## Accounting and exits
 
-1. Attempt a claim before unstaking. First recover account-wide deferred rewards
-   with an empty NFT list into a reserved balance; only then measure the current
-   NFT's claim delta. A failed recovery/claim rolls back together in a self-call.
-2. If claiming fails, still call gauge withdrawal. Record the increase in
-   `deferredEmissions[manager]` for the economic owner returned by the vault
-   **before** withdrawing the NFT. This is net of upstream penalties/referrals.
+1. Unstaking calls the upstream withdrawal directly. CLGauge claims the
+   position's net emissions to the manager, or on a failed mint adds them to
+   `deferredEmissions[manager]`; there is no separate pre-claim. Standalone
+   claims and compounding first recover account-wide deferred rewards with an
+   empty NFT list into a reserved balance, then measure the position's delta.
+2. Record any increase in `deferredEmissions[manager]` for the economic owner
+   returned by the vault **before** returning the NFT, net of upstream
+   penalties/referrals. A bucket that disagrees with the recorded batch emits
+   `DeferredBatchOutOfSync` and never blocks the exit; recovery stays strict.
 3. Track liabilities by `(gauge, batch, owner)`. A successful recovery closes a
    batch and reserves its receipt tokens. New deferrals start a new batch. Funded
    older batches can be paid even if the next batch cannot currently be recovered.

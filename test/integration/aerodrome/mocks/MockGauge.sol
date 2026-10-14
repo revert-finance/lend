@@ -77,6 +77,10 @@ contract MockGauge is IGauge {
         require(tokenOwners[tokenId] == msg.sender, "Not owner");
         
         IERC721(stake).transferFrom(address(this), msg.sender, tokenId);
+        // Like Aero's CLGauge, withdrawing claims the position's emissions to the caller.
+        uint256 reward = rewardRate + rewards[msg.sender];
+        rewards[msg.sender] = 0;
+        if (reward > 0) _rewardToken.safeTransfer(msg.sender, reward);
         
         delete tokenOwners[tokenId];
         delete depositBlock[tokenId];
