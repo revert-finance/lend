@@ -48,7 +48,8 @@ State synchronization invariants:
 
 Gauge mapping is explicit owner-configured state:
 
-- `setGauge(pool, gauge)` requires `pool.gauge() == gauge`.
+- `setGauge(pool, gauge)` requires `pool.gauge() == gauge`, `gauge.nft()` to be the vault's NPM and `gauge.pool() == pool`, and the gauge's voter and its `EMISSIONS_HANDLER` to deliver the manager's receipt token directly (`RECEIPT_TOKEN`/`LEAF_VOTER` bindings; a root redemption handler fails with `UnsupportedRewardDelivery`).
+- Every gauge ever configured stays in `knownGauges`, so deferred claims survive a pool's gauge replacement.
 - Unconfigured pools cannot be staked.
 - `V3Vault.setGaugeManager(gaugeManager)` is one-shot and irreversible; manager must be deployed for this vault.
 - A wrong manager binding is an owner operational misconfiguration and may break gauge flows until redeploy/migration.
@@ -60,7 +61,8 @@ Operationally this means new markets require admin gauge mapping before users ca
 Claim:
 
 - `claimRewards(tokenId, recipient)` exists only on `GaugeManager`, not on V3Vault.
-- GaugeManager claims from gauge and forwards newly claimed AERO amount to recipient.
+- GaugeManager claims from gauge and forwards newly claimed receipt-token amount to recipient; `positionRewards(tokenId)` shows the position's claimable amount net of upstream penalties.
+- Failed receipt mints on withdrawal are recorded per `(gauge, batch, owner)`; owners redeem them with `claimDeferredRewards` (see `docs/aero-migration.md`).
 
 Compound:
 
@@ -72,6 +74,7 @@ Compound:
   3. swaps AERO to token0/token1 via router data
   4. increases NFT liquidity
   5. restakes NFT
+- Restaking resets the gauge's early-unstake clock, so `compoundRewards` reverts with `InsidePenaltyWindow` until `penaltyWindowEnd(tokenId)`; keepers schedule compounds and re-ranges at or after that block.
 
 Swap constraints:
 

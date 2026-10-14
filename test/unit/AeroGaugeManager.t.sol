@@ -264,8 +264,7 @@ contract AeroGaugeManagerTest is Test {
         assertEq(npm.ownerOf(2), address(vault));
         assertEq(manager.tokenIdToGauge(2), address(0));
         assertEq(manager.deferredClaims(address(gauge), 0, BOB), 20 ether);
-        (uint256 recorded,) = manager.deferredBatches(address(gauge), 0);
-        assertEq(recorded, 120 ether);
+        assertEq(manager.deferredBatches(address(gauge), 0), 120 ether);
         assertEq(gauge.deferredEmissions(address(manager)), 150 ether);
 
         gauge.setMintFails(false);

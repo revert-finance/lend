@@ -102,13 +102,14 @@ the owner's choice and pay the upstream-netted amount.
 
 ## Reproduce the checks
 
-Working directory: `protocols/lend` in this chamber. Use Foundry with solc 0.8.24
-and 0.7.6 available. Initialize the pinned dependencies:
+Use Foundry with solc 0.8.24 and 0.7.6 available. Initialize the pinned
+dependencies, build the upstream fixture, then run the unit and mock-vault
+suites and the broadcast-disabled local deployment:
 
 ```bash
 git submodule update --init --recursive
 forge build --root fixtures/upstream-gauge
-forge test --match-contract 'AeroGaugeManager.*Test|DeployAeroGaugeManagerTest|GaugeManagerUnitTest|GaugeManagerVulnerabilityTest|GaugeManagerAutoCompoundTest'
+forge test --match-path 'test/{unit,integration/aerodrome}/*.t.sol'
 forge script script/DeployAeroGaugeManagerLocal.s.sol:DeployAeroGaugeManagerLocal --sig 'run()'
 ```
 
@@ -116,56 +117,27 @@ The separate fixture build compiles the **unmodified** upstream CLGauge at
 `cbee64820898fbce295292a510522694eccc60c5` with solc 0.7.6 and OpenZeppelin
 `04695aecbd4d17dddfd55de766d10e3805d6f42f` (3.4.2-solc-0.7). The main tests read
 that artifact via a narrowly scoped Foundry read permission. Build it before
-running the unit suite, including in CI. Full Aero pool, voter, handler, bridge,
-and NPM deployments are not exercised: these dependencies are controlled fixtures.
-The local script uses an actual fresh V3Vault with unconfigured lending dependencies
-to validate adapter deployment and wiring. It is not a lending deployment.
+running the unit suite, including in CI. The suites cover receipt accounting
+(including a 256-case two-owner conservation fuzz), the pinned upstream gauge
+(deferral, penalty/referral netting, the compound penalty window), deployment
+preflight, and vault staking, removal, liquidation, transformation and
+compounding against the deferring gauge double in `test/mocks/AeroGaugeFixture.sol`.
+Full Aero pool, voter, handler, bridge and NPM deployments are not exercised:
+these dependencies are controlled fixtures. The local script uses an actual fresh
+V3Vault with unconfigured lending dependencies to validate adapter deployment and
+wiring; it is not a lending deployment. Check the adapter's runtime size against
+EIP-170's 24,576-byte limit with `forge build --sizes`. Target Base fork
+simulation, full Aero core integration and production deployment have **not**
+been performed; local mocks do not validate final launch behavior.
 
-Validation executed on October 12:
-
-- Upstream fixture compilation succeeded with solc 0.7.6.
-- The test command above passed **47 tests across six suites**, including 256 fuzz
-  cases for two-owner conservation, three unmodified upstream-gauge checks,
-  three deployment checks, and the existing manager/vault-compounding regressions.
-- The local script command succeeded without broadcast; reported gas 4,792,769.
-  Vault/manager bindings, gauge/route configuration, withdrawer and two-step
-  ownership acceptance were also asserted by deployment tests.
-- Adapter runtime size is 19,284 bytes, below EIP-170's 24,576-byte limit.
-- Target Base fork simulation, full Aero core integration and production deployment
-  have **not** been performed. Local mocks do not validate final launch behavior.
+Legacy Base gauge fork tests and the old `DeployAerodromeProtocol` and
+`ConfigureGauges` scripts are specific to the `aerodrome-slipstream` baseline
+`ff9e75afbdd9af847e5a5c026466e179027da490` and were removed from this branch; run
+them from that commit. Keep future edits focused on required Aero behavior and
+avoid unrelated refactors or reformatting that obscure the comparison with the
+deployed implementation.
 
 ## Deployment inputs and dependency map
-
-October 13 audit follow-up validation: the same six-suite test command passed
-**53 tests**, including six added preflight/authorization cases. After removing a
-test-only mutability warning, all eight deployment tests passed again. The local
-script simulation succeeded without broadcast (reported gas 4,818,257). These
-checks cover the audit fixes; the target-chain limitations above still apply.
-
-October 14 consolidation validation: the local unit and mock-vault suites passed
-**106 tests across 18 suites**, including the receipt-accounting fuzz test (256
-cases), upstream-gauge tests, liquidation, removal, transformations and compounding:
-
-```bash
-forge test --match-path 'test/{unit,integration/aerodrome}/*.t.sol'
-```
-
-These now exercise the single `GaugeManager` implementation with Aero-compatible
-gauge fixtures. Its external function/event/error signatures match the earlier
-adapter. Legacy Base gauge fork tests are specific to the `aerodrome-slipstream`
-version and must be run from that baseline; this consolidation does not establish
-final Base Aero compatibility.
-The local deployment script also succeeded without broadcast, deploying
-`GaugeManager` (reported gas 4,812,239).
-
-The subsequent minimal-diff pass restores the original sweep loop, existing
-variable names and formatting. The manager and new interface now differ from
-`ff9e75afbdd9af847e5a5c026466e179027da490` by 187 added / 20 removed lines.
-Reward ownership, recovery batches and reserve protection are unchanged. Keep
-future edits focused on required Aero behavior; avoid unrelated refactors or
-reformatting that obscure the comparison with the deployed implementation.
-The same 18-suite regression command passed again: 106 tests, zero failures or
-skips, including 256 fuzz cases.
 
 Production entrypoint: `script/DeployAeroGaugeManager.s.sol:DeployAeroGaugeManager`.
 This script deploys **only the manager**, configures gauges/optional reward routes,
