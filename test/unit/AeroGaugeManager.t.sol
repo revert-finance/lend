@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {GaugeManager} from "../../src/GaugeManager.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {LeafDeliveryFixture, LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {AeroGaugeFixture} from "../mocks/AeroGaugeFixture.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
 
@@ -23,100 +23,6 @@ contract DeliveryConfigFixture {
     constructor(address token, address handler) {
         RECEIPT_TOKEN = token;
         EMISSIONS_HANDLER = handler;
-    }
-}
-
-contract AeroGaugeFixture {
-    address public voter;
-    IERC721 public immutable nft;
-    address public immutable pool;
-    MockERC20Token public immutable token;
-    mapping(uint256 => address) public staker;
-    mapping(uint256 => uint256) public rewards;
-    mapping(address => uint256) public deferredEmissions;
-    bool public mintFails;
-    bool public claimFails;
-    bool public depositsDisabled;
-    uint256 public withdrawalReward;
-    MockERC20Token public feeToken;
-    uint256 public feeAmount;
-
-    constructor(IERC721 nft_, address pool_, MockERC20Token token_) {
-        nft = nft_;
-        pool = pool_;
-        token = token_;
-        voter = address(new LeafVoterFixture(address(token_)));
-    }
-
-    function setVoter(address value) external {
-        voter = value;
-    }
-
-    function setMintFails(bool value) external {
-        mintFails = value;
-    }
-
-    function setClaimFails(bool value) external {
-        claimFails = value;
-    }
-
-    function setDepositsDisabled(bool value) external {
-        depositsDisabled = value;
-    }
-
-    function setReward(uint256 id, uint256 amount) external {
-        rewards[id] = amount;
-    }
-
-    function setWithdrawalReward(uint256 amount) external {
-        withdrawalReward = amount;
-    }
-
-    function setFees(MockERC20Token token_, uint256 amount) external {
-        feeToken = token_;
-        feeAmount = amount;
-    }
-
-    function deposit(uint256 id) external {
-        require(!depositsDisabled, "retired");
-        nft.transferFrom(msg.sender, address(this), id);
-        staker[id] = msg.sender;
-    }
-
-    function earned(address account, uint256[] calldata ids) external view returns (uint256 amount) {
-        amount = deferredEmissions[account];
-        for (uint256 i; i < ids.length; ++i) {
-            require(staker[ids[i]] == account, "not staker");
-            amount += rewards[ids[i]];
-        }
-    }
-
-    function claimEmissions(address account, address recipient, uint256[] calldata ids) external {
-        require(msg.sender == account, "not account");
-        require(!claimFails, "claim unavailable");
-        uint256 amount = deferredEmissions[account];
-        require(ids.length != 0 || amount != 0, "nothing to claim");
-        delete deferredEmissions[account];
-        for (uint256 i; i < ids.length; ++i) {
-            require(staker[ids[i]] == account, "not staker");
-            amount += rewards[ids[i]];
-            delete rewards[ids[i]];
-        }
-        if (amount != 0) {
-            require(!mintFails, "mint unavailable");
-            token.mint(recipient, amount);
-        }
-    }
-
-    function withdraw(uint256 id) external {
-        require(staker[id] == msg.sender, "not staker");
-        uint256 amount = rewards[id] + withdrawalReward;
-        delete rewards[id];
-        delete staker[id];
-        if (mintFails) deferredEmissions[msg.sender] += amount;
-        else if (amount != 0) token.mint(msg.sender, amount);
-        if (feeAmount != 0) feeToken.mint(msg.sender, feeAmount);
-        nft.safeTransferFrom(address(this), msg.sender, id);
     }
 }
 
@@ -142,7 +48,7 @@ contract AeroGaugeManagerTest is Test {
         factory.setPool(address(token), address(usdc), 100, address(pool));
         npm = new MockNPM(address(factory), address(weth));
         vault = new MockVault();
-        gauge = new AeroGaugeFixture(IERC721(address(npm)), address(pool), token);
+        gauge = new AeroGaugeFixture(address(npm), address(pool), address(token));
         pool.setGauge(address(gauge));
         manager = new GaugeManager(
             INonfungiblePositionManager(address(npm)),
@@ -269,7 +175,7 @@ contract AeroGaugeManagerTest is Test {
         assertEq(gauge.deferredEmissions(address(manager)), 120 ether);
     }
 
-    function testSuccessfulWithdrawalPayoutAfterPreclaimFailureBelongsToOwner() public {
+    function testWithdrawalPayoutBelongsToOwnerEvenWhenStandaloneClaimsAreUnavailable() public {
         gauge.setReward(1, 10 ether);
         gauge.setClaimFails(true);
         _withdraw(1);
@@ -278,11 +184,11 @@ contract AeroGaugeManagerTest is Test {
     }
 
     function testWithdrawalFeesIncludingAeroArePaidExactlyOnce() public {
-        gauge.setFees(token, 7 ether);
+        gauge.setFees(address(token), 7 ether);
         gauge.setWithdrawalReward(3 ether);
         _withdraw(1);
         assertEq(token.balanceOf(ALICE), 10 ether);
-        gauge.setFees(usdc, 5 ether);
+        gauge.setFees(address(usdc), 5 ether);
         _withdraw(2);
         assertEq(token.balanceOf(BOB), 3 ether);
         assertEq(usdc.balanceOf(BOB), 5 ether);
@@ -290,7 +196,7 @@ contract AeroGaugeManagerTest is Test {
 
     function testDeferredRecoverySurvivesGaugeReplacement() public {
         _deferAlice(100 ether);
-        AeroGaugeFixture next = new AeroGaugeFixture(IERC721(address(npm)), address(pool), token);
+        AeroGaugeFixture next = new AeroGaugeFixture(address(npm), address(pool), address(token));
         pool.setGauge(address(next));
         manager.setGauge(address(pool), address(next));
         gauge.setMintFails(false);
@@ -301,7 +207,7 @@ contract AeroGaugeManagerTest is Test {
 
     function testDifferentGaugesDoNotShareBatches() public {
         _deferAlice(100 ether);
-        AeroGaugeFixture next = new AeroGaugeFixture(IERC721(address(npm)), address(pool), token);
+        AeroGaugeFixture next = new AeroGaugeFixture(address(npm), address(pool), address(token));
         pool.setGauge(address(next));
         manager.setGauge(address(pool), address(next));
         _stake(3, BOB);
@@ -347,9 +253,41 @@ contract AeroGaugeManagerTest is Test {
         assertEq(npm.ownerOf(2), address(vault));
     }
 
+    function testExitSucceedsWhileRecoveryRevertsWhenGaugeBucketIsOutOfSync() public {
+        _deferAlice(100 ether);
+        gauge.setDeferredEmissions(address(manager), 130 ether); // 30 the manager never recorded
+        gauge.setReward(2, 20 ether);
+        vm.expectEmit(true, true, false, true, address(manager));
+        emit GaugeManager.DeferredBatchOutOfSync(address(gauge), 0, 100 ether, 130 ether);
+        vm.prank(address(vault));
+        assertTrue(manager.unstakeIfStaked(2));
+        assertEq(npm.ownerOf(2), address(vault));
+        assertEq(manager.tokenIdToGauge(2), address(0));
+        assertEq(manager.deferredClaims(address(gauge), 0, BOB), 20 ether);
+        assertEq(manager.deferredBatches(address(gauge), 0), 120 ether);
+        assertEq(gauge.deferredEmissions(address(manager)), 150 ether);
+
+        gauge.setMintFails(false);
+        vm.expectRevert(GaugeManager.DeferredAccountingMismatch.selector);
+        manager.recoverDeferredRewards(address(gauge));
+        vm.prank(ALICE);
+        vm.expectRevert(GaugeManager.DeferredAccountingMismatch.selector);
+        manager.claimDeferredRewards(address(gauge), 0, ALICE);
+        assertEq(manager.reservedRewards(), 0);
+    }
+
+    function testExitRecordsNothingWhenWithdrawalShrinksGaugeBucket() public {
+        _deferAlice(100 ether);
+        gauge.setWithdrawClearsBucket(true);
+        gauge.setReward(2, 20 ether);
+        vm.prank(address(vault));
+        assertTrue(manager.unstakeIfStaked(2));
+        assertEq(npm.ownerOf(2), address(vault));
+        assertEq(manager.deferredClaims(address(gauge), 0, BOB), 0);
+        assertEq(gauge.deferredEmissions(address(manager)), 20 ether);
+    }
+
     function testUnauthorizedPaths() public {
-        vm.expectRevert(GaugeManager.OnlySelf.selector);
-        manager.claimPositionToSelf(address(gauge), 1);
         vm.expectRevert(GaugeManager.UnknownGauge.selector);
         manager.recoverDeferredRewards(address(0xBAD));
         vm.prank(BOB);

@@ -3,9 +3,8 @@ pragma solidity ^0.8.0;
 
 import "./DeployAeroGaugeManager.s.sol";
 import "../src/V3Vault.sol";
-import {AeroGaugeFixture} from "../test/unit/AeroGaugeManager.t.sol";
+import {AeroGaugeFixture} from "../test/mocks/AeroGaugeFixture.sol";
 import {MockNPM, MockPool, MockSlipstreamFactory, MockERC20Token} from "../test/unit/GaugeManager.t.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 /// @dev Broadcast-disabled local exercise of the production adapter script with an actual fresh V3Vault.
 /// Uses mocks for external protocol dependencies; never point this fixture at a production network.
@@ -22,7 +21,7 @@ contract DeployAeroGaugeManagerLocal is DeployAeroGaugeManager {
         MockNPM npm = new MockNPM(address(factory), address(usdc));
         MockPool pool = new MockPool(address(receipt), address(usdc), 100);
         factory.setPool(address(receipt), address(usdc), 100, address(pool));
-        AeroGaugeFixture gauge = new AeroGaugeFixture(IERC721(address(npm)), address(pool), receipt);
+        AeroGaugeFixture gauge = new AeroGaugeFixture(address(npm), address(pool), address(receipt));
         pool.setGauge(address(gauge));
         // This vault is only for validating manager wiring. Lending/oracle configuration is outside this fixture.
         V3Vault vault = new V3Vault(

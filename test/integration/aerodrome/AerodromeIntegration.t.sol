@@ -63,7 +63,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         assertEq(usdc.balanceOf(bob), 100000e6 + borrowAmount);
 
         // 5. Accumulate some rewards
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 100e18);
+        usdcDaiGauge.setReward(tokenId, 100e18);
 
         // 6. Claim rewards
         uint256 aeroBalanceBefore = aero.balanceOf(bob);
@@ -103,8 +103,8 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         vm.stopPrank();
 
         // Set rewards for both gauges
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 100e18);
-        wethUsdcGauge.setRewardForUser(address(gaugeManager), 200e18);
+        usdcDaiGauge.setReward(tokenId1, 100e18);
+        wethUsdcGauge.setReward(tokenId2, 200e18);
 
         // Both users claim rewards
         vm.prank(alice);
@@ -201,7 +201,7 @@ contract AerodromeIntegrationTest is AerodromeTestBase {
         vm.warp(block.timestamp + 1 days);
 
         // Set more rewards to simulate accumulation
-        usdcDaiGauge.setRewardForUser(address(gaugeManager), 1000e18);
+        usdcDaiGauge.setReward(tokenId, 1000e18);
 
         // Check pending increased
         // uint256 pending2 = gaugeManager.pendingRewards(tokenId); // Function removed in simplified design

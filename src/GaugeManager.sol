@@ -45,18 +45,14 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     error DeferredAccountingMismatch();
     error UnknownGauge();
-    error OnlySelf();
+    error InsidePenaltyWindow();
     error NoDeferredClaim();
     error UnsupportedRewardDelivery();
 
-    struct DeferredBatch {
-        uint256 amount;
-        bool recovered;
-    }
-
     mapping(address => bool) public knownGauges;
+    /// @dev Batches below the cursor are recovered and funded; the batch at the cursor is still collecting.
     mapping(address => uint256) public currentDeferredBatch;
-    mapping(address => mapping(uint256 => DeferredBatch)) public deferredBatches;
+    mapping(address => mapping(uint256 => uint256)) public deferredBatches;
     mapping(address => mapping(uint256 => mapping(address => uint256))) public deferredClaims;
 
     /// @notice Receipt tokens already recovered but owed to users; excluded from admin withdrawals and new claims.
@@ -66,6 +62,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         address indexed gauge, uint256 indexed batch, address indexed owner, uint256 tokenId, uint256 amount
     );
     event DeferredRewardsRecovered(address indexed gauge, uint256 indexed batch, uint256 amount);
+    event DeferredBatchOutOfSync(address indexed gauge, uint256 indexed batch, uint256 recorded, uint256 upstream);
     event DeferredRewardsClaimed(
         address indexed gauge, uint256 indexed batch, address indexed owner, address recipient, uint256 amount
     );
@@ -278,7 +275,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
 
         address owner = vault.ownerOf(tokenId);
-        _claimAndSendRewardsBestEffort(gauge, tokenId, owner);
+        // Aero's withdraw already claims the position's net emissions to this contract or defers them.
         _withdrawFromGauge(gauge, tokenId, owner);
         nonfungiblePositionManager.safeTransferFrom(address(this), address(vault), tokenId, abi.encode(owner));
         delete tokenIdToGauge[tokenId];
@@ -315,6 +312,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         CompoundState memory state;
         state.gauge = _requireStakedGauge(tokenId);
+        // Restaking resets the gauge's depositBlock, and any claim inside the window forfeits penaltyRate.
+        if (block.number < _penaltyWindowEnd(state.gauge, tokenId)) revert InsidePenaltyWindow();
         uint24 feeOrTickSpacing;
         (,, state.token0, state.token1, feeOrTickSpacing,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         state.positionPool = _getPool(state.token0, state.token1, feeOrTickSpacing);
@@ -367,10 +366,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (recipient == address(0)) revert InvalidConfig();
         amount = deferredClaims[gauge][batch][msg.sender];
         if (amount == 0) revert NoDeferredClaim();
-        if (!deferredBatches[gauge][batch].recovered) {
-            _recoverDeferredRewards(gauge);
-            if (!deferredBatches[gauge][batch].recovered) revert DeferredAccountingMismatch();
-        }
+        // A claim only exists at or below the cursor, so this recovers the open batch or reverts.
+        if (batch >= currentDeferredBatch[gauge]) _recoverDeferredRewards(gauge);
         delete deferredClaims[gauge][batch][msg.sender];
         reservedRewards -= amount;
         aeroToken.safeTransfer(recipient, amount);
@@ -385,18 +382,22 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         return IAeroGauge(gauge).earned(address(this), ids) - IAeroGauge(gauge).deferredEmissions(address(this));
     }
 
-    /// @dev External self-call makes recovery + position claim atomic inside the best-effort exit path.
-    /// No reentrancy modifier here: the calling entrypoint holds the lock. Outsiders cannot use this hook.
-    function claimPositionToSelf(address gauge, uint256 tokenId) external returns (uint256) {
-        if (msg.sender != address(this)) revert OnlySelf();
-        return _claimRewardsToSelf(gauge, tokenId);
+    /// @notice First block at which compounding no longer forfeits the gauge's early-unstake penalty; 0 if none applies.
+    /// @dev Keepers should schedule compounds and restaking transforms at or after this block.
+    function penaltyWindowEnd(uint256 tokenId) external view returns (uint256) {
+        return _penaltyWindowEnd(_requireStakedGauge(tokenId), tokenId);
+    }
+
+    function _penaltyWindowEnd(address gauge, uint256 tokenId) internal view returns (uint256) {
+        (uint256 minStakeBlocks, uint256 penaltyRate) =
+            IAeroGaugeFactory(IAeroGauge(gauge).gaugeFactory()).effectivePenaltyConfig(gauge);
+        return penaltyRate == 0 ? 0 : IAeroGauge(gauge).depositBlock(tokenId) + minStakeBlocks;
     }
 
     function _recoverDeferredRewards(address gauge) internal returns (uint256 amount) {
         if (!knownGauges[gauge]) revert UnknownGauge();
         uint256 batch = currentDeferredBatch[gauge];
-        DeferredBatch storage state = deferredBatches[gauge][batch];
-        amount = state.amount;
+        amount = deferredBatches[gauge][batch];
         if (IAeroGauge(gauge).deferredEmissions(address(this)) != amount) revert DeferredAccountingMismatch();
         if (amount == 0) return 0;
 
@@ -406,15 +407,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             IAeroGauge(gauge).deferredEmissions(address(this)) != 0
                 || aeroToken.balanceOf(address(this)) - beforeBalance != amount
         ) revert DeferredAccountingMismatch();
-        state.recovered = true;
         reservedRewards += amount;
         currentDeferredBatch[gauge] = batch + 1;
         emit DeferredRewardsRecovered(gauge, batch, amount);
-    }
-
-    function _sendTokenDelta(address token, address recipient, uint256 beforeBalance) private {
-        uint256 amount = IERC20(token).balanceOf(address(this)) - beforeBalance;
-        if (amount != 0) IERC20(token).safeTransfer(recipient, amount);
     }
 
     function _claimAndSendRewards(address gauge, uint256 tokenId, address recipient)
@@ -425,15 +420,13 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         _sendAeroIfAny(recipient, aeroAmount);
     }
 
-    function _claimAndSendRewardsBestEffort(address gauge, uint256 tokenId, address recipient) internal {
-        uint256 aeroAmount = _claimRewardsToSelfBestEffort(gauge, tokenId);
-        _sendAeroIfAny(recipient, aeroAmount);
-    }
-
     function _withdrawFromGauge(address gauge, uint256 tokenId, address owner) internal {
         uint256 batch = currentDeferredBatch[gauge];
         uint256 deferredBefore = IAeroGauge(gauge).deferredEmissions(address(this));
-        if (deferredBefore != deferredBatches[gauge][batch].amount) revert DeferredAccountingMismatch();
+        // An exit never waits on bucket bookkeeping; recovery stays strict and surfaces any desync instead.
+        if (deferredBefore != deferredBatches[gauge][batch]) {
+            emit DeferredBatchOutOfSync(gauge, batch, deferredBatches[gauge][batch], deferredBefore);
+        }
 
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
@@ -441,21 +434,20 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 token1Before = IERC20(token1).balanceOf(address(this));
         IAeroGauge(gauge).withdraw(tokenId);
 
-        uint256 newlyDeferred = IAeroGauge(gauge).deferredEmissions(address(this)) - deferredBefore;
+        uint256 deferredAfter = IAeroGauge(gauge).deferredEmissions(address(this));
+        uint256 newlyDeferred = deferredAfter > deferredBefore ? deferredAfter - deferredBefore : 0;
         if (newlyDeferred != 0) {
-            deferredBatches[gauge][batch].amount += newlyDeferred;
+            deferredBatches[gauge][batch] += newlyDeferred;
             deferredClaims[gauge][batch][owner] += newlyDeferred;
             emit DeferredRewardRecorded(gauge, batch, owner, tokenId, newlyDeferred);
         }
 
         // Aero withdraw can both mint rewards and collect NPM fees. Neither is protocol dust.
         // The receipt token may itself be a pool token: forward that balance delta once, never twice.
-        _sendAeroIfAny(owner, aeroToken.balanceOf(address(this)) - aeroBefore);
-        if (token0 != address(aeroToken)) {
-            _sendTokenDelta(token0, owner, token0Before);
-        }
-        if (token1 != address(aeroToken)) {
-            _sendTokenDelta(token1, owner, token1Before);
+        _sendDepositDeltas(token0, token1, owner, token0Before, token1Before);
+        if (token0 != address(aeroToken) && token1 != address(aeroToken)) {
+            uint256 aeroAfter = aeroToken.balanceOf(address(this));
+            if (aeroAfter > aeroBefore) _sendAeroIfAny(owner, aeroAfter - aeroBefore);
         }
     }
 
@@ -468,15 +460,6 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IAeroGauge(gauge).claimEmissions(address(this), address(this), ids);
         if (IAeroGauge(gauge).deferredEmissions(address(this)) != 0) revert DeferredAccountingMismatch();
         aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
-    }
-
-    function _claimRewardsToSelfBestEffort(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
-        try this.claimPositionToSelf(gauge, tokenId) returns (uint256 claimed) {
-            return claimed;
-        } catch {
-            // A withdrawal can still release the NFT and record the failed mint as an owner-attributed debt.
-            return 0;
-        }
     }
 
     function _requireVaultCaller() internal view {

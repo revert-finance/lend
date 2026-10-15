@@ -11,9 +11,9 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 
 import "../../src/GaugeManager.sol";
-import {LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {LeafVoterFixture, AeroGaugeFactoryFixture} from "../mocks/AeroDeliveryFixture.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
-import "../../src/interfaces/aerodrome/IGauge.sol";
+import "../../src/interfaces/aero/IAeroGauge.sol";
 import "../../src/utils/Constants.sol";
 
 contract MockERC20Token is ERC20 {
@@ -308,11 +308,15 @@ contract MockNPM is ERC721 {
     }
 }
 
-contract MockGauge is IGauge {
-    address public immutable pool;
-    address public immutable voter;
-    mapping(address => uint256) public deferredEmissions;
-    IERC721 public immutable nft;
+/// @dev Legacy-style gauge double: pays claims from a pre-funded balance and never defers. Deferral semantics
+/// live in test/mocks/AeroGaugeFixture.sol and the pinned upstream bytecode suite.
+contract MockGauge is IAeroGauge {
+    address public immutable override pool;
+    address public immutable override voter;
+    address public immutable override gaugeFactory;
+    mapping(address => uint256) public override deferredEmissions;
+    mapping(uint256 => uint256) public override depositBlock;
+    address public immutable override nft;
     IERC20 public immutable rewardToken;
 
     mapping(uint256 => address) public staker;
@@ -328,7 +332,8 @@ contract MockGauge is IGauge {
     constructor(IERC721 _nft, IERC20 _rewardToken, address _pool) {
         pool = _pool;
         voter = address(new LeafVoterFixture(address(_rewardToken)));
-        nft = _nft;
+        gaugeFactory = address(new AeroGaugeFactoryFixture());
+        nft = address(_nft);
         rewardToken = _rewardToken;
     }
 
@@ -357,7 +362,7 @@ contract MockGauge is IGauge {
     }
 
     function deposit(uint256 tokenId) external override {
-        nft.transferFrom(msg.sender, address(this), tokenId);
+        IERC721(nft).transferFrom(msg.sender, address(this), tokenId);
         if (depositPayout0 != 0) {
             IERC20(payoutToken0).transfer(msg.sender, depositPayout0);
         }
@@ -365,6 +370,7 @@ contract MockGauge is IGauge {
             IERC20(payoutToken1).transfer(msg.sender, depositPayout1);
         }
         staker[tokenId] = msg.sender;
+        depositBlock[tokenId] = block.number;
     }
 
     function withdraw(uint256 tokenId) external override {
@@ -380,10 +386,19 @@ contract MockGauge is IGauge {
         }
 
         delete staker[tokenId];
-        nft.transferFrom(address(this), msg.sender, tokenId);
+        delete depositBlock[tokenId];
+        IERC721(nft).transferFrom(address(this), msg.sender, tokenId);
     }
 
-    function claimEmissions(address account, address recipient, uint256[] calldata ids) external {
+    function earned(address account, uint256[] calldata ids) external view override returns (uint256 amount) {
+        amount = deferredEmissions[account];
+        for (uint256 i; i < ids.length; ++i) {
+            require(staker[ids[i]] == account, "not staker");
+            amount += rewardPerTokenId[ids[i]];
+        }
+    }
+
+    function claimEmissions(address account, address recipient, uint256[] calldata ids) external override {
         require(msg.sender == account && recipient == account, "not account");
         for (uint256 i; i < ids.length; ++i) {
             require(staker[ids[i]] == account, "not staker");
@@ -391,7 +406,7 @@ contract MockGauge is IGauge {
         }
     }
 
-    function getReward(uint256 tokenId) public override {
+    function getReward(uint256 tokenId) public {
         if (revertOnGetReward) {
             revert("reward revert");
         }

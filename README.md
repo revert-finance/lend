@@ -7,11 +7,12 @@ the receipt-token claim and deferred reward accounting directly. Use the
 [Aero migration runbook](docs/aero-migration.md) for its deployment inputs and
 local validation commands, including the upstream gauge fixture build.
 
-The legacy Base deployment runbook below, `DeployAerodromeProtocol.s.sol`, and
-`BaseAerodromeIntegration.t.sol` target old Aerodrome gauges. Run those from the
-`aerodrome-slipstream` baseline (`ff9e75afbdd9af847e5a5c026466e179027da490`), not
-against this branch's Aero manager. The remaining replacement protocol deployment
-and final Base fork validation are still pending.
+The legacy Base deployment runbook below targets the old Aerodrome gauges. Its
+scripts (`DeployAerodromeProtocol.s.sol`, `ConfigureGauges.s.sol`) and fork test
+(`BaseAerodromeIntegration.t.sol`) were removed from this branch because they do
+not work against the Aero manager; check them out from the `aerodrome-slipstream`
+baseline (`ff9e75afbdd9af847e5a5c026466e179027da490`) to run them. The remaining
+replacement protocol deployment and final Base fork validation are still pending.
 
 ## Setup
 
@@ -43,6 +44,9 @@ export ANKR_API_KEY="<KEY>"
 ```
 
 ## Base Deployment Runbook (Aerodrome Slipstream)
+
+Historical runbook for the deployed legacy stack. The scripts it invokes live at
+baseline commit `ff9e75afbdd9af847e5a5c026466e179027da490`, not on this branch.
 
 ### Required Environment Variables
 
