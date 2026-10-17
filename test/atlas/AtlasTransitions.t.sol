@@ -33,7 +33,8 @@ contract MockTransformerMintNew {
         npm.mint(address(this), newTokenId);
         npm.setPosition(newTokenId, token0, token1, int24(uint24(tickSpacing)), tickLower, tickUpper, liquidity);
 
-        // Sending a new tokenId into the vault while `transformedTokenId != 0` triggers migration in vault callback.
+        // Sending the announced tokenId into the vault while `transformedTokenId != 0` triggers migration in vault callback.
+        IVault(vault).expectReplacement(newTokenId);
         npm.safeTransferFrom(address(this), vault, newTokenId, "");
     }
 

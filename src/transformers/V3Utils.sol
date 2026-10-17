@@ -613,6 +613,10 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
         // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
         (tokenId, liquidity, added0, added1) = _mintPosition(mintParams);
+        // a vault transform only accepts the replacement position its active transformer announced
+        if (vaults[msg.sender]) {
+            IVault(msg.sender).expectReplacement(tokenId);
+        }
         nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, params.returnData);
 
         emit SwapAndMint(tokenId, liquidity, added0, added1);

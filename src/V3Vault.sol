@@ -179,6 +179,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     uint256 private constant TX_SUPPLY_INFLATION_SHARES_SLOT =
         0x77c5f5ad287ab5c7b7ea0aaa4c95632213a8f4eab414ff7bf7c4163f433cda41;
 
+    // Transient slots binding a running transform to its transformer and to the one replacement NFT that transformer
+    // announced (keccak256("revert.lend.V3Vault.activeTransformer" / ".expectedReplacement") - 1).
+    uint256 private constant ACTIVE_TRANSFORMER_SLOT =
+        0x204a761aefbed53d279abdaa31cc6db3c3bb1e1bd1cc4bd22e70455dcc27d0f4;
+    uint256 private constant EXPECTED_REPLACEMENT_SLOT =
+        0x19e6a9c46e23b98fb1ff67b58c12224b0d84263b3b2b6ca707e274d98349bfa7;
+
     constructor(
         string memory name,
         string memory symbol,
@@ -439,14 +446,21 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             }
         } else {
             // NOTE FOR AUDITS:
-            // We intentionally do not bind replacement-NFT migration to a specific operator contract here.
-            // Some valid transformers route NFT moves through helper/proxy contracts, so strict operator pinning
-            // would break supported integrations. Safety relies on transform-mode scoping + final custody checks.
-            // if in transform mode - and a new position is sent - current position is replaced and returned
+            // if in transform mode - and a new position is sent - current position is replaced and returned.
+            // Only the token the active transformer announced via expectReplacement() is accepted, once. Helper/proxy
+            // routing of that announced token stays supported (the sender is not pinned); any other NFT is rejected,
+            // so a transform cannot rebind the loan to an unrelated position.
             if (tokenId != oldTokenId) {
+                uint256 expectedTokenId;
+                assembly ("memory-safe") {
+                    expectedTokenId := tload(EXPECTED_REPLACEMENT_SLOT)
+                    tstore(EXPECTED_REPLACEMENT_SLOT, 0)
+                }
                 // Replacement migrations are only safe for freshly introduced tokenIds. Reusing a token that already
                 // has vault ownership or debt state would overwrite its live loan accounting.
-                if (tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0) {
+                if (
+                    tokenId != expectedTokenId || tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0
+                ) {
                     revert Unauthorized();
                 }
 
@@ -490,6 +504,22 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @dev Approvals only count for the deposit they were given in: removing the token from the vault expires them.
     function transformApprovals(address loanOwner, uint256 tokenId, address target) public view returns (bool) {
         return transformApprovalEpochs[loanOwner][tokenId][target] == tokenEpochs[tokenId] + 1;
+    }
+
+    /// @notice Called by the active transformer right before it sends a replacement position for the transformed
+    /// token: the vault then accepts exactly that tokenId, once, as the replacement.
+    /// @param tokenId The replacement token the transformer minted from the transformed position
+    function expectReplacement(uint256 tokenId) external override {
+        address activeTransformer;
+        assembly ("memory-safe") {
+            activeTransformer := tload(ACTIVE_TRANSFORMER_SLOT)
+        }
+        if (msg.sender != activeTransformer) {
+            revert Unauthorized();
+        }
+        assembly ("memory-safe") {
+            tstore(EXPECTED_REPLACEMENT_SLOT, tokenId)
+        }
     }
 
     function transform(uint256 tokenId, address transformer, bytes calldata data)
@@ -553,12 +583,19 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         bool wasStaked = _unstakeIfNeeded(tokenId);
 
-        // give access to transformer
+        // give access to transformer (and let only this transformer announce a replacement position)
+        assembly ("memory-safe") {
+            tstore(ACTIVE_TRANSFORMER_SLOT, transformer)
+        }
         nonfungiblePositionManager.approve(transformer, tokenId);
 
         (bool success,) = transformer.call(data);
         if (!success) {
             revert TransformFailed();
+        }
+        assembly ("memory-safe") {
+            tstore(ACTIVE_TRANSFORMER_SLOT, 0)
+            tstore(EXPECTED_REPLACEMENT_SLOT, 0)
         }
 
         // may have changed in the meantime
