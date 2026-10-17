@@ -100,6 +100,55 @@ the window and the new deposit restarts the clock, so space re-range cadences by
 at least `minStakeBlocks` too. Direct `claimRewards` calls inside the window stay
 the owner's choice and pay the upstream-netted amount.
 
+## Operator-managed staking (compound-only)
+
+Whether a vault position is staked is the depositor's choice, but an owner can
+hand that choice to the `AutoRangeAndCompound` operator per position with
+`configStakingManagement(tokenId, vault, true)`. The operator then moves the
+position between staked and unstaked custody through the vault with
+`autoCompoundWithVaultAndRewardCompound` and `executeWithVaultAndRewardCompound`,
+passing `rewardParams.stakeTarget` (`Keep`, `Staked`, `Unstaked`). Every move is a single
+`V3Vault.transformWithRewardCompound` transform, so the policy is compound-only by
+construction:
+
+- Staked rewards are compounded before the unstake. `transform` itself now does
+  this best-effort for every staked position (defaults: no minimum, even split,
+  current block); the explicit variants compound with the operator's parameters
+  and revert if that fails. If compounding is impossible (penalty window, missing
+  reward route, failed mint) the plain transform falls back to the payout or
+  deferral the unstake performs. Liquidation and removal keep paying out.
+- Fees are compounded before a stake. A custody change runs
+  `autoCompoundForStakeChange`, which ignores the configured `autoCompound` flag
+  and minimum-fee thresholds so dust never stalls it.
+- Ending staked from unstaked custody applies the buffered health check that
+  `stakePosition` uses, because staking switches to the fee-less valuation.
+
+Guards: a real custody change needs the owner opt-in, respects the owner-set
+`stakeChangeCooldownBlocks` between changes of the same position, and never
+unstakes before `GaugeManager.penaltyWindowEnd(tokenId)`. `Keep`, or a target
+equal to the current state, needs no opt-in. The opt-in records the consenting
+owner per position and vault (`stakingConsent[tokenId][vault]`) and applies only
+while that address is that vault's current owner of the position: it is suspended
+while the position is out of the vault or owned by someone else, never carries to
+another vault, re-applies if the same owner re-deposits the same position into the
+same vault, and ends when the owner revokes it with
+`configStakingManagement(tokenId, vault, false)`. It migrates to the replacement
+token on a re-range. The vault enforces consent at its boundary
+too: `transformWithRewardCompound` honours a custody change only when called by
+the loan owner or by the allowlisted transformer contract itself, never by a
+generic `approveTransform` delegate. The stake/unstake decision itself is
+off-chain: the keeper compares emissions per unit of staked liquidity with fees
+per unit of in-range liquidity, prices the receipt token at its realisable value,
+and only stakes positions whose pool has reward swap routes configured, since
+without a route rewards cannot be compounded.
+
+Vault size: `V3Vault` was above EIP-170 on this branch before this feature. The
+liquidation math, the liquidated-share transfer, reserve socialization and the
+per-token collateral accounting now live in the external library
+`src/utils/VaultLib.sol` (DELEGATECALL, linked by Foundry in tests and scripts),
+and the compound-before-unstake step runs in `GaugeManager.unstakeIfStakedCompounding`.
+The margin is small; check `forge build --sizes` after any vault change.
+
 ## Reproduce the checks
 
 Use Foundry with solc 0.8.24 and 0.7.6 available. Initialize the pinned

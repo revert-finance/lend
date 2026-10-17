@@ -173,7 +173,8 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             IVault.RewardCompoundParams({
                 minAeroReward: 0,
                 aeroSplitBps: 0,
-                deadline: block.timestamp + 1 hours
+                deadline: block.timestamp + 1 hours,
+                stakeTarget: IVault.StakeTarget.Keep
             })
         );
 
@@ -210,7 +211,8 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
             IVault.RewardCompoundParams({
                 minAeroReward: 0,
                 aeroSplitBps: 0,
-                deadline: block.timestamp + 1 hours
+                deadline: block.timestamp + 1 hours,
+                stakeTarget: IVault.StakeTarget.Keep
             })
         );
 
@@ -475,5 +477,82 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
         assertEq(vault.ownerOf(newTokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
+    }
+
+    function testExecuteWithStakeTargetEndsUnstakedAndMigratesOptIn() public {
+        AutoRangeAndCompound autoRange = _deployAutoRange();
+
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+        vm.prank(alice);
+        vault.stakePosition(tokenId);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, admin, true);
+        vm.prank(alice);
+        vault.approveTransform(tokenId, address(autoRange), true);
+        MockPool(usdcDaiPool).setTick(200);
+
+        AutoRangeAndCompound.PositionConfig memory config = AutoRangeAndCompound.PositionConfig({
+            lowerTickLimit: -1,
+            upperTickLimit: 0,
+            lowerTickDelta: -1,
+            upperTickDelta: 1,
+            token0SlippageX64: 0,
+            token1SlippageX64: 0,
+            onlyFees: false,
+            autoCompound: false,
+            maxRewardX64: 0,
+            autoCompoundMin0: 0,
+            autoCompoundMin1: 0,
+            autoCompoundRewardMin: 0
+        });
+
+        vm.prank(alice);
+        autoRange.configToken(tokenId, address(vault), config);
+        vm.prank(alice);
+        autoRange.configStakingManagement(tokenId, address(vault), true);
+
+        npm.setLiquidity(tokenId, 0);
+        npm.setTokensOwed(tokenId, 0, 0);
+        oracle.setMaxPoolPriceDifference(type(uint16).max);
+
+        AutoRangeAndCompound.ExecuteParams memory params = AutoRangeAndCompound.ExecuteParams({
+            tokenId: tokenId,
+            swap0To1: true,
+            amountIn: 0,
+            swapData: "",
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: block.timestamp + 1 hours,
+            rewardX64: 0
+        });
+
+        vm.prank(admin);
+        autoRange.executeWithVaultAndRewardCompound(
+            params,
+            address(vault),
+            IVault.RewardCompoundParams({
+                minAeroReward: 0,
+                aeroSplitBps: 0,
+                deadline: block.timestamp + 1 hours,
+                stakeTarget: IVault.StakeTarget.Unstaked
+            })
+        );
+
+        MockAutoRangeAndCompoundAerodromePositionManager rangeNpm = MockAutoRangeAndCompoundAerodromePositionManager(address(npm));
+        uint256 newTokenId = rangeNpm.lastMintedTokenId();
+
+        assertEq(vault.ownerOf(newTokenId), alice);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+        assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(0), "new position ends unstaked");
+        assertEq(npm.ownerOf(newTokenId), address(vault));
+        assertEq(autoRange.stakingConsent(newTokenId, address(vault)), alice, "opt-in migrated to the new position");
+        assertEq(autoRange.stakingConsent(tokenId, address(vault)), address(0), "opt-in cleared on the old position");
+        assertEq(autoRange.lastStakeChangeBlock(newTokenId), block.number);
     }
 }

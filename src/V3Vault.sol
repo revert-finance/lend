@@ -23,6 +23,7 @@ import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 import "./interfaces/IGaugeManager.sol";
 import "./utils/Constants.sol";
+import "./utils/VaultLib.sol";
 
 /// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
 /// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
@@ -102,14 +103,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     event SetEmergencyAdmin(address emergencyAdmin);
     event SetGaugeManager(address indexed gaugeManager);
 
-    // configured tokens
-    struct TokenConfig {
-        uint32 collateralFactorX32; // how much this token is valued as collateral
-        uint32 collateralValueLimitFactorX32; // how much asset equivalent may be lent out given this collateral
-        uint192 totalDebtShares; // how much debt shares are theoretically backed by this collateral
-    }
-
-    mapping(address => TokenConfig) public tokenConfigs;
+    // configured tokens (struct lives in VaultLib so its collateral accounting can run there)
+    mapping(address => VaultLib.TokenConfig) public tokenConfigs;
 
     // total of debt shares - increases when borrow - decreases when repay
     uint256 public debtSharesTotal;
@@ -253,7 +248,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthy(tokenId, debt, false);
 
         if (!isHealthy) {
-            (liquidationValue, liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
+            (liquidationValue, liquidationCost,) = VaultLib.calculateLiquidation(
+                debt, fullValue, collateralValue, MIN_LIQUIDATION_PENALTY_X32, MAX_LIQUIDATION_PENALTY_X32
+            );
         }
     }
 
@@ -487,7 +484,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
         returns (uint256 newTokenId)
     {
-        return _transform(tokenId, transformer, data, false, 0, 0, 0);
+        return _transform(tokenId, transformer, data, false, 0, 0, 0, StakeTarget.Keep);
     }
 
     function transformWithRewardCompound(
@@ -503,7 +500,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             true,
             rewardParams.minAeroReward,
             rewardParams.aeroSplitBps,
-            rewardParams.deadline
+            rewardParams.deadline,
+            rewardParams.stakeTarget
         );
     }
 
@@ -514,7 +512,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         bool compoundRewardsFirst,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
-        uint256 deadline
+        uint256 deadline,
+        StakeTarget target
     ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
@@ -534,14 +533,12 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             revert Unauthorized();
         }
 
-        if (
-            compoundRewardsFirst && gaugeManager != address(0)
-                && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0)
-        ) {
-            IGaugeManager(gaugeManager).compoundRewards(tokenId, minAeroReward, aeroSplitBps, deadline);
-        }
-
-        bool wasStaked = _unstakeIfNeeded(tokenId);
+        // Compound-only policy: staked rewards are compounded before the unstake, strictly with the caller's params or
+        // best-effort with the manager's defaults (a failure then falls back to the payout the unstake performs).
+        bool wasStaked = gaugeManager != address(0)
+            && IGaugeManager(gaugeManager).unstakeIfStakedCompounding(
+                tokenId, compoundRewardsFirst, minAeroReward, aeroSplitBps, deadline
+            );
 
         // give access to transformer
         nonfungiblePositionManager.approve(transformer, tokenId);
@@ -577,11 +574,24 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
-        if (wasStaked) {
+        bool stakeAfter = target == StakeTarget.Keep ? wasStaked : target == StakeTarget.Staked;
+        if (stakeAfter != wasStaked) {
+            // A custody change needs the owner's consent: requested by the owner directly, or through the allowlisted
+            // transformer contract whose entrypoints enforce the per-position staking-management opt-in. A generic
+            // transform delegate can only keep the current custody.
+            if (msg.sender != loanOwner && msg.sender != transformer) {
+                revert Unauthorized();
+            }
+            if (stakeAfter) {
+                _requireGaugeManagerSet();
+            }
+        }
+        if (stakeAfter) {
             // Re-check health in the final staked custody state because staking realizes pre-stake fees.
             _stake(newTokenId);
         }
-        _requireLoanIsHealthy(newTokenId, debt, false);
+        // Entering staked custody switches valuation to the fee-less model: apply the same buffer stakePosition uses.
+        _requireLoanIsHealthy(newTokenId, debt, stakeAfter && !wasStaked);
 
         transformedTokenId = 0;
     }
@@ -752,8 +762,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         _unstakeIfNeeded(params.tokenId);
 
-        (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
-            _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
+        (state.liquidationValue, state.liquidatorCost, state.reserveCost) = VaultLib.calculateLiquidation(
+            state.debt, state.fullValue, state.collateralValue, MIN_LIQUIDATION_PENALTY_X32, MAX_LIQUIDATION_PENALTY_X32
+        );
 
         // calculate reserve (before transfering liquidation money - otherwise calculation is off)
         if (state.reserveCost != 0) {
@@ -772,8 +783,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.liquidatorCost;
 
         // send promised collateral tokens to liquidator
-        (amount0, amount1) = _sendPositionValue(
-            params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, params.recipient, params.deadline
+        (amount0, amount1) = VaultLib.sendPositionValue(
+            nonfungiblePositionManager,
+            oracle,
+            params.tokenId,
+            state.liquidationValue,
+            state.fullValue,
+            state.feeValue,
+            params.recipient,
+            params.deadline
         );
 
         if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
@@ -925,7 +943,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
             revert CollateralFactorExceedsMax();
         }
-        TokenConfig storage config = tokenConfigs[token];
+        VaultLib.TokenConfig storage config = tokenConfigs[token];
         config.collateralFactorX32 = collateralFactorX32;
         config.collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
         emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
@@ -1097,14 +1115,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function _getBorrowLimitLentAssets(uint256 lendExchangeRateX96) internal view returns (uint256) {
-        uint256 effectiveTotalSupply = totalSupply();
+        return _convertToAssets(_effectiveTotalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+    }
+
+    // lender shares net of shares minted earlier in this transaction
+    function _effectiveTotalSupply() internal view returns (uint256 effectiveTotalSupply) {
+        effectiveTotalSupply = totalSupply();
         uint256 txSupplyInflationShares = _getTxSupplyInflationShares();
-        if (txSupplyInflationShares >= effectiveTotalSupply) {
-            effectiveTotalSupply = 0;
-        } else {
-            effectiveTotalSupply = effectiveTotalSupply - txSupplyInflationShares;
-        }
-        return _convertToAssets(effectiveTotalSupply, lendExchangeRateX96, Math.Rounding.Up);
+        effectiveTotalSupply =
+            txSupplyInflationShares >= effectiveTotalSupply ? 0 : effectiveTotalSupply - txSupplyInflationShares;
     }
 
     function _maxDepositAssets(uint256 lendExchangeRateX96) internal view returns (uint256) {
@@ -1145,51 +1164,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         reserves = balance + debt > lent ? balance + debt - lent : 0;
     }
 
-    // removes correct amount from position to send to liquidator
-    function _sendPositionValue(
-        uint256 tokenId,
-        uint256 liquidationValue,
-        uint256 fullValue,
-        uint256 feeValue,
-        address recipient,
-        uint256 deadline
-    ) internal returns (uint256 amount0, uint256 amount1) {
-        uint128 liquidity;
-        uint128 fees0;
-        uint128 fees1;
-
-        // if full position is liquidated - no analysis needed
-        if (liquidationValue == fullValue) {
-            (,,,,,,, liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
-            fees0 = type(uint128).max;
-            fees1 = type(uint128).max;
-        } else {
-            (liquidity, fees0, fees1) = oracle.getLiquidityAndFees(tokenId);
-
-            // only take needed fees
-            if (liquidationValue <= feeValue) {
-                liquidity = 0;
-                fees0 = SafeCast.toUint128(liquidationValue * fees0 / feeValue);
-                fees1 = SafeCast.toUint128(liquidationValue * fees1 / feeValue);
-            } else {
-                // take all fees and needed liquidity
-                fees0 = type(uint128).max;
-                fees1 = type(uint128).max;
-                liquidity = SafeCast.toUint128((liquidationValue - feeValue) * liquidity / (fullValue - feeValue));
-            }
-        }
-
-        if (liquidity != 0) {
-            nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, 0, 0, deadline)
-            );
-        }
-
-        (amount0, amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(tokenId, recipient, fees0, fees1)
-        );
-    }
-
     // cleans up loan when it is closed because of replacement, repayment or liquidation
     // the position is kept in the contract, but can be removed with remove() method
     // because loanShares are 0
@@ -1198,50 +1172,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         delete loans[tokenId];
     }
 
-    // calculates amount which needs to be payed to liquidate position
-    //  if position is too valuable - not all of the position is liquididated - only needed amount
-    //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
-    function _calculateLiquidation(uint256 debt, uint256 fullValue, uint256 collateralValue)
-        internal
-        pure
-        returns (uint256 liquidationValue, uint256 liquidatorCost, uint256 reserveCost)
-    {
-        // in a standard liquidation - liquidator pays complete debt (and get part or all of position)
-        // if position has less than enough value - liquidation cost maybe less - rest is payed by protocol or lenders collectively
-        liquidatorCost = debt;
-
-        // position value needed to pay debt at max penalty
-        uint256 maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
-
-        // if position is more valuable than debt with max penalty
-        if (fullValue >= maxPenaltyValue) {
-            if (collateralValue != 0) {
-                // position value when position started to be liquidatable
-                uint256 startLiquidationValue = debt * fullValue / collateralValue;
-                uint256 penaltyFractionX96 =
-                    (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
-                uint256 penaltyX32 = MIN_LIQUIDATION_PENALTY_X32
-                    + (MAX_LIQUIDATION_PENALTY_X32 - MIN_LIQUIDATION_PENALTY_X32) * penaltyFractionX96 / Q96;
-
-                liquidationValue = debt * (Q32 + penaltyX32) / Q32;
-            } else {
-                liquidationValue = maxPenaltyValue;
-            }
-        } else {
-            uint256 penalty = debt * MAX_LIQUIDATION_PENALTY_X32 / Q32;
-
-            // if value is enough to pay penalty
-            if (fullValue > penalty) {
-                liquidatorCost = fullValue - penalty;
-            } else {
-                // this extreme case leads to free liquidation
-                liquidatorCost = 0;
-            }
-
-            liquidationValue = fullValue;
-            reserveCost = debt - liquidatorCost; // Remaining to pay is taken from reserves
-        }
-    }
+    // liquidation amounts and the liquidated share transfer live in VaultLiquidationLib (vault bytecode size)
 
     // calculates if there are enough reserves to cover liquidaton - if not its shared between lenders
     function _handleReserveLiquidation(
@@ -1250,35 +1181,25 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 newLendExchangeRateX96
     ) internal returns (uint256 missing) {
         (, uint256 reserves) = _getBalanceAndReserves(newDebtExchangeRateX96, newLendExchangeRateX96);
-
-        // if not enough - democratize debt
-        if (reserveCost > reserves) {
-            missing = reserveCost - reserves;
-
-            uint256 totalLent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
-            uint256 preHaircutDailyDebtCap = _calculateDailyIncreaseLimit(
-                newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32
-            );
-
-            // this lines distribute missing amount and remove it from all lent amount proportionally
-            newLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
-            lastLendExchangeRateX96 = newLendExchangeRateX96;
-
-            // A reserve socialization haircut reduces the lender base mid-day.
-            // Rescale remaining daily debt headroom so it tracks the post-haircut cap while preserving already-used budget.
-            uint256 postHaircutDailyDebtCap = _calculateDailyIncreaseLimit(
-                newLendExchangeRateX96, dailyDebtIncreaseLimitMin, MAX_DAILY_DEBT_INCREASE_X32
-            );
-            if (
-                dailyDebtIncreaseLimitLastReset == uint32(block.timestamp / 1 days)
-                    && postHaircutDailyDebtCap < preHaircutDailyDebtCap
-            ) {
-                uint256 capReduction = preHaircutDailyDebtCap - postHaircutDailyDebtCap;
-                dailyDebtIncreaseLimitLeft =
-                    capReduction >= dailyDebtIncreaseLimitLeft ? 0 : dailyDebtIncreaseLimitLeft - capReduction;
-            }
-
-            emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
+        uint256 updatedLendExchangeRateX96;
+        uint256 updatedDailyDebtIncreaseLimitLeft;
+        (missing, updatedLendExchangeRateX96, updatedDailyDebtIncreaseLimitLeft) = VaultLib.handleReserveLiquidation(
+            VaultLib.ReserveLiquidationInput({
+                reserveCost: reserveCost,
+                reserves: reserves,
+                totalSupply: totalSupply(),
+                effectiveTotalSupply: _effectiveTotalSupply(),
+                lendExchangeRateX96: newLendExchangeRateX96,
+                dailyDebtIncreaseLimitMin: dailyDebtIncreaseLimitMin,
+                maxDailyDebtIncreaseX32: MAX_DAILY_DEBT_INCREASE_X32,
+                dailyDebtIncreaseLimitLeft: dailyDebtIncreaseLimitLeft,
+                resetToday: dailyDebtIncreaseLimitLastReset == uint32(block.timestamp / 1 days)
+            })
+        );
+        if (missing != 0) {
+            lastLendExchangeRateX96 = updatedLendExchangeRateX96;
+            dailyDebtIncreaseLimitLeft = updatedDailyDebtIncreaseLimitLeft;
+            emit ExchangeRateUpdate(newDebtExchangeRateX96, updatedLendExchangeRateX96);
         }
     }
 
@@ -1345,40 +1266,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 oldShares,
         uint256 newShares
     ) internal {
-        if (oldShares != newShares) {
-            (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-
-            // remove previous collateral - add new collateral
-            if (oldShares > newShares) {
-                uint192 difference = SafeCast.toUint192(oldShares - newShares);
-                tokenConfigs[token0].totalDebtShares -= difference;
-                tokenConfigs[token1].totalDebtShares -= difference;
-            } else {
-                uint192 difference = SafeCast.toUint192(newShares - oldShares);
-                tokenConfigs[token0].totalDebtShares += difference;
-                tokenConfigs[token1].totalDebtShares += difference;
-
-                // check if current value of used collateral is more than allowed limit
-                // if collateral is decreased - never revert
-                uint256 lentAssets = _getBorrowLimitLentAssets(lendExchangeRateX96);
-                uint256 collateralValueLimitFactorX32 = tokenConfigs[token0].collateralValueLimitFactorX32;
-                if (
-                    collateralValueLimitFactorX32 < type(uint32).max
-                        && _convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up)
-                            > lentAssets * collateralValueLimitFactorX32 / Q32
-                ) {
-                    revert CollateralValueLimit();
-                }
-                collateralValueLimitFactorX32 = tokenConfigs[token1].collateralValueLimitFactorX32;
-                if (
-                    collateralValueLimitFactorX32 < type(uint32).max
-                        && _convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up)
-                            > lentAssets * collateralValueLimitFactorX32 / Q32
-                ) {
-                    revert CollateralValueLimit();
-                }
-            }
-        }
+        VaultLib.updateAndCheckCollateral(
+            tokenConfigs,
+            nonfungiblePositionManager,
+            tokenId,
+            debtExchangeRateX96,
+            newShares > oldShares ? _getBorrowLimitLentAssets(lendExchangeRateX96) : 0,
+            oldShares,
+            newShares
+        );
     }
 
     function _resetDailyLendIncreaseLimit(uint256 newLendExchangeRateX96, bool force) internal {
