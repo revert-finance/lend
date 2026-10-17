@@ -126,8 +126,13 @@ construction:
 Guards: a real custody change needs the owner opt-in, respects the owner-set
 `stakeChangeCooldownBlocks` between changes of the same position, and never
 unstakes before `GaugeManager.penaltyWindowEnd(tokenId)`. `Keep`, or a target
-equal to the current state, needs no opt-in. The opt-in and cooldown migrate to
-the replacement token on a re-range. The stake/unstake decision itself is
+equal to the current state, needs no opt-in. The opt-in records the consenting
+owner (`stakingManagedBy`) and is only valid while that address is still the
+vault's owner of the position, so it dies with removal or resale; it migrates to
+the replacement token on a re-range. The vault enforces consent at its boundary
+too: `transformWithRewardCompound` honours a custody change only when called by
+the loan owner or by the allowlisted transformer contract itself, never by a
+generic `approveTransform` delegate. The stake/unstake decision itself is
 off-chain: the keeper compares emissions per unit of staked liquidity with fees
 per unit of in-range liquidity, prices the receipt token at its realisable value,
 and only stakes positions whose pool has reward swap routes configured, since

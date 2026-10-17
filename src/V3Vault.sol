@@ -575,10 +575,18 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 debt = _convertToAssets(loans[newTokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
 
         bool stakeAfter = target == StakeTarget.Keep ? wasStaked : target == StakeTarget.Staked;
-        if (stakeAfter) {
-            if (!wasStaked) {
+        if (stakeAfter != wasStaked) {
+            // A custody change needs the owner's consent: requested by the owner directly, or through the allowlisted
+            // transformer contract whose entrypoints enforce the per-position staking-management opt-in. A generic
+            // transform delegate can only keep the current custody.
+            if (msg.sender != loanOwner && msg.sender != transformer) {
+                revert Unauthorized();
+            }
+            if (stakeAfter) {
                 _requireGaugeManagerSet();
             }
+        }
+        if (stakeAfter) {
             // Re-check health in the final staked custody state because staking realizes pre-stake fees.
             _stake(newTokenId);
         }

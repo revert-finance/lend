@@ -75,6 +75,7 @@ Operator-managed staking:
 - Staking stays the depositor's choice unless they opt in per position with `AutoRangeAndCompound.configStakingManagement(tokenId, vault, true)`.
 - The operator changes custody only through `V3Vault.transformWithRewardCompound(...)` with `rewardParams.stakeTarget`, called by `autoCompoundWithVaultAndRewardCompound` / `executeWithVaultAndRewardCompound`: fees are compounded before a stake, rewards before an unstake, and ending staked from unstaked custody uses the buffered health check.
 - A change is refused inside the gauge penalty window (`GaugeManager.penaltyWindowEnd`) and before the owner-set cooldown has passed; `Keep` or a no-op target needs no opt-in.
+- Consent is bound to the owner who gave it (`stakingManagedBy[tokenId]` must equal the vault's current `ownerOf`), and the vault only honours a custody change requested by the loan owner or by the transformer contract itself, not by a generic transform delegate.
 - GaugeManager:
   1. claims AERO
   2. withdraws staked NFT temporarily

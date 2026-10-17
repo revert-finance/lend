@@ -37,33 +37,41 @@ contract OperatorStakingTest is AerodromeTestBase {
     }
 
     function _enrollInVault(uint256 tokenId, bool stake) internal {
-        vm.startPrank(alice);
+        _enrollInVaultAs(alice, tokenId, stake);
+    }
+
+    function _enrollInVaultAs(address owner, uint256 tokenId, bool stake) internal {
+        vm.startPrank(owner);
         npm.approve(address(vault), tokenId);
-        vault.create(tokenId, alice);
+        vault.create(tokenId, owner);
         if (stake) {
             vault.stakePosition(tokenId);
         }
         vault.approveTransform(tokenId, admin, true);
         vault.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(
-            tokenId,
-            address(vault),
-            AutoRangeAndCompound.PositionConfig({
-                lowerTickLimit: 0,
-                upperTickLimit: 0,
-                lowerTickDelta: 0,
-                upperTickDelta: 0,
-                token0SlippageX64: 0,
-                token1SlippageX64: 0,
-                onlyFees: false,
-                autoCompound: true,
-                maxRewardX64: 0,
-                autoCompoundMin0: 0,
-                autoCompoundMin1: 0,
-                autoCompoundRewardMin: 0
-            })
-        );
+        autoRange.configToken(tokenId, address(vault), _autoCompoundConfig());
         vm.stopPrank();
+    }
+
+    function _autoCompoundConfig() internal pure returns (AutoRangeAndCompound.PositionConfig memory) {
+        return AutoRangeAndCompound.PositionConfig({
+            lowerTickLimit: 0,
+            upperTickLimit: 0,
+            lowerTickDelta: 0,
+            upperTickDelta: 0,
+            token0SlippageX64: 0,
+            token1SlippageX64: 0,
+            onlyFees: false,
+            autoCompound: true,
+            maxRewardX64: 0,
+            autoCompoundMin0: 0,
+            autoCompoundMin1: 0,
+            autoCompoundRewardMin: 0
+        });
+    }
+
+    function _payload(uint256 tokenId) internal view returns (bytes memory) {
+        return abi.encodeCall(AutoRangeAndCompound.autoCompound, (_params(tokenId)));
     }
 
     function _optIn(uint256 tokenId, bool managed) internal {
@@ -121,9 +129,73 @@ contract OperatorStakingTest is AerodromeTestBase {
         vm.expectRevert(Unauthorized.selector);
         autoRange.configStakingManagement(tokenId, address(vault), true);
         _optIn(tokenId, true);
-        assertTrue(autoRange.stakingManaged(tokenId));
+        assertEq(autoRange.stakingManagedBy(tokenId), alice);
         _optIn(tokenId, false);
-        assertFalse(autoRange.stakingManaged(tokenId));
+        assertEq(autoRange.stakingManagedBy(tokenId), address(0));
+    }
+
+    function testVaultRejectsCustodyChangeFromPlainTransformDelegate() public {
+        uint256 tokenId = _createVaultPosition(address(usdc), address(dai), 1, true);
+        npm.setTokensOwed(tokenId, 0, 0);
+        _optIn(tokenId, true);
+        // admin holds a generic approveTransform permission: it may transform, but not change custody directly
+        vm.prank(admin);
+        vm.expectRevert(Unauthorized.selector);
+        vault.transformWithRewardCompound(
+            tokenId, address(autoRange), _payload(tokenId), _rewardParams(IVault.StakeTarget.Unstaked)
+        );
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+        // keeping the current custody is still allowed for the delegate
+        vm.prank(admin);
+        vault.transformWithRewardCompound(
+            tokenId, address(autoRange), _payload(tokenId), _rewardParams(IVault.StakeTarget.Keep)
+        );
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+    }
+
+    function testOwnerMayChangeCustodyDirectlyThroughTheVault() public {
+        uint256 tokenId = _createVaultPosition(address(usdc), address(dai), 1, true);
+        npm.setTokensOwed(tokenId, 0, 0);
+        vm.prank(alice);
+        vault.transformWithRewardCompound(
+            tokenId, address(autoRange), _payload(tokenId), _rewardParams(IVault.StakeTarget.Unstaked)
+        );
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+        assertEq(npm.ownerOf(tokenId), address(vault));
+    }
+
+    function testStaleOptInDoesNotCarryToANewOwner() public {
+        uint256 tokenId = _createVaultPosition(address(usdc), address(dai), 1, false);
+        npm.setTokensOwed(tokenId, 0, 0);
+        _optIn(tokenId, true);
+
+        // alice leaves the vault and sells the position; bob deposits it and allows ordinary transforms only
+        vm.prank(alice);
+        vault.remove(tokenId, alice, "");
+        vm.prank(alice);
+        npm.transferFrom(alice, bob, tokenId);
+        _enrollInVaultAs(bob, tokenId, false);
+
+        vm.prank(admin);
+        vm.expectRevert(Unauthorized.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            _params(tokenId), address(vault), _rewardParams(IVault.StakeTarget.Staked)
+        );
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+
+        // bob's own consent works
+        vm.prank(bob);
+        autoRange.configStakingManagement(tokenId, address(vault), true);
+        _flip(tokenId, IVault.StakeTarget.Staked);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+    }
+
+    function testStakeChangeCompoundIsOnlyAVaultTransformPayload() public {
+        uint256 tokenId = _createVaultPosition(address(usdc), address(dai), 1, false);
+        _optIn(tokenId, true);
+        vm.prank(admin);
+        vm.expectRevert(Unauthorized.selector);
+        autoRange.autoCompoundForStakeChange(_params(tokenId));
     }
 
     function testStakeTargetEntrypointsAreOperatorOnly() public {

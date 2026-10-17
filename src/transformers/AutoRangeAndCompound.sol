@@ -43,7 +43,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // config changes
     event AutoCompoundRewardUpdated(address account, uint64 totalRewardX64);
-    event StakingManagementConfigured(uint256 indexed tokenId, bool managed);
+    event StakingManagementConfigured(uint256 indexed tokenId, address indexed owner, bool managed);
     event StakeChangeCooldownUpdated(uint32 cooldownBlocks);
 
     constructor(
@@ -81,8 +81,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     // configured tokens
     mapping(uint256 => PositionConfig) public positionConfigs;
 
-    // operator-managed staking (compound-only policy): per-position owner opt-in and anti-flapping cooldown
-    mapping(uint256 => bool) public stakingManaged;
+    // operator-managed staking (compound-only policy): the consenting vault position owner per position (zero when
+    // not managed; consent must match the vault's current owner, so it dies with removal or resale) and cooldown
+    mapping(uint256 => address) public stakingManagedBy;
     mapping(uint256 => uint256) public lastStakeChangeBlock;
     uint32 public stakeChangeCooldownBlocks;
 
@@ -346,10 +347,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0);
 
             // carry the staking-management opt-in and cooldown over to the new position
-            if (stakingManaged[params.tokenId]) {
-                delete stakingManaged[params.tokenId];
-                stakingManaged[state.newTokenId] = true;
-                emit StakingManagementConfigured(state.newTokenId, true);
+            address managedBy = stakingManagedBy[params.tokenId];
+            if (managedBy != address(0)) {
+                delete stakingManagedBy[params.tokenId];
+                stakingManagedBy[state.newTokenId] = managedBy;
+                emit StakingManagementConfigured(state.newTokenId, managedBy, true);
             }
             lastStakeChangeBlock[state.newTokenId] = lastStakeChangeBlock[params.tokenId];
             delete lastStakeChangeBlock[params.tokenId];
@@ -449,7 +451,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * Only for positions whose owner opted into operator-managed staking.
      */
     function autoCompoundForStakeChange(AutoCompoundParams calldata params) external nonReentrant {
-        if (!stakingManaged[params.tokenId]) {
+        // only as the payload of a vault transform, for a position whose current owner opted in
+        if (!vaults[msg.sender] || !_isStakingManaged(params.tokenId, msg.sender)) {
             revert Unauthorized();
         }
         _autoCompound(params, false);
@@ -585,8 +588,14 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      */
     function configStakingManagement(uint256 tokenId, address vault, bool managed) external {
         _validateOwner(nonfungiblePositionManager, tokenId, vault);
-        stakingManaged[tokenId] = managed;
-        emit StakingManagementConfigured(tokenId, managed);
+        stakingManagedBy[tokenId] = managed ? msg.sender : address(0);
+        emit StakingManagementConfigured(tokenId, msg.sender, managed);
+    }
+
+    // consent is valid only while the consenting owner still owns the position in the vault
+    function _isStakingManaged(uint256 tokenId, address vault) internal returns (bool) {
+        address managedBy = stakingManagedBy[tokenId];
+        return managedBy != address(0) && managedBy == IVault(vault).ownerOf(tokenId);
     }
 
     /// @notice Owner controlled function to set the minimum blocks between two operator stake changes of a position
@@ -612,7 +621,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (!changes) {
             return false;
         }
-        if (!stakingManaged[tokenId]) {
+        if (!_isStakingManaged(tokenId, vault)) {
             revert Unauthorized();
         }
         uint256 lastChange = lastStakeChangeBlock[tokenId];
