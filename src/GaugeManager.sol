@@ -46,6 +46,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     error DeferredAccountingMismatch();
     error UnknownGauge();
     error InsidePenaltyWindow();
+    error OnlySelf();
     error NoDeferredClaim();
     error UnsupportedRewardDelivery();
 
@@ -305,7 +306,46 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 aeroSplitBps,
         uint256 deadline
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
-        address owner = _requireVaultOrOwner(tokenId);
+        return _compoundRewards(tokenId, _requireVaultOrOwner(tokenId), minAeroReward, aeroSplitBps, deadline);
+    }
+
+    /// @notice Vault-only transform helper (compound-only policy): compound a staked position's rewards, then unstake.
+    /// `strict` compounds with the given params and reverts if that fails; otherwise compounding is best-effort with
+    /// defaults, and a failure (penalty window, missing route, empty claim, failed mint) falls back to the payout or
+    /// deferral the unstake performs. Returns whether the position was staked, like unstakeIfStaked.
+    function unstakeIfStakedCompounding(
+        uint256 tokenId,
+        bool strict,
+        uint256 minAeroReward,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) external override nonReentrant returns (bool wasStaked) {
+        _requireVaultCaller();
+        if (tokenIdToGauge[tokenId] == address(0)) {
+            return false;
+        }
+        if (strict) {
+            _compoundRewards(tokenId, vault.ownerOf(tokenId), minAeroReward, aeroSplitBps, deadline);
+        } else {
+            try this.compoundForVaultTransform(tokenId) {} catch {}
+        }
+        return _unstakePosition(tokenId);
+    }
+
+    /// @dev External self-call so a failed best-effort compound rolls back atomically. No reentrancy modifier: the
+    /// vault entrypoint holds the lock, and nobody else can call this.
+    function compoundForVaultTransform(uint256 tokenId) external {
+        if (msg.sender != address(this)) revert OnlySelf();
+        _compoundRewards(tokenId, vault.ownerOf(tokenId), 0, 5000, block.timestamp);
+    }
+
+    function _compoundRewards(
+        uint256 tokenId,
+        address owner,
+        uint256 minAeroReward,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) internal returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
         if (aeroSplitBps > 10_000) {
             revert InvalidConfig();
         }

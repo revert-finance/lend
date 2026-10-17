@@ -24,8 +24,17 @@ interface IGaugeManager is IProtocolFeeController {
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
     function unstakeIfStaked(uint256 tokenId) external returns (bool wasStaked);
+    function unstakeIfStakedCompounding(
+        uint256 tokenId,
+        bool strict,
+        uint256 minAeroReward,
+        uint256 aeroSplitBps,
+        uint256 deadline
+    ) external returns (bool wasStaked);
 
     function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
+
+    function penaltyWindowEnd(uint256 tokenId) external view returns (uint256);
 
     function compoundRewards(
         uint256 tokenId,
