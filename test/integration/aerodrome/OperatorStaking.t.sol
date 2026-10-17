@@ -129,9 +129,9 @@ contract OperatorStakingTest is AerodromeTestBase {
         vm.expectRevert(Unauthorized.selector);
         autoRange.configStakingManagement(tokenId, address(vault), true);
         _optIn(tokenId, true);
-        assertEq(autoRange.stakingManagedBy(tokenId), alice);
+        assertEq(autoRange.stakingConsent(tokenId, address(vault)), alice);
         _optIn(tokenId, false);
-        assertEq(autoRange.stakingManagedBy(tokenId), address(0));
+        assertEq(autoRange.stakingConsent(tokenId, address(vault)), address(0));
     }
 
     function testVaultRejectsCustodyChangeFromPlainTransformDelegate() public {
@@ -188,6 +188,57 @@ contract OperatorStakingTest is AerodromeTestBase {
         autoRange.configStakingManagement(tokenId, address(vault), true);
         _flip(tokenId, IVault.StakeTarget.Staked);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+    }
+
+    function testConsentDoesNotCarryToAnotherVault() public {
+        // second vault with its own gauge manager, both allowlisted on the transformer
+        V3Vault vaultB = new V3Vault("B", "B", address(usdc), npm, irm, oracle);
+        GaugeManager managerB = new GaugeManager(
+            IAerodromeNonfungiblePositionManager(address(npm)), IERC20(address(aero)), IVault(address(vaultB)), address(0), address(0)
+        );
+        managerB.setGauge(usdcDaiPool, address(usdcDaiGauge));
+        vaultB.setGaugeManager(address(managerB));
+        vaultB.setTokenConfig(address(usdc), uint32(Q32 * 90 / 100), type(uint32).max);
+        vaultB.setTokenConfig(address(dai), uint32(Q32 * 90 / 100), type(uint32).max);
+        vaultB.setTransformer(address(autoRange), true);
+        autoRange.setVault(address(vaultB));
+
+        uint256 tokenId = _createVaultPosition(address(usdc), address(dai), 1, false);
+        npm.setTokensOwed(tokenId, 0, 0);
+        _optIn(tokenId, true); // consent for vault A
+
+        // alice moves the same position to vault B and allows ordinary transforms there
+        vm.startPrank(alice);
+        vault.remove(tokenId, alice, "");
+        npm.approve(address(vaultB), tokenId);
+        vaultB.create(tokenId, alice);
+        vaultB.approveTransform(tokenId, admin, true);
+        vaultB.approveTransform(tokenId, address(autoRange), true);
+        autoRange.configToken(tokenId, address(vaultB), _autoCompoundConfig());
+        vm.stopPrank();
+
+        vm.prank(admin);
+        vm.expectRevert(Unauthorized.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            _params(tokenId), address(vaultB), _rewardParams(IVault.StakeTarget.Staked)
+        );
+        assertEq(managerB.tokenIdToGauge(tokenId), address(0));
+
+        // consent given for vault B works there
+        vm.prank(alice);
+        autoRange.configStakingManagement(tokenId, address(vaultB), true);
+        vm.prank(admin);
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            _params(tokenId), address(vaultB), _rewardParams(IVault.StakeTarget.Staked)
+        );
+        assertEq(managerB.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+    }
+
+    function testConsentRequiresAVault() public {
+        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000e18);
+        vm.prank(alice);
+        vm.expectRevert(Unauthorized.selector);
+        autoRange.configStakingManagement(tokenId, address(0), true);
     }
 
     function testStakeChangeCompoundIsOnlyAVaultTransformPayload() public {

@@ -43,7 +43,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // config changes
     event AutoCompoundRewardUpdated(address account, uint64 totalRewardX64);
-    event StakingManagementConfigured(uint256 indexed tokenId, address indexed owner, bool managed);
+    event StakingManagementConfigured(uint256 indexed tokenId, address indexed vault, address indexed owner, bool managed);
     event StakeChangeCooldownUpdated(uint32 cooldownBlocks);
 
     constructor(
@@ -81,9 +81,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     // configured tokens
     mapping(uint256 => PositionConfig) public positionConfigs;
 
-    // operator-managed staking (compound-only policy): the consenting vault position owner per position (zero when
-    // not managed; consent must match the vault's current owner, so it dies with removal or resale) and cooldown
-    mapping(uint256 => address) public stakingManagedBy;
+    // operator-managed staking (compound-only policy): consenting owner per position and vault (zero when not
+    // managed). Consent applies only while that address is the vault's current owner of the position: it is
+    // suspended while the position is out of the vault or owned by someone else, never carries to another vault,
+    // re-applies when the same owner re-deposits the same position into the same vault, and ends on revocation.
+    mapping(uint256 => mapping(address => address)) public stakingConsent;
     mapping(uint256 => uint256) public lastStakeChangeBlock;
     uint32 public stakeChangeCooldownBlocks;
 
@@ -346,12 +348,14 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             delete positionConfigs[params.tokenId];
             emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0);
 
-            // carry the staking-management opt-in and cooldown over to the new position
-            address managedBy = stakingManagedBy[params.tokenId];
-            if (managedBy != address(0)) {
-                delete stakingManagedBy[params.tokenId];
-                stakingManagedBy[state.newTokenId] = managedBy;
-                emit StakingManagementConfigured(state.newTokenId, managedBy, true);
+            // carry the staking-management opt-in (of the vault running this transform) and cooldown over to the new position
+            if (vaults[msg.sender]) {
+                address consentingOwner = stakingConsent[params.tokenId][msg.sender];
+                if (consentingOwner != address(0)) {
+                    delete stakingConsent[params.tokenId][msg.sender];
+                    stakingConsent[state.newTokenId][msg.sender] = consentingOwner;
+                    emit StakingManagementConfigured(state.newTokenId, msg.sender, consentingOwner, true);
+                }
             }
             lastStakeChangeBlock[state.newTokenId] = lastStakeChangeBlock[params.tokenId];
             delete lastStakeChangeBlock[params.tokenId];
@@ -587,15 +591,18 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * Changes always compound fees before staking and staked rewards before unstaking (compound-only policy).
      */
     function configStakingManagement(uint256 tokenId, address vault, bool managed) external {
+        if (vault == address(0)) {
+            revert Unauthorized();
+        }
         _validateOwner(nonfungiblePositionManager, tokenId, vault);
-        stakingManagedBy[tokenId] = managed ? msg.sender : address(0);
-        emit StakingManagementConfigured(tokenId, msg.sender, managed);
+        stakingConsent[tokenId][vault] = managed ? msg.sender : address(0);
+        emit StakingManagementConfigured(tokenId, vault, msg.sender, managed);
     }
 
-    // consent is valid only while the consenting owner still owns the position in the vault
+    // consent applies only while the consenting owner currently owns the position in that vault
     function _isStakingManaged(uint256 tokenId, address vault) internal returns (bool) {
-        address managedBy = stakingManagedBy[tokenId];
-        return managedBy != address(0) && managedBy == IVault(vault).ownerOf(tokenId);
+        address consentingOwner = stakingConsent[tokenId][vault];
+        return consentingOwner != address(0) && consentingOwner == IVault(vault).ownerOf(tokenId);
     }
 
     /// @notice Owner controlled function to set the minimum blocks between two operator stake changes of a position

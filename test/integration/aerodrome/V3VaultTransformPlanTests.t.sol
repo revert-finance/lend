@@ -551,8 +551,8 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
         assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(0), "new position ends unstaked");
         assertEq(npm.ownerOf(newTokenId), address(vault));
-        assertEq(autoRange.stakingManagedBy(newTokenId), alice, "opt-in migrated to the new position");
-        assertEq(autoRange.stakingManagedBy(tokenId), address(0), "opt-in cleared on the old position");
+        assertEq(autoRange.stakingConsent(newTokenId, address(vault)), alice, "opt-in migrated to the new position");
+        assertEq(autoRange.stakingConsent(tokenId, address(vault)), address(0), "opt-in cleared on the old position");
         assertEq(autoRange.lastStakeChangeBlock(newTokenId), block.number);
     }
 }
