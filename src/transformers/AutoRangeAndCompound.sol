@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
+import "../interfaces/IGaugeManager.sol";
 
 /// @title AutoRangeAndCompound
 /// @notice Allows operator of AutoRangeAndCompound contract (Revert controlled bot) to change range for configured positions
@@ -42,6 +43,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // config changes
     event AutoCompoundRewardUpdated(address account, uint64 totalRewardX64);
+    event StakingManagementConfigured(uint256 indexed tokenId, bool managed);
+    event StakeChangeCooldownUpdated(uint32 cooldownBlocks);
 
     constructor(
         INonfungiblePositionManager _npm,
@@ -77,6 +80,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // configured tokens
     mapping(uint256 => PositionConfig) public positionConfigs;
+
+    // operator-managed staking (compound-only policy): per-position owner opt-in and anti-flapping cooldown
+    mapping(uint256 => bool) public stakingManaged;
+    mapping(uint256 => uint256) public lastStakeChangeBlock;
+    uint32 public stakeChangeCooldownBlocks;
 
     /// @notice params for execute()
     struct ExecuteParams {
@@ -137,20 +145,24 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     /**
-     * @notice Adjust token in a vault and compound staked gauge rewards first (if position is currently staked)
-     * Can only be called from configured operator account - vault must be configured as well
+     * @notice Adjust token in a vault, compound staked gauge rewards first (if position is currently staked) and end
+     * in `rewardParams.stakeTarget` custody. Can only be called from configured operator account - vault must be
+     * configured as well. A real custody change needs the owner's staking-management opt-in, respects the cooldown
+     * and never unstakes inside the gauge's early-unstake penalty window.
      */
     function executeWithVaultAndRewardCompound(
         ExecuteParams calldata params,
         address vault,
         IVault.RewardCompoundParams calldata rewardParams
     ) external {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
+        bool changes = _prepareStakeChange(params.tokenId, vault, rewardParams.stakeTarget);
+        IVault.RewardCompoundParams memory adjustedRewardParams = rewardParams;
+        if (changes) {
+            adjustedRewardParams.minAeroReward = 0;
         }
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)), rewardParams
+                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)), adjustedRewardParams
             );
     }
 
@@ -333,6 +345,15 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             delete positionConfigs[params.tokenId];
             emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0);
 
+            // carry the staking-management opt-in and cooldown over to the new position
+            if (stakingManaged[params.tokenId]) {
+                delete stakingManaged[params.tokenId];
+                stakingManaged[state.newTokenId] = true;
+                emit StakingManagementConfigured(state.newTokenId, true);
+            }
+            lastStakeChangeBlock[state.newTokenId] = lastStakeChangeBlock[params.tokenId];
+            delete lastStakeChangeBlock[params.tokenId];
+
             emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
             revert NotReady();
@@ -388,23 +409,28 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     /**
-     * @notice Autocompound position in a vault and compound staked gauge rewards first (if position is currently staked)
-     * Can only be called from configured operator account - vault must be configured as well
+     * @notice Autocompound position in a vault, compound staked gauge rewards first (if position is currently staked)
+     * and end in `rewardParams.stakeTarget` custody. Can only be called from configured operator account - vault must
+     * be configured as well. A real custody change needs the owner's staking-management opt-in, respects the cooldown
+     * and never unstakes inside the gauge's early-unstake penalty window; it compounds fees before a stake and staked
+     * rewards before an unstake (compound-only policy) without the configured minimums, so dust never stalls it.
      */
     function autoCompoundWithVaultAndRewardCompound(
         AutoCompoundParams calldata params,
         address vault,
         IVault.RewardCompoundParams calldata rewardParams
     ) external {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
-        PositionConfig memory config = positionConfigs[params.tokenId];
+        bool changes = _prepareStakeChange(params.tokenId, vault, rewardParams.stakeTarget);
         IVault.RewardCompoundParams memory adjustedRewardParams = rewardParams;
-        adjustedRewardParams.minAeroReward = config.autoCompoundRewardMin;
+        adjustedRewardParams.minAeroReward = changes ? 0 : positionConfigs[params.tokenId].autoCompoundRewardMin;
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)), adjustedRewardParams
+                params.tokenId,
+                address(this),
+                changes
+                    ? abi.encodeCall(AutoRangeAndCompound.autoCompoundForStakeChange, (params))
+                    : abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
+                adjustedRewardParams
             );
     }
 
@@ -414,6 +440,22 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      */
     function autoCompound(AutoCompoundParams calldata params) external nonReentrant {
+        _autoCompound(params, true);
+    }
+
+    /**
+     * @notice Autocompound for a staking custody change: same as autoCompound but without the configured
+     * autoCompound flag and minimum-fee gate, so a change always compounds whatever fees exist first.
+     * Only for positions whose owner opted into operator-managed staking.
+     */
+    function autoCompoundForStakeChange(AutoCompoundParams calldata params) external nonReentrant {
+        if (!stakingManaged[params.tokenId]) {
+            revert Unauthorized();
+        }
+        _autoCompound(params, false);
+    }
+
+    function _autoCompound(AutoCompoundParams calldata params, bool enforceConfig) internal {
         if (!operators[msg.sender]) {
             if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
@@ -423,7 +465,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         }
 
         PositionConfig memory config = positionConfigs[params.tokenId];
-        if (!config.autoCompound) {
+        if (enforceConfig && !config.autoCompound) {
             revert NotConfigured();
         }
 
@@ -437,7 +479,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         );
 
         // Minimum fee thresholds gate autocompound execution.
-        if (state.amount0 < config.autoCompoundMin0 || state.amount1 < config.autoCompoundMin1) {
+        if (enforceConfig && (state.amount0 < config.autoCompoundMin0 || state.amount1 < config.autoCompoundMin1)) {
             revert NotEnoughReward();
         }
 
@@ -535,6 +577,53 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             state.token0,
             state.token1
         );
+    }
+
+    /**
+     * @notice Owner opt-in: lets the operator move this vault position between staked and unstaked custody.
+     * Changes always compound fees before staking and staked rewards before unstaking (compound-only policy).
+     */
+    function configStakingManagement(uint256 tokenId, address vault, bool managed) external {
+        _validateOwner(nonfungiblePositionManager, tokenId, vault);
+        stakingManaged[tokenId] = managed;
+        emit StakingManagementConfigured(tokenId, managed);
+    }
+
+    /// @notice Owner controlled function to set the minimum blocks between two operator stake changes of a position
+    function setStakeChangeCooldown(uint32 cooldownBlocks) external onlyOwner {
+        stakeChangeCooldownBlocks = cooldownBlocks;
+        emit StakeChangeCooldownUpdated(cooldownBlocks);
+    }
+
+    // operator/vault auth; for a real custody change also owner opt-in, cooldown and gauge penalty window
+    function _prepareStakeChange(uint256 tokenId, address vault, IVault.StakeTarget target)
+        internal
+        returns (bool changes)
+    {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        if (target == IVault.StakeTarget.Keep) {
+            return false;
+        }
+        address gaugeManager = IVault(vault).gaugeManager();
+        bool staked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
+        changes = staked != (target == IVault.StakeTarget.Staked);
+        if (!changes) {
+            return false;
+        }
+        if (!stakingManaged[tokenId]) {
+            revert Unauthorized();
+        }
+        uint256 lastChange = lastStakeChangeBlock[tokenId];
+        if (lastChange != 0 && block.number < lastChange + stakeChangeCooldownBlocks) {
+            revert NotReady();
+        }
+        // unstaking inside the window forfeits penaltyRate of the accrued rewards
+        if (staked && block.number < IGaugeManager(gaugeManager).penaltyWindowEnd(tokenId)) {
+            revert NotReady();
+        }
+        lastStakeChangeBlock[tokenId] = block.number;
     }
 
     // function to configure a token to be used with this runner

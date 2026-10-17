@@ -680,7 +680,8 @@ contract V3VaultIntegrationTest is Test {
             IVault.RewardCompoundParams({
                 minAeroReward: 0,
                 aeroSplitBps: 0,
-                deadline: block.timestamp
+                deadline: block.timestamp,
+                stakeTarget: IVault.StakeTarget.Keep
             })
         );
 

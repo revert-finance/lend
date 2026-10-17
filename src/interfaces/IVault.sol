@@ -42,12 +42,22 @@ interface IVault is IERC4626 {
     function approveTransform(uint256 tokenId, address target, bool active) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
 
+    // final staking custody requested for a transform
+    enum StakeTarget {
+        Keep, // restore the pre-transform state (default)
+        Staked, // end staked in the configured gauge
+        Unstaked // end unstaked in the vault
+    }
+
     struct RewardCompoundParams {
         uint256 minAeroReward;
         uint256 aeroSplitBps;
         uint256 deadline;
+        StakeTarget stakeTarget;
     }
 
+    /// @notice Transform with explicit reward-compound params; staked rewards are compounded with them before the
+    /// unstake (reverting if that fails) and the position ends in `rewardParams.stakeTarget` custody.
     function transformWithRewardCompound(
         uint256 tokenId,
         address transformer,

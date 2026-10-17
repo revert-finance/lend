@@ -107,7 +107,8 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
         IVault.RewardCompoundParams memory rewardParams = IVault.RewardCompoundParams({
             minAeroReward: 3,
             aeroSplitBps: 4_000,
-            deadline: block.timestamp + 1 hours
+            deadline: block.timestamp + 1 hours,
+            stakeTarget: IVault.StakeTarget.Keep
         });
 
         vm.prank(OPERATOR);
@@ -153,7 +154,8 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
         IVault.RewardCompoundParams memory rewardParams = IVault.RewardCompoundParams({
             minAeroReward: 333,
             aeroSplitBps: 5_000,
-            deadline: block.timestamp + 1 hours
+            deadline: block.timestamp + 1 hours,
+            stakeTarget: IVault.StakeTarget.Keep
         });
 
         vm.prank(OPERATOR);
