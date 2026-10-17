@@ -151,7 +151,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     uint256 public override transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
-    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRangeAndCompound contract)
+    // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRangeAndCompound contract):
+    // owner => tokenId => target => token epoch + 1 at approval time (0 = not approved), see transformApprovals()
+    mapping(address => mapping(uint256 => mapping(address => uint256))) private transformApprovalEpochs;
+    // incremented whenever a token leaves the vault, so transform approvals from an earlier deposit expire
+    mapping(uint256 => uint256) private tokenEpochs;
 
     // last time exchange rate was updated
     uint64 public lastExchangeRateUpdate;
@@ -478,8 +482,14 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (tokenOwner[tokenId] != msg.sender) {
             revert Unauthorized();
         }
-        transformApprovals[msg.sender][tokenId][target] = isActive;
+        transformApprovalEpochs[msg.sender][tokenId][target] = isActive ? tokenEpochs[tokenId] + 1 : 0;
         emit ApprovedTransform(tokenId, msg.sender, target, isActive);
+    }
+
+    /// @notice Whether `target` may transform `tokenId` on behalf of `loanOwner`
+    /// @dev Approvals only count for the deposit they were given in: removing the token from the vault expires them.
+    function transformApprovals(address loanOwner, uint256 tokenId, address target) public view returns (bool) {
+        return transformApprovalEpochs[loanOwner][tokenId][target] == tokenEpochs[tokenId] + 1;
     }
 
     function transform(uint256 tokenId, address transformer, bytes calldata data)
@@ -530,7 +540,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         address loanOwner = tokenOwner[tokenId];
 
         // only the owner of the loan or any approved caller can call this
-        if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
+        if (loanOwner != msg.sender && !transformApprovals(loanOwner, tokenId, msg.sender)) {
             revert Unauthorized();
         }
 
@@ -555,9 +565,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         newTokenId = transformedTokenId;
 
         // if token has changed - and operator was approved for old token - take over for new token
-        if (tokenId != newTokenId && transformApprovals[loanOwner][tokenId][msg.sender]) {
-            transformApprovals[loanOwner][newTokenId][msg.sender] = true;
-            delete transformApprovals[loanOwner][tokenId][msg.sender];
+        if (tokenId != newTokenId && transformApprovals(loanOwner, tokenId, msg.sender)) {
+            transformApprovalEpochs[loanOwner][newTokenId][msg.sender] = tokenEpochs[newTokenId] + 1;
+            delete transformApprovalEpochs[loanOwner][tokenId][msg.sender];
         }
 
         // NOTE FOR AUDITS:
@@ -1528,5 +1538,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         ownedTokens[from].pop();
         // Note that ownedTokensIndex[tokenId] is not deleted. There is no need to delete it - gas optimization
         delete tokenOwner[tokenId]; // Remove the token from the token owner mapping
+        // expire every transform approval given during this deposit, so a later redeposit starts without delegates
+        ++tokenEpochs[tokenId];
     }
 }
