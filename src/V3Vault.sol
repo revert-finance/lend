@@ -151,7 +151,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     uint256 public override transformedTokenId; // stores currently transformed token (is always reset to 0 after tx)
 
     mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
-    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRangeAndCompound contract)
+    // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRangeAndCompound contract):
+    // owner => tokenId => target => token epoch + 1 at approval time (0 = not approved), see transformApprovals()
+    mapping(address => mapping(uint256 => mapping(address => uint256))) private transformApprovalEpochs;
+    // incremented whenever a token leaves the vault, so transform approvals from an earlier deposit expire
+    mapping(uint256 => uint256) private tokenEpochs;
 
     // last time exchange rate was updated
     uint64 public lastExchangeRateUpdate;
@@ -174,6 +178,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     // Borrow-side lender-base limits discount this value so temporary self-lending cannot relax risk caps.
     uint256 private constant TX_SUPPLY_INFLATION_SHARES_SLOT =
         0x77c5f5ad287ab5c7b7ea0aaa4c95632213a8f4eab414ff7bf7c4163f433cda41;
+
+    // Transient slots binding a running transform to its transformer and to the one replacement NFT that transformer
+    // announced (keccak256("revert.lend.V3Vault.activeTransformer" / ".expectedReplacement") - 1).
+    uint256 private constant ACTIVE_TRANSFORMER_SLOT =
+        0x204a761aefbed53d279abdaa31cc6db3c3bb1e1bd1cc4bd22e70455dcc27d0f4;
+    uint256 private constant EXPECTED_REPLACEMENT_SLOT =
+        0x19e6a9c46e23b98fb1ff67b58c12224b0d84263b3b2b6ca707e274d98349bfa7;
 
     constructor(
         string memory name,
@@ -435,14 +446,21 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             }
         } else {
             // NOTE FOR AUDITS:
-            // We intentionally do not bind replacement-NFT migration to a specific operator contract here.
-            // Some valid transformers route NFT moves through helper/proxy contracts, so strict operator pinning
-            // would break supported integrations. Safety relies on transform-mode scoping + final custody checks.
-            // if in transform mode - and a new position is sent - current position is replaced and returned
+            // if in transform mode - and a new position is sent - current position is replaced and returned.
+            // Only the token the active transformer announced via expectReplacement() is accepted, once. Helper/proxy
+            // routing of that announced token stays supported (the sender is not pinned); any other NFT is rejected,
+            // so a transform cannot rebind the loan to an unrelated position.
             if (tokenId != oldTokenId) {
+                uint256 expectedTokenId;
+                assembly ("memory-safe") {
+                    expectedTokenId := tload(EXPECTED_REPLACEMENT_SLOT)
+                    tstore(EXPECTED_REPLACEMENT_SLOT, 0)
+                }
                 // Replacement migrations are only safe for freshly introduced tokenIds. Reusing a token that already
                 // has vault ownership or debt state would overwrite its live loan accounting.
-                if (tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0) {
+                if (
+                    tokenId != expectedTokenId || tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0
+                ) {
                     revert Unauthorized();
                 }
 
@@ -478,8 +496,30 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         if (tokenOwner[tokenId] != msg.sender) {
             revert Unauthorized();
         }
-        transformApprovals[msg.sender][tokenId][target] = isActive;
+        transformApprovalEpochs[msg.sender][tokenId][target] = isActive ? tokenEpochs[tokenId] + 1 : 0;
         emit ApprovedTransform(tokenId, msg.sender, target, isActive);
+    }
+
+    /// @notice Whether `target` may transform `tokenId` on behalf of `loanOwner`
+    /// @dev Approvals only count for the deposit they were given in: removing the token from the vault expires them.
+    function transformApprovals(address loanOwner, uint256 tokenId, address target) public view returns (bool) {
+        return transformApprovalEpochs[loanOwner][tokenId][target] == tokenEpochs[tokenId] + 1;
+    }
+
+    /// @notice Called by the active transformer right before it sends a replacement position for the transformed
+    /// token: the vault then accepts exactly that tokenId, once, as the replacement.
+    /// @param tokenId The replacement token the transformer minted from the transformed position
+    function expectReplacement(uint256 tokenId) external override {
+        address activeTransformer;
+        assembly ("memory-safe") {
+            activeTransformer := tload(ACTIVE_TRANSFORMER_SLOT)
+        }
+        if (msg.sender != activeTransformer) {
+            revert Unauthorized();
+        }
+        assembly ("memory-safe") {
+            tstore(EXPECTED_REPLACEMENT_SLOT, tokenId)
+        }
     }
 
     function transform(uint256 tokenId, address transformer, bytes calldata data)
@@ -530,7 +570,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         address loanOwner = tokenOwner[tokenId];
 
         // only the owner of the loan or any approved caller can call this
-        if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
+        if (loanOwner != msg.sender && !transformApprovals(loanOwner, tokenId, msg.sender)) {
             revert Unauthorized();
         }
 
@@ -543,21 +583,28 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         bool wasStaked = _unstakeIfNeeded(tokenId);
 
-        // give access to transformer
+        // give access to transformer (and let only this transformer announce a replacement position)
+        assembly ("memory-safe") {
+            tstore(ACTIVE_TRANSFORMER_SLOT, transformer)
+        }
         nonfungiblePositionManager.approve(transformer, tokenId);
 
         (bool success,) = transformer.call(data);
         if (!success) {
             revert TransformFailed();
         }
+        assembly ("memory-safe") {
+            tstore(ACTIVE_TRANSFORMER_SLOT, 0)
+            tstore(EXPECTED_REPLACEMENT_SLOT, 0)
+        }
 
         // may have changed in the meantime
         newTokenId = transformedTokenId;
 
         // if token has changed - and operator was approved for old token - take over for new token
-        if (tokenId != newTokenId && transformApprovals[loanOwner][tokenId][msg.sender]) {
-            transformApprovals[loanOwner][newTokenId][msg.sender] = true;
-            delete transformApprovals[loanOwner][tokenId][msg.sender];
+        if (tokenId != newTokenId && transformApprovals(loanOwner, tokenId, msg.sender)) {
+            transformApprovalEpochs[loanOwner][newTokenId][msg.sender] = tokenEpochs[newTokenId] + 1;
+            delete transformApprovalEpochs[loanOwner][tokenId][msg.sender];
         }
 
         // NOTE FOR AUDITS:
@@ -1528,5 +1575,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         ownedTokens[from].pop();
         // Note that ownedTokensIndex[tokenId] is not deleted. There is no need to delete it - gas optimization
         delete tokenOwner[tokenId]; // Remove the token from the token owner mapping
+        // expire every transform approval given during this deposit, so a later redeposit starts without delegates
+        ++tokenEpochs[tokenId];
     }
 }
