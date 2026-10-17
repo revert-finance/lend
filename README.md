@@ -5,7 +5,9 @@ Smart contracts for the Revert Lend protocol.
 This is the standalone **Aero** integration branch. `src/GaugeManager.sol` contains
 the receipt-token claim and deferred reward accounting directly. Use the
 [Aero migration runbook](docs/aero-migration.md) for its deployment inputs and
-local validation commands, including the upstream gauge fixture build.
+local validation commands, including the upstream gauge fixture build. Its
+"Operator-managed staking" section describes how the `AutoRangeAndCompound`
+operator may move opted-in vault positions between staked and unstaked custody.
 
 The legacy Base deployment runbook below targets the old Aerodrome gauges. Its
 scripts (`DeployAerodromeProtocol.s.sol`, `ConfigureGauges.s.sol`) and fork test

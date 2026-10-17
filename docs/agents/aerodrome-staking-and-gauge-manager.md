@@ -68,6 +68,13 @@ Compound:
 
 - Position owner (or vault internal flow) calls `GaugeManager.compoundRewards(...)`.
 - Vault-managed transforms can pre-compound staked rewards through `V3Vault.transformWithRewardCompound(...)`, which calls `GaugeManager.compoundRewards(...)` before transform execution.
+- Every `V3Vault.transform*` of a staked position compounds its rewards best-effort first (compound-only policy); only liquidation and `remove` pay rewards out.
+
+Operator-managed staking:
+
+- Staking stays the depositor's choice unless they opt in per position with `AutoRangeAndCompound.configStakingManagement(tokenId, vault, true)`.
+- The operator changes custody only through `V3Vault.transformWithRewardCompound(...)` with `rewardParams.stakeTarget`, called by `autoCompoundWithVaultAndRewardCompound` / `executeWithVaultAndRewardCompound`: fees are compounded before a stake, rewards before an unstake, and ending staked from unstaked custody uses the buffered health check.
+- A change is refused inside the gauge penalty window (`GaugeManager.penaltyWindowEnd`) and before the owner-set cooldown has passed; `Keep` or a no-op target needs no opt-in.
 - GaugeManager:
   1. claims AERO
   2. withdraws staked NFT temporarily
