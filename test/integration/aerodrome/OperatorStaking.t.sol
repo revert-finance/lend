@@ -627,4 +627,19 @@ contract OperatorStakingTest is AerodromeTestBase {
         autoRange.autoCompoundWithVault(_params(tokenId), address(bareVault));
         assertEq(npm.ownerOf(tokenId), address(bareVault));
     }
+
+    function testDelegateDirectTransformInsidePenaltyWindowStaysOwnersChoice() public {
+        (uint256 tokenId,) = _stakedInsidePenaltyWindow();
+        uint256 aliceAeroBefore = aero.balanceOf(alice);
+
+        // A transform delegate the owner approved can call the vault directly and so skip the operator wrappers. That
+        // is by design: like the owner's own direct transform it carries the owner's choice, and the vault cannot tell
+        // a re-range from an exit, so the plain transform stays best-effort there and the unstake pays the reward out
+        // at the gauge's (penalized) rate instead of reverting.
+        vm.prank(admin);
+        vault.transform(tokenId, address(autoRange), _payload(tokenId));
+
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "restaked");
+        assertEq(aero.balanceOf(alice), aliceAeroBefore + 7e18, "rewards paid out, not compounded");
+    }
 }

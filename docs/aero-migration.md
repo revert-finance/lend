@@ -101,8 +101,10 @@ the window and the new deposit restarts the clock. The operator entrypoints of
 revert with `InsidePenaltyWindow` from the strict compound they request. Unstaked
 positions and vaults without a gauge manager are not affected, and a keeper
 should still schedule at or after that block because an earlier call only wastes
-gas. Owner-initiated transforms through the vault and direct `claimRewards` calls
-inside the window stay the owner's choice and pay the upstream-netted amount.
+gas. Transforms the owner starts through the vault directly, or through a
+transform delegate the owner approved, and direct `claimRewards` calls inside
+the window stay the owner's choice and pay the upstream-netted amount: the vault
+cannot tell a re-range from an exit, so it does not enforce the window itself.
 
 ## Operator-managed staking (compound-only)
 
@@ -119,8 +121,9 @@ construction:
   this best-effort for every staked position (defaults: no minimum, even split,
   current block); the explicit variants compound with the operator's parameters
   and revert if that fails. If compounding is impossible (missing reward route,
-  failed mint, or the penalty window on an owner-initiated transform) the plain
-  transform falls back to the payout or deferral the unstake performs.
+  failed mint, or the penalty window on a transform the owner or an approved
+  delegate starts directly) the plain transform falls back to the payout or
+  deferral the unstake performs.
   Liquidation and removal keep paying out.
 - Fees are compounded before a stake. A custody change runs
   `autoCompoundForStakeChange`, which ignores the configured `autoCompound` flag
