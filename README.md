@@ -6,6 +6,8 @@ This is the standalone **Aero** integration branch. `src/GaugeManager.sol` conta
 the receipt-token claim and deferred reward accounting directly. Use the
 [Aero migration runbook](docs/aero-migration.md) for its deployment inputs and
 local validation commands, including the upstream gauge fixture build.
+The triage of the October 2026 Cantina scan, with every finding's disposition and
+reason, is in [docs/security/cantina-scan-2026-10-triage.md](docs/security/cantina-scan-2026-10-triage.md).
 
 The legacy Base deployment runbook below targets the old Aerodrome gauges. Its
 scripts (`DeployAerodromeProtocol.s.sol`, `ConfigureGauges.s.sol`) and fork test
