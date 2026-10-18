@@ -271,6 +271,11 @@ function changeRangeInstructions(address recipientNFT, address recipient) pure r
     });
 }
 
+/// Minting position-manager mocks expose the id of the last position they minted.
+interface IMintedTokenTracker {
+    function lastMintedTokenId() external view returns (uint256);
+}
+
 /// LEND-12 through the real V3Utils transformer used in the scan's proof of concept.
 contract V3VaultV3UtilsReplacementBindingTest is MintingNpmVaultTestBase {
     V3Utils internal v3utils;
@@ -310,7 +315,7 @@ contract V3VaultV3UtilsReplacementBindingTest is MintingNpmVaultTestBase {
     }
 
     function _lastMinted() internal view returns (uint256) {
-        return MockAutoRangeAndCompoundAerodromePositionManager(address(npm)).lastMintedTokenId();
+        return IMintedTokenTracker(address(npm)).lastMintedTokenId();
     }
 
     function testChangeRangeMigratesLoanToMintedToken() public {
