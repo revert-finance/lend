@@ -27,6 +27,8 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
     address public immutable override WETH9;
     uint256 public nextIncreaseAmount0;
     uint256 public nextIncreaseAmount1;
+    uint256 public tokenSequence;
+    uint256 public lastMintedTokenId;
 
     constructor(address _factory, address _weth) ERC721("Aerodrome Positions NFT", "AERO-POS") {
         factory = _factory;
@@ -77,6 +79,18 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         int24 tickUpper,
         uint128 liquidity
     ) external {
+        _setPosition(tokenId, tokenA, tokenB, tickSpacing, tickLower, tickUpper, liquidity);
+    }
+
+    function _setPosition(
+        uint256 tokenId,
+        address tokenA,
+        address tokenB,
+        int24 tickSpacing,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 liquidity
+    ) internal {
         // Sort tokens by address (token0 must be < token1)
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
 
@@ -122,8 +136,23 @@ contract MockAerodromePositionManager is ERC721Enumerable, IAerodromeNonfungible
         revert("Not implemented");
     }
 
-    function mint(MintParams calldata) external payable virtual override returns (uint256, uint128, uint256, uint256) {
-        revert("Not implemented");
+    /// @dev Mints the replacement position of a re-range: ids from 1_000_000 up, one unit of liquidity, nothing pulled.
+    function mint(MintParams calldata params)
+        external
+        payable
+        override
+        returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
+    {
+        tokenId = 1_000_000 + tokenSequence;
+        tokenSequence++;
+        lastMintedTokenId = tokenId;
+
+        _mint(params.recipient, tokenId);
+        _setPosition(
+            tokenId, params.token0, params.token1, int24(uint24(params.fee)), params.tickLower, params.tickUpper, 1
+        );
+
+        return (tokenId, 1, 0, 0);
     }
 
     function increaseLiquidity(IncreaseLiquidityParams calldata params)

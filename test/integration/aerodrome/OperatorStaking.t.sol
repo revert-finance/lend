@@ -417,22 +417,29 @@ contract OperatorStakingTest is AerodromeTestBase {
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
     }
 
-    function testStakeTargetWithoutGaugeManagerReverts() public {
-        V3Vault bareVault = new V3Vault("bare", "bare", address(usdc), npm, irm, oracle);
+    /// Vault without a gauge manager, allowlisted on the transformer, holding a configured position of alice's.
+    function _bareVaultPosition() internal returns (V3Vault bareVault, uint256 tokenId) {
+        bareVault = new V3Vault("bare", "bare", address(usdc), npm, irm, oracle);
         bareVault.setTokenConfig(address(usdc), uint32(Q32 * 90 / 100), type(uint32).max);
         bareVault.setTokenConfig(address(dai), uint32(Q32 * 90 / 100), type(uint32).max);
         bareVault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(bareVault));
 
-        uint256 tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000e18);
+        tokenId = createPosition(alice, address(usdc), address(dai), 1, -100, 100, 1000e18);
         npm.setTokensOwed(tokenId, 0, 0);
         vm.startPrank(alice);
         npm.approve(address(bareVault), tokenId);
         bareVault.create(tokenId, alice);
         bareVault.approveTransform(tokenId, admin, true);
         bareVault.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configStakingManagement(tokenId, address(bareVault), true);
+        autoRange.configToken(tokenId, address(bareVault), _autoCompoundConfig());
         vm.stopPrank();
+    }
+
+    function testStakeTargetWithoutGaugeManagerReverts() public {
+        (V3Vault bareVault, uint256 tokenId) = _bareVaultPosition();
+        vm.prank(alice);
+        autoRange.configStakingManagement(tokenId, address(bareVault), true);
 
         vm.prank(admin);
         vm.expectRevert(GaugeManagerNotSet.selector);
@@ -473,18 +480,151 @@ contract OperatorStakingTest is AerodromeTestBase {
         assertEq(gaugeManager.deferredClaims(address(usdcDaiGauge), 0, alice), 7e18);
     }
 
-    function testPlainTransformInsidePenaltyWindowStillSucceeds() public {
+    // ---- penalty window on plain transforms (Cantina LEND-4)
+
+    /// Staked usdc/dai position with pending rewards, inside a 100-block penalty window that starts now. The window
+    /// end is read back from the manager: a local copy of block.number does not survive vm.roll under via-IR.
+    function _stakedInsidePenaltyWindow() internal returns (uint256 tokenId, uint256 windowEnd) {
         AeroGaugeFactoryFixture(usdcDaiGauge.gaugeFactory()).setConfig(100, 200_000, address(0), 0);
-        uint256 tokenId = _createVaultPosition(address(usdc), address(dai), 1, true);
+        tokenId = _createVaultPosition(address(usdc), address(dai), 1, true);
         npm.setTokensOwed(tokenId, 0, 0);
         usdcDaiGauge.setReward(tokenId, 7e18);
+        windowEnd = gaugeManager.penaltyWindowEnd(tokenId);
+        assertEq(windowEnd, block.number + 100);
+    }
+
+    function _assertUntouchedInGauge(uint256 tokenId, uint256 windowEnd) internal {
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "still staked");
+        assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
+        assertEq(usdcDaiGauge.rewards(tokenId), 7e18, "rewards untouched");
+        assertEq(gaugeManager.penaltyWindowEnd(tokenId), windowEnd, "window not restarted");
+    }
+
+    /// Out-of-range re-range config: at tick 200 the -100..100 position is replaced by one around the current tick.
+    function _rangeChangeConfig() internal pure returns (AutoRangeAndCompound.PositionConfig memory) {
+        return AutoRangeAndCompound.PositionConfig({
+            lowerTickLimit: -1,
+            upperTickLimit: 0,
+            lowerTickDelta: -1,
+            upperTickDelta: 1,
+            token0SlippageX64: 0,
+            token1SlippageX64: 0,
+            onlyFees: false,
+            autoCompound: false,
+            maxRewardX64: 0,
+            autoCompoundMin0: 0,
+            autoCompoundMin1: 0,
+            autoCompoundRewardMin: 0
+        });
+    }
+
+    function _executeParams(uint256 tokenId) internal view returns (AutoRangeAndCompound.ExecuteParams memory) {
+        return AutoRangeAndCompound.ExecuteParams({
+            tokenId: tokenId,
+            swap0To1: true,
+            amountIn: 0,
+            swapData: "",
+            amountRemoveMin0: 0,
+            amountRemoveMin1: 0,
+            amountAddMin0: 0,
+            amountAddMin1: 0,
+            deadline: block.timestamp + 1 hours,
+            rewardX64: 0
+        });
+    }
+
+    function testPlainAutoCompoundRefusedInsidePenaltyWindow() public {
+        (uint256 tokenId, uint256 windowEnd) = _stakedInsidePenaltyWindow();
         uint256 aliceAeroBefore = aero.balanceOf(alice);
+        uint128 liquidityBefore = _liquidity(tokenId);
+
+        vm.prank(admin);
+        vm.expectRevert(NotReady.selector);
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        _assertUntouchedInGauge(tokenId, windowEnd);
+
+        // still refused on the last block of the window
+        vm.roll(windowEnd - 1);
+        vm.prank(admin);
+        vm.expectRevert(NotReady.selector);
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        _assertUntouchedInGauge(tokenId, windowEnd);
+
+        // from penaltyWindowEnd on the transform runs: rewards are compounded, nothing is paid out, position restaked
+        vm.roll(windowEnd);
+        vm.prank(admin);
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "restaked");
+        assertEq(usdcDaiGauge.rewards(tokenId), 0, "rewards compounded");
+        assertEq(aero.balanceOf(alice), aliceAeroBefore, "nothing paid out");
+        assertGt(_liquidity(tokenId), liquidityBefore);
+        assertEq(gaugeManager.penaltyWindowEnd(tokenId), windowEnd + 100, "restake restarted the window");
+    }
+
+    function testPlainRangeChangeRefusedInsidePenaltyWindow() public {
+        (uint256 tokenId, uint256 windowEnd) = _stakedInsidePenaltyWindow();
+        uint256 aliceAeroBefore = aero.balanceOf(alice);
+        MockPool(usdcDaiPool).setTick(200);
+        vm.prank(alice);
+        autoRange.configToken(tokenId, address(vault), _rangeChangeConfig());
+
+        vm.prank(admin);
+        vm.expectRevert(NotReady.selector);
+        autoRange.executeWithVault(_executeParams(tokenId), address(vault));
+        _assertUntouchedInGauge(tokenId, windowEnd);
+
+        vm.roll(windowEnd);
+        vm.prank(admin);
+        autoRange.executeWithVault(_executeParams(tokenId), address(vault));
+        uint256 newTokenId = npm.lastMintedTokenId();
+        assertEq(usdcDaiGauge.rewards(tokenId), 0, "rewards compounded before the range change");
+        assertEq(aero.balanceOf(alice), aliceAeroBefore, "nothing paid out");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+        assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge), "replacement restaked");
+        assertEq(vault.ownerOf(newTokenId), alice);
+    }
+
+    function testRewardCompoundTransformsRefusedInsidePenaltyWindow() public {
+        (uint256 tokenId, uint256 windowEnd) = _stakedInsidePenaltyWindow();
+
+        // the strict compound these entrypoints request refuses the window on its own, whatever the stake target
+        vm.prank(admin);
+        vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            _params(tokenId), address(vault), _rewardParams(IVault.StakeTarget.Keep)
+        );
+        vm.prank(admin);
+        vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
+        autoRange.executeWithVaultAndRewardCompound(
+            _executeParams(tokenId), address(vault), _rewardParams(IVault.StakeTarget.Staked)
+        );
+        _assertUntouchedInGauge(tokenId, windowEnd);
+
+        vm.roll(windowEnd);
+        _flip(tokenId, IVault.StakeTarget.Keep);
+        assertEq(usdcDaiGauge.rewards(tokenId), 0, "rewards compounded");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+    }
+
+    function testPlainTransformIgnoresPenaltyWindowWhenUnstaked() public {
+        (uint256 tokenId,) = _stakedInsidePenaltyWindow();
+        // leaving the gauge inside the window stays the owner's choice; afterwards the operator is not blocked
+        vm.prank(alice);
+        vault.unstakePosition(tokenId);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
 
         vm.prank(admin);
         autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        assertEq(npm.ownerOf(tokenId), address(vault), "stays unstaked");
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
+    }
 
-        // compounding is refused inside the window, so the unstake paid the reward out instead of reverting
-        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
-        assertEq(aero.balanceOf(alice), aliceAeroBefore + 7e18);
+    function testPlainTransformIgnoresPenaltyWindowWithoutGaugeManager() public {
+        AeroGaugeFactoryFixture(usdcDaiGauge.gaugeFactory()).setConfig(100, 200_000, address(0), 0);
+        (V3Vault bareVault, uint256 tokenId) = _bareVaultPosition();
+
+        vm.prank(admin);
+        autoRange.autoCompoundWithVault(_params(tokenId), address(bareVault));
+        assertEq(npm.ownerOf(tokenId), address(bareVault));
     }
 }

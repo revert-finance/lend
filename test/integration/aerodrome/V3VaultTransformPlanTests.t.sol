@@ -32,32 +32,6 @@ contract MockTokenIdMigrator {
     }
 }
 
-contract MockAutoRangeAndCompoundAerodromePositionManager is MockAerodromePositionManager {
-    uint256 public tokenSequence;
-    uint256 public lastMintedTokenId;
-
-    constructor(address _factory, address _weth) MockAerodromePositionManager(_factory, _weth) {}
-
-    function mint(MintParams calldata params)
-        external
-        payable
-        override
-        returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
-    {
-        tokenId = 1_000_000 + tokenSequence;
-        tokenSequence++;
-        lastMintedTokenId = tokenId;
-
-        _mint(params.recipient, tokenId);
-        MockAerodromePositionManager(address(this))
-            .setPosition(
-                tokenId, params.token0, params.token1, int24(uint24(params.fee)), params.tickLower, params.tickUpper, 1
-            );
-
-        return (tokenId, 1, 0, 0);
-    }
-}
-
 contract V3VaultTransformPlanTests is AerodromeTestBase {
     function setUp() public override {
         super.setUp();
@@ -342,7 +316,7 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
     function setUp() public override {
         super.setUp();
 
-        npm = new MockAutoRangeAndCompoundAerodromePositionManager(address(factory), address(weth));
+        npm = new MockAerodromePositionManager(address(factory), address(weth));
         oracle = new V3Oracle(npm, address(usdc), address(usdc));
         oracle.setTokenConfig(
             address(usdc),
@@ -470,8 +444,7 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
         vm.prank(admin);
         autoRange.executeWithVault(params, address(vault));
 
-        MockAutoRangeAndCompoundAerodromePositionManager rangeNpm = MockAutoRangeAndCompoundAerodromePositionManager(address(npm));
-        uint256 newTokenId = rangeNpm.lastMintedTokenId();
+        uint256 newTokenId = npm.lastMintedTokenId();
 
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(vault.ownerOf(newTokenId), alice);
@@ -544,8 +517,7 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
             })
         );
 
-        MockAutoRangeAndCompoundAerodromePositionManager rangeNpm = MockAutoRangeAndCompoundAerodromePositionManager(address(npm));
-        uint256 newTokenId = rangeNpm.lastMintedTokenId();
+        uint256 newTokenId = npm.lastMintedTokenId();
 
         assertEq(vault.ownerOf(newTokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
