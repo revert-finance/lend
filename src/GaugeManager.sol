@@ -512,33 +512,41 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 requestedAero0 = state.aeroAmount * aeroSplitBps / 10_000;
         uint256 requestedAero1 = state.aeroAmount - requestedAero0;
 
-        (uint256 spentAero0, uint256 amount0Out) =
+        // The requested amounts are upper bounds: a pool can exhaust its liquidity before the limit price and
+        // consume less input while its output still clears the validated minimum. Only what the pools actually
+        // consumed counts as spent, so every unconsumed receipt token flows back to the owner as leftover, and
+        // the unconsumed input of a two-hop second hop (the other position token) is accounted as its output.
+        (uint256 spentAero0, uint256 amount0Out, uint256 unconsumed1) =
             _swapAeroToTarget(state.positionPool, state.token0, state.token1, requestedAero0);
-        (uint256 spentAero1, uint256 amount1Out) =
+        (uint256 spentAero1, uint256 amount1Out, uint256 unconsumed0) =
             _swapAeroToTarget(state.positionPool, state.token1, state.token0, requestedAero1);
 
         state.spentAero = spentAero0 + spentAero1;
-        state.amount0Out = amount0Out;
-        state.amount1Out = amount1Out;
+        state.amount0Out = amount0Out + unconsumed0;
+        state.amount1Out = amount1Out + unconsumed1;
         return state;
     }
 
+    /// @return spentAero receipt tokens the route actually consumed (at most `amountIn`)
+    /// @return amountOut target tokens received
+    /// @return unconsumedOther `otherToken` left over when the second hop of the two-hop route stops early
     function _swapAeroToTarget(IUniswapV3Pool positionPool, address targetToken, address otherToken, uint256 amountIn)
         internal
-        returns (uint256 spentAero, uint256 amountOut)
+        returns (uint256 spentAero, uint256 amountOut, uint256 unconsumedOther)
     {
         if (amountIn == 0) {
-            return (0, 0);
+            return (0, 0, 0);
         }
 
         if (targetToken == address(aeroToken)) {
-            return (amountIn, amountIn);
+            return (amountIn, amountIn, 0);
         }
 
         address directPool = rewardBasePools[targetToken];
         if (directPool != address(0)) {
-            amountOut = _swapThroughPool(IUniswapV3Pool(directPool), address(aeroToken), targetToken, amountIn);
-            return (amountIn, amountOut);
+            (spentAero, amountOut) =
+                _swapThroughPool(IUniswapV3Pool(directPool), address(aeroToken), targetToken, amountIn);
+            return (spentAero, amountOut, 0);
         }
 
         address intermediatePool = rewardBasePools[otherToken];
@@ -549,43 +557,50 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IUniswapV3Pool intermediateRewardPool = IUniswapV3Pool(intermediatePool);
         RewardSwapValidation memory intermediateValidation =
             _validateRewardSwap(intermediateRewardPool, address(aeroToken), otherToken, amountIn);
-        uint256 intermediateAmount = _swapThroughValidatedPool(
+        uint256 intermediateAmount;
+        (spentAero, intermediateAmount) = _swapThroughValidatedPool(
             intermediateRewardPool, intermediateValidation, amountIn, intermediateValidation.amountOutMin
         );
 
+        // The second hop swaps what the first hop actually produced. The combined-route minimum still prices the
+        // full requested input, so a short first hop is only accepted within the single route tolerance.
         RewardSwapValidation memory targetValidation =
             _validateRewardSwap(positionPool, otherToken, targetToken, intermediateAmount);
         uint256 routeAmountOutMin = _combinedRouteAmountOutMin(intermediateValidation, targetValidation);
         uint256 targetAmountOutMin =
             targetValidation.amountOutMin > routeAmountOutMin ? targetValidation.amountOutMin : routeAmountOutMin;
 
-        amountOut = _swapThroughValidatedPool(positionPool, targetValidation, intermediateAmount, targetAmountOutMin);
-        return (amountIn, amountOut);
+        uint256 spentIntermediate;
+        (spentIntermediate, amountOut) =
+            _swapThroughValidatedPool(positionPool, targetValidation, intermediateAmount, targetAmountOutMin);
+        unconsumedOther = intermediateAmount - spentIntermediate;
     }
 
     function _swapThroughPool(IUniswapV3Pool pool, address tokenIn, address tokenOut, uint256 amountIn)
         internal
-        returns (uint256 amountOut)
+        returns (uint256 amountInDelta, uint256 amountOut)
     {
         if (amountIn == 0) {
-            return 0;
+            return (0, 0);
         }
 
         RewardSwapValidation memory validation = _validateRewardSwap(pool, tokenIn, tokenOut, amountIn);
-        amountOut = _swapThroughValidatedPool(pool, validation, amountIn, validation.amountOutMin);
+        (amountInDelta, amountOut) = _swapThroughValidatedPool(pool, validation, amountIn, validation.amountOutMin);
     }
 
+    /// @dev Returns the input the pool actually consumed next to the output; `_poolSwap` already enforces
+    /// `amountOutMin` on the output.
     function _swapThroughValidatedPool(
         IUniswapV3Pool pool,
         RewardSwapValidation memory validation,
         uint256 amountIn,
         uint256 amountOutMin
-    ) internal returns (uint256 amountOut) {
+    ) internal returns (uint256 amountInDelta, uint256 amountOut) {
         if (amountIn == 0) {
-            return 0;
+            return (0, 0);
         }
 
-        (, amountOut) = _poolSwap(
+        (amountInDelta, amountOut) = _poolSwap(
             PoolSwapParams({
                 pool: pool,
                 token0: IERC20(validation.poolToken0),
