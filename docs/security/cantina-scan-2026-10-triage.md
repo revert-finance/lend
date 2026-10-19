@@ -3,10 +3,10 @@
 Scan: `revert-finance/lend`, branch `aero`, commit `268b48450f12712cb0222523912ab4f7f3e09b88` (44 findings: 2 High,
 39 Medium, 1 Low, 2 Informational).
 
-Status note: the dispositions below reference pull requests that were open when this document was written
-(#64, #65, #67, #68). Entries marked *fixed in PR* or *pending PR* describe code in those PRs, not in `aero` itself;
-they become effective when the PR merges. Until then LEND-1, LEND-12 and LEND-44 remain reproducible on `aero`,
-and the compound-only reward policy that LEND-51, LEND-23 and LEND-37 rely on is not yet in place.
+Status note: the pull requests referenced below have all merged into `aero`: #65 (df8116a), #64 (7785e4e),
+#67 (0ea357a), #68 (32ff6da) and, for the vault bytecode size, #69 (64c6619). Entries marked *fixed in*,
+*by design since* or *mitigated since* describe code that is now on `aero`: LEND-1, LEND-12 and LEND-44 no longer
+reproduce there, and the compound-only reward policy that LEND-51, LEND-23 and LEND-37 rely on is in place.
 
 ## How the findings were triaged
 
@@ -29,9 +29,9 @@ Columns: *Live Base* = present in the Base deployment baseline; *Live main* = pr
 
 | ID | Sev | Live Base | Live main | Disposition |
 |---|---|---|---|---|
-| LEND-1 | High | yes | yes | **Fixed in PR #65** (open): transform approvals are tagged with a per-token epoch that `remove` increments, so delegates of an earlier deposit expire. |
-| LEND-12 | High | yes | yes | **Fixed in PR #65** (open): a replacement NFT is accepted only if the active transformer announced that exact token with `expectReplacement`, once. |
-| LEND-44 | Med | yes | yes | **Fixed in PR #65** (open; combination of LEND-1 and LEND-12; both preconditions are gone). |
+| LEND-1 | High | yes | yes | **Fixed in #65** (df8116a): transform approvals are tagged with a per-token epoch that `remove` increments, so delegates of an earlier deposit expire. |
+| LEND-12 | High | yes | yes | **Fixed in #65** (df8116a): a replacement NFT is accepted only if the active transformer announced that exact token with `expectReplacement`, once. |
+| LEND-44 | Med | yes | yes | **Fixed in #65** (df8116a; combination of LEND-1 and LEND-12; both preconditions are gone). |
 | LEND-46 | Med | yes | yes | Acknowledged. Raw ERC-721 deposits taking the owner from callback data is a documented, accepted trust assumption (`NOTE FOR AUDITS` in `onERC721Received`): an ERC-721 operator approved for the token can already move it anywhere, so registering it under its own identity is within the authority the NFT owner granted. |
 | LEND-5 | Med | yes | yes | Acknowledged. Vault and transformers are deployed per position manager by the protocol owner; a mismatched pair is an administrative error. A preflight check in the deployment scripts is the right place for a guard, not vault bytecode. |
 | LEND-7 | Med | yes | yes | Acknowledged. Transform mode applies the direct health check without the borrow buffer by design; the replacement stays collateralized above the liquidation threshold and the behaviour is documented in the vault. |
@@ -57,13 +57,13 @@ Columns: *Live Base* = present in the Base deployment baseline; *Live main* = pr
 
 | ID | Sev | Live Base | Live main | Disposition |
 |---|---|---|---|---|
-| LEND-4 | Med | no | no | **Fixed in PR #68** (open, stacked on #64): the plain operator wrappers `executeWithVault` / `autoCompoundWithVault` refuse to unstake a staked position inside the gauge's early-unstake penalty window, matching the guard of the reward-aware wrappers. |
-| LEND-2 | Med | no | no | **Fixed in PR #67** (open): reward swaps record the actual input consumed, so a partial fill returns the unconsumed receipt tokens to the position owner instead of leaving them as sweepable manager balance. |
-| LEND-51 | Med | no | no | **Pending PR #64** (open); superseded by its compound-only policy once merged: every transform compounds staked rewards (best-effort, no minimum); `autoCompoundRewardMin` only tunes the operator's explicit entrypoint, and the generic vault call is available to the owner or an owner-approved delegate only. |
-| LEND-23 | Med | no | no | **Pending PR #64** (open); by design once merged: rewards are always compounded; the `autoCompound` flag governs fee auto-compounding, not gauge rewards. Documented. |
+| LEND-4 | Med | no | no | **Fixed in #68** (32ff6da): the plain operator wrappers `executeWithVault` / `autoCompoundWithVault` refuse to unstake a staked position inside the gauge's early-unstake penalty window, matching the guard of the reward-aware wrappers. |
+| LEND-2 | Med | no | no | **Fixed in #67** (0ea357a): reward swaps record the actual input consumed, so a partial fill returns the unconsumed receipt tokens to the position owner instead of leaving them as sweepable manager balance. |
+| LEND-51 | Med | no | no | **By design since #64** (7785e4e); superseded by its compound-only policy: every transform compounds staked rewards (best-effort, no minimum); `autoCompoundRewardMin` only tunes the operator's explicit entrypoint, and the generic vault call is available to the owner or an owner-approved delegate only. |
+| LEND-23 | Med | no | no | **By design since #64** (7785e4e): rewards are always compounded; the `autoCompound` flag governs fee auto-compounding, not gauge rewards. Documented. |
 | LEND-31 | Med | no | no | Acknowledged. The gauge manager's compound fee (at most 2 %, owner can only lower it) is a separate protocol fee on reward compounding; `maxRewardX64` applies to range-operation fees. Documented. |
 | LEND-52 | Med | no | no | Acknowledged. Upstream `claimEmissions` mints the account bucket together with the position reward in one call, so position claims cannot be decoupled from bucket capacity by the manager. Principal exits are unaffected; claims resume when emission headroom grows. Documented in the runbook. |
-| LEND-37 | Med | no | no | **Pending PR #64** (open); mitigated once merged: the strict reward-compound transform reverting on an unfundable bucket is the keeper's explicit choice; plain `transform` compounds best-effort and always proceeds to the unstake. |
+| LEND-37 | Med | no | no | **Mitigated since #64** (7785e4e): the strict reward-compound transform reverting on an unfundable bucket is the keeper's explicit choice; plain `transform` compounds best-effort and always proceeds to the unstake. |
 | LEND-43 | Med | no | no | Acknowledged. The deferred bucket cannot drift with the pinned CLGauge (only the manager can move it); since #63 the exit path records the withdrawal delta without a strict pre-check, so exits stay live. |
 | LEND-54 | Med | no | no | Acknowledged. A deferred liability stays recorded against the gauge that created it; funding depends on that gauge's upstream emission capacity. A migration would need upstream support. Documented. |
 
@@ -120,11 +120,12 @@ Columns: *Live Base* = present in the Base deployment baseline; *Live main* = pr
 
 | Disposition | Findings |
 |---|---|
-| Fixed in PR #65 (open) | LEND-1, LEND-12, LEND-44 |
-| Fixed in PR #67 / #68 (open) | LEND-2, LEND-4 |
-| Pending PR #64 (open) | LEND-51, LEND-23, LEND-37 |
+| Fixed in #65 (df8116a) | LEND-1, LEND-12, LEND-44 |
+| Fixed in #67 (0ea357a) / #68 (32ff6da) | LEND-2, LEND-4 |
+| By design or mitigated since #64 (7785e4e) | LEND-51, LEND-23, LEND-37 |
 | Operational action | LEND-55 |
 | Acknowledged | the remaining 35 |
 
-Merge order for the referenced PRs: #65, #64, #67, #68 (stacked on #64), then this document; the vault bytecode
-size work tracked separately must land before any deployment from `aero`.
+The referenced PRs merged into `aero` on 2026-10-18/19 in the order #65, #64, #67, #68, this document, then #69,
+which keeps `V3Vault` under the EIP-170 size limit and adds `script/check-sizes.sh`; run that guard before merging
+any vault change.
