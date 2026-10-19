@@ -290,6 +290,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             state.realOwner = state.owner;
             if (vaults[state.owner]) {
                 state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
+                // a vault transform only accepts the replacement position its active transformer announced
+                IVault(state.owner).expectReplacement(state.newTokenId);
             }
 
             // send the new nft to the owner / vault

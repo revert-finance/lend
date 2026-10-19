@@ -58,9 +58,10 @@ The protocol uses one shared lending pool for all approved collateral types (sin
 
 Transformers are protocol-allowlisted contracts that can mutate positions while preserving vault accounting.
 
-- Owner and approved delegates can trigger transforms (`approveTransform`, `transform`).
+- Owner and approved delegates can trigger transforms (`approveTransform`, `transform`). Approvals belong to one deposit of a token: `remove` expires every delegate approved during that deposit, so a later redeposit of the same token ID starts without delegates (`transformApprovals` reports only currently valid approvals).
 - `transform()` handles both staked and unstaked positions: it auto-unstakes before the transform and restakes afterward if the position was originally staked.
-- Some transformers (e.g., `AutoRangeAndCompound`) replace the position NFT — the old token is burned and a new token ID is minted. When this happens through `V3Vault.transform()`, the vault updates its loan and ownership mappings to the new token ID. Any path that replaces a token without going through vault transform entrypoints (`transform` / `transformWithRewardCompound`) must either update vault state or be blocked, otherwise the vault's loan tracks a dead token.
+- Some transformers (e.g., `AutoRangeAndCompound`) replace the position NFT — the old token is burned and a new token ID is minted. When this happens through `V3Vault.transform()`, the vault updates its loan and ownership mappings to the new token ID.
+- Replacement binding: during a transform the vault only accepts the replacement NFT that the active transformer announced with `V3Vault.expectReplacement(tokenId)` right before sending it, and each announcement is good for one delivery. Routing the announced token through a helper is fine; any other NFT arriving during the transform reverts it, so a transform cannot move a loan onto an unrelated position. Transformers that mint a replacement (V3Utils `CHANGE_RANGE`, `AutoRangeAndCompound` re-range) announce it when called by a vault. Any path that replaces a token without going through vault transform entrypoints (`transform` / `transformWithRewardCompound`) must either update vault state or be blocked, otherwise the vault's loan tracks a dead token.
 
 The transformer set is closed: only the contracts in `src/transformers/` (V3Utils, AutoRangeAndCompound, LeverageTransformer) will ever be whitelisted. Each is included in audit scope and individually reviewed. No third-party or future transformers will be added without a dedicated audit.
 
