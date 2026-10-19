@@ -16,6 +16,9 @@ not work against the Aero manager; check them out from the `aerodrome-slipstream
 baseline (`ff9e75afbdd9af847e5a5c026466e179027da490`) to run them. The remaining
 replacement protocol deployment and final Base fork validation are still pending.
 
+The triage of the October 2026 Cantina scan, with every finding's disposition and
+reason, is in [docs/security/cantina-scan-2026-10-triage.md](docs/security/cantina-scan-2026-10-triage.md).
+
 ## Setup
 
 1. Install Foundry: https://book.getfoundry.sh/getting-started/installation
