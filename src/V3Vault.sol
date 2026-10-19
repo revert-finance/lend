@@ -721,24 +721,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
 
-        if (params.liquidity != 0) {
-            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(
-                    params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
-                )
-            );
-        }
-
-        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
-            params.tokenId,
-            params.recipient,
-            params.feeAmount0 == type(uint128).max
-                ? type(uint128).max
-                : SafeCast.toUint128(amount0 + params.feeAmount0),
-            params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
-        );
-
-        (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
+        (amount0, amount1) = VaultLib.decreaseLiquidityAndCollect(nonfungiblePositionManager, params);
 
         if (wasStaked) {
             // Re-check health in the final staked custody state because staking realizes pre-stake fees.
