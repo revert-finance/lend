@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../interfaces/IV3Oracle.sol";
+import "../interfaces/IVault.sol";
 
 /// @notice V3Vault logic kept out of the vault's runtime bytecode to stay below the EIP-170 limit: liquidation math,
 /// the liquidated share transfer, reserve socialization and per-token collateral accounting. The external functions
@@ -135,6 +136,32 @@ library VaultLib {
         uint256 limit =
             Math.mulDiv(effectiveTotalSupply, lendExchangeRateX96, Q96, Math.Rounding.Up) * limitFactorX32 / Q32;
         return minLimit > limit ? minLimit : limit;
+    }
+
+    /// @dev Formerly the position manager interaction of V3Vault.decreaseLiquidityAndCollect: removes
+    /// `params.liquidity` (if any) and collects the removed amounts plus the requested fees to `params.recipient`.
+    function decreaseLiquidityAndCollect(
+        INonfungiblePositionManager nonfungiblePositionManager,
+        IVault.DecreaseLiquidityAndCollectParams calldata params
+    ) external returns (uint256 amount0, uint256 amount1) {
+        if (params.liquidity != 0) {
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
+                )
+            );
+        }
+
+        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
+            params.tokenId,
+            params.recipient,
+            params.feeAmount0 == type(uint128).max
+                ? type(uint128).max
+                : SafeCast.toUint128(amount0 + params.feeAmount0),
+            params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
+        );
+
+        (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
     }
 
     /// @dev Formerly V3Vault._calculateLiquidation. The penalty bounds are passed in so the vault's public
