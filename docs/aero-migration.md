@@ -187,6 +187,24 @@ EIP-170's 24,576-byte limit with `forge build --sizes`. Target Base fork
 simulation, full Aero core integration and production deployment have **not**
 been performed; local mocks do not validate final launch behavior.
 
+`V3Vault` sits close to the EIP-170 limit, and under via-IR its runtime size
+depends on the set of files compiled together with it: a full build (tests and
+scripts included) and a source-only build (`--skip test --skip script`) give
+different sizes, and incremental builds give other numbers again. Only forced
+clean builds in a normal checkout are meaningful (symlinked scratch trees
+mislead as well). The size guard runs both modes as forced clean builds and
+fails if the vault exceeds 24,320 bytes (256 under the limit) in either;
+`V3VAULT_SIZE_LIMIT` overrides the guard. Run it before merging vault changes,
+including in CI:
+
+```bash
+script/check-sizes.sh
+```
+
+To stay under the limit, the position manager interaction of
+`decreaseLiquidityAndCollect` (liquidity removal and the collect with the
+requested fees) runs in `src/utils/VaultLib.sol` via `DELEGATECALL`.
+
 Legacy Base gauge fork tests and the old `DeployAerodromeProtocol` and
 `ConfigureGauges` scripts are specific to the `aerodrome-slipstream` baseline
 `ff9e75afbdd9af847e5a5c026466e179027da490` and were removed from this branch; run
