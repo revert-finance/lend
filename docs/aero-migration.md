@@ -1,6 +1,6 @@
 # Aero reward ownership adapter
 
-Updated: 2026-10-14
+Updated: 2026-10-18
 
 This is the first contract implementation slice, based on Lend's deployed
 Aerodrome source baseline `ff9e75afbdd9af847e5a5c026466e179027da490`.
@@ -91,14 +91,20 @@ Compounding withdraws and re-deposits the NFT, which restarts that clock.
 is inside the window: neither the compound's own claim nor a keeper loop that
 compounds more often than `minStakeBlocks` can forfeit rewards.
 `penaltyWindowEnd(tokenId)` returns the first block at which the next compound
-is allowed (0 when no penalty applies). Keepers driving `AutoRangeAndCompound`
-through `transformWithRewardCompound` must schedule at or after that block; an
-earlier call reverts the whole transform. Every `V3Vault.transform` of a staked
+is allowed (0 when no penalty applies). Every `V3Vault.transform` of a staked
 position, including re-ranges without reward compounding, also unstakes and
 restakes: the upstream withdraw claims the position at the penalized rate inside
-the window and the new deposit restarts the clock, so space re-range cadences by
-at least `minStakeBlocks` too. Direct `claimRewards` calls inside the window stay
-the owner's choice and pay the upstream-netted amount.
+the window and the new deposit restarts the clock. The operator entrypoints of
+`AutoRangeAndCompound` therefore enforce the window on-chain for staked positions
+(Cantina LEND-4): `executeWithVault` and `autoCompoundWithVault` revert with
+`NotReady` before `penaltyWindowEnd`, and the `...AndRewardCompound` variants
+revert with `InsidePenaltyWindow` from the strict compound they request. Unstaked
+positions and vaults without a gauge manager are not affected, and a keeper
+should still schedule at or after that block because an earlier call only wastes
+gas. Transforms the owner starts through the vault directly, or through a
+transform delegate the owner approved, and direct `claimRewards` calls inside
+the window stay the owner's choice and pay the upstream-netted amount: the vault
+cannot tell a re-range from an exit, so it does not enforce the window itself.
 
 ## Operator-managed staking (compound-only)
 
@@ -114,9 +120,11 @@ construction:
 - Staked rewards are compounded before the unstake. `transform` itself now does
   this best-effort for every staked position (defaults: no minimum, even split,
   current block); the explicit variants compound with the operator's parameters
-  and revert if that fails. If compounding is impossible (penalty window, missing
-  reward route, failed mint) the plain transform falls back to the payout or
-  deferral the unstake performs. Liquidation and removal keep paying out.
+  and revert if that fails. If compounding is impossible (missing reward route,
+  failed mint, or the penalty window on a transform the owner or an approved
+  delegate starts directly) the plain transform falls back to the payout or
+  deferral the unstake performs.
+  Liquidation and removal keep paying out.
 - Fees are compounded before a stake. A custody change runs
   `autoCompoundForStakeChange`, which ignores the configured `autoCompound` flag
   and minimum-fee thresholds so dust never stalls it.

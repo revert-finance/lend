@@ -139,11 +139,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * @notice Adjust token (which is in a Vault) - via transform method
      * Can only be called from configured operator account - vault must be configured as well
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     * Keeps the current custody; a staked position is not adjusted inside the gauge's early-unstake penalty window
      */
     function executeWithVault(ExecuteParams calldata params, address vault) external {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
+        _prepareTransform(params.tokenId, vault);
         IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)));
     }
 
@@ -408,11 +407,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * @notice Autocompound position (which is in a Vault) - via transform method
      * Can only be called from configured operator account - vault must be configured as well
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     * Keeps the current custody; a staked position is not compounded inside the gauge's early-unstake penalty window
      */
     function autoCompoundWithVault(AutoCompoundParams calldata params, address vault) external {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
+        _prepareTransform(params.tokenId, vault);
         IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
     }
 
@@ -613,6 +611,18 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         emit StakeChangeCooldownUpdated(cooldownBlocks);
     }
 
+    // operator/vault auth for the plain transform wrappers; they keep the current custody, so the only staking rule
+    // that applies to them is the gauge penalty window
+    function _prepareTransform(uint256 tokenId, address vault) internal view {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        (address gaugeManager, bool staked) = _stakeState(tokenId, vault);
+        if (staked) {
+            _requireOutsidePenaltyWindow(gaugeManager, tokenId);
+        }
+    }
+
     // operator/vault auth; for a real custody change also owner opt-in, cooldown and gauge penalty window
     function _prepareStakeChange(uint256 tokenId, address vault, IVault.StakeTarget target)
         internal
@@ -624,8 +634,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (target == IVault.StakeTarget.Keep) {
             return false;
         }
-        address gaugeManager = IVault(vault).gaugeManager();
-        bool staked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
+        (address gaugeManager, bool staked) = _stakeState(tokenId, vault);
         changes = staked != (target == IVault.StakeTarget.Staked);
         if (!changes) {
             return false;
@@ -637,11 +646,25 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         if (lastChange != 0 && block.number < lastChange + stakeChangeCooldownBlocks) {
             revert NotReady();
         }
-        // unstaking inside the window forfeits penaltyRate of the accrued rewards
-        if (staked && block.number < IGaugeManager(gaugeManager).penaltyWindowEnd(tokenId)) {
-            revert NotReady();
+        if (staked) {
+            _requireOutsidePenaltyWindow(gaugeManager, tokenId);
         }
         lastStakeChangeBlock[tokenId] = block.number;
+    }
+
+    // the vault's gauge manager and whether it currently stakes the position (never for a vault without one)
+    function _stakeState(uint256 tokenId, address vault) internal view returns (address gaugeManager, bool staked) {
+        gaugeManager = IVault(vault).gaugeManager();
+        staked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
+    }
+
+    // Every vault transform of a staked position unstakes and restakes it. Inside the gauge's early-unstake penalty
+    // window the unstake claims the accrued rewards at the penalized rate and the restake restarts the window, so the
+    // operator never transforms a staked position before penaltyWindowEnd (Cantina LEND-4). Only for staked positions.
+    function _requireOutsidePenaltyWindow(address gaugeManager, uint256 tokenId) internal view {
+        if (block.number < IGaugeManager(gaugeManager).penaltyWindowEnd(tokenId)) {
+            revert NotReady();
+        }
     }
 
     // function to configure a token to be used with this runner
