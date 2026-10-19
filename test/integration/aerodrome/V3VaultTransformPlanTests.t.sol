@@ -28,6 +28,7 @@ contract MockTokenIdMigrator {
         npm.setPosition(newTokenId, token0, token1, int24(tickSpacing), tickLower, tickUpper, 1e18);
         npm.setTokensOwed(newTokenId, 0, 0);
         npm.mint(address(this), newTokenId);
+        IVault(msg.sender).expectReplacement(newTokenId);
         npm.safeTransferFrom(address(this), msg.sender, newTokenId);
     }
 }
@@ -312,8 +313,10 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
     }
 }
 
-contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
-    function setUp() public override {
+/// @dev Vault, oracle and gauge manager rebuilt on a position manager that supports `mint`, for transforms that create
+/// a replacement position (AutoRange re-range, V3Utils CHANGE_RANGE).
+abstract contract MintingNpmVaultTestBase is AerodromeTestBase {
+    function setUp() public virtual override {
         super.setUp();
 
         npm = new MockAerodromePositionManager(address(factory), address(weth));
@@ -379,7 +382,9 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is AerodromeTestBase {
         vault.setTokenConfig(address(dai), cf90Percent, type(uint32).max);
         vault.setTokenConfig(address(weth), cf85Percent, type(uint32).max);
     }
+}
 
+contract V3VaultAutoRangeAndCompoundDebtZeroTests is MintingNpmVaultTestBase {
     function _deployAutoRange() internal returns (AutoRangeAndCompound) {
         AutoRangeAndCompound autoRange =
             new AutoRangeAndCompound(INonfungiblePositionManager(address(npm)), admin, admin, 60, 200, address(0x1), address(0x2));

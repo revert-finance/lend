@@ -40,6 +40,8 @@ interface IVault is IERC4626 {
     function create(uint256 tokenId, address recipient) external;
 
     function approveTransform(uint256 tokenId, address target, bool active) external;
+    /// @notice Active transformer announces the replacement token it is about to send during a transform
+    function expectReplacement(uint256 tokenId) external;
     function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
 
     // final staking custody requested for a transform

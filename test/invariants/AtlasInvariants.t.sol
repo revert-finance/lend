@@ -40,6 +40,7 @@ contract MockTransformerMintNewForInvariant {
         ) = npm.positions(oldTokenId);
         npm.mint(address(this), newTokenId);
         npm.setPosition(newTokenId, token0, token1, int24(uint24(tickSpacing)), tickLower, tickUpper, liquidity);
+        IVault(vault).expectReplacement(newTokenId);
         npm.safeTransferFrom(address(this), vault, newTokenId, "");
     }
 }

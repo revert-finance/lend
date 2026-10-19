@@ -60,6 +60,10 @@ contract MockPool is IAerodromeSlipstreamPool {
     uint16 public observationCardinalityNext = 10;
     bool public unlocked = true;
     uint16 public outputBps = 10_000;
+    /// @dev Input consumed per swap before the pool runs out of liquidity; 0 consumes the whole input.
+    uint256 public maxAmountIn;
+    uint256 public lastAmountSpecified;
+    uint256 public lastAmountIn;
 
     uint256 public override feeGrowthGlobal0X128;
     uint256 public override feeGrowthGlobal1X128;
@@ -77,6 +81,10 @@ contract MockPool is IAerodromeSlipstreamPool {
 
     function setOutputBps(uint16 _outputBps) external {
         outputBps = _outputBps;
+    }
+
+    function setMaxAmountIn(uint256 _maxAmountIn) external {
+        maxAmountIn = _maxAmountIn;
     }
 
     function setTick(int24 _tick) external {
@@ -108,6 +116,13 @@ contract MockPool is IAerodromeSlipstreamPool {
         returns (int256 amount0, int256 amount1)
     {
         uint256 amountIn = uint256(amountSpecified);
+        // Like a concentrated-liquidity pool whose liquidity ends before the limit price: consume at most
+        // maxAmountIn and report the consumed input through the deltas the swap callback pays.
+        if (maxAmountIn != 0 && amountIn > maxAmountIn) {
+            amountIn = maxAmountIn;
+        }
+        lastAmountSpecified = uint256(amountSpecified);
+        lastAmountIn = amountIn;
         uint256 amountOut = amountIn * outputBps / 10_000;
 
         if (zeroForOne) {
@@ -546,6 +561,10 @@ contract GaugeManagerUnitTest is Test {
         assertEq(dai.balanceOf(ALICE), 60 ether - amountAdded1 - rewardAmount1);
         assertEq(usdc.balanceOf(address(gaugeManager)), rewardAmount0);
         assertEq(dai.balanceOf(address(gaugeManager)), rewardAmount1);
+        // Full fills spend every requested receipt token, so nothing flows back and nothing is stranded.
+        assertEq(usdcDaiPool.lastAmountIn(), 60 ether);
+        assertEq(aero.balanceOf(ALICE), 0);
+        assertEq(aero.balanceOf(address(gaugeManager)), 0);
         assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
         assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
@@ -680,6 +699,94 @@ contract GaugeManagerUnitTest is Test {
         vm.prank(address(vault));
         vm.expectRevert(Constants.SlippageError.selector);
         gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+    }
+
+    function testCompoundRewardsReturnsUnconsumedAeroOnPartialFill() external {
+        _stake();
+        // The AERO/USDC pool runs out of liquidity after 99 AERO; its 99 USDC still clear the 2% minimum output.
+        aeroUsdcPool.setMaxAmountIn(99 ether);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+
+        uint256 rewardAmount0 = amountAdded0 * gaugeManager.totalRewardX64() / 2 ** 64;
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(aeroUsdcPool.lastAmountSpecified(), 100 ether);
+        assertEq(aeroUsdcPool.lastAmountIn(), 99 ether);
+        assertEq(amountAdded1, 0);
+        // Only the consumed 99 AERO count as spent: the owner gets the unconsumed receipt token back and the
+        // manager's unreserved balance stays empty, so the withdrawer has nothing to sweep.
+        assertEq(aero.balanceOf(ALICE), 1 ether);
+        assertEq(aero.balanceOf(address(gaugeManager)), 0);
+        assertEq(usdc.balanceOf(ALICE), 99 ether - amountAdded0 - rewardAmount0);
+        assertEq(usdc.balanceOf(address(gaugeManager)), rewardAmount0);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(aero);
+        gaugeManager.withdrawBalances(tokens, RECIPIENT);
+        assertEq(aero.balanceOf(RECIPIENT), 0);
+    }
+
+    function testCompoundRewardsTwoHopRouteSwapsActualFirstHopOutput() external {
+        _stake();
+        // DAI has no base pool, so AERO -> USDC -> DAI. The first hop stops after 99 AERO.
+        aeroUsdcPool.setMaxAmountIn(99 ether);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+
+        uint256 rewardAmount1 = amountAdded1 * gaugeManager.totalRewardX64() / 2 ** 64;
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(aeroUsdcPool.lastAmountIn(), 99 ether);
+        // The second hop is fed the 99 USDC the first hop produced, not the 100 AERO that were requested.
+        assertEq(usdcDaiPool.lastAmountSpecified(), 99 ether);
+        assertEq(usdcDaiPool.lastAmountIn(), 99 ether);
+        assertEq(amountAdded0, 0);
+        assertEq(aero.balanceOf(ALICE), 1 ether);
+        assertEq(aero.balanceOf(address(gaugeManager)), 0);
+        assertEq(usdc.balanceOf(address(gaugeManager)), 0);
+        assertEq(dai.balanceOf(ALICE), 99 ether - amountAdded1 - rewardAmount1);
+        assertEq(dai.balanceOf(address(gaugeManager)), rewardAmount1);
+    }
+
+    function testCompoundRewardsAccountsUnconsumedIntermediateTokenOnSecondHopPartialFill() external {
+        _stake();
+        // AERO -> USDC fills completely; USDC -> DAI stops after 99 USDC and leaves 1 USDC (token0) behind.
+        usdcDaiPool.setMaxAmountIn(99 ether);
+
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+
+        vm.prank(address(vault));
+        (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+
+        uint256 rewardX64 = gaugeManager.totalRewardX64();
+        uint256 q64 = 2 ** 64;
+        uint256 rewardAmount0 = amountAdded0 * rewardX64 / q64;
+        uint256 rewardAmount1 = amountAdded1 * rewardX64 / q64;
+
+        assertEq(aeroAmount, 100 ether);
+        assertEq(usdcDaiPool.lastAmountSpecified(), 100 ether);
+        assertEq(usdcDaiPool.lastAmountIn(), 99 ether);
+        assertEq(aero.balanceOf(ALICE), 0);
+        assertEq(aero.balanceOf(address(gaugeManager)), 0);
+        // The unconsumed USDC is accounted as token0 output: compounded like any other output, the rest returned.
+        assertEq(amountAdded0, 1 ether * q64 / (rewardX64 + q64));
+        assertEq(usdc.balanceOf(ALICE), 1 ether - amountAdded0 - rewardAmount0);
+        assertEq(usdc.balanceOf(address(gaugeManager)), rewardAmount0);
+        assertEq(dai.balanceOf(ALICE), 99 ether - amountAdded1 - rewardAmount1);
+        assertEq(dai.balanceOf(address(gaugeManager)), rewardAmount1);
     }
 
     function testCompoundRewardsRevertsOnInvalidSplit() external {

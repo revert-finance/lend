@@ -28,9 +28,17 @@ contract UnexpectedNFTTransferTransformer {
         sender = new UnexpectedNFTSender();
     }
 
+    // announces the token, then routes it into the vault through a separate helper (helper routing stays supported)
     function execute(address vault, uint256 unexpectedTokenId) external {
+        IVault(vault).expectReplacement(unexpectedTokenId);
         npm.approve(address(sender), unexpectedTokenId);
         sender.push(npm, address(this), vault, unexpectedTokenId);
+    }
+
+    // routes a token into the vault without announcing it
+    function executeUnannounced(address vault, uint256 tokenId) external {
+        npm.approve(address(sender), tokenId);
+        sender.push(npm, address(this), vault, tokenId);
     }
 }
 
@@ -42,7 +50,19 @@ contract DirectNFTTransferTransformer {
     }
 
     function execute(address vault, uint256 newTokenId) external {
+        IVault(vault).expectReplacement(newTokenId);
         npm.safeTransferFrom(address(this), vault, newTokenId);
+    }
+
+    // sends its own token directly, without announcing it
+    function executeUnannounced(address vault, uint256 newTokenId) external {
+        npm.safeTransferFrom(address(this), vault, newTokenId);
+    }
+
+    // announces one token but delivers another
+    function executeSwapped(address vault, uint256 announcedTokenId, uint256 deliveredTokenId) external {
+        IVault(vault).expectReplacement(announcedTokenId);
+        npm.safeTransferFrom(address(this), vault, deliveredTokenId);
     }
 }
 
@@ -248,7 +268,7 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         assertEq(collateralValueAfter, currentCollateralValue);
     }
 
-    function testTransformAllowsMigrationWhenOperatorDiffersButMaintainsCustody() external {
+    function testTransformAllowsHelperRoutedMigrationOfAnnouncedToken() external {
         uint256 tokenId = createPositionProper(
             alice,
             address(usdc),
@@ -285,7 +305,7 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         assertEq(npm.ownerOf(unexpectedTokenId), address(vault));
     }
 
-    function testTransformAllowsMigrationWhenOperatorIsActiveTransformer() external {
+    function testTransformAllowsMigrationOfAnnouncedTokenFromActiveTransformer() external {
         uint256 tokenId = createPositionProper(
             alice,
             address(usdc),
@@ -320,6 +340,61 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(npm.ownerOf(newTokenId), address(vault));
         assertEq(npm.ownerOf(tokenId), address(vault));
+    }
+
+    function _depositFreshPosition() internal returns (uint256 tokenId) {
+        tokenId = createPositionProper(alice, address(usdc), address(dai), 1, -100, 100, 1e18, 50000e6, 50000e18);
+        vm.prank(alice);
+        npm.approve(address(vault), tokenId);
+        vm.prank(alice);
+        vault.create(tokenId, alice);
+    }
+
+    function _mintFresh(address to, uint256 tokenId) internal {
+        npm.setPosition(tokenId, address(usdc), address(dai), 1, -100, 100, 1e18);
+        npm.setTokensOwed(tokenId, 0, 0);
+        npm.mint(to, tokenId);
+    }
+
+    function testTransformRejectsUnannouncedHelperRoutedToken() external {
+        uint256 tokenId = _depositFreshPosition();
+        _mintFresh(address(unexpectedNftTransformer), 9_999_998);
+
+        vm.prank(alice);
+        vm.expectRevert(Constants.TransformFailed.selector);
+        vault.transform(
+            tokenId,
+            address(unexpectedNftTransformer),
+            abi.encodeCall(UnexpectedNFTTransferTransformer.executeUnannounced, (address(vault), 9_999_998))
+        );
+        assertEq(vault.ownerOf(9_999_998), address(0));
+    }
+
+    function testTransformRejectsUnannouncedTokenFromActiveTransformer() external {
+        uint256 tokenId = _depositFreshPosition();
+        _mintFresh(address(directNftTransformer), 8_888_887);
+
+        vm.prank(alice);
+        vm.expectRevert(Constants.TransformFailed.selector);
+        vault.transform(
+            tokenId,
+            address(directNftTransformer),
+            abi.encodeCall(DirectNFTTransferTransformer.executeUnannounced, (address(vault), 8_888_887))
+        );
+    }
+
+    function testTransformRejectsTokenOtherThanAnnounced() external {
+        uint256 tokenId = _depositFreshPosition();
+        _mintFresh(address(directNftTransformer), 8_888_886);
+        _mintFresh(address(directNftTransformer), 8_888_885);
+
+        vm.prank(alice);
+        vm.expectRevert(Constants.TransformFailed.selector);
+        vault.transform(
+            tokenId,
+            address(directNftTransformer),
+            abi.encodeCall(DirectNFTTransferTransformer.executeSwapped, (address(vault), 8_888_886, 8_888_885))
+        );
     }
 
     function testTransformCannotReplaceWithExistingIndebtedToken() external {
