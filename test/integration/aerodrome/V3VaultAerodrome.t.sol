@@ -217,7 +217,9 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             tokenId,
             address(transformer),
             abi.encodeCall(NoopAerodromeTransformer.execute, ()),
-            IVault.RewardCompoundParams({minAeroReward: 0, aeroSplitBps: 5000, deadline: block.timestamp})
+            IVault.RewardCompoundParams({
+                minAeroReward: 0, aeroSplitBps: 5000, deadline: block.timestamp, stakeTarget: IVault.StakeTarget.Keep
+            })
         );
 
         assertEq(returnedTokenId, tokenId);
