@@ -205,12 +205,21 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
         pure
         returns (uint256 amountOutMin)
     {
-        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-        if (swap0For1) {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q160);
+        // Spot quote with full precision over the whole tick range (as Uniswap's OracleLibrary.getQuoteAtTick):
+        // squaring the sqrt price before dividing keeps prices below 2^-96 from truncating to zero.
+        uint256 spotAmountOut;
+        if (sqrtPriceX96 <= type(uint128).max) {
+            uint256 ratioX192 = uint256(sqrtPriceX96) * sqrtPriceX96;
+            spotAmountOut = swap0For1
+                ? FullMath.mulDiv(amountIn, ratioX192, uint256(1) << 192)
+                : FullMath.mulDiv(amountIn, uint256(1) << 192, ratioX192);
         } else {
-            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q32, priceX96);
+            uint256 ratioX128 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, uint256(1) << 64);
+            spotAmountOut = swap0For1
+                ? FullMath.mulDiv(amountIn, ratioX128, uint256(1) << 128)
+                : FullMath.mulDiv(amountIn, uint256(1) << 128, ratioX128);
         }
+        amountOutMin = FullMath.mulDiv(spotAmountOut, Q64 - maxPriceDifferenceX64, Q64);
     }
 
     function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference)
