@@ -76,9 +76,10 @@ contract DeployAeroGaugeManager is Script {
         c.gauges = vm.envAddress("AERO_GAUGES", ",");
         c.rewardBases = vm.envAddress("AERO_REWARD_BASES", ",");
         c.rewardPools = vm.envAddress("AERO_REWARD_POOLS", ",");
-        // optional: the AutoRangeAndCompound deployment that answers each position's compound mode rate
-        try vm.envAddress("AERO_COMPOUND_MODE_SOURCE") returns (address source) {
-            c.compoundModeSource = source;
+        // optional: the AutoRangeAndCompound deployment that answers each position's compound mode rate. Only an
+        // unset or empty variable means "none"; a present but malformed value aborts the deployment (envAddress).
+        try vm.envString("AERO_COMPOUND_MODE_SOURCE") returns (string memory raw) {
+            if (bytes(raw).length != 0) c.compoundModeSource = vm.envAddress("AERO_COMPOUND_MODE_SOURCE");
         } catch {}
     }
 
