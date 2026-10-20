@@ -195,6 +195,16 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
             revert TWAPCheckFailed();
         }
 
+        amountOutMin = _calculateAmountOutMin(swap0For1, amountIn, sqrtPriceX96, maxPriceDifferenceX64);
+    }
+
+    // minimum output of a swap of amountIn at the given pool price when at most maxPriceDifferenceX64 (Q64) of the
+    // value may be lost to price impact or an adverse execution price
+    function _calculateAmountOutMin(bool swap0For1, uint256 amountIn, uint160 sqrtPriceX96, uint64 maxPriceDifferenceX64)
+        internal
+        pure
+        returns (uint256 amountOutMin)
+    {
         uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         if (swap0For1) {
             amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q160);

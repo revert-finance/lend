@@ -106,6 +106,21 @@ transform delegate the owner approved, and direct `claimRewards` calls inside
 the window stay the owner's choice and pay the upstream-netted amount: the vault
 cannot tell a re-range from an exit, so it does not enforce the window itself.
 
+## Auto-compound swap bounds
+
+The fee auto-compound of `AutoRangeAndCompound` swaps part of the collected fees
+directly in the position's pool. The swap only runs while the pool price is
+within `maxTWAPTickDifference` of its TWAP (otherwise it is skipped and the fees
+compound unswapped), and its output must now also stay within the position's
+configured `token0SlippageX64` / `token1SlippageX64` tolerance of the pre-swap
+spot price, the same per-token bound range adjustments enforce (Cantina LEND-9):
+a swap that would deliver less reverts with `SlippageError`. The TWAP band bounds
+the price the swap starts from, the slippage bound the execution itself, so a
+keeper amount that is large for the pool's liquidity can no longer compound an
+impaired token mix. Positions that should swap while compounding therefore need
+a real tolerance configured; zero requires the full spot output and rejects
+every swap.
+
 ## Operator-managed staking (compound-only)
 
 Whether a vault position is staked is the depositor's choice, but an owner can
