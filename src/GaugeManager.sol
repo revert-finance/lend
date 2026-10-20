@@ -13,6 +13,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./interfaces/IVault.sol";
 import "./interfaces/IGaugeManager.sol";
+import "./interfaces/ICompoundRewardSource.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aero/IAeroGauge.sol";
@@ -27,7 +28,7 @@ import "./utils/Swapper.sol";
 contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper, IGaugeManager {
     using SafeERC20 for IERC20;
 
-    uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
+    uint64 public constant MAX_REWARD_X64 = 1_844_674_407_370_955_161; // floor(Q64 / 10)
     // Reward compounding validates each fixed route hop against both TWAP deviation and a minimum output bound
     // derived from the current pool price before executing the swap.
     uint32 private constant REWARD_TWAP_SECONDS = 60;
@@ -37,7 +38,10 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
     address public override withdrawer;
-    uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
+    uint64 public totalRewardX64 = 368_934_881_474_191_032; // 2% (floor(Q64 / 50)): rate without a compound mode source
+    // Answers the per-position reward rate (Simple / Advanced compound mode, see AutoRangeAndCompound); zero = every
+    // compound pays totalRewardX64.
+    address public override compoundModeSource;
 
     mapping(address => address) public override poolToGauge;
     mapping(uint256 => address) public override tokenIdToGauge;
@@ -391,6 +395,25 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         emit CompoundRewardUpdated(msg.sender, _totalRewardX64);
     }
 
+    /// @notice Owner sets the contract that answers each position's compound reward rate (AutoRangeAndCompound);
+    /// zero disables it and every compound pays totalRewardX64 again.
+    function setCompoundModeSource(address source) external override onlyOwner {
+        compoundModeSource = source;
+        emit CompoundModeSourceChanged(source);
+    }
+
+    /// @dev Reward rate for a compound of tokenId: the position's compound mode rate when a source is set and answers,
+    /// capped at MAX_REWARD_X64; otherwise totalRewardX64. A failing source never blocks a compound.
+    function _rewardRateX64(uint256 tokenId) internal view returns (uint64 rate) {
+        rate = totalRewardX64;
+        address source = compoundModeSource;
+        if (source != address(0)) {
+            try ICompoundRewardSource(source).compoundRewardX64(tokenId) returns (uint64 modeRate) {
+                rate = modeRate > MAX_REWARD_X64 ? MAX_REWARD_X64 : modeRate;
+            } catch {}
+        }
+    }
+
     /// @notice Recover a whole batch into escrow; this never pays the caller or needs a live NFT.
     function recoverDeferredRewards(address gauge) external nonReentrant returns (uint256 amount) {
         return _recoverDeferredRewards(gauge);
@@ -724,7 +747,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         internal
         returns (CompoundState memory)
     {
-        uint256 rewardX64 = totalRewardX64;
+        uint256 rewardX64 = _rewardRateX64(tokenId);
         state.maxAddAmount0 = state.amount0Out * Q64 / (rewardX64 + Q64);
         state.maxAddAmount1 = state.amount1Out * Q64 / (rewardX64 + Q64);
 

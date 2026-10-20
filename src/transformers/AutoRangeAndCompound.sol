@@ -42,7 +42,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     );
 
     // config changes
-    event AutoCompoundRewardUpdated(address account, uint64 totalRewardX64);
+    event AutoCompoundRewardsUpdated(address account, uint64 totalRewardX64, uint64 simpleRewardX64);
+    event CompoundModeConfigured(uint256 indexed tokenId, CompoundMode mode);
     event StakingManagementConfigured(uint256 indexed tokenId, address indexed vault, address indexed owner, bool managed);
     event StakeChangeCooldownUpdated(uint32 cooldownBlocks);
 
@@ -59,6 +60,14 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             _npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _universalRouter, _zeroxAllowanceHolder
         )
     {}
+
+    // fee tier of a position for every compound of fees or rewards: Advanced is the default (totalRewardX64, 2%),
+    // Simple is the higher tier (simpleRewardX64, 10%). Set with the position config (configToken), kept in
+    // compoundModes, copied to the replacement position of a range adjustment.
+    enum CompoundMode {
+        Advanced,
+        Simple
+    }
 
     // defines when and how a position can be changed by operator
     // when a position is adjusted config for the position is cleared and copied to the newly created position
@@ -80,6 +89,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // configured tokens
     mapping(uint256 => PositionConfig) public positionConfigs;
+    mapping(uint256 => CompoundMode) public compoundModes; // fee tier per position, see CompoundMode
 
     // operator-managed staking (compound-only policy): consenting owner per position and vault (zero when not
     // managed). Consent applies only while that address is the vault's current owner of the position: it is
@@ -132,8 +142,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     // reward handling for autocompound
-    uint64 public constant MAX_REWARD_X64 = 368_934_881_474_191_032; // floor(Q64 / 50)
-    uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
+    uint64 public constant MAX_REWARD_X64 = 1_844_674_407_370_955_161; // floor(Q64 / 10)
+    uint64 public totalRewardX64 = 368_934_881_474_191_032; // 2% (floor(Q64 / 50)): Advanced mode, the default
+    uint64 public simpleRewardX64 = MAX_REWARD_X64; // 10%: Simple mode
 
     /**
      * @notice Adjust token (which is in a Vault) - via transform method
@@ -329,6 +340,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
             // copy token config for new token
             positionConfigs[state.newTokenId] = config;
+            compoundModes[state.newTokenId] = compoundModes[params.tokenId];
             emit PositionConfigured(
                 state.newTokenId,
                 config.lowerTickLimit,
@@ -540,7 +552,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 }
             }
 
-            uint256 rewardX64 = totalRewardX64;
+            uint256 rewardX64 = compoundRewardX64(params.tokenId);
 
             state.maxAddAmount0 = state.amount0 * Q64 / (rewardX64 + Q64);
             state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
@@ -683,7 +695,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
-    function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
+    function configToken(uint256 tokenId, address vault, PositionConfig calldata config, CompoundMode mode)
+        external
+    {
         _validateOwner(nonfungiblePositionManager, tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
@@ -692,7 +706,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         }
 
         positionConfigs[tokenId] = config;
+        compoundModes[tokenId] = mode;
 
+        emit CompoundModeConfigured(tokenId, mode);
         emit PositionConfigured(
             tokenId,
             config.lowerTickLimit,
@@ -711,14 +727,24 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     /**
-     * @notice Management method to lower autocompound reward(onlyOwner)
-     * @param _totalRewardX64 new total reward (can't be higher than current total reward)
+     * @notice Reward rate applied to every compound of this position (fee auto-compound here, AERO rewards in
+     * GaugeManager): simpleRewardX64 for Simple mode, totalRewardX64 for Advanced mode (the default).
      */
-    function setAutoCompoundReward(uint64 _totalRewardX64) external onlyOwner {
-        if (_totalRewardX64 > totalRewardX64) {
+    function compoundRewardX64(uint256 tokenId) public view returns (uint64) {
+        return compoundModes[tokenId] == CompoundMode.Simple ? simpleRewardX64 : totalRewardX64;
+    }
+
+    /**
+     * @notice Management method to lower the auto-compound rewards (neither can be higher than its current value)
+     * @param _totalRewardX64 new reward of Advanced mode compounds
+     * @param _simpleRewardX64 new reward of Simple mode compounds
+     */
+    function setAutoCompoundRewards(uint64 _totalRewardX64, uint64 _simpleRewardX64) external onlyOwner {
+        if (_totalRewardX64 > totalRewardX64 || _simpleRewardX64 > simpleRewardX64) {
             revert InvalidConfig();
         }
         totalRewardX64 = _totalRewardX64;
-        emit AutoCompoundRewardUpdated(msg.sender, _totalRewardX64);
+        simpleRewardX64 = _simpleRewardX64;
+        emit AutoCompoundRewardsUpdated(msg.sender, _totalRewardX64, _simpleRewardX64);
     }
 }

@@ -49,7 +49,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         }
         vault.approveTransform(tokenId, admin, true);
         vault.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(tokenId, address(vault), _autoCompoundConfig());
+        autoRange.configToken(tokenId, address(vault), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
         vm.stopPrank();
     }
 
@@ -214,7 +214,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         vaultB.create(tokenId, alice);
         vaultB.approveTransform(tokenId, admin, true);
         vaultB.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(tokenId, address(vaultB), _autoCompoundConfig());
+        autoRange.configToken(tokenId, address(vaultB), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
         vm.stopPrank();
 
         vm.prank(admin);
@@ -321,7 +321,7 @@ contract OperatorStakingTest is AerodromeTestBase {
                 autoCompoundMin0: type(uint128).max,
                 autoCompoundMin1: type(uint128).max,
                 autoCompoundRewardMin: type(uint128).max
-            })
+            }), AutoRangeAndCompound.CompoundMode.Advanced
         );
         _fundCollectedFees(tokenId);
         _optIn(tokenId, true);
@@ -432,7 +432,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         bareVault.create(tokenId, alice);
         bareVault.approveTransform(tokenId, admin, true);
         bareVault.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(tokenId, address(bareVault), _autoCompoundConfig());
+        autoRange.configToken(tokenId, address(bareVault), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
         vm.stopPrank();
     }
 
@@ -566,7 +566,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         uint256 aliceAeroBefore = aero.balanceOf(alice);
         MockPool(usdcDaiPool).setTick(200);
         vm.prank(alice);
-        autoRange.configToken(tokenId, address(vault), _rangeChangeConfig());
+        autoRange.configToken(tokenId, address(vault), _rangeChangeConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
 
         vm.prank(admin);
         vm.expectRevert(NotReady.selector);

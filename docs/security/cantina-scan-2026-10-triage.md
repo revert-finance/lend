@@ -46,7 +46,7 @@ Columns: *Live Base* = present in the Base deployment baseline; *Live main* = pr
 | LEND-8 | Med | yes | yes | Acknowledged. Same reasoning as LEND-18 (zero-liquidity range plan after a full decrease). |
 | LEND-11 | Med | yes | yes | Acknowledged. Same reasoning; the mainnet `AutoCompound` has identical behaviour. |
 | LEND-13 | Med | yes | yes | Acknowledged. Same reasoning. |
-| LEND-20 | Med | yes | n/a* | Acknowledged. `maxRewardX64` caps range-execution rewards; auto-compounding uses the contract-wide `totalRewardX64`, exactly as the separate mainnet `AutoCompound` contract does. Documented. |
+| LEND-20 | Med | yes | n/a* | Acknowledged. `maxRewardX64` caps range-execution rewards; auto-compounding charges a contract-wide rate per compound mode (`Advanced` 2% / `Simple` 10%, see `docs/aero-migration.md`, "Compound modes and fees"), as the separate mainnet `AutoCompound` contract charges one contract-wide rate. Documented. |
 | LEND-25 | Med | yes | yes | Acknowledged. The add minima are dust gates on collected fees; the reward is charged on what is actually compounded. |
 | LEND-9 | Med | yes | yes | **Fixed in #71**: the auto-compound swap now passes the position's configured `token0SlippageX64` / `token1SlippageX64` tolerance (applied to the pre-swap spot price) as the minimum output, so an execution below it reverts with `SlippageError`; the TWAP check keeps skipping the swap when the price deviates. Initially acknowledged as the production design, fixed on request. |
 | LEND-30 | Med | yes | yes | Acknowledged. Route calldata is supplied by the operator, a trusted protocol role; the owner-set minimum bounds the outcome. |

@@ -11,6 +11,7 @@ interface IGaugeManager is IProtocolFeeController {
         uint256 indexed tokenId, address indexed owner, uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1
     );
     event CompoundRewardUpdated(address account, uint64 totalRewardX64);
+    event CompoundModeSourceChanged(address source);
     event GaugeSet(address indexed pool, address indexed gauge);
     event RewardBasePoolSet(address indexed baseToken, address indexed pool);
 
@@ -44,4 +45,7 @@ interface IGaugeManager is IProtocolFeeController {
     ) external returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1);
 
     function setCompoundReward(uint64 _totalRewardX64) external;
+
+    function compoundModeSource() external view returns (address);
+    function setCompoundModeSource(address source) external;
 }

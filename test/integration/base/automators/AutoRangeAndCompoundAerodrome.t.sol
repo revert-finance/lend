@@ -65,7 +65,7 @@ contract AutoRangeAndCompoundAerodromeTest is Test, Constants {
         AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
+        autoRange.configToken(MOCK_TOKEN_ID, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
     }
 
     function testResetConfig() external {
@@ -73,14 +73,14 @@ contract AutoRangeAndCompoundAerodromeTest is Test, Constants {
 
         AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.prank(POSITION_OWNER);
-        autoRange.configToken(MOCK_TOKEN_ID, address(0), config);
+        autoRange.configToken(MOCK_TOKEN_ID, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
 
         (int32 lowerTickLimit,,,,,,,,,,,) = autoRange.positionConfigs(MOCK_TOKEN_ID);
         assertEq(lowerTickLimit, config.lowerTickLimit);
 
         AutoRangeAndCompound.PositionConfig memory cleared;
         vm.prank(POSITION_OWNER);
-        autoRange.configToken(MOCK_TOKEN_ID, address(0), cleared);
+        autoRange.configToken(MOCK_TOKEN_ID, address(0), cleared, AutoRangeAndCompound.CompoundMode.Advanced);
 
         (
             int32 cLowerTickLimit,

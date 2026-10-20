@@ -555,7 +555,7 @@ contract V3VaultIntegrationTest is Test {
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(autoRange), TEST_NFT);
         vm.prank(TEST_NFT_ACCOUNT);
-        autoRange.configToken(TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced);
 
         vm.prank(WHALE_ACCOUNT);
         autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
@@ -573,7 +573,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         // direct auto-compound when in vault fails
@@ -613,7 +613,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0)
+            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         // direct auto-compound when in vault fails
@@ -665,7 +665,7 @@ contract V3VaultIntegrationTest is Test {
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0)
+            TEST_NFT, address(vault), AutoRangeAndCompound.PositionConfig(-10, -10, -10, 10, 0, 0, false, false, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         (uint256 oldDebt,,,,) = vault.loanInfo(TEST_NFT);
@@ -1582,13 +1582,13 @@ contract V3VaultIntegrationTest is Test {
         autoRange.setVault(address(vault));
 
         // Set fee to 2%
-        autoRange.setAutoCompoundReward(uint64(Q64 / 50));
+        autoRange.setAutoCompoundRewards(uint64(Q64 / 50), autoRange.simpleRewardX64());
 
         // Alice decides to delegate her position to
         // Revert bots (outside of vault) to be auto-compounded
         vm.startPrank(ALICE_ACCOUNT);
         NPM.approve(address(autoRange), ALICE_NFT);
-        autoRange.configToken(ALICE_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(ALICE_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced);
         vm.stopPrank();
 
         // Exploiter opens a position in the Vault

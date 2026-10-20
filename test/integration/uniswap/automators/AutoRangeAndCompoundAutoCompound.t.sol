@@ -16,7 +16,7 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
 
     function _configTokenForAutoCompound(uint256 tokenId, address owner) internal {
         vm.prank(owner);
-        autoRange.configToken(tokenId, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0));
+        autoRange.configToken(tokenId, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced);
     }
 
     function _approveAndConfig(uint256 tokenId, address owner) internal {
@@ -78,9 +78,9 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
         uint64 currentReward = autoRange.totalRewardX64();
 
         vm.expectRevert(Constants.InvalidConfig.selector);
-        autoRange.setAutoCompoundReward(currentReward + 1);
+        autoRange.setAutoCompoundRewards(currentReward + 1, autoRange.simpleRewardX64());
 
-        autoRange.setAutoCompoundReward(currentReward - 1);
+        autoRange.setAutoCompoundRewards(currentReward - 1, autoRange.simpleRewardX64());
         assertEq(autoRange.totalRewardX64(), currentReward - 1);
     }
 }
