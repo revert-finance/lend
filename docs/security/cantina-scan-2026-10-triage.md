@@ -48,7 +48,7 @@ Columns: *Live Base* = present in the Base deployment baseline; *Live main* = pr
 | LEND-13 | Med | yes | yes | Acknowledged. Same reasoning. |
 | LEND-20 | Med | yes | n/a* | Acknowledged. `maxRewardX64` caps range-execution rewards; auto-compounding uses the contract-wide `totalRewardX64`, exactly as the separate mainnet `AutoCompound` contract does. Documented. |
 | LEND-25 | Med | yes | yes | Acknowledged. The add minima are dust gates on collected fees; the reward is charged on what is actually compounded. |
-| LEND-9 | Med | yes | yes | Acknowledged. Auto-compound uses a TWAP-bounded direct pool swap by design; the operator is the Revert bot. |
+| LEND-9 | Med | yes | yes | **Fixed in #71**: the auto-compound swap now passes the position's configured `token0SlippageX64` / `token1SlippageX64` tolerance (applied to the pre-swap spot price) as the minimum output, so an execution below it reverts with `SlippageError`; the TWAP check keeps skipping the swap when the price deviates. Initially acknowledged as the production design, fixed on request. |
 | LEND-30 | Med | yes | yes | Acknowledged. Route calldata is supplied by the operator, a trusted protocol role; the owner-set minimum bounds the outcome. |
 
 \* on `main` auto-compounding is a separate contract without a per-position cap.
@@ -123,8 +123,9 @@ Columns: *Live Base* = present in the Base deployment baseline; *Live main* = pr
 | Fixed in #65 (df8116a) | LEND-1, LEND-12, LEND-44 |
 | Fixed in #67 (0ea357a) / #68 (32ff6da) | LEND-2, LEND-4 |
 | By design or mitigated since #64 (7785e4e) | LEND-51, LEND-23, LEND-37 |
+| Fixed in #71 | LEND-9 |
 | Operational action | LEND-55 |
-| Acknowledged | the remaining 35 |
+| Acknowledged | the remaining 34 |
 
 The referenced PRs merged into `aero` on 2026-10-18/19 in the order #65, #64, #67, #68, this document, then #69,
 which keeps `V3Vault` under the EIP-170 size limit and adds `script/check-sizes.sh`; run that guard before merging
