@@ -3,6 +3,11 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
 import "../src/GaugeManager.sol";
+import "../src/interfaces/ICompoundRewardSource.sol";
+
+interface ICompoundModeSourceSetup {
+    function nonfungiblePositionManager() external view returns (address);
+}
 
 interface IAeroVaultSetup {
     function owner() external view returns (address);
@@ -90,9 +95,15 @@ contract DeployAeroGaugeManager is Script {
         require(c.receiptToken.code.length != 0 && c.vault.code.length != 0, "missing token/vault");
         require(c.router == address(0) || c.router.code.length != 0, "missing router");
         require(c.allowanceHolder == address(0) || c.allowanceHolder.code.length != 0, "missing allowance holder");
-        require(
-            c.compoundModeSource == address(0) || c.compoundModeSource.code.length != 0, "missing compound mode source"
-        );
+        if (c.compoundModeSource != address(0)) {
+            require(c.compoundModeSource.code.length != 0, "missing compound mode source");
+            // the source prices this vault's positions: it must manage the same NPM and answer the rate interface
+            require(
+                ICompoundModeSourceSetup(c.compoundModeSource).nonfungiblePositionManager() == c.npm,
+                "compound mode source NPM mismatch"
+            );
+            ICompoundRewardSource(c.compoundModeSource).compoundRewardX64(0);
+        }
         require(INonfungiblePositionManager(c.npm).factory() == c.factory, "NPM factory mismatch");
         require(IAeroVaultSetup(c.vault).nonfungiblePositionManager() == c.npm, "vault NPM mismatch");
         require(IAeroVaultSetup(c.vault).gaugeManager() == address(0), "vault already bound");

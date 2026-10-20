@@ -141,8 +141,10 @@ position:
   source never blocks a compound. Rates from the source are capped at
   `MAX_REWARD_X64` (10%).
 
-Both contracts' rates can only be lowered by their owners
-(`setAutoCompoundReward`, `setSimpleAutoCompoundReward`, `setCompoundReward`).
+Both contracts' rates can only be lowered by their owners:
+`AutoRangeAndCompound.setAutoCompoundRewards(advanced, simple)` sets both
+rates at once (each at most its current value) and
+`GaugeManager.setCompoundReward` lowers the fallback rate.
 Range adjustments are unchanged: the operator passes `rewardX64` per execution
 within the position's `maxRewardX64`. A position that was never configured is
 `Advanced`, and an owner can always reconfigure their own position to `Advanced`;
