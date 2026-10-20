@@ -1233,13 +1233,6 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
-    function _calculateTokenCollateralFactorX32(uint256 tokenId) internal view returns (uint32) {
-        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
-        uint32 factor0X32 = tokenConfigs[token0].collateralFactorX32;
-        uint32 factor1X32 = tokenConfigs[token1].collateralFactorX32;
-        return factor0X32 > factor1X32 ? factor1X32 : factor0X32;
-    }
-
     function _updateGlobalInterest() internal returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) {
         // only needs to be updated once per block (when needed)
         if (block.timestamp > lastExchangeRateUpdate) {
@@ -1397,22 +1390,22 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
+    // the valuation (oracle value, collateral factor, staked fee handling) runs in VaultLib (vault bytecode size)
     function _checkLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer)
         internal
         view
         returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
     {
-        // Staked Slipstream positions pass `ignoreFees=true` so oracle skips fee-growth math and excludes fee value.
-        bool ignoreFees = _isStaked(tokenId);
-        (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset), ignoreFees);
-        uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
-        collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
-        isHealthy = (withBuffer ? collateralValue * BORROW_SAFETY_BUFFER_X32 / Q32 : collateralValue) >= debt;
-    }
-
-    function _isStaked(uint256 tokenId) private view returns (bool) {
-        address manager = gaugeManager;
-        return manager != address(0) && IGaugeManager(manager).tokenIdToGauge(tokenId) != address(0);
+        return VaultLib.checkLoanIsHealthy(
+            tokenConfigs,
+            nonfungiblePositionManager,
+            oracle,
+            gaugeManager,
+            asset,
+            tokenId,
+            debt,
+            withBuffer ? BORROW_SAFETY_BUFFER_X32 : 0
+        );
     }
 
     function _requireGaugeManagerSet() private view {

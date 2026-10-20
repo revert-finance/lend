@@ -218,7 +218,10 @@ script/check-sizes.sh
 
 To stay under the limit, the position manager interaction of
 `decreaseLiquidityAndCollect` (liquidity removal and the collect with the
-requested fees) runs in `src/utils/VaultLib.sol` via `DELEGATECALL`.
+requested fees) and the loan health check (oracle valuation, the lower
+collateral factor of the two tokens, the fee-less valuation of staked
+positions, the borrow safety buffer) run in `src/utils/VaultLib.sol` via
+`DELEGATECALL`; the vault keeps thin wrappers with the same semantics.
 
 Legacy Base gauge fork tests and the old `DeployAerodromeProtocol` and
 `ConfigureGauges` scripts are specific to the `aerodrome-slipstream` baseline

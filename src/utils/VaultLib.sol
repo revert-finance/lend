@@ -7,6 +7,7 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "../interfaces/IV3Oracle.sol";
 import "../interfaces/IVault.sol";
+import "../interfaces/IGaugeManager.sol";
 
 /// @notice V3Vault logic kept out of the vault's runtime bytecode to stay below the EIP-170 limit: liquidation math,
 /// the liquidated share transfer, reserve socialization and per-token collateral accounting. The external functions
@@ -162,6 +163,34 @@ library VaultLib {
         );
 
         (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
+    }
+
+    /// @dev Formerly V3Vault._checkLoanIsHealthy (with _isStaked and _calculateTokenCollateralFactorX32): values the
+    /// position in the asset and compares the collateral value with `debt`. A non-zero `bufferX32` applies the borrow
+    /// safety buffer (V3Vault.BORROW_SAFETY_BUFFER_X32, passed in so the vault's constant stays the single source).
+    function checkLoanIsHealthy(
+        mapping(address => TokenConfig) storage tokenConfigs,
+        INonfungiblePositionManager nonfungiblePositionManager,
+        IV3Oracle oracle,
+        address gaugeManager,
+        address asset,
+        uint256 tokenId,
+        uint256 debt,
+        uint256 bufferX32
+    ) external view returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue) {
+        // Staked Slipstream positions pass `ignoreFees=true` so oracle skips fee-growth math and excludes fee value.
+        bool ignoreFees =
+            gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
+        (fullValue, feeValue,,) = oracle.getValue(tokenId, asset, ignoreFees);
+
+        // collateral factor of the position: the lower one of its two tokens
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        uint32 factor0X32 = tokenConfigs[token0].collateralFactorX32;
+        uint32 factor1X32 = tokenConfigs[token1].collateralFactorX32;
+        uint256 collateralFactorX32 = factor0X32 > factor1X32 ? factor1X32 : factor0X32;
+
+        collateralValue = Math.mulDiv(fullValue, collateralFactorX32, Q32);
+        isHealthy = (bufferX32 != 0 ? collateralValue * bufferX32 / Q32 : collateralValue) >= debt;
     }
 
     /// @dev Formerly V3Vault._calculateLiquidation. The penalty bounds are passed in so the vault's public
