@@ -84,6 +84,11 @@ Operator-managed staking:
   5. restakes NFT
 - Restaking resets the gauge's early-unstake clock, so `compoundRewards` reverts with `InsidePenaltyWindow` until `penaltyWindowEnd(tokenId)`; keepers schedule compounds and re-ranges at or after that block.
 
+Fee auto-compound swaps (`AutoRangeAndCompound._autoCompound`):
+
+- Direct pool swap of part of the collected fees; skipped (not reverted) when the spot price deviates from the TWAP by more than `maxTWAPTickDifference`.
+- The output must stay within the position's configured `token0SlippageX64` / `token1SlippageX64` of the pre-swap spot price, otherwise `SlippageError` (Cantina LEND-9); zero tolerance rejects every swap, so auto-compounding positions need a real tolerance like range adjustments do.
+
 Swap constraints:
 
 - `aeroSplitBps <= 10000`

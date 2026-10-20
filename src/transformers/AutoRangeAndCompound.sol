@@ -443,7 +443,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     /**
      * @notice Autocompound position directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
-     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     * A swap is skipped when the pool price deviates from its TWAP by more than the configured tick difference,
+     * and reverts when its output falls below the position's configured per-token slippage limit
      */
     function autoCompound(AutoCompoundParams calldata params) external nonReentrant {
         _autoCompound(params, true);
@@ -513,10 +514,23 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 }
                 // if still needed - do swap
                 if (amountIn != 0) {
-                    // no slippage check done - because protected by TWAP check
+                    // The TWAP check above only bounds the pre-swap price; the execution itself must stay within the
+                    // owner's configured per-token price tolerance, otherwise the swap reverts (SlippageError).
+                    uint256 amountOutMin = _calculateAmountOutMin(
+                        params.swap0To1,
+                        amountIn,
+                        state.sqrtPriceX96,
+                        params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
+                    );
                     (state.amountInDelta, state.amountOutDelta) = _poolSwap(
                         Swapper.PoolSwapParams(
-                            pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn, 0
+                            pool,
+                            IERC20(state.token0),
+                            IERC20(state.token1),
+                            state.fee,
+                            params.swap0To1,
+                            amountIn,
+                            amountOutMin
                         )
                     );
                     state.amount0 =
