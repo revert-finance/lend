@@ -129,7 +129,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
 
         vm.prank(positionOwner);
-        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+        autoRange.configToken(REAL_POSITION_ID, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
 
         (
             ,
@@ -161,7 +161,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
     function testAdjustPositionBasic() external {
         AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.prank(positionOwner);
-        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+        autoRange.configToken(REAL_POSITION_ID, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
 
         vm.prank(positionOwner);
         NPM.approve(address(autoRange), REAL_POSITION_ID);
@@ -202,7 +202,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         config.lowerTickDelta = int32(-10 * spacing);
         config.upperTickDelta = int32(10 * spacing);
         vm.prank(owner);
-        localAutoRange.configToken(tokenId, address(0), config);
+        localAutoRange.configToken(tokenId, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
 
         vm.prank(owner);
         NPM.approve(address(localAutoRange), tokenId);
@@ -308,7 +308,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         AutoRangeAndCompound.PositionConfig memory config = _defaultConfig();
         vm.startPrank(positionOwner);
 
-        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+        autoRange.configToken(REAL_POSITION_ID, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
 
         config.lowerTickDelta = -300;
         config.upperTickDelta = 300;
@@ -317,7 +317,7 @@ contract AutoRangeAndCompoundAerodromeComprehensiveTest is Test, Constants {
         config.onlyFees = true;
         config.autoCompound = true;
         config.maxRewardX64 = MAX_REWARD / 2;
-        autoRange.configToken(REAL_POSITION_ID, address(0), config);
+        autoRange.configToken(REAL_POSITION_ID, address(0), config, AutoRangeAndCompound.CompoundMode.Advanced);
         vm.stopPrank();
 
         (

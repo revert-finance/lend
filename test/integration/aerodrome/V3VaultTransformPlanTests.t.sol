@@ -70,7 +70,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
                 autoCompoundMin0: 0,
                 autoCompoundMin1: 0,
                 autoCompoundRewardMin: 0
-            })
+            }), AutoRangeAndCompound.CompoundMode.Advanced
         );
     }
 
@@ -427,7 +427,7 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is MintingNpmVaultTestBase {
         });
 
         vm.prank(alice);
-        autoRange.configToken(tokenId, address(vault), config);
+        autoRange.configToken(tokenId, address(vault), config, AutoRangeAndCompound.CompoundMode.Advanced);
 
         npm.setLiquidity(tokenId, 0);
         npm.setTokensOwed(tokenId, 0, 0);
@@ -489,7 +489,7 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is MintingNpmVaultTestBase {
         });
 
         vm.prank(alice);
-        autoRange.configToken(tokenId, address(vault), config);
+        autoRange.configToken(tokenId, address(vault), config, AutoRangeAndCompound.CompoundMode.Advanced);
         vm.prank(alice);
         autoRange.configStakingManagement(tokenId, address(vault), true);
 

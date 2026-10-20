@@ -121,6 +121,33 @@ impaired token mix. Positions that should swap while compounding therefore need
 a real tolerance configured; zero requires the full spot output and rejects
 every swap.
 
+## Compound modes and fees
+
+Every position has a compound mode in `AutoRangeAndCompound`, set together
+with its config when the position is activated for compounding (the `mode`
+argument of `configToken`, stored in `compoundModes`, copied to the replacement
+position of a range adjustment): `Advanced` (the default, `totalRewardX64`, 2%)
+or `Simple` (`simpleRewardX64`, 10%). The mode prices every compound of that
+position:
+
+- the fee auto-compound in `AutoRangeAndCompound` (`autoCompound`, the stake
+  change compound, and the vault-transform variants) charges the mode rate on
+  the amounts compounded; `compoundRewardX64(tokenId)` exposes the rate;
+- the AERO reward compound in `GaugeManager` charges the same rate on the
+  token0/token1 it adds. GaugeManager reads it through its owner-set
+  `compoundModeSource` (the `AutoRangeAndCompound` address, deploy input
+  `AERO_COMPOUND_MODE_SOURCE`); without a source, or if the source call fails,
+  every compound pays GaugeManager's own `totalRewardX64` (2%), so a broken
+  source never blocks a compound. Rates from the source are capped at
+  `MAX_REWARD_X64` (10%).
+
+Both contracts' rates can only be lowered by their owners
+(`setAutoCompoundReward`, `setSimpleAutoCompoundReward`, `setCompoundReward`).
+Range adjustments are unchanged: the operator passes `rewardX64` per execution
+within the position's `maxRewardX64`. A position that was never configured is
+`Advanced`, and an owner can always reconfigure their own position to `Advanced`;
+the mode is the frontend's pricing, not an on-chain guarantee.
+
 ## Operator-managed staking (compound-only)
 
 Whether a vault position is staked is the depositor's choice, but an owner can
@@ -208,9 +235,9 @@ scripts included) and a source-only build (`--skip test --skip script`) give
 different sizes, and incremental builds give other numbers again. Only forced
 clean builds in a normal checkout are meaningful (symlinked scratch trees
 mislead as well). The size guard runs both modes as forced clean builds and
-fails if the vault exceeds 24,320 bytes (256 under the limit) in either;
-`V3VAULT_SIZE_LIMIT` overrides the guard. Run it before merging vault changes,
-including in CI:
+fails if `V3Vault` or `AutoRangeAndCompound` exceeds 24,320 bytes (256 under the
+limit) in either; `V3VAULT_SIZE_LIMIT` overrides the guard. Run it before
+merging changes to either contract, including in CI:
 
 ```bash
 script/check-sizes.sh
@@ -248,6 +275,7 @@ ownership transfer. It does not deploy the replacement oracle, vault or automato
 | `AERO_ALLOWANCE_HOLDER` | Verified allowance holder, or explicit zero address if unused |
 | `AERO_POOLS`, `AERO_GAUGES` | Matching, nonempty comma-separated address lists from verified launch deployment |
 | `AERO_REWARD_BASES`, `AERO_REWARD_POOLS` | Matching comma-separated lists for receipt-token swaps; export both as empty strings to disable routes |
+| `AERO_COMPOUND_MODE_SOURCE` | Optional: the `AutoRangeAndCompound` deployment whose per-position compound mode prices AERO compounds; unset = every compound pays `totalRewardX64` |
 | `AERO_RPC_URL` | Target RPC passed on CLI; do not print credential-bearing URLs |
 
 Local outputs are ephemeral simulation addresses, not deployable launch constants.

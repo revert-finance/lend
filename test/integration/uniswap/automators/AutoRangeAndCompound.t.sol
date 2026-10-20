@@ -48,15 +48,15 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
 
     function testSetAutoCompoundReward() external {
         uint64 currentReward = autoRange.totalRewardX64();
-        autoRange.setAutoCompoundReward(currentReward / 2);
+        autoRange.setAutoCompoundRewards(currentReward / 2, autoRange.simpleRewardX64());
         assertEq(autoRange.totalRewardX64(), currentReward / 2);
 
         vm.expectRevert(Constants.InvalidConfig.selector);
-        autoRange.setAutoCompoundReward(currentReward);
+        autoRange.setAutoCompoundRewards(currentReward, autoRange.simpleRewardX64());
 
         vm.prank(TEST_NFT_ACCOUNT);
         vm.expectRevert("Ownable: caller is not the owner");
-        autoRange.setAutoCompoundReward(currentReward / 4);
+        autoRange.setAutoCompoundRewards(currentReward / 4, autoRange.simpleRewardX64());
     }
 
     function testWithdrawBalancesAndEth() external {
@@ -90,14 +90,14 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
         vm.expectRevert(Constants.Unauthorized.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, false, MAX_REWARD, 0, 0, 0)
+            TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, false, MAX_REWARD, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
     }
 
     function testResetConfig() external {
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, false, MAX_REWARD, 0, 0, 0)
+            TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, false, MAX_REWARD, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
     }
 
@@ -105,7 +105,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
         vm.expectRevert(Constants.InvalidConfig.selector);
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 1, 0, 0, 0, false, false, MAX_REWARD, 0, 0, 0)
+            TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 1, 0, 0, 0, false, false, MAX_REWARD, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
     }
 
@@ -113,7 +113,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
         vm.prank(TEST_NFT_ACCOUNT);
         AutoRangeAndCompound.PositionConfig memory configIn =
             AutoRangeAndCompound.PositionConfig(1, -1, 0, 1, 123, 456, false, false, MAX_REWARD, 0, 0, 0);
-        autoRange.configToken(TEST_NFT, address(0), configIn);
+        autoRange.configToken(TEST_NFT, address(0), configIn, AutoRangeAndCompound.CompoundMode.Advanced);
         (
             int32 i1,
             int32 i2,
@@ -144,7 +144,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
         // out of range position
         vm.prank(TEST_NFT_2_ACCOUNT);
         autoRange.configToken(
-            TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, false, MAX_REWARD, 0, 0, 0)
+            TEST_NFT_2, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 1, 0, 0, false, false, MAX_REWARD, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         // fails when sending NFT
@@ -173,7 +173,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
             address(0),
             AutoRangeAndCompound.PositionConfig(
                 0, 0, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100), false, false, MAX_REWARD, 0, 0, 0
-            )
+            ), AutoRangeAndCompound.CompoundMode.Advanced
         ); // 1% max fee, 1% max slippage
 
         // in range position cant be adjusted
@@ -203,7 +203,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
                 0,
                 0,
                 0
-            )
+            ), AutoRangeAndCompound.CompoundMode.Advanced
         ); // 1% max fee, 1% max slippage
 
         // will be reverted because range Arithmetic over/underflow
@@ -254,7 +254,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
                 0,
                 0,
                 0
-            )
+            ), AutoRangeAndCompound.CompoundMode.Advanced
         ); // 1% max fee, 1% max slippage
         uint256 count = NPM.balanceOf(TEST_NFT_2_ACCOUNT);
         assertEq(count, 4);
@@ -368,7 +368,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
             address(0),
             AutoRangeAndCompound.PositionConfig(
                 -100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100), false, false, MAX_REWARD, 0, 0, 0
-            )
+            ), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         (,,,,,,, uint128 liquidity,,,,) = NPM.positions(TEST_NFT_2);
@@ -404,7 +404,7 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
             address(0),
             AutoRangeAndCompound.PositionConfig(
                 -100000, -100000, 0, 60, uint64(Q64 / 100), uint64(Q64 / 100), false, false, MAX_REWARD, 0, 0, 0
-            )
+            ), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         // TWAPCheckFailed

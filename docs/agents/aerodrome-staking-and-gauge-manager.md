@@ -89,6 +89,12 @@ Fee auto-compound swaps (`AutoRangeAndCompound._autoCompound`):
 - Direct pool swap of part of the collected fees; skipped (not reverted) when the spot price deviates from the TWAP by more than `maxTWAPTickDifference`.
 - The output must stay within the position's configured `token0SlippageX64` / `token1SlippageX64` of the pre-swap spot price, otherwise `SlippageError` (Cantina LEND-9); zero tolerance rejects every swap, so auto-compounding positions need a real tolerance like range adjustments do.
 
+Compound modes (fee tiers per position):
+
+- `compoundModes[tokenId]` in AutoRangeAndCompound, the `mode` argument of `configToken`: `Advanced` (default, `totalRewardX64` = 2%) or `Simple` (`simpleRewardX64` = 10%); set when the position is activated for compounding, copied to the replacement position on re-range.
+- Applies to every compound of the position: the fee auto-compound (all `autoCompound*` entrypoints) and the AERO reward compound in GaugeManager, which reads `compoundRewardX64(tokenId)` through `compoundModeSource` (owner-set, the AutoRangeAndCompound address). No source or a failing source: GaugeManager charges its own `totalRewardX64` (2%). Source rates are capped at `MAX_REWARD_X64` (10%).
+- Rates are only lowerable by the owners; re-range rewards (`rewardX64` within `maxRewardX64`) are unaffected.
+
 Swap constraints:
 
 - `aeroSplitBps <= 10000`

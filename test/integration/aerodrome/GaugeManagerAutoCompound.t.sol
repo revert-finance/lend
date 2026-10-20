@@ -86,7 +86,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
                 autoCompoundMin0: 0,
                 autoCompoundMin1: 0,
                 autoCompoundRewardMin: 0
-            })
+            }), AutoRangeAndCompound.CompoundMode.Advanced
         );
         vm.stopPrank();
 

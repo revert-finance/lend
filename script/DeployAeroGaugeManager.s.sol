@@ -29,6 +29,7 @@ contract DeployAeroGaugeManager is Script {
         address[] gauges;
         address[] rewardBases;
         address[] rewardPools;
+        address compoundModeSource; // AutoRangeAndCompound that answers each position's compound mode rate; optional
     }
 
     function run() public returns (GaugeManager manager) {
@@ -45,6 +46,7 @@ contract DeployAeroGaugeManager is Script {
         for (uint256 i; i < c.rewardBases.length; ++i) {
             manager.setRewardBasePool(c.rewardBases[i], c.rewardPools[i]);
         }
+        if (c.compoundModeSource != address(0)) manager.setCompoundModeSource(c.compoundModeSource);
         IAeroVaultSetup(c.vault).setGaugeManager(address(manager));
         if (c.owner != c.deployer) manager.transferOwnership(c.owner);
         vm.stopBroadcast();
@@ -56,6 +58,7 @@ contract DeployAeroGaugeManager is Script {
         console2.log("OWNER", manager.owner());
         console2.log("PENDING_OWNER", manager.pendingOwner());
         console2.log("WITHDRAWER", manager.withdrawer());
+        console2.log("COMPOUND_MODE_SOURCE", manager.compoundModeSource());
     }
 
     function _loadConfig() internal virtual returns (Config memory c) {
@@ -73,6 +76,10 @@ contract DeployAeroGaugeManager is Script {
         c.gauges = vm.envAddress("AERO_GAUGES", ",");
         c.rewardBases = vm.envAddress("AERO_REWARD_BASES", ",");
         c.rewardPools = vm.envAddress("AERO_REWARD_POOLS", ",");
+        // optional: the AutoRangeAndCompound deployment that answers each position's compound mode rate
+        try vm.envAddress("AERO_COMPOUND_MODE_SOURCE") returns (address source) {
+            c.compoundModeSource = source;
+        } catch {}
     }
 
     function _validate(Config memory c) internal view {
@@ -82,6 +89,9 @@ contract DeployAeroGaugeManager is Script {
         require(c.receiptToken.code.length != 0 && c.vault.code.length != 0, "missing token/vault");
         require(c.router == address(0) || c.router.code.length != 0, "missing router");
         require(c.allowanceHolder == address(0) || c.allowanceHolder.code.length != 0, "missing allowance holder");
+        require(
+            c.compoundModeSource == address(0) || c.compoundModeSource.code.length != 0, "missing compound mode source"
+        );
         require(INonfungiblePositionManager(c.npm).factory() == c.factory, "NPM factory mismatch");
         require(IAeroVaultSetup(c.vault).nonfungiblePositionManager() == c.npm, "vault NPM mismatch");
         require(IAeroVaultSetup(c.vault).gaugeManager() == address(0), "vault already bound");

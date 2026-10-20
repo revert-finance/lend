@@ -859,4 +859,76 @@ contract GaugeManagerUnitTest is Test {
         assertEq(gaugeManager.tokenIdToGauge(TOKEN_ID), address(gauge));
         assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
+
+    // ---- compound mode source (Simple / Advanced rate per position) ----
+
+    function _compoundWithRate(uint64 sourceRate, bool sourceReverts)
+        internal
+        returns (uint256 amountAdded0, uint256 amountAdded1)
+    {
+        MockCompoundRewardSource source = new MockCompoundRewardSource();
+        source.setRate(TOKEN_ID, sourceRate);
+        source.setRevert(sourceReverts);
+        gaugeManager.setCompoundModeSource(address(source));
+
+        _stake();
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        npm.setNextIncreaseLiquidityResult(30 ether, 40 ether);
+
+        vm.prank(address(vault));
+        (, amountAdded0, amountAdded1) = gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1);
+    }
+
+    function testCompoundRewardsChargesTheRateOfTheModeSource() external {
+        uint64 tenPercent = uint64(uint256(2 ** 64) / 10);
+        (uint256 amountAdded0, uint256 amountAdded1) = _compoundWithRate(tenPercent, false);
+
+        uint256 rewardAmount0 = amountAdded0 * tenPercent / 2 ** 64;
+        uint256 rewardAmount1 = amountAdded1 * tenPercent / 2 ** 64;
+        assertApproxEqAbs(rewardAmount0, 3 ether, 1); // floor(Q64 / 10) is a hair under 10%
+        assertEq(usdc.balanceOf(address(gaugeManager)), rewardAmount0);
+        assertEq(dai.balanceOf(address(gaugeManager)), rewardAmount1);
+        assertEq(usdc.balanceOf(ALICE), 40 ether - amountAdded0 - rewardAmount0);
+        assertEq(dai.balanceOf(ALICE), 60 ether - amountAdded1 - rewardAmount1);
+    }
+
+    function testCompoundRewardsCapsTheModeSourceRate() external {
+        (uint256 amountAdded0,) = _compoundWithRate(type(uint64).max, false);
+        assertEq(usdc.balanceOf(address(gaugeManager)), amountAdded0 * gaugeManager.MAX_REWARD_X64() / 2 ** 64);
+    }
+
+    function testCompoundRewardsFallsBackWhenTheModeSourceReverts() external {
+        (uint256 amountAdded0,) = _compoundWithRate(uint64(uint256(2 ** 64) / 10), true);
+        assertEq(usdc.balanceOf(address(gaugeManager)), amountAdded0 * gaugeManager.totalRewardX64() / 2 ** 64);
+    }
+
+    function testSetCompoundModeSourceIsOwnerOnly() external {
+        vm.prank(ALICE);
+        vm.expectRevert();
+        gaugeManager.setCompoundModeSource(address(1));
+
+        gaugeManager.setCompoundModeSource(address(1));
+        assertEq(gaugeManager.compoundModeSource(), address(1));
+        gaugeManager.setCompoundModeSource(address(0));
+        assertEq(gaugeManager.compoundModeSource(), address(0));
+    }
+}
+
+contract MockCompoundRewardSource {
+    mapping(uint256 => uint64) public rates;
+    bool public shouldRevert;
+
+    function setRate(uint256 tokenId, uint64 rate) external {
+        rates[tokenId] = rate;
+    }
+
+    function setRevert(bool value) external {
+        shouldRevert = value;
+    }
+
+    function compoundRewardX64(uint256 tokenId) external view returns (uint64) {
+        if (shouldRevert) revert("source down");
+        return rates[tokenId];
+    }
 }

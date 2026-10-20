@@ -101,7 +101,7 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
                 autoCompoundMin0: 11,
                 autoCompoundMin1: 22,
                 autoCompoundRewardMin: 33
-            })
+            }), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         IVault.RewardCompoundParams memory rewardParams = IVault.RewardCompoundParams({
@@ -148,7 +148,7 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
                 autoCompoundMin0: 11,
                 autoCompoundMin1: 22,
                 autoCompoundRewardMin: 33
-            })
+            }), AutoRangeAndCompound.CompoundMode.Advanced
         );
 
         IVault.RewardCompoundParams memory rewardParams = IVault.RewardCompoundParams({
