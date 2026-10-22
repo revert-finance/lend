@@ -20,8 +20,8 @@ exist in that deployment.
 
 The scan found no High or Critical issue. Two findings describe real defects in new `aero` code and are fixed in #74
 (LEND-77, LEND-128). The rest is live behaviour, a trusted-role assumption, a documented design decision or rounding
-dust; two of those (LEND-105 / LEND-111, below) deserve a product decision for the next Base release and are marked
-as such.
+dust; two of those (LEND-105 / LEND-111, below) are live on Base and were taken up anyway as a liveness hardening for
+the next release in #75.
 
 ## A. Vault economics and limits (`V3Vault`, `VaultLib`)
 
@@ -65,8 +65,8 @@ as such.
 | LEND-130 | Med | yes | yes | Acknowledged. The residual allowance is granted to the configured position manager only, which spends it solely inside its own mint / increase calls for the caller, and it is reset before every use. |
 | LEND-96 | Med | yes | yes | Acknowledged. Needs a third party to pre-fund the position manager with ETH worth the whole WETH leg; that party loses the ETH and gains nothing, the user's WETH stays in V3Utils. No incentive. |
 | LEND-122 | Med | yes | yes | Acknowledged. A fake "vault" caller can only spend balances already sitting in `LeverageTransformer`; the contract holds none between operations. |
-| LEND-105 | Med | yes | n/a | Acknowledged (live), **product decision**. The Slipstream position manager calls `refundETH()` at the end of `mint` and `increaseLiquidity`, and `V3Utils.receive()` accepts ETH only from WETH9, so one wei forced into the position manager makes every V3Utils mint / increase revert until anyone calls `refundETH()` on the position manager (the caller keeps the wei). Identical to the live Base V3Utils; griefing only, the operation reverts atomically and no funds are at risk. Candidate for the next Base V3Utils release: accept ETH from the position manager in `receive()` (an owner sweep for stray ETH would complete it). |
-| LEND-111 | Low | yes | n/a | Acknowledged (live), same decision as LEND-105 for `Automator.receive()` (AutoRangeAndCompound's fee compounds and replacements through the Slipstream position manager). |
+| LEND-105 | Med | yes | n/a | **Fixed in #75** (live on Base, hardened for the next release). The Slipstream position manager calls `refundETH()` at the end of `mint` and `increaseLiquidity`, and `V3Utils.receive()` accepted ETH only from WETH9, so one wei forced into the position manager made every V3Utils mint / increase revert until anyone called `refundETH()` on the position manager (the caller keeps the wei). Griefing only, the operation reverts atomically and no funds are at risk; identical to the live Base V3Utils, so first acknowledged here. #75 lets `receive()` accept ETH from the position manager as well and adds an owner-only `withdrawETH` sweep for the refunded wei. |
+| LEND-111 | Low | yes | n/a | **Fixed in #75**, the same change for `Automator.receive()` (AutoRangeAndCompound's fee compounds and range replacements through the Slipstream position manager), with the contract kept under its size guard. |
 
 ## E. V3Utils range replacement and AutoRange token-scoped state
 
@@ -99,6 +99,6 @@ as such.
 | Disposition | Findings |
 |---|---|
 | Fixed in #74 | LEND-77, LEND-128 |
-| Acknowledged, live behaviour with a product decision for the next Base release | LEND-105, LEND-111 |
+| Fixed in #75 (live on Base, hardened for the next release) | LEND-105, LEND-111 |
 | Acknowledged, operational runbook item | LEND-86 |
 | Acknowledged | the remaining 31 |
