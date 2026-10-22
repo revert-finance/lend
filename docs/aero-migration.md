@@ -178,12 +178,17 @@ construction:
 Guards: a real custody change needs the owner opt-in, respects the owner-set
 `stakeChangeCooldownBlocks` between changes of the same position, and never
 unstakes before `GaugeManager.penaltyWindowEnd(tokenId)`. `Keep`, or a target
-equal to the current state, needs no opt-in. The opt-in records the consenting
-owner per position and vault (`stakingConsent[tokenId][vault]`) and applies only
-while that address is that vault's current owner of the position: it is suspended
-while the position is out of the vault or owned by someone else, never carries to
-another vault, re-applies if the same owner re-deposits the same position into the
-same vault, and ends when the owner revokes it with
+equal to the current state, needs no opt-in. The cooldown counts the operator's
+custody decisions (`lastStakeChangeBlock` is set only when the custody really
+changes): the unstake and restake that every transform of a staked position
+performs, a compound or a same-state range replacement included, does not reset
+it, while the penalty window is enforced on every unstake regardless. The opt-in
+records the consenting owner per position and vault
+(`stakingConsent[tokenId][vault]`) and applies only while that address is that
+vault's current owner of the position: it is suspended while the position is out
+of the vault or owned by someone else, never carries to another vault, re-applies
+if the same owner re-deposits the same position into the same vault, and ends
+when the owner revokes it with
 `configStakingManagement(tokenId, vault, false)`. It migrates to the replacement
 token on a re-range. The vault enforces consent at its boundary
 too: `transformWithRewardCompound` honours a custody change only when called by

@@ -693,16 +693,20 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
         int24 currentTick;
         (validation.sqrtPriceX96, currentTick) = _getPoolSlot0(pool);
-        validation.spotAmountOut = _quoteRewardSwapAmountOut(validation.swap0For1, amountIn, validation.sqrtPriceX96);
-        validation.amountOutMin = _validateSwap(
-            validation.swap0For1,
-            amountIn,
-            pool,
-            currentTick,
-            validation.sqrtPriceX96,
-            REWARD_TWAP_SECONDS,
-            REWARD_MAX_TWAP_TICK_DIFFERENCE,
-            REWARD_MAX_PRICE_DIFFERENCE_X64
+        // full-precision spot quote (the bound with zero tolerance), the base of the two-hop route bound
+        validation.spotAmountOut = _calculateAmountOutMin(validation.swap0For1, amountIn, validation.sqrtPriceX96, 0);
+        validation.amountOutMin = _positiveQuoteMinimum(
+            _validateSwap(
+                validation.swap0For1,
+                amountIn,
+                pool,
+                currentTick,
+                validation.sqrtPriceX96,
+                REWARD_TWAP_SECONDS,
+                REWARD_MAX_TWAP_TICK_DIFFERENCE,
+                REWARD_MAX_PRICE_DIFFERENCE_X64
+            ),
+            validation.spotAmountOut
         );
     }
 
@@ -710,27 +714,22 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         RewardSwapValidation memory intermediateValidation,
         RewardSwapValidation memory targetValidation
     ) internal pure returns (uint256 amountOutMin) {
-        // Apply the reward tolerance once to the full two-hop spot quote so per-hop bounds cannot compound.
-        uint256 routeSpotAmountOut = _quoteRewardSwapAmountOut(
-            targetValidation.swap0For1, intermediateValidation.spotAmountOut, targetValidation.sqrtPriceX96
+        // Apply the reward tolerance once to the full two-hop spot quote so per-hop bounds cannot compound. The quote
+        // uses the same full-precision arithmetic as each hop's own bound (Swapper._calculateAmountOutMin with zero
+        // tolerance): squaring the sqrt price down to Q96 first floored valid second-hop prices below 2^-96 to zero,
+        // which dropped this route bound and let both per-hop tolerances compound (Cantina LEND-77).
+        uint256 routeSpotAmountOut = _calculateAmountOutMin(
+            targetValidation.swap0For1, intermediateValidation.spotAmountOut, targetValidation.sqrtPriceX96, 0
         );
-        amountOutMin = FullMath.mulDiv(routeSpotAmountOut, Q64 - REWARD_MAX_PRICE_DIFFERENCE_X64, Q64);
+        amountOutMin = _positiveQuoteMinimum(
+            FullMath.mulDiv(routeSpotAmountOut, Q64 - REWARD_MAX_PRICE_DIFFERENCE_X64, Q64), routeSpotAmountOut
+        );
     }
 
-    function _quoteRewardSwapAmountOut(bool swap0For1, uint256 amountIn, uint160 sqrtPriceX96)
-        internal
-        pure
-        returns (uint256 amountOut)
-    {
-        if (amountIn == 0) {
-            return 0;
-        }
-
-        uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
-        if (swap0For1) {
-            return FullMath.mulDiv(amountIn, priceX96, Q96);
-        }
-        return FullMath.mulDiv(amountIn, Q96, priceX96);
+    /// @dev A positive quote never tolerates an empty output: the tolerance rounds a one-unit quote down to zero, and a
+    /// fee-bearing pool would then consume the whole input for nothing (Cantina LEND-128).
+    function _positiveQuoteMinimum(uint256 amountOutMin, uint256 spotAmountOut) internal pure returns (uint256) {
+        return amountOutMin == 0 && spotAmountOut != 0 ? 1 : amountOutMin;
     }
 
     function _poolFeeOrTickSpacing(IUniswapV3Pool pool) internal view returns (uint24 feeOrTickSpacing) {

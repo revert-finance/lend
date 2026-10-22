@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
+import "v3-core/libraries/FullMath.sol";
+import "v3-core/libraries/TickMath.sol";
 
 import "../../src/GaugeManager.sol";
 import {LeafVoterFixture, AeroGaugeFactoryFixture} from "../mocks/AeroDeliveryFixture.sol";
@@ -912,6 +914,142 @@ contract GaugeManagerUnitTest is Test {
         assertEq(gaugeManager.compoundModeSource(), address(1));
         gaugeManager.setCompoundModeSource(address(0));
         assertEq(gaugeManager.compoundModeSource(), address(0));
+    }
+
+    // ---- two-hop route bound at extreme second-hop prices (Cantina LEND-77) ----
+
+    function _quoteHarness() internal returns (GaugeManagerQuoteHarness) {
+        return new GaugeManagerQuoteHarness(
+            INonfungiblePositionManager(address(npm)), IERC20(address(aero)), IVault(address(vault))
+        );
+    }
+
+    /// Second hop at price 2^-98 (sqrt price 2^47, a valid tick): the legacy quote floored the route spot to zero, so
+    /// the route bound vanished and the second hop fell back to its own 2% bound on top of the first hop's. The bound
+    /// is now the real route spot quote less a single tolerance; the other direction used to divide by zero.
+    function testTwoHopRouteBoundHoldsAtTinySecondHopPrice() external {
+        GaugeManagerQuoteHarness harness = _quoteHarness();
+        uint160 sqrtPriceX96 = uint160(1) << 47;
+        uint256 twoPercent = uint256(2 ** 64) / 50;
+
+        assertEq(harness.legacyRouteAmountOutMin(true, 1e36, sqrtPriceX96), 0, "legacy route bound collapsed");
+        uint256 routeSpot0To1 = FullMath.mulDiv(1e36, uint256(1) << 94, uint256(1) << 192);
+        assertGt(routeSpot0To1, 0);
+        assertEq(
+            harness.routeAmountOutMin(true, 1e36, sqrtPriceX96),
+            FullMath.mulDiv(routeSpot0To1, uint256(2 ** 64) - twoPercent, uint256(2 ** 64)),
+            "0 -> 1 route bound"
+        );
+
+        vm.expectRevert(); // legacy: price floored to zero, division by zero
+        harness.legacyRouteAmountOutMin(false, 1e18, sqrtPriceX96);
+        uint256 routeSpot1To0 = FullMath.mulDiv(1e18, uint256(1) << 192, uint256(1) << 94);
+        assertEq(
+            harness.routeAmountOutMin(false, 1e18, sqrtPriceX96),
+            FullMath.mulDiv(routeSpot1To0, uint256(2 ** 64) - twoPercent, uint256(2 ** 64)),
+            "1 -> 0 route bound"
+        );
+    }
+
+    /// At the minimum valid tick a large first-hop output still yields a positive route bound; at ordinary prices
+    /// the bound equals the legacy one.
+    function testTwoHopRouteBoundAtMinimumTickAndOrdinaryPrice() external {
+        GaugeManagerQuoteHarness harness = _quoteHarness();
+        uint160 minSqrtPriceX96 = TickMath.MIN_SQRT_RATIO;
+
+        assertEq(harness.legacyRouteAmountOutMin(true, 1e40, minSqrtPriceX96), 0);
+        uint256 bound = harness.routeAmountOutMin(true, 1e40, minSqrtPriceX96);
+        assertGt(bound, 0, "positive route bound at the minimum tick");
+        assertLe(bound, FullMath.mulDiv(1e40, uint256(minSqrtPriceX96) * minSqrtPriceX96, uint256(1) << 192));
+
+        uint160 oneToOne = uint160(1) << 96;
+        assertEq(
+            harness.routeAmountOutMin(true, 100 ether, oneToOne), harness.legacyRouteAmountOutMin(true, 100 ether, oneToOne)
+        );
+        assertEq(
+            harness.routeAmountOutMin(false, 100 ether, oneToOne),
+            harness.legacyRouteAmountOutMin(false, 100 ether, oneToOne)
+        );
+    }
+
+    // ---- a positive quote never tolerates an empty output (Cantina LEND-128) ----
+
+    /// A one-unit quote with the 2% tolerance floored to a zero minimum; both the per-hop and the route bound now
+    /// require that unit, larger quotes keep the plain floor and a zero quote stays unbounded.
+    function testRewardSwapBoundsRequireOneUnitForAPositiveQuote() external {
+        GaugeManagerQuoteHarness harness = _quoteHarness();
+
+        GaugeManager.RewardSwapValidation memory oneUnit =
+            harness.validate(IUniswapV3Pool(address(aeroUsdcPool)), address(aero), address(usdc), 1);
+        assertEq(oneUnit.spotAmountOut, 1, "one-unit spot quote at 1:1");
+        assertEq(oneUnit.amountOutMin, 1, "per-hop bound requires the unit");
+
+        GaugeManager.RewardSwapValidation memory hundred =
+            harness.validate(IUniswapV3Pool(address(aeroUsdcPool)), address(aero), address(usdc), 100);
+        assertEq(hundred.amountOutMin, 98, "larger quotes keep the plain floor");
+
+        uint160 oneToOne = uint160(1) << 96;
+        assertEq(harness.legacyRouteAmountOutMin(true, 1, oneToOne), 0, "legacy route bound tolerated nothing");
+        assertEq(harness.routeAmountOutMin(true, 1, oneToOne), 1, "route bound requires the unit");
+        assertEq(harness.routeAmountOutMin(true, 0, oneToOne), 0, "zero quote stays unbounded");
+        assertEq(harness.routeAmountOutMin(true, 1, uint160(1) << 47), 0, "input below one output unit stays unbounded");
+    }
+
+    /// End to end: a one-wei reward whose swap would return nothing reverts instead of handing the input to the pool.
+    function testCompoundRewardsRevertsWhenAOneUnitQuoteWouldReturnNothing() external {
+        _stake();
+        aeroUsdcPool.setTick(0);
+        aeroUsdcPool.setObservedTick(0);
+        aeroUsdcPool.setOutputBps(9_900); // within the 2% tolerance for any real amount, nothing for one unit
+
+        aero.mint(address(gauge), 1);
+        gauge.setReward(TOKEN_ID, 1);
+
+        vm.prank(address(vault));
+        vm.expectRevert(Constants.SlippageError.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+    }
+}
+
+/// Exposes the two-hop route bound next to the quote it used before (sqrt price squared down to Q96 first).
+contract GaugeManagerQuoteHarness is GaugeManager {
+    uint64 internal constant TWO_PERCENT_X64 = 368_934_881_474_191_032; // floor(Q64 / 50), GaugeManager's tolerance
+
+    constructor(INonfungiblePositionManager npm, IERC20 aero, IVault vault_)
+        GaugeManager(npm, aero, vault_, address(0), address(0))
+    {}
+
+    function routeAmountOutMin(bool secondHopSwap0For1, uint256 firstHopSpotAmountOut, uint160 secondHopSqrtPriceX96)
+        external
+        pure
+        returns (uint256)
+    {
+        RewardSwapValidation memory intermediate;
+        intermediate.spotAmountOut = firstHopSpotAmountOut;
+        RewardSwapValidation memory target;
+        target.swap0For1 = secondHopSwap0For1;
+        target.sqrtPriceX96 = secondHopSqrtPriceX96;
+        return _combinedRouteAmountOutMin(intermediate, target);
+    }
+
+    function validate(IUniswapV3Pool pool, address tokenIn, address tokenOut, uint256 amountIn)
+        external
+        view
+        returns (RewardSwapValidation memory)
+    {
+        return _validateRewardSwap(pool, tokenIn, tokenOut, amountIn);
+    }
+
+    function legacyRouteAmountOutMin(
+        bool secondHopSwap0For1,
+        uint256 firstHopSpotAmountOut,
+        uint160 secondHopSqrtPriceX96
+    ) external pure returns (uint256) {
+        uint256 priceX96 = FullMath.mulDiv(secondHopSqrtPriceX96, secondHopSqrtPriceX96, Q96);
+        uint256 routeSpotAmountOut = secondHopSwap0For1
+            ? FullMath.mulDiv(firstHopSpotAmountOut, priceX96, Q96)
+            : FullMath.mulDiv(firstHopSpotAmountOut, Q96, priceX96);
+        return FullMath.mulDiv(routeSpotAmountOut, Q64 - TWO_PERCENT_X64, Q64);
     }
 }
 
