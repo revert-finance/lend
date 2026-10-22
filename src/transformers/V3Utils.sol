@@ -802,9 +802,25 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
         }
     }
 
-    // needed for WETH unwrapping
+    /**
+     * @notice Owner controlled function to withdraw ETH refunded by the position manager (see receive)
+     * @param to Address to send to
+     */
+    function withdrawETH(address to) external onlyOwner {
+        uint256 balance = address(this).balance;
+        if (balance != 0) {
+            (bool sent,) = to.call{value: balance}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        }
+    }
+
+    // accepts ETH from WETH (unwrapping) and from the position manager: the Slipstream position manager refunds its
+    // whole ETH balance to the caller at the end of mint / increaseLiquidity, so ETH forced into it (selfdestruct)
+    // would otherwise revert every mint and increase until someone drains it (Cantina LEND-105); withdrawETH sweeps it
     receive() external payable {
-        if (msg.sender != address(weth)) {
+        if (msg.sender != address(weth) && msg.sender != address(nonfungiblePositionManager)) {
             revert NotWETH();
         }
     }

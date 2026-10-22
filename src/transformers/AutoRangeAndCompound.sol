@@ -309,12 +309,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
             SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
 
-            state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
-
             // get the real owner - if owner is vault - for sending leftover tokens
-            state.realOwner = state.owner;
+            (state.owner, state.realOwner) = _ownerAndRealOwner(params.tokenId);
             if (vaults[state.owner]) {
-                state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
                 // a vault transform only accepts the replacement position its active transformer announced
                 IVault(state.owner).expectReplacement(state.newTokenId);
             }
@@ -582,13 +579,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 state.amount1Fees = state.compounded1 * rewardX64 / Q64;
             }
 
-            state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
-
             // get the real owner - if owner is vault - for sending leftover tokens
-            state.realOwner = state.owner;
-            if (vaults[state.owner]) {
-                state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
-            }
+            (state.owner, state.realOwner) = _ownerAndRealOwner(params.tokenId);
 
             // return remaining tokens for owner
             state.amount0 = state.amount0 - state.compounded0 - state.amount0Fees;
@@ -635,6 +627,12 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     function setStakeChangeCooldown(uint32 cooldownBlocks) external onlyOwner {
         stakeChangeCooldownBlocks = cooldownBlocks;
         emit StakeChangeCooldownUpdated(cooldownBlocks);
+    }
+
+    // owner of the position and the real owner: the vault's owner of the position when a vault holds it
+    function _ownerAndRealOwner(uint256 tokenId) internal returns (address owner, address realOwner) {
+        owner = nonfungiblePositionManager.ownerOf(tokenId);
+        realOwner = vaults[owner] ? IVault(owner).ownerOf(tokenId) : owner;
     }
 
     // operator/vault auth for the plain transform wrappers; they keep the current custody, so the only staking rule
