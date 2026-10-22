@@ -3,6 +3,9 @@
 Scan: `revert-finance/lend`, branch `aero`, commit `268b48450f12712cb0222523912ab4f7f3e09b88` (44 findings: 2 High,
 39 Medium, 1 Low, 2 Informational).
 
+The follow-up scan #13 of commit `faf8370` (36 findings) is triaged in
+[cantina-scan-13-2026-10-triage.md](cantina-scan-13-2026-10-triage.md).
+
 Status note: the pull requests referenced below have all merged into `aero`: #65 (df8116a), #64 (7785e4e),
 #67 (0ea357a), #68 (32ff6da) and, for the vault bytecode size, #69 (64c6619). Entries marked *fixed in*,
 *by design since* or *mitigated since* describe code that is now on `aero`: LEND-1, LEND-12 and LEND-44 no longer
