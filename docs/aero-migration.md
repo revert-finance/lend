@@ -214,15 +214,18 @@ forge test --match-path 'test/{unit,integration/aerodrome}/*.t.sol'
 forge script script/DeployAeroGaugeManagerLocal.s.sol:DeployAeroGaugeManagerLocal --sig 'run()'
 ```
 
-The separate fixture build compiles the **unmodified** upstream CLGauge at
-`cbee64820898fbce295292a510522694eccc60c5` with solc 0.7.6 and OpenZeppelin
-`04695aecbd4d17dddfd55de766d10e3805d6f42f` (3.4.2-solc-0.7). The main tests read
-that artifact via a narrowly scoped Foundry read permission. Build it before
-running the unit suite, including in CI. The suites cover receipt accounting
-(including a 256-case two-owner conservation fuzz), the pinned upstream gauge
-(deferral, penalty/referral netting, the compound penalty window), deployment
-preflight, and vault staking, removal, liquidation, transformation and
-compounding against the deferring gauge double in `test/mocks/AeroGaugeFixture.sol`.
+The separate fixture build compiles the **unmodified** upstream CLGauge and
+NonfungiblePositionManager at `cbee64820898fbce295292a510522694eccc60c5` with
+solc 0.7.6 and OpenZeppelin `04695aecbd4d17dddfd55de766d10e3805d6f42f`
+(3.4.2-solc-0.7). The main tests read those artifacts via a narrowly scoped
+Foundry read permission. Build it before running the unit suite, including in
+CI. The suites cover receipt accounting (including a 256-case two-owner
+conservation fuzz), the pinned upstream gauge (deferral, penalty/referral
+netting, the compound penalty window), the pinned upstream position manager's
+ETH refund under V3Utils and AutoRangeAndCompound (`test/unit/PositionManagerRefundETH.t.sol`,
+pools from `test/mocks/SlipstreamFixture.sol`), deployment preflight, and vault
+staking, removal, liquidation, transformation and compounding against the
+deferring gauge double in `test/mocks/AeroGaugeFixture.sol`.
 Full Aero pool, voter, handler, bridge and NPM deployments are not exercised:
 these dependencies are controlled fixtures. The local script uses an actual fresh
 V3Vault with unconfigured lending dependencies to validate adapter deployment and

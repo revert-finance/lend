@@ -161,9 +161,11 @@ abstract contract Automator is Ownable2Step, Swapper, IProtocolFeeController {
         }
     }
 
-    // needed for WETH unwrapping
+    // accepts ETH from WETH (unwrapping) and from the position manager: the Slipstream position manager refunds its
+    // whole ETH balance to the caller at the end of mint / increaseLiquidity, so ETH forced into it (selfdestruct)
+    // would otherwise revert every compound and range adjustment until someone drains it (Cantina LEND-111)
     receive() external payable {
-        if (msg.sender != address(weth)) {
+        if (msg.sender != address(weth) && msg.sender != address(nonfungiblePositionManager)) {
             revert NotWETH();
         }
     }
