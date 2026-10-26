@@ -39,7 +39,7 @@ contract AeroGaugeManagerTest is Test {
     AeroGaugeFixture gauge;
     GaugeManager manager;
 
-    function setUp() public {
+    function setUp() public virtual {
         token = new MockERC20Token("Aero receipt", "rAERO");
         usdc = new MockERC20Token("USDC", "USDC");
         weth = new MockERC20Token("WETH", "WETH");
@@ -306,7 +306,7 @@ contract AeroGaugeManagerTest is Test {
         assertTrue(manager.knownGauges(address(gauge)));
     }
 
-    function testRejectsRootRedemptionHandler() public {
+    function testRejectsRootHandlerWithReceiptTokenConfiguration() public {
         gauge.setVoter(address(new DeliveryConfigFixture(address(token), address(new RootDeliveryFixture()))));
         vm.expectRevert();
         manager.setGauge(address(pool), address(gauge));
@@ -325,7 +325,7 @@ contract AeroGaugeManagerTest is Test {
         manager.setGauge(address(pool), address(gauge));
     }
 
-    function testFuzzSharedBatchConservesOwnerRewards(uint96 a, uint96 b, bool bobFirst) public {
+    function testFuzzSharedBatchConservesOwnerRewards(uint96 a, uint96 b, bool bobFirst) public virtual {
         a = uint96(bound(a, 1, type(uint96).max));
         b = uint96(bound(b, 1, type(uint96).max));
         _deferAlice(a);
