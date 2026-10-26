@@ -3,7 +3,7 @@
 Smart contracts for the Revert Lend protocol.
 
 This is the standalone **Aero** integration branch. `src/GaugeManager.sol` contains
-the leaf receipt-token and local root AERO claim/deferred reward accounting directly. Use the
+the receipt-token claim and deferred reward accounting directly. Use the
 [Aero migration runbook](docs/aero-migration.md) for its deployment inputs and
 local validation commands, including the upstream gauge fixture build. Its
 "Operator-managed staking" section describes how the `AutoRangeAndCompound`

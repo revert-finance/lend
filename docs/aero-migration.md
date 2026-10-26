@@ -1,6 +1,6 @@
 # Aero reward ownership adapter
 
-Updated: 2026-10-26
+Updated: 2026-10-18
 
 This is the first contract implementation slice, based on Lend's deployed
 Aerodrome source baseline `ff9e75afbdd9af847e5a5c026466e179027da490`.
@@ -8,7 +8,7 @@ The Aero contract version is maintained independently on branch `aero`;
 `aerodrome-slipstream` is the comparison baseline, not the intended merge target.
 Subsequent Aero implementation PRs should target `aero`.
 It does not migrate loans, lender shares, or existing NFTs. Existing deployments
-must remain available for runoff. The validation described here sends no production transactions.
+must remain available for runoff. No production transaction has been sent.
 
 ## Supported settlement mode
 
@@ -20,30 +20,19 @@ manager implementation. Compare it against the deployed Aerodrome baseline with:
 git diff ff9e75afbdd9af847e5a5c026466e179027da490 -- src/GaugeManager.sol src/interfaces/aero/IAeroGauge.sol
 ```
 
-`GaugeManager` supports direct **leaf receipt-token** delivery and synchronous
-**local root AERO** delivery. `aeroToken` is the actual delivered asset. Registration
-and deployment preflight share `AeroRewardDelivery.validate`: leaf bindings are
-unchanged; root bindings additionally verify the local chain, adapter/orchestrator
-links and root voter's `TOKEN`. All root gauges in one manager must share a handler.
-These checks do not authenticate arbitrary bytecode: configured dependencies remain
-trusted and their verified implementation must match the declared settlement mode.
+`GaugeManager` supports the direct **leaf receipt-token** delivery path only.
+Its inherited `aeroToken` getter refers to the local `RECEIPT_TOKEN`, not the old
+AERO token or necessarily the root token. The manager checks the gauge's NPM,
+pool, voter receipt token, and handler receipt-token/voter bindings when registering
+a gauge. These getter checks do not authenticate arbitrary bytecode: configured
+gauges, immutable voters/handlers, NPM, token and vault remain trusted dependencies
+whose deployed source must be verified before launch.
 
-Base was checked at block **53124108** (2026-10-26). Its LeafVoter
-`0x382409fad8503FbCdbB27A4211551fa03e884078` uses RootEmissionsHandler
-`0x8C37F30F3c8fd48bEddb14086fa5148291D422C3`. That handler has no
-`RECEIPT_TOKEN()` getter: the former leaf-only registration rejected these real
-gauges. Base's delivered reward is **AERO**
-`0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee`, not its xAERO receipt
-`0x6CdDa0E730744DC6fF67654B35350Adad05EceE7` and not legacy Aerodrome AERO.
-The handler redeems through the local adapter/voter/minter atomically and
-one-for-one; the minter creates its team share separately, not as a payout deduction.
-Sub-minimum rewards stay in `pendingRedeems[recipient]`. Simply removing the old
-registration check would neither pay the right asset nor preserve that liability.
-
-[Official deployment addresses](https://app.aero.xyz/docs/security/) and
-[verified root handler](https://basescan.org/address/0x8C37F30F3c8fd48bEddb14086fa5148291D422C3#code)
-are the deployment evidence; recheck them before launch. This validates reward
-settlement, not all final vault settings or a production deployment.
+The root handler automatically redeems receipts and can accumulate sub-minimum
+amounts in `pendingRedeems[recipient]`. That is an additional shared-recipient
+liability which this adapter does not handle. Root handlers are rejected during
+registration and script preflight. Do not remove that check to force deployment.
+Final Base settlement mode and addresses remain unverified.
 
 Primary source snapshots:
 
@@ -63,15 +52,14 @@ Primary source snapshots:
    penalties/referrals. A bucket that disagrees with the recorded batch emits
    `DeferredBatchOutOfSync` and never blocks the exit; recovery stays strict.
 3. Track liabilities by `(gauge, batch, owner)`. A successful recovery closes a
-   batch and reserves its delivered tokens or root-pending entitlement. New deferrals
-   start a new batch. Batches recovered directly into tokens can still be paid when
-   later recovery is unavailable. Root-pending batches have the funding gate below.
+   batch and reserves its receipt tokens. New deferrals start a new batch. Funded
+   older batches can be paid even if the next batch cannot currently be recovered.
 4. The owner calls `claimDeferredRewards(gauge, batch, recipient)` independently
    of current NFT custody/ownership. It recovers that batch if needed. Anyone may
    call `recoverDeferredRewards(gauge)` but cannot redirect the proceeds.
 5. Compounding only spends the selected position's newly claimed tokens. Admin
    sweeps subtract `reservedRewards`. Withdrawal-time rewards and NPM fee deltas
-   go to the withdrawing owner, counting a reward/pool-token overlap once.
+   go to the withdrawing owner, counting a receipt/pool-token overlap once.
 
 `positionRewards(tokenId)` removes account-wide deferrals from the upstream
 singleton earnings value. Indexers should track `DeferredRewardRecorded`,
@@ -83,68 +71,11 @@ Claim-on-withdraw does not guarantee an exit through every upstream failure.
 Pool settlement, forfeiture, token/NFT transfers and downstream vault checks can
 still revert. Re-range/compound restaking can also fail and roll back atomically;
 a separate unstake remains the tested escape path for a deposit-only outage.
-The root path specifically relies on the verified synchronous, one-for-one local
-redemption. Other bridge routes, asynchronous redemption or future conversion-rate
-changes require a separate compatibility review.
+Never assume a recovered receipt equals a fixed amount of root AERO.
 
-Compounding requires swap liquidity and valid TWAPs for the actual delivered reward token.
+Compounding requires actual local receipt-token swap liquidity and valid TWAPs.
 Old AERO routes cannot simply be copied. Leave reward routes empty until verified;
 staking, withdrawal and standalone claims do not need those routes.
-
-## Root sub-minimum reward accounting
-
-The existing gauge-deferred `(gauge, batch, owner)` claims remain in place. The
-only additional liabilities are the root handler's shared-recipient deferrals:
-
-- A successful claim/withdrawal that increases `pendingRedeems[manager]` records
-  the increase in `rootDeferredRewards[economicOwner]` and `reservedRewards`.
-  A claim's chosen immediate recipient does not acquire the owner's deferred rights.
-- A decrease in pending redemptions is old value being delivered. Subtract it from
-  the current claim/compound/withdrawal reward delta, including when AERO is a pool
-  token. It cannot be paid or compounded into the next user's position.
-- Gauge-batch recovery checks conservation of **received AERO plus the change in
-  root pending**, rather than requiring a receipt-token balance increase alone.
-  A recovery ending in additional root pending sets `rootPendingBatches[gauge][batch]`.
-- `reservedRewards` includes unfunded root entitlements. Root-mode sweeps saturate
-  at zero when balance is below reserves, and subtract reserves once funds arrive.
-  This also protects redemption triggered by an unrelated caller outside manager calls.
-- Owners use `claimRootDeferredRewards(recipient)` after the manager's AERO balance
-  covers all reserves. Gauge batches tagged root-pending use the same check in
-  `claimDeferredRewards`. Anyone may contribute AERO directly to cover a shortfall;
-  doing so does not gain a claim or redirect an owner's entitlement.
-
-The funding gate is deliberately conservative to avoid new proportional/batch
-accounting: a newly pending root amount can delay an older root-origin claim even
-if that older amount has already settled. This does not block ordinary principal
-exit, and directly funded gauge batches retain their existing claim behavior.
-At the verified deployment the redemption floor is 1,000,000 raw units (0.000000000001
-AERO at 18 decimals). Under supported one-for-one behavior, the aggregate root
-funding shortfall stays below that floor. A voluntary top-up covering the shortfall
-allows claims even if there will be no more gauge rewards. Later redemption of
-already-covered pending amounts becomes surplus; it does not recreate a user claim.
-
-Index `RootRewardDeferred` and `RootRewardsClaimed`, in addition to the existing
-gauge batch events. Root entitlements persist across NFT ownership changes, vault
-exit, gauge replacement and claims from another gauge using the same handler.
-No vault, automator, fee-rate or swap execution algorithm is changed by this support.
-
-Focused verification:
-
-```sh
-forge build --root fixtures/upstream-gauge
-forge test --match-path 'test/unit/{AeroGaugeManager*,DeployAeroGaugeManager,GaugeManager}.t.sol' -vv
-# Requires a private/local BASE_RPC_URL environment variable; no broadcast:
-forge test --match-path test/fork/AeroRootSettlement.t.sol -vv
-```
-
-The fork covers real WETH/USDC NFT minting, staking, AERO claiming and unstaking;
-the real root handler's threshold and payout; and the production manager script
-against a fresh, locally deployed vault on the fork. The latter uses zero
-oracle/interest-model addresses because it tests manager wiring only, not lending.
-Unit tests cover leaf regressions, root deferrals and mixed-owner/cross-gauge claims,
-sweeps, compounding, reward/pool-token overlap, failed mint recovery and fuzzed amounts.
-This new root path requires focused audit review; prior leaf-scoped audits do not
-establish its correctness.
 
 ## Early-unstake penalty window
 
@@ -347,23 +278,22 @@ ownership transfer. It does not deploy the replacement oracle, vault or automato
 |---|---|
 | `AERO_CHAIN_ID` | Verified target chain ID; Base is 8453, local fixture is 31337 |
 | `AERO_DEPLOYER` | Signing address; must own the fresh, unbound vault |
-| `AERO_NPM` | Base `0x4857DB576eE0e45F10525eC59527BfD10beeC60b`. Legacy `0x827922686190790b37229fd06084350e74485b72` is not a substitute |
-| `AERO_FACTORY` | Base `0x9CB220581b91b0C83223012FE69688b92aD07a76`. Legacy `0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a` is not a substitute |
-| `AERO_RECEIPT_TOKEN` | Historical variable name retained: **delivered reward asset**. Base root: `0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee` (AERO); leaf: verified local receipt token. Never use Base xAERO or legacy Aerodrome AERO for the Base root manager. |
+| `AERO_NPM` | Verified new Aero NPM; unresolved. Legacy `0x827922686190790b37229fd06084350e74485b72` is not a substitute |
+| `AERO_FACTORY` | Verified new NPM factory; unresolved. Legacy `0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a` is not a substitute |
+| `AERO_RECEIPT_TOKEN` | Verified local receipt token; unresolved. Do not use legacy `0x940181a94a35a4569e4529a3cdfb74e38fd98631` |
 | `AERO_NEW_VAULT` | Fresh vault bound to that NPM with `gaugeManager() == 0`; not any existing Aerodrome vault |
 | `AERO_OWNER` | Chosen governance owner; must accept ownership after deployment |
 | `AERO_WITHDRAWER` | Chosen address allowed to sweep surplus, excluding user reserves |
 | `AERO_ROUTER` | Verified compatible router, or explicit zero address if unused |
 | `AERO_ALLOWANCE_HOLDER` | Verified allowance holder, or explicit zero address if unused |
 | `AERO_POOLS`, `AERO_GAUGES` | Matching, nonempty comma-separated address lists from verified launch deployment |
-| `AERO_REWARD_BASES`, `AERO_REWARD_POOLS` | Matching comma-separated lists for delivered-reward-token swaps; export both as empty strings to disable routes |
+| `AERO_REWARD_BASES`, `AERO_REWARD_POOLS` | Matching comma-separated lists for receipt-token swaps; export both as empty strings to disable routes |
 | `AERO_COMPOUND_MODE_SOURCE` | Optional: the `AutoRangeAndCompound` deployment whose per-position compound mode prices AERO compounds; unset = every compound pays `totalRewardX64` |
 | `AERO_RPC_URL` | Target RPC passed on CLI; do not print credential-bearing URLs |
 
 Local outputs are ephemeral simulation addresses, not deployable launch constants.
 No complete final Base manifest or new vault configuration is verified, so a
-full-protocol target-chain simulation and production deployment remain **incomplete**.
-The focused root-settlement and manager-wiring fork above does not establish those.
+target-chain fork simulation and production deployment remain **incomplete**.
 The existing current vault has already used its one-time manager setter.
 
 Once launch dependencies, their deployed source, the new vault and settlement mode
@@ -455,8 +385,8 @@ If a live broadcast is interrupted, work from `protocols/lend`:
 
 ## Remaining migration work
 
-- Reconfirm the tested Base root handler/token/routing at the final deployment block
-  and obtain focused review of the added root-pending accounting.
+- Confirm final Base handler/token/addresses and deployment blocks. If Base uses
+  root redemption, implement and test an adapter for that settlement mode.
 - Full-stack target fork: real vault remove, liquidation and transformations;
   actual core delivery, caps, retirement and minimum-stake boundary behavior.
 - Legacy retirement fork tests and refreshed exposure inventory for all three
