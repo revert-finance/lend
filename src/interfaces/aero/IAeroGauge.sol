@@ -31,29 +31,3 @@ interface IAeroLeafEmissionsHandler {
     function LEAF_VOTER() external view returns (address);
     function RECEIPT_TOKEN() external view returns (address);
 }
-
-/// @dev Base's root handler retains sub-minimum redemptions by recipient.
-interface IAeroRootEmissionsHandler {
-    function LEAF_VOTER() external view returns (address);
-    function pendingRedeems(address recipient) external view returns (uint256);
-}
-
-interface IAeroSettlementVoter {
-    function ORCHESTRATOR() external view returns (address);
-    function TOKEN() external view returns (address);
-}
-
-interface IAeroLeafOrchestrator {
-    function ROOT_CHAIN_ID() external view returns (uint256);
-    function adapter() external view returns (address);
-}
-
-interface IAeroRootLocalAdapter {
-    function REMOTE_CHAIN_ID() external view returns (uint256);
-    function LEAF_MESSAGE_ORCHESTRATOR() external view returns (address);
-    function ROOT_MESSAGE_ORCHESTRATOR() external view returns (address);
-}
-
-interface IAeroRootOrchestrator {
-    function VOTER() external view returns (address);
-}

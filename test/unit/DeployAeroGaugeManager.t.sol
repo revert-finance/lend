@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 import "../../script/DeployAeroGaugeManagerLocal.s.sol";
-import "../mocks/AeroRootDeliveryFixture.sol";
 
 contract AeroDeploymentHarness is DeployAeroGaugeManagerLocal {
     function config() external view returns (Config memory) {
@@ -39,30 +38,6 @@ contract DeployAeroGaugeManagerTest is Test {
         manager.acceptOwnership();
         assertEq(manager.owner(), c.owner);
         assertEq(manager.pendingOwner(), address(0));
-    }
-
-    function testDeployPreflightAndBindingSupportRootSettlement() public {
-        DeployAeroGaugeManager.Config memory c = script.config();
-        RootSettlementFixture handler = new RootSettlementFixture(MockERC20Token(c.receiptToken));
-        RootTopologyFixture topology = new RootTopologyFixture(address(handler), c.receiptToken);
-        handler.setVoter(address(topology));
-        AeroGaugeFixture(c.gauges[0]).setVoter(address(topology));
-        script.validateConfig(c);
-        GaugeManager manager = script.run();
-        assertEq(manager.rootEmissionsHandler(), address(handler));
-        assertEq(manager.poolToGauge(c.pools[0]), c.gauges[0]);
-        assertEq(IAeroVaultSetup(c.vault).gaugeManager(), address(manager));
-    }
-
-    function testRootPreflightRejectsWrongPayoutTokenBeforeBinding() public {
-        DeployAeroGaugeManager.Config memory c = script.config();
-        RootSettlementFixture handler = new RootSettlementFixture(MockERC20Token(c.receiptToken));
-        RootTopologyFixture topology = new RootTopologyFixture(address(handler), address(0xBAD));
-        handler.setVoter(address(topology));
-        AeroGaugeFixture(c.gauges[0]).setVoter(address(topology));
-        vm.expectRevert(GaugeManager.UnsupportedRewardDelivery.selector);
-        script.run();
-        assertEq(IAeroVaultSetup(c.vault).gaugeManager(), address(0));
     }
 
     function testRejectsAlreadyBoundVault() public {

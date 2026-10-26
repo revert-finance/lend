@@ -48,7 +48,7 @@ State synchronization invariants:
 
 Gauge mapping is explicit owner-configured state:
 
-- `setGauge(pool, gauge)` requires `pool.gauge() == gauge`, `gauge.nft()` to be the vault's NPM and `gauge.pool() == pool`, and validated reward-delivery bindings: direct leaf receipts or synchronous local root AERO. Root validation follows the local adapter/orchestrator to the root voter's payout token; one manager uses one root handler. See `AeroRewardDelivery.validate` and `docs/aero-migration.md`.
+- `setGauge(pool, gauge)` requires `pool.gauge() == gauge`, `gauge.nft()` to be the vault's NPM and `gauge.pool() == pool`, and the gauge's voter and its `EMISSIONS_HANDLER` to deliver the manager's receipt token directly (`RECEIPT_TOKEN`/`LEAF_VOTER` bindings; a root redemption handler fails with `UnsupportedRewardDelivery`).
 - Every gauge ever configured stays in `knownGauges`, so deferred claims survive a pool's gauge replacement.
 - Unconfigured pools cannot be staked.
 - `V3Vault.setGaugeManager(gaugeManager)` is one-shot and irreversible; manager must be deployed for this vault.
@@ -61,8 +61,8 @@ Operationally this means new markets require admin gauge mapping before users ca
 Claim:
 
 - `claimRewards(tokenId, recipient)` exists only on `GaugeManager`, not on V3Vault.
-- GaugeManager claims from gauge and forwards the newly delivered reward-token amount to recipient; `positionRewards(tokenId)` shows the position's claimable amount net of upstream penalties.
-- Failed upstream mints on withdrawal remain recorded per `(gauge, batch, owner)` for `claimDeferredRewards`. Root sub-minimum rewards are separately owner-bound in `rootDeferredRewards` and claimed through `claimRootDeferredRewards`. Reserves include unfunded root entitlements; root-origin pending claims require enough AERO to cover all reserves (see `docs/aero-migration.md`).
+- GaugeManager claims from gauge and forwards newly claimed receipt-token amount to recipient; `positionRewards(tokenId)` shows the position's claimable amount net of upstream penalties.
+- Failed receipt mints on withdrawal are recorded per `(gauge, batch, owner)`; owners redeem them with `claimDeferredRewards` (see `docs/aero-migration.md`).
 
 Compound:
 
