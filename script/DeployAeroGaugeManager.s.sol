@@ -16,7 +16,8 @@ interface IAeroVaultSetup {
     function setGaugeManager(address manager) external;
 }
 
-/// @notice Deploys and wires ONLY the leaf-receipt gauge adapter into a fresh, separately prepared vault.
+/// @notice Deploys and wires ONLY the gauge adapter into a fresh, separately prepared vault. `AERO_RECEIPT_TOKEN` is
+/// the token the manager receives: the receipt token under leaf delivery, the root token under root redemption.
 /// @dev No launch addresses are assumed. See docs/aero-migration.md for inputs and validation limits.
 contract DeployAeroGaugeManager is Script {
     struct Config {
@@ -110,18 +111,31 @@ contract DeployAeroGaugeManager is Script {
         require(IAeroVaultSetup(c.vault).owner() == c.deployer, "deployer must own fresh vault");
         require(c.pools.length != 0 && c.pools.length == c.gauges.length, "invalid gauge lists");
         require(c.rewardBases.length == c.rewardPools.length, "invalid reward routes");
-        // Validate the supported settlement mode before broadcasting any deployment transaction.
+        // Validate the settlement mode of every gauge (mirrors GaugeManager.setGauge) before broadcasting anything:
+        // leaf delivery must deliver the configured reward token, root redemption must not redeem into it.
         for (uint256 i; i < c.gauges.length; ++i) {
             IAeroGauge gauge = IAeroGauge(c.gauges[i]);
             require(IAerodromeSlipstreamPool(c.pools[i]).gauge() == c.gauges[i], "pool gauge mismatch");
             require(gauge.nft() == c.npm && gauge.pool() == c.pools[i], "gauge binding mismatch");
             IAeroLeafVoter voter = IAeroLeafVoter(gauge.voter());
-            IAeroLeafEmissionsHandler handler = IAeroLeafEmissionsHandler(voter.EMISSIONS_HANDLER());
-            require(
-                voter.RECEIPT_TOKEN() == c.receiptToken && handler.RECEIPT_TOKEN() == c.receiptToken,
-                "unsupported reward delivery"
-            );
-            require(handler.LEAF_VOTER() == address(voter), "handler voter mismatch");
+            address handler = voter.EMISSIONS_HANDLER();
+            require(IAeroLeafEmissionsHandler(handler).LEAF_VOTER() == address(voter), "handler voter mismatch");
+            (bool leaf, bytes memory data) =
+                handler.staticcall(abi.encodeWithSelector(IAeroLeafEmissionsHandler.RECEIPT_TOKEN.selector));
+            if (leaf && data.length >= 32) {
+                require(
+                    voter.RECEIPT_TOKEN() == c.receiptToken && abi.decode(data, (address)) == c.receiptToken,
+                    "unsupported reward delivery"
+                );
+            } else {
+                (bool root, bytes memory pending) = handler.staticcall(
+                    abi.encodeWithSelector(IAeroRootEmissionsHandler.pendingRedeems.selector, address(0))
+                );
+                require(
+                    root && pending.length >= 32 && voter.RECEIPT_TOKEN() != c.receiptToken,
+                    "unsupported reward delivery"
+                );
+            }
         }
         // Mirror setRewardBasePool, including its zero-pool route removal semantics.
         for (uint256 i; i < c.rewardBases.length; ++i) {

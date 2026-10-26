@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 import "../../script/DeployAeroGaugeManagerLocal.s.sol";
+import {RootVoterFixture, ReceiptTokenFixture} from "../mocks/AeroDeliveryFixture.sol";
 
 contract AeroDeploymentHarness is DeployAeroGaugeManagerLocal {
     function config() external view returns (Config memory) {
@@ -90,6 +91,24 @@ contract DeployAeroGaugeManagerTest is Test {
         script.validateConfig(c);
         c.rewardBases[0] = c.receiptToken;
         vm.expectRevert(bytes("invalid reward base"));
+        script.validateConfig(c);
+    }
+
+    function testPreflightAcceptsRootRedemptionAndTheManagerRecordsTheHandler() public {
+        DeployAeroGaugeManager.Config memory c = script.config();
+        // a root chain's voter mints its own receipt token and redeems it into the configured reward token
+        RootVoterFixture voter = new RootVoterFixture(address(new ReceiptTokenFixture()), c.receiptToken);
+        AeroGaugeFixture(c.gauges[0]).setVoter(address(voter));
+        script.validateConfig(c);
+        GaugeManager manager = script.run();
+        assertEq(manager.rootHandlers(c.gauges[0]), voter.EMISSIONS_HANDLER());
+    }
+
+    function testPreflightRejectsRootRedemptionOfTheConfiguredToken() public {
+        DeployAeroGaugeManager.Config memory c = script.config();
+        RootVoterFixture voter = new RootVoterFixture(c.receiptToken, address(new MockERC20Token("AERO", "AERO")));
+        AeroGaugeFixture(c.gauges[0]).setVoter(address(voter));
+        vm.expectRevert(bytes("unsupported reward delivery"));
         script.validateConfig(c);
     }
 

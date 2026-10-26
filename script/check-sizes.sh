@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Size guard for V3Vault and AutoRangeAndCompound (EIP-170 runtime limit: 24,576 bytes).
+# Size guard for V3Vault, AutoRangeAndCompound and GaugeManager (EIP-170 runtime limit: 24,576 bytes).
 #
 # V3Vault's via-IR bytecode depends on the set of files compiled together with it, so the full build and the
 # source-only build (--skip test --skip script) give different sizes, and incremental builds give other numbers
@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 
 LIMIT="${V3VAULT_SIZE_LIMIT:-24320}"
 EIP170_LIMIT=24576
-CONTRACTS="V3Vault AutoRangeAndCompound"
+CONTRACTS="V3Vault AutoRangeAndCompound GaugeManager"
 status=0
 
 build_json() {

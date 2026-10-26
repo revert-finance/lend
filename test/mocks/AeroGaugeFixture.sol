@@ -9,9 +9,15 @@ interface IMintableToken {
     function mint(address to, uint256 amount) external;
 }
 
+interface IEmissionsVoter {
+    function mintEmissions(address[] calldata recipients, uint128[] calldata amounts) external;
+}
+
 /// @dev Aero CLGauge double with the claim-or-defer withdrawal semantics of the pinned upstream contract.
 /// Knobs model delivery outages (failed mints defer into the account bucket), retired deposits, withdrawal-time
-/// reward and fee payouts, and bookkeeping desyncs. The unmodified upstream bytecode is exercised separately.
+/// reward and fee payouts, and bookkeeping desyncs. Rewards are minted directly, or through the voter's
+/// mintEmissions like upstream (`mintsViaVoter`, for root-redemption handlers). The unmodified upstream bytecode
+/// is exercised separately.
 contract AeroGaugeFixture is IAeroGauge {
     address public override voter;
     address public immutable override gaugeFactory;
@@ -26,6 +32,7 @@ contract AeroGaugeFixture is IAeroGauge {
     bool public claimFails;
     bool public depositsDisabled;
     bool public withdrawClearsBucket;
+    bool public mintsViaVoter;
     uint256 public withdrawalReward;
     IMintableToken public feeToken;
     uint256 public feeAmount;
@@ -62,6 +69,10 @@ contract AeroGaugeFixture is IAeroGauge {
 
     function setWithdrawClearsBucket(bool value) external {
         withdrawClearsBucket = value;
+    }
+
+    function setMintsViaVoter(bool value) external {
+        mintsViaVoter = value;
     }
 
     function setReward(uint256 id, uint256 amount) external {
@@ -105,7 +116,7 @@ contract AeroGaugeFixture is IAeroGauge {
         }
         if (amount != 0) {
             require(!mintFails, "mint unavailable");
-            token.mint(recipient, amount);
+            _mint(recipient, amount);
         }
     }
 
@@ -117,8 +128,41 @@ contract AeroGaugeFixture is IAeroGauge {
         delete depositBlock[id];
         if (withdrawClearsBucket) delete deferredEmissions[msg.sender];
         if (mintFails) deferredEmissions[msg.sender] += amount;
-        else if (amount != 0) token.mint(msg.sender, amount);
+        else if (amount != 0) _mintOrDefer(msg.sender, amount);
         if (feeAmount != 0) feeToken.mint(msg.sender, feeAmount);
         IERC721(nft).safeTransferFrom(address(this), msg.sender, id);
+    }
+
+    function _mint(address recipient, uint256 amount) internal {
+        if (mintsViaVoter) {
+            (address[] memory recipients, uint128[] memory amounts) = _leg(recipient, amount);
+            IEmissionsVoter(voter).mintEmissions(recipients, amounts);
+        } else {
+            token.mint(recipient, amount);
+        }
+    }
+
+    /// @dev Upstream withdrawals wrap the voter mint in try/catch and defer the reward when it reverts.
+    function _mintOrDefer(address recipient, uint256 amount) internal {
+        if (mintsViaVoter) {
+            (address[] memory recipients, uint128[] memory amounts) = _leg(recipient, amount);
+            try IEmissionsVoter(voter).mintEmissions(recipients, amounts) {}
+            catch {
+                deferredEmissions[recipient] += amount;
+            }
+        } else {
+            token.mint(recipient, amount);
+        }
+    }
+
+    function _leg(address recipient, uint256 amount)
+        internal
+        pure
+        returns (address[] memory recipients, uint128[] memory amounts)
+    {
+        recipients = new address[](1);
+        recipients[0] = recipient;
+        amounts = new uint128[](1);
+        amounts[0] = uint128(amount);
     }
 }

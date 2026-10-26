@@ -5,7 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {GaugeManager} from "../../src/GaugeManager.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {LeafDeliveryFixture, LeafVoterFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {
+    LeafDeliveryFixture, LeafVoterFixture, RootVoterFixture, ReceiptTokenFixture
+} from "../mocks/AeroDeliveryFixture.sol";
 import {AeroGaugeFixture} from "../mocks/AeroGaugeFixture.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
@@ -306,9 +308,21 @@ contract AeroGaugeManagerTest is Test {
         assertTrue(manager.knownGauges(address(gauge)));
     }
 
-    function testRejectsRootRedemptionHandler() public {
+    function testRootRedemptionHandlerIsAcceptedOnlyWhenItRedeemsIntoTheRewardToken() public {
+        // a root chain's voter mints its own receipt token and redeems it into this manager's reward token
+        RootVoterFixture rootVoter = new RootVoterFixture(address(new ReceiptTokenFixture()), address(token));
+        gauge.setVoter(address(rootVoter));
+        manager.setGauge(address(pool), address(gauge));
+        assertEq(manager.rootHandlers(address(gauge)), rootVoter.EMISSIONS_HANDLER());
+
+        // a root handler that burns this manager's token on redeem can never deliver it
+        gauge.setVoter(address(new RootVoterFixture(address(token), address(usdc))));
+        vm.expectRevert(GaugeManager.UnsupportedRewardDelivery.selector);
+        manager.setGauge(address(pool), address(gauge));
+
+        // a handler that is not bound to the gauge's voter is rejected whatever its shape
         gauge.setVoter(address(new DeliveryConfigFixture(address(token), address(new RootDeliveryFixture()))));
-        vm.expectRevert();
+        vm.expectRevert(GaugeManager.UnsupportedRewardDelivery.selector);
         manager.setGauge(address(pool), address(gauge));
     }
 

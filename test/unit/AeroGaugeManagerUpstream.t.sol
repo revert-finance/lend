@@ -9,7 +9,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {Constants} from "../../src/utils/Constants.sol";
 import {MockNPM, MockVault, MockPool, MockSlipstreamFactory, MockERC20Token} from "./GaugeManager.t.sol";
-import {LeafVoterFixture, AeroGaugeFactoryFixture} from "../mocks/AeroDeliveryFixture.sol";
+import {
+    LeafVoterFixture,
+    AeroGaugeFactoryFixture,
+    RootVoterFixture,
+    RootHandlerFixture,
+    ReceiptTokenFixture
+} from "../mocks/AeroDeliveryFixture.sol";
 
 interface IInitializeGauge {
     function initialize(address, address, address, address, int24, bool) external;
@@ -275,5 +281,123 @@ contract AeroGaugeManagerUpstreamTest is Test {
         vm.prank(address(vault));
         vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
         manager.compoundRewards(1, 0, 10_000, block.timestamp);
+    }
+}
+
+/// @dev The pinned upstream CLGauge bytecode in front of a root-chain voter: its claim-or-defer withdrawal and its
+/// claim both mint through the voter into the root handler, which parks sub-floor legs and redeems the rest into the
+/// root token.
+contract AeroGaugeManagerUpstreamRootTest is Test {
+    uint256 constant Q128 = 1 << 128;
+    address constant ALICE = address(0xA11CE);
+    address constant BOB = address(0xB0B);
+    ReceiptTokenFixture receipt;
+    MockERC20Token aero;
+    MockERC20Token usdc;
+    CollectingNPMFixture npm;
+    MockVault vault;
+    RewardGrowthPoolFixture pool;
+    RootVoterFixture voter;
+    RootHandlerFixture handler;
+    AeroGaugeFactoryFixture config;
+    IAeroGauge gauge;
+    GaugeManager manager;
+
+    function setUp() public {
+        receipt = new ReceiptTokenFixture();
+        aero = new MockERC20Token("AERO", "AERO");
+        usdc = new MockERC20Token("USDC", "USDC");
+        MockSlipstreamFactory factory = new MockSlipstreamFactory();
+        pool = new RewardGrowthPoolFixture(address(aero), address(usdc));
+        factory.setPool(address(aero), address(usdc), 100, address(pool));
+        npm = new CollectingNPMFixture(address(factory), address(usdc));
+        vault = new MockVault();
+        voter = new RootVoterFixture(address(receipt), address(aero));
+        voter.setMinRedeemAmount(150); // position 1 earns 100 at growth 10, position 2 earns 120 at growth 12
+        handler = RootHandlerFixture(voter.EMISSIONS_HANDLER());
+        config = new AeroGaugeFactoryFixture();
+        gauge = IAeroGauge(
+            deployCode(
+                "fixtures/upstream-gauge/out/CLGauge.sol/CLGauge.json",
+                abi.encode(address(voter), address(npm), address(config))
+            )
+        );
+        address token0 = pool.token0();
+        address token1 = pool.token1();
+        vm.prank(address(config));
+        IInitializeGauge(address(gauge)).initialize(address(pool), address(0), token0, token1, 100, true);
+        pool.setGauge(address(gauge));
+        manager = new GaugeManager(
+            INonfungiblePositionManager(address(npm)), IERC20(address(aero)), IVault(address(vault)), address(0), address(0)
+        );
+        manager.setGauge(address(pool), address(gauge));
+        assertEq(manager.rootHandlers(address(gauge)), address(handler));
+        _stake(1, ALICE);
+        _stake(2, BOB);
+    }
+
+    function _stake(uint256 id, address owner) private {
+        npm.setPosition(id, address(aero), address(usdc), 100, -60, 60, 10);
+        npm.mint(address(vault), id);
+        vault.setOwner(id, owner);
+        vm.startPrank(address(vault));
+        npm.approve(address(manager), id);
+        manager.stakePosition(id);
+        vm.stopPrank();
+    }
+
+    function _withdraw(uint256 id) private {
+        vm.prank(address(vault));
+        manager.unstakePosition(id);
+    }
+
+    function testUpstreamRootSubFloorExitParksAndALaterClaimFundsBothOwners() public {
+        pool.setGrowth(10 * Q128);
+        _withdraw(1);
+        assertEq(npm.ownerOf(1), address(vault));
+        assertEq(handler.pendingRedeems(address(manager)), 100, "upstream withdraw minted a sub-floor leg");
+        assertEq(receipt.balanceOf(address(handler)), 100);
+        assertEq(manager.pendingClaims(address(handler), 0, ALICE), 100);
+        assertEq(aero.balanceOf(ALICE), 0);
+        assertEq(gauge.deferredEmissions(address(manager)), 0, "nothing was deferred at the gauge");
+
+        pool.setGrowth(12 * Q128);
+        vm.prank(BOB);
+        assertEq(manager.claimRewards(2, BOB), 120, "Bob is paid his own claim only");
+        assertEq(aero.balanceOf(BOB), 120);
+        assertEq(receipt.totalSupply(), 0, "the flushed receipts were burned");
+        assertEq(manager.reservedRewards(), 100);
+        assertEq(manager.currentPendingBatch(address(handler)), 1);
+
+        vm.prank(ALICE);
+        assertEq(manager.claimPendingRewards(address(handler), 0, ALICE), 100);
+        assertEq(aero.balanceOf(ALICE), 100);
+        assertEq(manager.reservedRewards(), 0);
+    }
+
+    function testUpstreamRootRecoveryParksTheDeferredBatchUntilAFlush() public {
+        pool.setGrowth(10 * Q128);
+        voter.setMintFails(true);
+        _withdraw(1);
+        assertEq(gauge.deferredEmissions(address(manager)), 100);
+        assertEq(manager.deferredClaims(address(gauge), 0, ALICE), 100);
+        voter.setMintFails(false);
+
+        manager.recoverDeferredRewards(address(gauge));
+        assertEq(gauge.deferredEmissions(address(manager)), 0);
+        assertEq(manager.deferredBatchPendingIn(address(gauge), 0), 1, "recovered into pending batch 0");
+        assertEq(handler.pendingRedeems(address(manager)), 100);
+        vm.prank(ALICE);
+        vm.expectRevert(GaugeManager.PendingRedeemNotFunded.selector);
+        manager.claimDeferredRewards(address(gauge), 0, ALICE);
+
+        pool.setGrowth(12 * Q128);
+        vm.prank(BOB);
+        assertEq(manager.claimRewards(2, BOB), 120);
+        vm.prank(ALICE);
+        assertEq(manager.claimDeferredRewards(address(gauge), 0, ALICE), 100);
+        assertEq(aero.balanceOf(ALICE), 100);
+        assertEq(aero.balanceOf(BOB), 120);
+        assertEq(manager.reservedRewards(), 0);
     }
 }

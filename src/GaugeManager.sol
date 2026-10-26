@@ -22,8 +22,13 @@ import "./utils/Swapper.sol";
 /// @notice Vault-only Aero staking adapter. Deferred rewards belong to the economic owner at withdrawal.
 /// @dev A batch comprises one gauge's deferrals since its previous successful recovery. Recovery funds
 /// all claims in that batch without iterating owners. Claims survive NFT removal, transfer and liquidation.
-/// Only direct LeafEmissionsHandler delivery is supported: `aeroToken` is the local RECEIPT_TOKEN,
-/// NOT the legacy or root AERO token. RootEmissionsHandler's pendingRedeems need a separate adapter.
+/// Two reward deliveries are supported, told apart per gauge from its voter's emissions handler at registration:
+/// - leaf delivery (LeafEmissionsHandler): every claim transfers the receipt token; `aeroToken` is that RECEIPT_TOKEN;
+/// - root redemption (RootEmissionsHandler): the handler redeems claims into the root token, which is `aeroToken`
+///   there, but keeps a claim below the voter's MIN_REDEEM_AMOUNT in `pendingRedeems[manager]` until a later claim of
+///   any position lifts the total over the floor and pays it all out at once. That bucket is one liability shared by
+///   every owner this manager stakes for, so parked claims are recorded per (handler, pending batch, owner) and the
+///   flush funds the whole batch without iterating owners, like deferred batches (see `claimPendingRewards`).
 /// Configured gauges and the immutable vault/token/NPM are trusted protocol dependencies.
 contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper, IGaugeManager {
     using SafeERC20 for IERC20;
@@ -53,6 +58,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     error OnlySelf();
     error NoDeferredClaim();
     error UnsupportedRewardDelivery();
+    error NoPendingClaim();
+    error PendingRedeemNotFunded();
 
     mapping(address => bool) public knownGauges;
     /// @dev Batches below the cursor are recovered and funded; the batch at the cursor is still collecting.
@@ -60,7 +67,20 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     mapping(address => mapping(uint256 => uint256)) public deferredBatches;
     mapping(address => mapping(uint256 => mapping(address => uint256))) public deferredClaims;
 
-    /// @notice Receipt tokens already recovered but owed to users; excluded from admin withdrawals and new claims.
+    /// @dev Root redemption: the voter's RootEmissionsHandler of a gauge (zero = leaf delivery). Its pending bucket
+    /// for this manager is shared by every gauge of that voter, so pending batches are keyed by handler.
+    mapping(address => address) public rootHandlers;
+    /// @dev Pending batches below the cursor were flushed (paid to this manager and reserved); the batch at the cursor
+    /// is what the handler still holds in `pendingRedeems[manager]`.
+    mapping(address => uint256) public currentPendingBatch;
+    mapping(address => mapping(uint256 => uint256)) public pendingBatches;
+    mapping(address => mapping(uint256 => mapping(address => uint256))) public pendingClaims;
+    /// @dev A deferred batch whose recovery the root handler parked: index of that pending batch + 1 (zero = paid
+    /// out at recovery). Its claims are payable once the pending batch is flushed.
+    mapping(address => mapping(uint256 => uint256)) public deferredBatchPendingIn;
+
+    /// @notice Reward tokens already recovered or flushed but owed to users; excluded from admin withdrawals and
+    /// new claims.
     uint256 public reservedRewards;
 
     event DeferredRewardRecorded(
@@ -70,6 +90,17 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     event DeferredBatchOutOfSync(address indexed gauge, uint256 indexed batch, uint256 recorded, uint256 upstream);
     event DeferredRewardsClaimed(
         address indexed gauge, uint256 indexed batch, address indexed owner, address recipient, uint256 amount
+    );
+    event PendingRedeemRecorded(
+        address indexed handler, uint256 indexed batch, address indexed owner, uint256 tokenId, uint256 amount
+    );
+    event DeferredBatchParked(
+        address indexed gauge, uint256 indexed batch, address indexed handler, uint256 pendingBatch, uint256 amount
+    );
+    event PendingRedeemsFlushed(address indexed handler, uint256 indexed batch, uint256 amount);
+    event PendingBatchOutOfSync(address indexed handler, uint256 indexed batch, uint256 recorded, uint256 upstream);
+    event PendingRedeemsClaimed(
+        address indexed handler, uint256 indexed batch, address indexed owner, address recipient, uint256 amount
     );
 
     struct CompoundState {
@@ -132,13 +163,29 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             revert InvalidPool();
         }
         address voter = IAeroGauge(gauge).voter();
-        IAeroLeafVoter leafVoter = IAeroLeafVoter(voter);
-        IAeroLeafEmissionsHandler handler = IAeroLeafEmissionsHandler(leafVoter.EMISSIONS_HANDLER());
-        // RootEmissionsHandler deliberately has no RECEIPT_TOKEN getter, so it cannot pass this check.
-        if (
-            leafVoter.RECEIPT_TOKEN() != address(aeroToken) || handler.RECEIPT_TOKEN() != address(aeroToken)
-                || handler.LEAF_VOTER() != voter
-        ) revert UnsupportedRewardDelivery();
+        address handler = IAeroLeafVoter(voter).EMISSIONS_HANDLER();
+        if (IAeroLeafEmissionsHandler(handler).LEAF_VOTER() != voter) revert UnsupportedRewardDelivery();
+        // The handler's shape tells the deliveries apart: only the leaf handler has a RECEIPT_TOKEN getter, only the
+        // root handler a pendingRedeems bucket. These getters do not authenticate bytecode; the deployed sources are
+        // verified before a gauge is configured.
+        (success, data) = handler.staticcall(abi.encodeWithSelector(IAeroLeafEmissionsHandler.RECEIPT_TOKEN.selector));
+        if (success && data.length >= 32) {
+            // leaf delivery: the receipt token the voter mints and the handler forwards is this manager's token
+            if (
+                IAeroLeafVoter(voter).RECEIPT_TOKEN() != address(aeroToken)
+                    || abi.decode(data, (address)) != address(aeroToken)
+            ) revert UnsupportedRewardDelivery();
+            delete rootHandlers[gauge];
+        } else {
+            // root redemption: claims are redeemed into the root token, the receipt token is never delivered here
+            (success, data) = handler.staticcall(
+                abi.encodeWithSelector(IAeroRootEmissionsHandler.pendingRedeems.selector, address(this))
+            );
+            if (!success || data.length < 32 || IAeroLeafVoter(voter).RECEIPT_TOKEN() == address(aeroToken)) {
+                revert UnsupportedRewardDelivery();
+            }
+            rootHandlers[gauge] = handler;
+        }
         // Keep previous gauges registered: their deferred claims survive a pool's gauge replacement.
         knownGauges[gauge] = true;
 
@@ -300,7 +347,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (recipient == address(0)) {
             recipient = owner;
         }
-        aeroAmount = _claimAndSendRewards(gauge, tokenId, recipient);
+        aeroAmount = _claimAndSendRewards(gauge, tokenId, owner, recipient);
         emit RewardsClaimed(tokenId, owner, aeroAmount);
     }
 
@@ -363,7 +410,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         state.positionPool = _getPool(state.token0, state.token1, feeOrTickSpacing);
         state.owner = owner;
 
-        state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId);
+        state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId, state.owner);
         if (state.aeroAmount < minAeroReward) {
             revert NotEnoughReward();
         }
@@ -420,7 +467,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     }
 
     /// @notice Redeem the caller's entitlement from a specific batch, even after leaving the vault.
-    /// @dev Recover an unfunded current batch first. Failure here cannot block a separate principal exit.
+    /// @dev Recover an unfunded current batch first. Failure here cannot block a separate principal exit. Under root
+    /// redemption a recovery can park the batch instead of paying it: then `recoverDeferredRewards` separately and
+    /// claim once that pending batch has flushed.
     function claimDeferredRewards(address gauge, uint256 batch, address recipient)
         external
         nonReentrant
@@ -431,10 +480,30 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (amount == 0) revert NoDeferredClaim();
         // A claim only exists at or below the cursor, so this recovers the open batch or reverts.
         if (batch >= currentDeferredBatch[gauge]) _recoverDeferredRewards(gauge);
+        uint256 parkedIn = deferredBatchPendingIn[gauge][batch];
+        if (parkedIn != 0 && parkedIn > currentPendingBatch[rootHandlers[gauge]]) revert PendingRedeemNotFunded();
         delete deferredClaims[gauge][batch][msg.sender];
         reservedRewards -= amount;
         aeroToken.safeTransfer(recipient, amount);
         emit DeferredRewardsClaimed(gauge, batch, msg.sender, recipient, amount);
+    }
+
+    /// @notice Root redemption: redeem the caller's share of a flushed pending batch, even after leaving the vault.
+    /// @dev A batch is funded once a later claim of any position lifted the handler's bucket over the floor; nothing
+    /// here can force that flush, so an unfunded batch reverts.
+    function claimPendingRewards(address handler, uint256 batch, address recipient)
+        external
+        nonReentrant
+        returns (uint256 amount)
+    {
+        if (recipient == address(0)) revert InvalidConfig();
+        amount = pendingClaims[handler][batch][msg.sender];
+        if (amount == 0) revert NoPendingClaim();
+        if (batch >= currentPendingBatch[handler]) revert PendingRedeemNotFunded();
+        delete pendingClaims[handler][batch][msg.sender];
+        reservedRewards -= amount;
+        aeroToken.safeTransfer(recipient, amount);
+        emit PendingRedeemsClaimed(handler, batch, msg.sender, recipient, amount);
     }
 
     /// @notice Position earnings only. Aero's raw singleton earned() also includes account-wide deferrals.
@@ -464,22 +533,33 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (IAeroGauge(gauge).deferredEmissions(address(this)) != amount) revert DeferredAccountingMismatch();
         if (amount == 0) return 0;
 
+        address handler = rootHandlers[gauge];
+        uint256 pendingBefore = _pendingRedeemsBefore(handler);
         uint256 beforeBalance = aeroToken.balanceOf(address(this));
         IAeroGauge(gauge).claimEmissions(address(this), address(this), new uint256[](0));
-        if (
-            IAeroGauge(gauge).deferredEmissions(address(this)) != 0
-                || aeroToken.balanceOf(address(this)) - beforeBalance != amount
-        ) revert DeferredAccountingMismatch();
-        reservedRewards += amount;
+        if (IAeroGauge(gauge).deferredEmissions(address(this)) != 0) revert DeferredAccountingMismatch();
+        uint256 received = aeroToken.balanceOf(address(this)) - beforeBalance;
+        (uint256 parked, uint256 flushed) = _settlePendingRedeems(handler, pendingBefore);
+        if (parked != 0) {
+            // the root handler parked the whole batch: its owners are paid once that pending batch flushes
+            if (parked != amount || received != 0) revert DeferredAccountingMismatch();
+            uint256 pendingBatch = currentPendingBatch[handler];
+            pendingBatches[handler][pendingBatch] += amount;
+            deferredBatchPendingIn[gauge][batch] = pendingBatch + 1;
+            emit DeferredBatchParked(gauge, batch, handler, pendingBatch, amount);
+        } else {
+            if (received < flushed || received - flushed != amount) revert DeferredAccountingMismatch();
+            reservedRewards += amount;
+        }
         currentDeferredBatch[gauge] = batch + 1;
         emit DeferredRewardsRecovered(gauge, batch, amount);
     }
 
-    function _claimAndSendRewards(address gauge, uint256 tokenId, address recipient)
+    function _claimAndSendRewards(address gauge, uint256 tokenId, address owner, address recipient)
         internal
         returns (uint256 aeroAmount)
     {
-        aeroAmount = _claimRewardsToSelf(gauge, tokenId);
+        aeroAmount = _claimRewardsToSelf(gauge, tokenId, owner);
         _sendAeroIfAny(recipient, aeroAmount);
     }
 
@@ -490,6 +570,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         if (deferredBefore != deferredBatches[gauge][batch]) {
             emit DeferredBatchOutOfSync(gauge, batch, deferredBatches[gauge][batch], deferredBefore);
         }
+        address handler = rootHandlers[gauge];
+        uint256 pendingBefore = _pendingRedeemsBefore(handler);
 
         (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
@@ -505,8 +587,18 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             emit DeferredRewardRecorded(gauge, batch, owner, tokenId, newlyDeferred);
         }
 
+        // Root redemption: a sub-floor reward stays with the handler, recorded for this owner; a flush of earlier
+        // claims arrived with this withdrawal and is reserved for their owners, never part of this owner's deltas.
+        (uint256 parked, uint256 flushed) = _settlePendingRedeems(handler, pendingBefore);
+        if (parked != 0) _recordPendingRedeem(handler, owner, tokenId, parked);
+        if (flushed != 0) {
+            if (token0 == address(aeroToken)) token0Before += flushed;
+            else if (token1 == address(aeroToken)) token1Before += flushed;
+            else aeroBefore += flushed;
+        }
+
         // Aero withdraw can both mint rewards and collect NPM fees. Neither is protocol dust.
-        // The receipt token may itself be a pool token: forward that balance delta once, never twice.
+        // The reward token may itself be a pool token: forward that balance delta once, never twice.
         _sendDepositDeltas(token0, token1, owner, token0Before, token1Before);
         if (token0 != address(aeroToken) && token1 != address(aeroToken)) {
             uint256 aeroAfter = aeroToken.balanceOf(address(this));
@@ -514,15 +606,65 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
-    function _claimRewardsToSelf(address gauge, uint256 tokenId) internal returns (uint256 aeroAmount) {
+    /// @dev Claims one position to this manager and returns what that claim delivered. Under root redemption a
+    /// sub-floor claim delivers nothing and is recorded for `owner`, and a flush of earlier claims is reserved for
+    /// their owners instead of being attributed to this position.
+    function _claimRewardsToSelf(address gauge, uint256 tokenId, address owner) internal returns (uint256 aeroAmount) {
         // Empty-NFT recovery isolates all previous owners' rewards before measuring this position's delta.
         _recoverDeferredRewards(gauge);
+        address handler = rootHandlers[gauge];
+        uint256 pendingBefore = _pendingRedeemsBefore(handler);
         uint256 aeroBefore = aeroToken.balanceOf(address(this));
         uint256[] memory ids = new uint256[](1);
         ids[0] = tokenId;
         IAeroGauge(gauge).claimEmissions(address(this), address(this), ids);
         if (IAeroGauge(gauge).deferredEmissions(address(this)) != 0) revert DeferredAccountingMismatch();
         aeroAmount = aeroToken.balanceOf(address(this)) - aeroBefore;
+        (uint256 parked, uint256 flushed) = _settlePendingRedeems(handler, pendingBefore);
+        if (parked != 0) _recordPendingRedeem(handler, owner, tokenId, parked);
+        aeroAmount -= flushed;
+    }
+
+    /// @dev Root redemption only: the handler's pending bucket for this manager before a gauge call. A bucket that
+    /// disagrees with the open pending batch is surfaced, never blocking; a flush reserves what really arrived.
+    function _pendingRedeemsBefore(address handler) internal returns (uint256 pending) {
+        if (handler == address(0)) return 0;
+        pending = IAeroRootEmissionsHandler(handler).pendingRedeems(address(this));
+        uint256 batch = currentPendingBatch[handler];
+        if (pending != pendingBatches[handler][batch]) {
+            emit PendingBatchOutOfSync(handler, batch, pendingBatches[handler][batch], pending);
+        }
+    }
+
+    /// @dev Root redemption only: settles the one leg a gauge call minted for this manager. `parked` is what that leg
+    /// left in the bucket (owed to the call's beneficiary); `flushed` is what the leg redeemed of earlier legs: those
+    /// tokens arrived with the call, are reserved for the pending batch's owners and close that batch.
+    function _settlePendingRedeems(address handler, uint256 pendingBefore)
+        internal
+        returns (uint256 parked, uint256 flushed)
+    {
+        if (handler == address(0)) return (0, 0);
+        uint256 pendingAfter = IAeroRootEmissionsHandler(handler).pendingRedeems(address(this));
+        if (pendingAfter > pendingBefore) {
+            parked = pendingAfter - pendingBefore;
+        } else if (pendingAfter < pendingBefore) {
+            flushed = pendingBefore - pendingAfter;
+            uint256 batch = currentPendingBatch[handler];
+            // Reserve the batch's recorded claims out of what arrived; a bucket this manager never recorded (desync)
+            // stays unowned surplus instead of locking tokens nobody can claim.
+            uint256 recorded = pendingBatches[handler][batch];
+            reservedRewards += flushed < recorded ? flushed : recorded;
+            // the pinned handler always redeems the whole bucket; a partial flush (another handler) keeps the batch open
+            if (pendingAfter == 0) currentPendingBatch[handler] = batch + 1;
+            emit PendingRedeemsFlushed(handler, batch, flushed);
+        }
+    }
+
+    function _recordPendingRedeem(address handler, address owner, uint256 tokenId, uint256 amount) internal {
+        uint256 batch = currentPendingBatch[handler];
+        pendingBatches[handler][batch] += amount;
+        pendingClaims[handler][batch][owner] += amount;
+        emit PendingRedeemRecorded(handler, batch, owner, tokenId, amount);
     }
 
     function _requireVaultCaller() internal view {

@@ -48,7 +48,7 @@ State synchronization invariants:
 
 Gauge mapping is explicit owner-configured state:
 
-- `setGauge(pool, gauge)` requires `pool.gauge() == gauge`, `gauge.nft()` to be the vault's NPM and `gauge.pool() == pool`, and the gauge's voter and its `EMISSIONS_HANDLER` to deliver the manager's receipt token directly (`RECEIPT_TOKEN`/`LEAF_VOTER` bindings; a root redemption handler fails with `UnsupportedRewardDelivery`).
+- `setGauge(pool, gauge)` requires `pool.gauge() == gauge`, `gauge.nft()` to be the vault's NPM and `gauge.pool() == pool`, and the voter's `EMISSIONS_HANDLER` to be bound to that voter (`LEAF_VOTER`) and to deliver the manager's reward token: a leaf handler must forward `aeroToken` as its `RECEIPT_TOKEN`, a root handler (`pendingRedeems`, no `RECEIPT_TOKEN`) must not redeem `aeroToken` itself. Anything else fails with `UnsupportedRewardDelivery`. A detected root handler is kept in `rootHandlers[gauge]`.
 - Every gauge ever configured stays in `knownGauges`, so deferred claims survive a pool's gauge replacement.
 - Unconfigured pools cannot be staked.
 - `V3Vault.setGaugeManager(gaugeManager)` is one-shot and irreversible; manager must be deployed for this vault.
@@ -63,6 +63,7 @@ Claim:
 - `claimRewards(tokenId, recipient)` exists only on `GaugeManager`, not on V3Vault.
 - GaugeManager claims from gauge and forwards newly claimed receipt-token amount to recipient; `positionRewards(tokenId)` shows the position's claimable amount net of upstream penalties.
 - Failed receipt mints on withdrawal are recorded per `(gauge, batch, owner)`; owners redeem them with `claimDeferredRewards` (see `docs/aero-migration.md`).
+- Under root redemption a claim below the voter's `MIN_REDEEM_AMOUNT` is parked in the handler's shared `pendingRedeems[manager]` bucket and recorded per `(handler, pending batch, owner)`; the claim that later lifts the bucket over the floor funds the whole batch, and owners redeem their share with `claimPendingRewards`. A parked compound compounds nothing and keeps the position staked.
 
 Compound:
 
@@ -128,3 +129,5 @@ If docs conflict, verify ABI in:
 - `test/integration/aerodrome/GaugeManagerVulnerability.t.sol`
 - `test/integration/aerodrome/GaugeManagerAutoCompound.t.sol`
 - `test/atlas/AtlasTransitions.t.sol`
+- `test/unit/AeroGaugeManager.t.sol`, `test/unit/AeroGaugeManagerRoot.t.sol` (deferred and pending-redeem accounting against the gauge double)
+- `test/unit/AeroGaugeManagerUpstream.t.sol` (the pinned upstream CLGauge bytecode, leaf and root delivery)

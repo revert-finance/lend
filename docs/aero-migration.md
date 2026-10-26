@@ -20,19 +20,30 @@ manager implementation. Compare it against the deployed Aerodrome baseline with:
 git diff ff9e75afbdd9af847e5a5c026466e179027da490 -- src/GaugeManager.sol src/interfaces/aero/IAeroGauge.sol
 ```
 
-`GaugeManager` supports the direct **leaf receipt-token** delivery path only.
-Its inherited `aeroToken` getter refers to the local `RECEIPT_TOKEN`, not the old
-AERO token or necessarily the root token. The manager checks the gauge's NPM,
-pool, voter receipt token, and handler receipt-token/voter bindings when registering
-a gauge. These getter checks do not authenticate arbitrary bytecode: configured
-gauges, immutable voters/handlers, NPM, token and vault remain trusted dependencies
-whose deployed source must be verified before launch.
+`GaugeManager` supports both deliveries of the Aero emissions handler and tells
+them apart per gauge when it is registered, from the shape of the voter's
+`EMISSIONS_HANDLER` (`rootHandlers[gauge]` is zero for leaf delivery):
 
-The root handler automatically redeems receipts and can accumulate sub-minimum
-amounts in `pendingRedeems[recipient]`. That is an additional shared-recipient
-liability which this adapter does not handle. Root handlers are rejected during
-registration and script preflight. Do not remove that check to force deployment.
-Final Base settlement mode and addresses remain unverified.
+- **Leaf delivery** (`LeafEmissionsHandler`, leaf chains): every claim transfers
+  the local `RECEIPT_TOKEN` to the manager; `aeroToken` must be that token.
+- **Root redemption** (`RootEmissionsHandler`, the root chain): the voter mints
+  the receipt token to the handler, which redeems it synchronously into the root
+  token through `LeafVoter.redeem` (the local adapter, no fee); `aeroToken` must
+  be that root token, never the receipt token, which is burned. A claim below
+  `LeafVoter.MIN_REDEEM_AMOUNT` (a constant, 1,000,000 raw units at the pinned
+  snapshot) is not paid but kept in `pendingRedeems[manager]` until a later claim
+  of any position staked through this manager lifts the total over the floor,
+  which pays the whole total at once (see "Accounting and exits", item 6).
+
+The manager checks the gauge's NPM, pool and the handler/voter bindings when
+registering a gauge. These getter checks do not authenticate arbitrary bytecode:
+configured gauges, immutable voters/handlers, NPM, token and vault remain trusted
+dependencies whose deployed source must be verified before launch.
+
+Final Base settlement mode and addresses remain unverified against live state.
+The deployment preflight (`script/DeployAeroGaugeManager.s.sol`) applies the same
+detection and rejects a root handler whose voter would redeem the configured
+token itself.
 
 Primary source snapshots:
 
@@ -60,11 +71,32 @@ Primary source snapshots:
 5. Compounding only spends the selected position's newly claimed tokens. Admin
    sweeps subtract `reservedRewards`. Withdrawal-time rewards and NPM fee deltas
    go to the withdrawing owner, counting a receipt/pool-token overlap once.
+6. Root redemption: a claim or withdrawal leg below the floor stays in the
+   handler's `pendingRedeems[manager]`, one bucket shared by every owner this
+   manager stakes for and by every gauge of that voter. The manager records it
+   per `(handler, pending batch, owner)`. The leg that later lifts the bucket
+   over the floor delivers the whole batch together with its own payout; the
+   manager reserves the batch's recorded claims out of that delivery and closes
+   the batch (`currentPendingBatch`), so the triggering position is paid, or
+   compounds, only its own reward. Owners redeem their share with
+   `claimPendingRewards(handler, batch, recipient)` once the batch is flushed;
+   nothing can force a flush, so an unfunded batch reverts with
+   `PendingRedeemNotFunded`. A deferred batch (item 2) whose recovery is parked
+   the same way is payable once its pending batch flushes
+   (`deferredBatchPendingIn`): `claimDeferredRewards` reverts until then, so
+   recover it with `recoverDeferredRewards` and claim after the flush. A compound
+   whose claim is parked compounds nothing and keeps the position staked (the
+   reward is recorded, not lost); the strict variants revert below
+   `minAeroReward` as before. A bucket the manager never recorded is surfaced by
+   `PendingBatchOutOfSync` on every operation, never blocks an exit, and its
+   flush stays unowned, sweepable surplus.
 
 `positionRewards(tokenId)` removes account-wide deferrals from the upstream
 singleton earnings value. Indexers should track `DeferredRewardRecorded`,
-`DeferredRewardsRecovered`, and `DeferredRewardsClaimed`; batch/owner mappings
-remain available after the NFT exits and after a pool's gauge is replaced.
+`DeferredRewardsRecovered`, `DeferredRewardsClaimed`, `DeferredBatchParked`,
+`PendingRedeemRecorded`, `PendingRedeemsFlushed` and `PendingRedeemsClaimed`;
+batch/owner mappings remain available after the NFT exits and after a pool's
+gauge is replaced.
 No frontend, indexer, keeper, or claim UI has been wired in this slice.
 
 Claim-on-withdraw does not guarantee an exit through every upstream failure.
@@ -280,7 +312,7 @@ ownership transfer. It does not deploy the replacement oracle, vault or automato
 | `AERO_DEPLOYER` | Signing address; must own the fresh, unbound vault |
 | `AERO_NPM` | Verified new Aero NPM; unresolved. Legacy `0x827922686190790b37229fd06084350e74485b72` is not a substitute |
 | `AERO_FACTORY` | Verified new NPM factory; unresolved. Legacy `0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a` is not a substitute |
-| `AERO_RECEIPT_TOKEN` | Verified local receipt token; unresolved. Do not use legacy `0x940181a94a35a4569e4529a3cdfb74e38fd98631` |
+| `AERO_RECEIPT_TOKEN` | The token the manager receives: the local receipt token under leaf delivery, the root token `Voter.processRedeem` pays under root redemption; unresolved. Do not use legacy `0x940181a94a35a4569e4529a3cdfb74e38fd98631` |
 | `AERO_NEW_VAULT` | Fresh vault bound to that NPM with `gaugeManager() == 0`; not any existing Aerodrome vault |
 | `AERO_OWNER` | Chosen governance owner; must accept ownership after deployment |
 | `AERO_WITHDRAWER` | Chosen address allowed to sweep surplus, excluding user reserves |
@@ -385,8 +417,10 @@ If a live broadcast is interrupted, work from `protocols/lend`:
 
 ## Remaining migration work
 
-- Confirm final Base handler/token/addresses and deployment blocks. If Base uses
-  root redemption, implement and test an adapter for that settlement mode.
+- Confirm final Base handler/token/addresses and deployment blocks on a Base
+  fork, including the voter's `MIN_REDEEM_AMOUNT` and the token
+  `Voter.processRedeem` pays. Both settlement modes are implemented and tested
+  against fixtures and the pinned CLGauge bytecode, not against live Base state.
 - Full-stack target fork: real vault remove, liquidation and transformations;
   actual core delivery, caps, retirement and minimum-stake boundary behavior.
 - Legacy retirement fork tests and refreshed exposure inventory for all three

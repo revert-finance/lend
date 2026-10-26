@@ -21,13 +21,26 @@ interface IAeroGaugeFactory {
     function effectivePenaltyConfig(address gauge) external view returns (uint256 minStakeBlocks, uint256 penaltyRate);
 }
 
-/// @dev Core snapshot 0058bd9b1d49b0fb0a6d130dd51886b2c64e3d99; direct leaf delivery only.
+/// @dev Core snapshot 0058bd9b1d49b0fb0a6d130dd51886b2c64e3d99. The voter mints the receipt token to its
+/// EMISSIONS_HANDLER, which either delivers it to the recipients (LeafEmissionsHandler, leaf chains) or redeems it into
+/// the root token (RootEmissionsHandler, root chain).
 interface IAeroLeafVoter {
     function RECEIPT_TOKEN() external view returns (address);
     function EMISSIONS_HANDLER() external view returns (address);
+    /// @dev Smallest receipt amount `redeem` accepts; the root handler parks smaller legs (see IAeroRootEmissionsHandler)
+    function MIN_REDEEM_AMOUNT() external view returns (uint256);
 }
 
+/// @dev Leaf delivery: every leg transfers RECEIPT_TOKEN to its recipient.
 interface IAeroLeafEmissionsHandler {
     function LEAF_VOTER() external view returns (address);
     function RECEIPT_TOKEN() external view returns (address);
+}
+
+/// @dev Root redemption (no RECEIPT_TOKEN getter): a leg that lifts the recipient's pending total to
+/// MIN_REDEEM_AMOUNT redeems that whole total synchronously into the root token, a smaller leg stays in
+/// `pendingRedeems[recipient]` until a later leg of the same recipient lifts it over the floor.
+interface IAeroRootEmissionsHandler {
+    function LEAF_VOTER() external view returns (address);
+    function pendingRedeems(address recipient) external view returns (uint256);
 }
