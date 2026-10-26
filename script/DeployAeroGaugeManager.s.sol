@@ -16,7 +16,7 @@ interface IAeroVaultSetup {
     function setGaugeManager(address manager) external;
 }
 
-/// @notice Deploys and wires ONLY the leaf-receipt gauge adapter into a fresh, separately prepared vault.
+/// @notice Deploys and wires the leaf-receipt or synchronous root-AERO gauge adapter into a fresh, separately prepared vault.
 /// @dev No launch addresses are assumed. See docs/aero-migration.md for inputs and validation limits.
 contract DeployAeroGaugeManager is Script {
     struct Config {
@@ -24,7 +24,7 @@ contract DeployAeroGaugeManager is Script {
         address deployer;
         address npm;
         address factory;
-        address receiptToken;
+        address receiptToken; // Historical config name: delivered reward token (receipts on leaf, AERO on root).
         address vault;
         address owner;
         address withdrawer;
@@ -58,7 +58,7 @@ contract DeployAeroGaugeManager is Script {
         require(IAeroVaultSetup(c.vault).gaugeManager() == address(manager), "vault binding failed");
         require(address(manager.vault()) == c.vault, "manager binding failed");
         console2.log("AERO_GAUGE_MANAGER", address(manager));
-        console2.log("RECEIPT_TOKEN", c.receiptToken);
+        console2.log("REWARD_TOKEN", c.receiptToken);
         console2.log("VAULT", c.vault);
         console2.log("OWNER", manager.owner());
         console2.log("PENDING_OWNER", manager.pendingOwner());
@@ -110,18 +110,17 @@ contract DeployAeroGaugeManager is Script {
         require(IAeroVaultSetup(c.vault).owner() == c.deployer, "deployer must own fresh vault");
         require(c.pools.length != 0 && c.pools.length == c.gauges.length, "invalid gauge lists");
         require(c.rewardBases.length == c.rewardPools.length, "invalid reward routes");
-        // Validate the supported settlement mode before broadcasting any deployment transaction.
+        // Validate the same settlement bindings as setGauge before broadcasting any deployment transaction.
+        address rootHandler;
         for (uint256 i; i < c.gauges.length; ++i) {
             IAeroGauge gauge = IAeroGauge(c.gauges[i]);
             require(IAerodromeSlipstreamPool(c.pools[i]).gauge() == c.gauges[i], "pool gauge mismatch");
             require(gauge.nft() == c.npm && gauge.pool() == c.pools[i], "gauge binding mismatch");
-            IAeroLeafVoter voter = IAeroLeafVoter(gauge.voter());
-            IAeroLeafEmissionsHandler handler = IAeroLeafEmissionsHandler(voter.EMISSIONS_HANDLER());
-            require(
-                voter.RECEIPT_TOKEN() == c.receiptToken && handler.RECEIPT_TOKEN() == c.receiptToken,
-                "unsupported reward delivery"
-            );
-            require(handler.LEAF_VOTER() == address(voter), "handler voter mismatch");
+            address handler = AeroRewardDelivery.validate(c.gauges[i], c.receiptToken);
+            if (handler != address(0)) {
+                require(rootHandler == address(0) || rootHandler == handler, "root handler mismatch");
+                rootHandler = handler;
+            }
         }
         // Mirror setRewardBasePool, including its zero-pool route removal semantics.
         for (uint256 i; i < c.rewardBases.length; ++i) {
