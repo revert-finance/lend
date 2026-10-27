@@ -61,7 +61,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         )
     {}
 
-    // fee tier of a position for every compound of fees or rewards: Advanced is the default (totalRewardX64, 2%),
+    // fee tier of a position for every compound of fees or rewards: Advanced is the default (totalRewardX64, 5%),
     // Simple is the higher tier (simpleRewardX64, 10%). Set with the position config (configToken), kept in
     // compoundModes, copied to the replacement position of a range adjustment.
     enum CompoundMode {
@@ -143,7 +143,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // reward handling for autocompound
     uint64 public constant MAX_REWARD_X64 = 1_844_674_407_370_955_161; // floor(Q64 / 10)
-    uint64 public totalRewardX64 = 368_934_881_474_191_032; // 2% (floor(Q64 / 50)): Advanced mode, the default
+    uint64 public totalRewardX64 = 922_337_203_685_477_580; // 5% (floor(Q64 / 20)): Advanced mode, the default
     uint64 public simpleRewardX64 = MAX_REWARD_X64; // 10%: Simple mode
 
     /**

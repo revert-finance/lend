@@ -39,7 +39,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     IERC20 public immutable aeroToken;
     IVault public immutable vault;
     address public override withdrawer;
-    uint64 public totalRewardX64 = 368_934_881_474_191_032; // 2% (floor(Q64 / 50)): rate without a compound mode source
+    uint64 public totalRewardX64 = 922_337_203_685_477_580; // 5% (floor(Q64 / 20)): rate without a compound mode source
     // Answers the per-position reward rate (Simple / Advanced compound mode, see AutoRangeAndCompound); zero = every
     // compound pays totalRewardX64.
     address public override compoundModeSource;
