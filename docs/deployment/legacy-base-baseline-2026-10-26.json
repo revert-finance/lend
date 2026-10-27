@@ -1,0 +1,110 @@
+{
+  "checkedAtUTC": "2026-10-26T17:42:31.850724+00:00",
+  "chainId": 8453,
+  "block": 53123599,
+  "blockHash": "0x654821d8f74fac578751c7b8d61fa7c1f76d4624dcd6623241933fb38637da25",
+  "vaultAddress": "0x1ef7c181188687e20a9750714f1b9de6f70f17c0",
+  "vault": {
+    "owner": "0x45b220860a39f717dc7daff4fc08b69cb89d1cc9",
+    "pendingOwner": "0x0000000000000000000000000000000000000000",
+    "emergencyAdmin": "0x0000000000000000000000000000000000000000",
+    "oracle": "0x82722327e45e86a0f2107746f423f612139b0952",
+    "interestRateModel": "0x9e29b74336a0d698ad600b3e52729bfda85e0564",
+    "gaugeManager": "0xc171f8c6ed8253151de50ab839e3a468028113f2",
+    "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    "minLoanSize": 1000000,
+    "globalDebtLimit": 0,
+    "globalLendLimit": 1000000000000,
+    "dailyLendIncreaseLimitMin": 100000000000,
+    "dailyDebtIncreaseLimitMin": 100000000000,
+    "reserveFactorX32": 429496729,
+    "reserveProtectionFactorX32": 214748364
+  },
+  "oracle": {
+    "owner": "0x45b220860a39f717dc7daff4fc08b69cb89d1cc9",
+    "pendingOwner": "0x0000000000000000000000000000000000000000",
+    "emergencyAdmin": "0x0000000000000000000000000000000000000000",
+    "referenceToken": "0x4200000000000000000000000000000000000006",
+    "chainlinkReferenceToken": "0x0000000000000000000000000000000000000000",
+    "sequencerUptimeFeed": "0xbcf85224fc0756b9fa45aa7892530b47e10b6433",
+    "maxPoolPriceDifference": 200
+  },
+  "interestRateModel": {
+    "owner": "0x45b220860a39f717dc7daff4fc08b69cb89d1cc9",
+    "baseRatePerSecondX64": 0,
+    "multiplierPerSecondX64": 75990465991,
+    "jumpMultiplierPerSecondX64": 1753626138271,
+    "kinkX64": 16602069666338596454,
+    "YEAR_SECS": 31557600
+  },
+  "collateral": [
+    {
+      "address": "0x4200000000000000000000000000000000000006",
+      "symbol": "WETH",
+      "collateralFactorX32": 3328599654,
+      "collateralFactorPct": 77.49999999068677,
+      "collateralValueLimitFactorX32": 4294967295,
+      "collateralValueLimitPct": 99.99999997671694,
+      "totalDebtShares": 1760891350,
+      "oracle": {
+        "feed": "0x71041dddad3595f9ced3dccfbe3d1f4b0a16bb70",
+        "maxFeedAge": 3600,
+        "feedDecimals": 8,
+        "tokenDecimals": 18,
+        "twapSeconds": 0,
+        "pool": "0x0000000000000000000000000000000000000000",
+        "isToken0": false,
+        "mode": 3,
+        "maxDifference": 0
+      }
+    },
+    {
+      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "symbol": "USDC",
+      "collateralFactorX32": 3650722201,
+      "collateralFactorPct": 84.99999998603016,
+      "collateralValueLimitFactorX32": 4294967295,
+      "collateralValueLimitPct": 99.99999997671694,
+      "totalDebtShares": 1875456781,
+      "oracle": {
+        "feed": "0x7e860098f58bbfc8648a4311b374b1d669a2bc6b",
+        "maxFeedAge": 86400,
+        "feedDecimals": 8,
+        "tokenDecimals": 6,
+        "twapSeconds": 60,
+        "pool": "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59",
+        "isToken0": false,
+        "mode": 1,
+        "maxDifference": 200
+      }
+    },
+    {
+      "address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "symbol": "cbBTC",
+      "collateralFactorX32": 3328599654,
+      "collateralFactorPct": 77.49999999068677,
+      "collateralValueLimitFactorX32": 4294967295,
+      "collateralValueLimitPct": 99.99999997671694,
+      "totalDebtShares": 114565431,
+      "oracle": {
+        "feed": "0x07da0e54543a844a80abe69c8a12f22b3aa59f9d",
+        "maxFeedAge": 86400,
+        "feedDecimals": 8,
+        "tokenDecimals": 8,
+        "twapSeconds": 60,
+        "pool": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+        "isToken0": false,
+        "mode": 1,
+        "maxDifference": 200
+      }
+    }
+  ],
+  "safe": {
+    "getThreshold": 2,
+    "owners": [
+      "0xd50cd861034c156d002612ad5451f3d2962f8cc1",
+      "0x8cadb20a4811f363dadb863a190708bed26245f8",
+      "0xfe5fe18e658a9b63bdedfd602b8e079b4ed4eece"
+    ]
+  }
+}
