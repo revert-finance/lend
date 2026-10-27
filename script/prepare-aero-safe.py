@@ -85,6 +85,7 @@ def main():
         if receipt is None or int(receipt['status'],16) != 1:
             raise SystemExit('Pending or failed transaction. Resolve the partial deployment before handoff.')
     addresses = {}
+    deployment_blocks = {}
     for tx in txs:
         if tx.get('transactionType') in ('CREATE','CREATE2') and tx.get('contractName') in REQUIRED:
             name = tx['contractName']
@@ -95,6 +96,9 @@ def main():
             if not address or address.lower() != tx['contractAddress'].lower():
                 raise SystemExit('Deployment address/receipt mismatch.')
             addresses[name] = address
+            deployment_blocks[name] = int(receipt['blockNumber'],16)
+            if deployment_blocks[name] > int(block,16):
+                raise SystemExit('Deployment is newer than the validation snapshot; rerun the helper.')
     if set(addresses) != set(REQUIRED):
         raise SystemExit('Broadcast does not contain all nine required contracts.')
     for name,address in addresses.items():
@@ -186,13 +190,76 @@ def main():
     for address, signature, expected in values:
         if int(read(address,signature),16) != expected:
             raise SystemExit(f'Configuration differs: {signature} on {address}.')
+
+    # Mappings cannot enumerate their keys. Discover every configured key from
+    # creation (including constructor logs) through the same pinned read block.
+    # The boolean says whether the key is indexed; signatures match deployed ABI.
+    events = {
+        'SetTokenConfig(address,uint32,uint32)': False,
+        'TokenConfigUpdated(address,(address,uint32,uint8,uint8,uint32,address,bool,uint8,uint16))': True,
+        'OracleModeUpdated(address,uint8)': True,
+        'OperatorChanged(address,bool)': False,
+        'SetTransformer(address,bool)': False,
+        'VaultSet(address)': False,
+        'GaugeSet(address,address)': True,
+        'RewardBasePoolSet(address,address)': True,
+    }
+    topics = {subprocess.check_output(['cast','keccak',event],text=True).strip(): event for event in events}
+    names = {address.lower(): name for name,address in addresses.items()}
+    keys = {}
+    for start in range(min(deployment_blocks.values()), int(block,16)+1, 2000):
+        end = min(start+1999, int(block,16))
+        logs = rpc('eth_getLogs', [{'address':list(addresses.values()), 'topics':[list(topics)],
+                                   'fromBlock':hex(start), 'toBlock':hex(end)}])
+        if not isinstance(logs,list):
+            raise SystemExit('Invalid configuration log response. No output generated.')
+        for log in logs:
+            try:
+                name = names[log['address'].lower()]
+                event = topics[log['topics'][0]]
+                number = int(log['blockNumber'],16)
+                raw = log['topics'][1][2:] if events[event] else log['data'][2:66]
+                if (log.get('removed') or not max(start,deployment_blocks[name]) <= number <= end
+                        or len(raw) != 64 or int(raw,16) >= 2**160):
+                    raise ValueError('Invalid log')
+                key = '0x'+raw[-40:].lower()
+            except (KeyError,IndexError,TypeError,ValueError):
+                raise SystemExit('Invalid configuration log. No output generated.') from None
+            keys.setdefault((name,event),set()).add(key)
+
+    # Token/feed and trusted-vault declarations are strict. Revocable roles or
+    # routes may have historical entries, but no undeclared entry may stay active.
+    collateral = {weth,usdc,cbbtc}
+    transformers = {addresses[n] for n in ['V3Utils','LeverageTransformer','AutoRangeAndCompound']}
+    rules = [
+        ('V3Vault','SetTokenConfig(address,uint32,uint32)',collateral,None),
+        ('V3Oracle','TokenConfigUpdated(address,(address,uint32,uint8,uint8,uint32,address,bool,uint8,uint16))',collateral,None),
+        ('V3Oracle','OracleModeUpdated(address,uint8)',collateral,None),
+        ('V3Vault','SetTransformer(address,bool)',transformers,'transformerAllowList(address)'),
+        ('GaugeManager','GaugeSet(address,address)',set(gauges),'poolToGauge(address)'),
+        ('GaugeManager','RewardBasePoolSet(address,address)',set(routes),'rewardBasePools(address)'),
+    ]
+    rules += [(name,'OperatorChanged(address,bool)',{operator},'operators(address)')
+              for name in ['AutoRangeAndCompound','AutoExit']]
+    rules += [(name,'VaultSet(address)',{addresses['V3Vault']},None)
+              for name in ['V3Utils','LeverageTransformer','AutoRangeAndCompound']]
+    for name,event,allowed,current in rules:
+        allowed = {key.lower() for key in allowed}
+        seen = keys.get((name,event),set())
+        if not allowed <= seen:
+            raise SystemExit(f'Missing expected configuration history on {name}: {event}.')
+        for key in sorted(seen-allowed):
+            if current is None or int(read(addresses[name],current,key),16) != 0:
+                raise SystemExit(f'Undeclared configuration key on {name}: {key} ({event}).')
     if int(read(addresses['V3Vault'],'globalDebtLimit()'),16) != 0:
         raise SystemExit('Vault debt cap is already nonzero. Review activation separately.')
     pending = []
     for name in OWNABLE:
         address = addresses[name]
         owner = address_word(read(address,'owner()'))
-        if owner.lower() == SAFE.lower(): continue
+        if owner.lower() == SAFE.lower():
+            require_address(address,'pendingOwner()',zero)
+            continue
         if owner.lower() != DEPLOYER.lower(): raise SystemExit(f'Unexpected owner: {name}.')
         require_address(address,'pendingOwner()',SAFE)
         pending.append({'to':address,'value':'0','data':calldata('acceptOwnership()'),'contractMethod':None,'contractInputsValues':None})

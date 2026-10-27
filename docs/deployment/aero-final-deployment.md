@@ -118,7 +118,7 @@ python3 script/prepare-aero-safe.py \
 The helper rejects missing/failed receipts, incomplete deployments, wrong chain, wrong ownership/bindings and an already-active debt cap. It also compares the complete expected feed tuples, reference/sequencer settings, all six gauge assignments, all three reward routes, router bindings, interest curve, fees, cooldown and TWAP settings against live state at one block before writing any files. Expected values must be updated alongside a deliberate deployment-config change; successful old receipts do not override a live mismatch. It writes `addresses.json`, `safe-accept-ownership.json`, and `safe-activate-borrowing.json`. These are local files only; nothing is submitted to Safe. Predicted rehearsal addresses are not production addresses.
 
 7. Import and execute **ownership acceptance only** in the Base Safe. Verify all seven owners equal the Safe, pending owners are zero and IRM owner already equals the Safe. The liquidator has no owner.
-After acceptance, rerun the helper immediately before reviewing activation to catch configuration changes since the first run. Already-accepted ownership entries are omitted. A failed validation invalidates any previously generated activation file; do not use that old file. This checks the declared launch entries at the printed block, not all possible additional mapping keys or changes after that block.
+After acceptance, rerun the helper immediately before reviewing activation to catch configuration changes since the first run. Already-accepted ownership entries are omitted. A failed validation invalidates any previously generated activation file; do not use that old file. The helper also scans configuration events from each fresh deployment through the printed block to enumerate mapping keys. It rejects undeclared collateral/feed/mode tokens and trusted vaults, plus any extra operator, transformer, gauge or reward route that is still active. Historical revoked roles/routes are allowed. Expected declaration events must be present; RPC/log errors fail closed. Once the Safe owns a two-step-ownable contract, its pending owner must be zero. Changes after the printed block require another run.
 
 8. Use confirmed addresses and deployment blocks to configure indexer, frontend, bots, liquidator and monitoring. No such services are changed by this contract script. Test small real deposits/positions, repay/remove availability, expected gauges and router quotes while borrowing remains disabled. Borrowing tests require the controlled activation stage.
 9. After final checks and audit review, import the **separate activation** file. Reconfirm the cap and all risk parameters immediately before signing. `setLimits` changes all five limit fields, so regenerate/review if governance changed any since preparation. Verify the cap, perform a small borrow/repay/stake/exit smoke test and monitor before wider exposure.
@@ -200,3 +200,37 @@ Revalidated after this change: **226 regression tests**, **11 live-Base fork lif
 ## Ownership-only handoff validation
 
 The `--ownership-only` mode was exercised against another complete localhost Base-fork deployment (47 successful transactions). All 33 handoff scenarios passed, including seven acceptance calls without an activation file and an empty acceptance batch after all owners were accepted. An existing activation file in the output directory is rejected and preserved. Missing/conflicting modes and invalid activation caps are rejected. This helper-only change does not alter Solidity source or deployment transactions.
+
+
+## Codex follow-up: undeclared entries and pending ownership
+
+The original live-value checks covered only the declared keys. The checker now
+uses creation receipt block numbers and `eth_getLogs` in inclusive 2,000-block
+chunks through the same snapshot used for every getter. It decodes indexed and
+non-indexed configuration keys, including constructor operator declarations and
+oracle-mode changes made without a feed-config event. A missing expected history
+entry, malformed/removed log, RPC error or undeclared configuration prevents file
+generation. The RPC must serve complete historical logs for this range; a trusted
+RPC and the verified deployed implementation are inputs to this check.
+
+The launch allowlist remains USDC/WETH/cbBTC. Extra token/feed declarations require
+explicit review even if their collateral factor is zero. Operators, transformers,
+gauges and reward routes that were explicitly revoked may remain in history;
+their current mapping entry must be zero at the snapshot. Extra trusted vaults
+are rejected because the setter has no revocation path. This also closes the
+same enumeration gap for transformer permissions and reward routing.
+
+After Safe acceptance, every Ownable2Step contract must have `pendingOwner() ==
+address(0)`. A second pending transfer is rejected in both ownership-only and
+activation-file modes. InterestRateModel uses one-step ownership and is checked
+separately. These changes affect only the off-chain checker and its tests; no
+Solidity, deployed bytecode or production configuration changes are needed.
+
+The strengthened checker passed read-only validation of the actual recovered
+Base deployment at block **53168029**, generating seven local ownership
+acceptances in `broadcast/aero-ownership-codex-review/` and no activation file.
+No Safe or other production transactions were submitted.
+
+All **58** local Anvil handoff scenarios passed, including 25 new cases for these
+checks. See [follow-up results](aero-handoff-review-results.json) for the case list
+and tested helper hash. Each mutation was restored with a local snapshot.

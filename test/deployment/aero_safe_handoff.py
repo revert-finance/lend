@@ -87,6 +87,31 @@ def main():
     owned = ['V3Oracle','V3Vault','GaugeManager','V3Utils','LeverageTransformer','AutoRangeAndCompound','AutoExit']
     check('configuration recheck after all acceptances', lambda:[send(n,'acceptOwnership()',actor=SAFE) for n in owned], expected_acceptances=0)
     check('ownership-only recheck after all acceptances', lambda:[send(n,'acceptOwnership()',actor=SAFE) for n in owned], expected_acceptances=0, ownership_only=True)
+    extra = '0x1111111111111111111111111111111111111111'
+    for name in owned:
+        def nominate_other(n=name):
+            send(n,'acceptOwnership()',actor=SAFE)
+            send(n,'transferOwnership(address)',extra,actor=SAFE)
+        check('unexpected pending owner after acceptance '+name,nominate_other,'pendingOwner()')
+    check('pending owner rejected in ownership-only mode',nominate_other,'pendingOwner()',ownership_only=True)
+
+    check('undeclared collateral token',lambda:send('V3Vault','setTokenConfig(address,uint32,uint32)',extra,2**31,2**32-1),'Undeclared configuration key on V3Vault')
+    check('undeclared collateral rejected in ownership-only mode',lambda:send('V3Vault','setTokenConfig(address,uint32,uint32)',extra,2**31,2**32-1),'Undeclared configuration key on V3Vault',ownership_only=True)
+    check('undeclared zero collateral declaration still requires review',lambda:send('V3Vault','setTokenConfig(address,uint32,uint32)',extra,0,0),'Undeclared configuration key on V3Vault')
+    check('undeclared oracle feed',lambda:send('V3Oracle','setTokenConfig(address,address,uint32,address,uint32,uint8,uint16)',
+          '0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee','0x7e860098F58bBFC8648a4311b374B1D669a2bc6B',86400,ZERO,0,3,0),
+          'Undeclared configuration key on V3Oracle')
+    check('undeclared oracle mode without feed event',lambda:send('V3Oracle','setOracleMode(address,uint8)',extra,3),'Undeclared configuration key on V3Oracle')
+    for name in ['AutoRangeAndCompound','AutoExit']:
+        check('undeclared enabled operator '+name,lambda n=name:send(n,'setOperator(address,bool)',extra,'true'),'Undeclared configuration key on '+name)
+        check('revoked extra operator is harmless '+name,lambda n=name:[send(n,'setOperator(address,bool)',extra,active) for active in ['true','false']])
+    check('undeclared operator rejected in ownership-only mode',lambda:send('AutoExit','setOperator(address,bool)',extra,'true'),'Undeclared configuration key on AutoExit',ownership_only=True)
+    check('undeclared vault transformer',lambda:send('V3Vault','setTransformer(address,bool)',extra,'true'),'Undeclared configuration key on V3Vault')
+    check('revoked extra transformer is harmless',lambda:[send('V3Vault','setTransformer(address,bool)',extra,active) for active in ['true','false']])
+    for name in ['V3Utils','LeverageTransformer','AutoRangeAndCompound']:
+        check('undeclared trusted vault '+name,lambda n=name:send(n,'setVault(address)',extra),'Undeclared configuration key on '+name)
+    check('history across multiple RPC chunks',lambda:rpc('anvil_mine',[hex(2001)]))
+    check('undeclared operator in a later RPC chunk',lambda:[rpc('anvil_mine',[hex(2001)]),send('AutoExit','setOperator(address,bool)',extra,'true')],'Undeclared configuration key on AutoExit')
 
     feed_configs = {
         WETH: ['0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70',3600,ZERO,0,3,0],
