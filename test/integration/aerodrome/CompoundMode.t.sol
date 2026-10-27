@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./AerodromeTestBase.sol";
 import "../../../src/transformers/AutoRangeAndCompound.sol";
 
-/// A position's compound mode (Simple 10% / Advanced 2%) prices every compound of that position: the fee
+/// A position's compound mode (Simple 10% / Advanced 5%) prices every compound of that position: the fee
 /// auto-compound in AutoRangeAndCompound and the AERO reward compound in GaugeManager, which reads the mode rate
 /// from AutoRangeAndCompound through its compound mode source.
 contract CompoundModeTest is AerodromeTestBase {
@@ -76,12 +76,12 @@ contract CompoundModeTest is AerodromeTestBase {
         return added * rateX64 / Q64;
     }
 
-    function testDefaultsAreTwoAndTenPercent() public {
-        assertEq(autoRange.totalRewardX64(), uint64(Q64 / 50), "Advanced 2%");
+    function testDefaultsAreFiveAndTenPercent() public {
+        assertEq(autoRange.totalRewardX64(), uint64(Q64 / 20), "Advanced 5%");
         assertEq(autoRange.simpleRewardX64(), uint64(Q64 / 10), "Simple 10%");
         assertEq(autoRange.MAX_REWARD_X64(), uint64(Q64 / 10));
         assertEq(gaugeManager.MAX_REWARD_X64(), uint64(Q64 / 10));
-        assertEq(gaugeManager.totalRewardX64(), uint64(Q64 / 50), "GaugeManager fallback 2%");
+        assertEq(gaugeManager.totalRewardX64(), uint64(Q64 / 20), "GaugeManager fallback 5%");
     }
 
     function testFeeCompoundChargesTenPercentInSimpleMode() public {
@@ -96,18 +96,18 @@ contract CompoundModeTest is AerodromeTestBase {
         assertApproxEqRel(fee * 11, FEES, 1e12, "reward is a tenth of what went into the position");
     }
 
-    function testFeeCompoundChargesTwoPercentInAdvancedMode() public {
+    function testFeeCompoundChargesFivePercentInAdvancedMode() public {
         uint256 tokenId = _feePosition(AutoRangeAndCompound.CompoundMode.Advanced);
         assertEq(autoRange.compoundRewardX64(tokenId), autoRange.totalRewardX64());
 
         _feeCompound(tokenId);
 
-        uint256 fee = _expectedFee(FEES, Q64 / 50);
-        assertEq(IERC20(token0).balanceOf(address(autoRange)), fee, "2% of the compounded token0");
-        assertEq(IERC20(token1).balanceOf(address(autoRange)), fee, "2% of the compounded token1");
+        uint256 fee = _expectedFee(FEES, Q64 / 20);
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), fee, "5% of the compounded token0");
+        assertEq(IERC20(token1).balanceOf(address(autoRange)), fee, "5% of the compounded token1");
     }
 
-    /// An unconfigured position is Advanced: the default of the enum keeps today's 2%.
+    /// An unconfigured position is Advanced: the default of the enum keeps the initial 5%.
     function testUnconfiguredPositionIsAdvanced() public {
         assertEq(autoRange.compoundRewardX64(123456), autoRange.totalRewardX64());
     }
@@ -155,14 +155,14 @@ contract CompoundModeTest is AerodromeTestBase {
         assertEq(dai.balanceOf(address(gaugeManager)), fee, "10% of the DAI added from AERO");
     }
 
-    function testRewardCompoundChargesTwoPercentInAdvancedMode() public {
+    function testRewardCompoundChargesFivePercentInAdvancedMode() public {
         uint256 tokenId = _stakedPosition(AutoRangeAndCompound.CompoundMode.Advanced);
 
         _rewardCompound(tokenId);
 
-        uint256 fee = _expectedFee(5e18, Q64 / 50);
-        assertEq(usdc.balanceOf(address(gaugeManager)), fee, "2% of the USDC added from AERO");
-        assertEq(dai.balanceOf(address(gaugeManager)), fee, "2% of the DAI added from AERO");
+        uint256 fee = _expectedFee(5e18, Q64 / 20);
+        assertEq(usdc.balanceOf(address(gaugeManager)), fee, "5% of the USDC added from AERO");
+        assertEq(dai.balanceOf(address(gaugeManager)), fee, "5% of the DAI added from AERO");
     }
 
     /// Without a source GaugeManager cannot see the mode and charges its fallback rate.

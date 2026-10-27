@@ -1,0 +1,51 @@
+{
+  "environment": "Local Anvil Base fork only; NOT production deployment",
+  "baselineSourceCommit": "44932953b7ba4f380203845d7778a1e8da4da223",
+  "sourceChange": "Only AutoRangeAndCompound Advanced and GaugeManager fallback initial fee values change from 2% to 5%; decrease-only setters and calculations unchanged.",
+  "changedSourceBlobs": {
+    "src/GaugeManager.sol": "b2a855e9395fd919ec8a99d4e215415d53c57afa",
+    "src/transformers/AutoRangeAndCompound.sol": "51a0e02b118b2136b82dc47b9b287d2bcf51e469"
+  },
+  "feeConfiguration": {
+    "advancedPercent": 5,
+    "simplePercent": 10,
+    "gaugeManagerFallbackPercent": 5
+  },
+  "regressionTestsPassed": 226,
+  "forkLifecycleTestsPassed": 11,
+  "handoffScenariosPassed": 31,
+  "legacyRecheck": {
+    "block": 53164809,
+    "blockHash": "0xb0fca4e5aee221af3a6909aef9ce1744942ca132ea694852bae334f8738f0341",
+    "staticSettingsChecked": 60,
+    "allMatch": true,
+    "intentionalDifferences": "New Aero TWAP reference pool addresses; same oracle verification parameters. New-release NPM, factory, gauges, reward token and routes."
+  },
+  "forkBlock": 53136369,
+  "successfulDeploymentTransactions": 47,
+  "actualDeploymentGas": 32690484,
+  "runtimeBytes": {
+    "V3Oracle": 13194,
+    "InterestRateModel": 1691,
+    "V3Vault": 22548,
+    "V3Utils": 16351,
+    "GaugeManager": 23128,
+    "LeverageTransformer": 8563,
+    "AutoRangeAndCompound": 24064,
+    "AutoExit": 12153,
+    "FlashloanLiquidator": 7831
+  },
+  "runtimeComparison": "GaugeManager and AutoRangeAndCompound executable runtime matched the previous build after stripping Solidity metadata.",
+  "localAddresses": {
+    "V3Oracle": "0x8dadee6246916eeaeaaab205a692373cf8ea4092",
+    "InterestRateModel": "0xcda44b7c08dbc8f497ee855a7e25777416d87bed",
+    "V3Vault": "0x13a19a60ddf79bb6d34e45cde30584c0555938c0",
+    "V3Utils": "0x6f95a9dfbb6efa35219343caefbc29c4019e756d",
+    "GaugeManager": "0xb46e3bd49ee81f0b5e8f38e537882112fcfe299a",
+    "LeverageTransformer": "0xc3c7052a5b8bb8e4aae6ffa54ec9326357c56724",
+    "AutoRangeAndCompound": "0x6a24de18bde31d5d20285ac3fab298eaae4e2d48",
+    "AutoExit": "0x13c14d3100ef062e1b5182087902c7e443c26a1f",
+    "FlashloanLiquidator": "0x91a5092fb40c54314a0640b6b23bf6bc61e9a046"
+  },
+  "latestBaseBroadcastDisabledSimulationPassed": true
+}

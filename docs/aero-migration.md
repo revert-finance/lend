@@ -195,7 +195,7 @@ every swap.
 Every position has a compound mode in `AutoRangeAndCompound`, set together
 with its config when the position is activated for compounding (the `mode`
 argument of `configToken`, stored in `compoundModes`, copied to the replacement
-position of a range adjustment): `Advanced` (the default, `totalRewardX64`, 2%)
+position of a range adjustment): `Advanced` (the default, `totalRewardX64`, 5%)
 or `Simple` (`simpleRewardX64`, 10%). The mode prices every compound of that
 position:
 
@@ -206,7 +206,7 @@ position:
   token0/token1 it adds. GaugeManager reads it through its owner-set
   `compoundModeSource` (the `AutoRangeAndCompound` address, deploy input
   `AERO_COMPOUND_MODE_SOURCE`); without a source, or if the source call fails,
-  every compound pays GaugeManager's own `totalRewardX64` (2%), so a broken
+  every compound pays GaugeManager's own `totalRewardX64` (5%), so a broken
   source never blocks a compound. Rates from the source are capped at
   `MAX_REWARD_X64` (10%).
 

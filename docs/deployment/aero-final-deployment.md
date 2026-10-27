@@ -1,6 +1,6 @@
 # Fresh Base Aero deployment rehearsal
 
-Prepared 2026-10-27. Contract source: `aero` commit `44932953b7ba4f380203845d7778a1e8da4da223` (PR #79). The deployment preparation adds scripts, tests and documentation; it does not edit `src/`. **No production deployment has been performed by this preparation.** Rehearsal configuration remains subject to final launch approval.
+Prepared 2026-10-27. Baseline contract source: `aero` commit `44932953b7ba4f380203845d7778a1e8da4da223` (PR #79). The deployment preparation adds scripts, tests and documentation. Following the confirmed launch fee decision, it also changes only the initial Advanced fee and GaugeManager fallback from 2% to 5%; fee calculations, decrease-only setters and the 10% Simple fee are unchanged. The final scan must include these two initializer changes. **No production deployment has been performed by this preparation.** Rehearsal configuration remains subject to final launch approval.
 
 ## Scope and decisions
 
@@ -11,9 +11,21 @@ Prepared 2026-10-27. Contract source: `aero` commit `44932953b7ba4f380203845d777
 - Base Safe `0x45B220860A39f717Dc7daFF4fc08B69CB89d1cc9` owns the fresh IRM immediately and is nominated for the seven Ownable2Step contracts. Those remain deployer-owned until Safe acceptance. No timelock is introduced. At the pinned block the Safe threshold is two, its module list is empty and its guard slot is zero; this is a state observation, not a permanent guarantee.
 - Deployer: local Foundry account `deployer`, public address `0x83681C14770b44361e21Faf91D8325423365eA5C`. The user signs the eventual production deployment.
 - Existing operator `0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF` and withdrawer `0x5663ba1B0B1d9b8559CFE049b33fe3B194852e82` are carried forward for rehearsal. Both were checked against the old live automators; the withdrawer also matches the old GaugeManager.
-- AutoRangeAndCompound defaults remain Advanced 2% / Simple 10%. GaugeManager points to that instance as `compoundModeSource`. These are user-selected modes, not enforced partner tiers. Staking-management cooldown remains the source default of zero blocks; the gauge's own penalty-window protection still applies. Automation TWAP is 60 seconds / 100 ticks.
+- Confirmed launch fees: Advanced 5% / Simple 10%, with a matching 5% GaugeManager fallback. GaugeManager points to that instance as `compoundModeSource`. These are user-selected modes, not enforced partner tiers. Staking-management cooldown remains the source default of zero blocks; the gauge's own penalty-window protection still applies. Automation TWAP is 60 seconds / 100 ticks.
 - Preserve legacy factors: USDC 85%, WETH/cbBTC 77.5%, concentration factors uint32 maximum. USDC lending cap 1,000,000; minimum loan 1; daily increase floors 100,000 each. Reserve factor 10%, reserve protection 5%. New independent IRM: 0% base, 13% utilization multiplier, 300% jump multiplier, 90% kink.
-- **Initial debt cap is zero.** Rehearsal activation uses 1,000,000 USDC, matching the pre-wind-down cap. Final opening cap, accounts, economics and zero cooldown require sign-off before production. The Safe activation generator requires an explicit cap and keeps activation separate from ownership acceptance.
+- **Initial debt cap is zero.** Rehearsal activation uses 1,000,000 USDC, matching the pre-wind-down cap. USDC/WETH/cbBTC assets and matching legacy asset parameters are confirmed. Final activation exposure and any remaining operating-policy changes require sign-off before production. The Safe activation generator requires an explicit cap and keeps activation separate from ownership acceptance.
+
+## Confirmed legacy asset parity
+
+Rechecked the existing vault `0x1ef7c181188687e20a9750714f1b9de6f70f17c0` at Base block **53164809**, hash `0xb0fca4e5aee221af3a6909aef9ce1744942ca132ea694852bae334f8738f0341`. All **60** checked static vault/oracle/interest-model and per-token settings still match `legacy-base-baseline-2026-10-26.json`. The launch script already carries these risk settings forward, so no collateral-factor, feed, age, oracle-mode or limit changes are required.
+
+| Asset | Collateral factor X32 | Concentration limit X32 | Oracle mode | Feed max age | TWAP | Per-token deviation |
+|---|---:|---:|---|---|---|---|
+| USDC | 3650722201 (85%) | 4294967295 (~100%) | Chainlink + TWAP verification | 24 hours | 60 seconds | 2% |
+| WETH | 3328599654 (77.5%) | 4294967295 (~100%) | Chainlink | 1 hour | none | none |
+| cbBTC | 3328599654 (77.5%) | 4294967295 (~100%) | Chainlink + TWAP verification | 24 hours | 60 seconds | 2% |
+
+The Chainlink feed addresses, token/feed decimals, WETH reference, USD quote reference, Base sequencer feed and global 2% pool-price bound also match. The USDC/WETH and cbBTC/WETH TWAP **pool addresses** are deliberately the selected new Aero pools listed below; their verification parameters match the legacy pools. New NPM/factory/gauge/reward-token and route addresses belong to the new release. Existing debt shares and balances are state, not deployment parameters, and are not copied. Initial debt cap remains zero; any later test or launch cap is a separate Safe action.
 
 ## External bindings
 
@@ -122,7 +134,7 @@ This preparation does not replace the pending Cantina scan. Production source ve
 
 ## Isolated transaction-sequence rehearsal
 
-The 2026-10-27 rehearsal sent 47 transactions **only to localhost Anvil**, including the VaultLib deployment, followed by seven ownership acceptances and one activation. All receipts succeeded; actual deployment gas totaled 32,690,468 (not a production fee quote). See `aero-local-rehearsal-results.json`. The Safe calls were executed by locally impersonating its address; production Safe signing itself was not exercised.
+The 2026-10-27 rehearsal sent 47 transactions **only to localhost Anvil**, including the VaultLib deployment, followed by seven ownership acceptances and one activation. All receipts succeeded; actual deployment gas totaled 32,690,468 (not a production fee quote). The original 2%/10% rehearsal is recorded in `aero-local-rehearsal-results.json`; the subsequent confirmed 5%/10% rehearsal is recorded in `aero-five-percent-rehearsal-results.json`. The Safe calls were executed by locally impersonating its address; production Safe signing itself was not exercised.
 
 For an independent repetition, start Anvil in a separate terminal and isolate broadcast/cache output from production records:
 
@@ -155,7 +167,7 @@ The clean source-only and full-build size guards passed (24,320-byte project gua
 
 ## PR #80 handoff-validation regression
 
-Codex identified missing live oracle/gauge/reward-route checks in the original Safe helper. The helper now rejects drift in those settings and the remaining declared economics/routing settings before producing files. No Solidity source or deployment transaction changes were required.
+Codex identified missing live oracle/gauge/reward-route checks in the original Safe helper. The helper now rejects drift in those settings and the remaining declared economics/routing settings before producing files. That handoff-validation fix required no Solidity source or deployment transaction changes.
 
 Run the integration regression against the local Anvil deployment described above (never production):
 
@@ -165,3 +177,10 @@ python3 test/deployment/aero_safe_handoff.py --rpc-url http://127.0.0.1:28543 \
 ```
 
 Validation: **31 scenarios passed** on an isolated fork at block 53136369, using the real 47-transaction deployment. Valid handoffs pass before, during and after Safe ownership acceptance. Changed feeds/ages/modes/reference pools/deviations, sequencer/admin settings, reward routes, gauge mappings, interest rate, fees, cooldown and automation TWAP are rejected without creating output files. Every mutation is reverted after its case. Gauge-mapping tests use explicit storage fault injection because `setGauge` itself rejects arbitrary mismatched upstream gauges; they demonstrate the handoff check, not a bypass of the setter's validation.
+
+
+## Confirmed 5% Advanced launch fee
+
+Advanced now starts at 5%, Simple remains 10%, and GaugeManager's fallback also starts at 5%. Because the existing setters only permit decreases, this requires changing the two initial storage values before deployment. No fee calculation, authorization, setter, swap tolerance or collateral logic changes. The executable runtime of both affected contracts matches the prior build after removing Solidity metadata.
+
+Revalidated after this change: **226 regression tests**, **11 live-Base fork lifecycle tests**, **47 successful localhost deployment transactions**, and **31 Safe-handoff scenarios**. Runtime sizes remain within EIP-170. The results and source-blob hashes are in `aero-five-percent-rehearsal-results.json`; the earlier 2% rehearsal remains explicitly marked historical. All testing and deployments in this preparation were local or broadcast-disabled.

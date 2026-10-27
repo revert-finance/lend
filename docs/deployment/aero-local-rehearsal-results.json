@@ -55,5 +55,11 @@
     "AutoRangeAndCompound   source only (--skip test/script)  24064 bytes  (guard 24320, EIP-170 margin    512)  ok",
     "V3Vault                full (tests and scripts)          22548 bytes  (guard 24320, EIP-170 margin   2028)  ok",
     "AutoRangeAndCompound   full (tests and scripts)          24064 bytes  (guard 24320, EIP-170 margin    512)  ok"
-  ]
+  ],
+  "feeConfiguration": {
+    "advancedPercent": 2,
+    "simplePercent": 10,
+    "gaugeManagerFallbackPercent": 2
+  },
+  "historicalNote": "Original pre-fee-change rehearsal. See aero-five-percent-rehearsal-results.json for the confirmed 5%/10% launch configuration."
 }

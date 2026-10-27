@@ -150,8 +150,8 @@ def main():
         require_address(addresses[name],'universalRouter()','0x6fF5693b99212Da76ad316178A184AB56D299b43')
         require_address(addresses[name],'zeroxAllowanceHolder()','0x0000000000001fF3684f28c67538d4D072C22734')
     values = [(oracle,'maxPoolPriceDifference()',200), (oracle,'referenceTokenDecimals()',18),
-              (manager,'totalRewardX64()',2**64//50),
-              (addresses['AutoRangeAndCompound'],'totalRewardX64()',2**64//50),
+              (manager,'totalRewardX64()',2**64//20),
+              (addresses['AutoRangeAndCompound'],'totalRewardX64()',2**64//20),
               (addresses['AutoRangeAndCompound'],'simpleRewardX64()',2**64//10),
               (addresses['AutoRangeAndCompound'],'stakeChangeCooldownBlocks()',0)]
     for name in ['AutoRangeAndCompound','AutoExit']:

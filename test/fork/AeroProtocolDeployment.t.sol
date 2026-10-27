@@ -125,7 +125,7 @@ contract AeroProtocolDeploymentTest is Test {
         assertEq(d.gaugeManager.withdrawer(), WITHDRAWER);
         assertTrue(d.autoRange.operators(OPERATOR));
         assertTrue(d.autoExit.operators(OPERATOR));
-        assertEq(d.autoRange.totalRewardX64(), 368_934_881_474_191_032);
+        assertEq(d.autoRange.totalRewardX64(), 922_337_203_685_477_580);
         assertEq(d.autoRange.simpleRewardX64(), uint64(uint256(2 ** 64) / 10));
         assertEq(d.gaugeManager.compoundModeSource(), address(d.autoRange));
         assertTrue(d.vault.transformerAllowList(address(d.v3Utils)));
