@@ -56,14 +56,15 @@ def main():
             time.sleep(0.05)
         raise AssertionError('Local transaction receipt timeout')
 
-    def check(label, mutate=None, expected_error=None, expected_acceptances=7):
+    def check(label, mutate=None, expected_error=None, expected_acceptances=7, ownership_only=False):
         snapshot = rpc('evm_snapshot', [])
         try:
             if mutate:
                 mutate()
             with tempfile.TemporaryDirectory() as directory:
                 output = Path(directory)/'handoff'
-                result = subprocess.run(['python3',str(ROOT/'script/prepare-aero-safe.py'),str(args.broadcast.resolve()),'--debt-cap-usdc','1000000','--out',str(output)],env=dict(os.environ,BASE_RPC_URL=args.rpc_url),text=True,capture_output=True,cwd=ROOT)
+                mode = ['--ownership-only'] if ownership_only else ['--debt-cap-usdc','1000000']
+                result = subprocess.run(['python3',str(ROOT/'script/prepare-aero-safe.py'),str(args.broadcast.resolve()),*mode,'--out',str(output)],env=dict(os.environ,BASE_RPC_URL=args.rpc_url),text=True,capture_output=True,cwd=ROOT)
                 if expected_error:
                     assert result.returncode != 0 and expected_error in result.stderr, (label,result.stdout,result.stderr)
                     assert not output.exists(), f'{label}: wrote Safe files despite configuration mismatch'
@@ -71,15 +72,21 @@ def main():
                     assert result.returncode == 0, (label,result.stdout,result.stderr)
                     acceptance = json.loads((output/'safe-accept-ownership.json').read_text())
                     assert len(acceptance['transactions']) == expected_acceptances
-                    assert len(json.loads((output/'safe-activate-borrowing.json').read_text())['transactions']) == 1
+                    if ownership_only:
+                        assert {p.name for p in output.iterdir()} == {'addresses.json','safe-accept-ownership.json'}
+                        assert all(t['data'] == '0x79ba5097' and t['value'] == '0' for t in acceptance['transactions'])
+                    else:
+                        assert len(json.loads((output/'safe-activate-borrowing.json').read_text())['transactions']) == 1
             print('PASS', label, flush=True)
         finally:
             assert rpc('evm_revert', [snapshot])
 
     check('unchanged deployment accepts all seven nominations')
+    check('ownership-only emits seven acceptances and no activation', ownership_only=True)
     check('partial Safe acceptance', lambda:send('V3Oracle','acceptOwnership()',actor=SAFE), expected_acceptances=6)
     owned = ['V3Oracle','V3Vault','GaugeManager','V3Utils','LeverageTransformer','AutoRangeAndCompound','AutoExit']
     check('configuration recheck after all acceptances', lambda:[send(n,'acceptOwnership()',actor=SAFE) for n in owned], expected_acceptances=0)
+    check('ownership-only recheck after all acceptances', lambda:[send(n,'acceptOwnership()',actor=SAFE) for n in owned], expected_acceptances=0, ownership_only=True)
 
     feed_configs = {
         WETH: ['0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70',3600,ZERO,0,3,0],

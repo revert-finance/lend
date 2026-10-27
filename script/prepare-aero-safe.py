@@ -23,11 +23,15 @@ def calldata(signature, *args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('broadcast', type=Path)
-    parser.add_argument('--debt-cap-usdc', required=True, type=int, help='Explicit whole-USDC activation cap')
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--ownership-only', action='store_true', help='Generate ownership acceptance only; no borrowing activation file')
+    mode.add_argument('--debt-cap-usdc', type=int, help='Explicit whole-USDC activation cap')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
-    if not 0 < args.debt_cap_usdc <= 1_000_000:
+    if args.debt_cap_usdc is not None and not 0 < args.debt_cap_usdc <= 1_000_000:
         raise SystemExit('Choose an activation cap between 1 and 1,000,000 USDC; review larger caps separately.')
+    if args.ownership_only and (args.out/'safe-activate-borrowing.json').exists():
+        raise SystemExit('Use a separate output directory for ownership-only handoff; an activation file already exists here.')
     rpc_url = os.environ['BASE_RPC_URL']
     def rpc(method, params):
         req = urllib.request.Request(rpc_url, json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(), {'Content-Type':'application/json'})
@@ -173,11 +177,17 @@ def main():
         pending.append({'to':address,'value':'0','data':calldata('acceptOwnership()'),'contractMethod':None,'contractInputsValues':None})
     def batch(name,transactions):
         return {'version':'1.0','chainId':'8453','createdAt':int(time.time()*1000),'meta':{'name':name,'description':'Fresh Aero deployment; review against pinned source and runbook.','txBuilderVersion':'1.18.0','createdFromSafeAddress':SAFE},'transactions':transactions}
-    activation = {'to':addresses['V3Vault'],'value':'0','data':calldata('setLimits(uint256,uint256,uint256,uint256,uint256)',1_000_000,1_000_000_000_000,args.debt_cap_usdc*1_000_000,100_000_000_000,100_000_000_000),'contractMethod':None,'contractInputsValues':None}
+    files = [('addresses.json',addresses),('safe-accept-ownership.json',batch('Aero: accept ownership',pending))]
+    if not args.ownership_only:
+        activation = {'to':addresses['V3Vault'],'value':'0','data':calldata('setLimits(uint256,uint256,uint256,uint256,uint256)',1_000_000,1_000_000_000_000,args.debt_cap_usdc*1_000_000,100_000_000_000,100_000_000_000),'contractMethod':None,'contractInputsValues':None}
+        files.append(('safe-activate-borrowing.json',batch('Aero: activate borrowing AFTER final checks',[activation])))
     args.out.mkdir(parents=True,exist_ok=True)
-    for name,value in [('addresses.json',addresses),('safe-accept-ownership.json',batch('Aero: accept ownership',pending)),('safe-activate-borrowing.json',batch('Aero: activate borrowing AFTER final checks',[activation]))]:
+    for name,value in files:
         (args.out/name).write_text(json.dumps(value,indent=2)+'\n')
-    print(f'Validated receipts and expected deployment configuration at Base block {int(block,16)}. Wrote three files in {args.out}.')
-    print('Do not execute activation until ownership acceptance, source verification, audit and operational readiness checks pass.')
+    print(f'Validated receipts and expected deployment configuration at Base block {int(block,16)}. Wrote {len(files)} files in {args.out}.')
+    if args.ownership_only:
+        print('Ownership acceptance only. No borrowing activation file generated.')
+    else:
+        print('Do not execute activation until ownership acceptance, source verification, audit and operational readiness checks pass.')
 
 if __name__ == '__main__': main()

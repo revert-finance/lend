@@ -72,9 +72,11 @@ bash script/check-sizes.sh
 
 The fork tests execute the actual deployment script, then impersonate the Safe to accept ownership and activate the test vault. Test actors receive synthetic balances; production feeds, pools, NPM, gauges and root reward delivery execute on the fork. Impersonation is test-only and does not prove the ability to collect production Safe signatures.
 
-## Production execution, after audit and launch approval
+## Production deployment and later ownership handoff
 
-1. Pin the reviewed preparation commit and its audited `src/` tree. Recheck upstream `aero`; review any newer changes and rerun validation before changing the pin. Preserve the exact compiler settings and artifacts (Solc 0.8.24, optimizer 25, via IR).
+Deployment may precede the final audit for commissioning; public launch and borrowing activation remain separate decisions. Deploying now does not make the source audited, and later fixes may require redeployment.
+
+1. Pin the reviewed preparation commit and its `src/` tree. Recheck upstream `aero`; review any newer changes and rerun validation before changing the pin. Preserve the exact compiler settings and artifacts (Solc 0.8.24, optimizer 25, via IR).
 2. Confirm the role addresses, fee policy, cooldown and opening debt cap above. Verify bot/indexer/frontend/liquidator support and fund the deployer for the estimated gas.
 3. Rehearse against **latest** Base state; ensure `AERO_FORK_BLOCK` is unset. Verify the displayed configuration and record the result.
 
@@ -95,7 +97,17 @@ bash script/deploy-aero-protocol.sh --broadcast
 bash script/deploy-aero-protocol.sh --verify
 ```
 
-6. Generate Safe files from **successful production receipts**, with the approved cap. Example uses 1,000,000 USDC:
+6. When ready to hand over ownership, generate the acceptance batch from **successful production receipts** without selecting or enabling a borrowing cap:
+
+```bash
+python3 script/prepare-aero-safe.py \
+  broadcast/DeployAeroProtocol.s.sol/8453/run-latest.json \
+  --ownership-only --out broadcast/aero-ownership
+```
+
+Import `broadcast/aero-ownership/safe-accept-ownership.json` into the Base Safe Transaction Builder and collect the required Safe signatures. The helper does not sign or send anything. It writes only the address manifest and ownership acceptance file; an output directory containing an existing activation file is rejected. Seven contracts remain deployer-owned until acceptance. InterestRateModel already belongs to the Safe because its ownership transfer is one-step; FlashloanLiquidator has no owner. Operator and withdrawer roles remain the confirmed separate addresses.
+
+When a borrowing cap is explicitly approved later, generate the separate activation files. The example below uses 1,000,000 USDC; it is not an instruction to activate that cap now:
 
 ```bash
 python3 script/prepare-aero-safe.py \
@@ -184,3 +196,7 @@ Validation: **31 scenarios passed** on an isolated fork at block 53136369, using
 Advanced now starts at 5%, Simple remains 10%, and GaugeManager's fallback also starts at 5%. Because the existing setters only permit decreases, this requires changing the two initial storage values before deployment. No fee calculation, authorization, setter, swap tolerance or collateral logic changes. The executable runtime of both affected contracts matches the prior build after removing Solidity metadata.
 
 Revalidated after this change: **226 regression tests**, **11 live-Base fork lifecycle tests**, **47 successful localhost deployment transactions**, and **31 Safe-handoff scenarios**. Runtime sizes remain within EIP-170. The results and source-blob hashes are in `aero-five-percent-rehearsal-results.json`; the earlier 2% rehearsal remains explicitly marked historical. All testing and deployments in this preparation were local or broadcast-disabled.
+
+## Ownership-only handoff validation
+
+The `--ownership-only` mode was exercised against another complete localhost Base-fork deployment (47 successful transactions). All 33 handoff scenarios passed, including seven acceptance calls without an activation file and an empty acceptance batch after all owners were accepted. An existing activation file in the output directory is rejected and preserved. Missing/conflicting modes and invalid activation caps are rejected. This helper-only change does not alter Solidity source or deployment transactions.
