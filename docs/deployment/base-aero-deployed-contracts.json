@@ -1,0 +1,72 @@
+{
+  "chainId": 8453,
+  "deployedOn": "2026-10-27",
+  "protocolSourceCommit": "67f67620de7faaaec5efc1febf663090085aa15e",
+  "globalDebtLimit": "0",
+  "ownership": "InterestRateModel owned by Safe; seven acceptances pending at checked block 53166282",
+  "contracts": [
+    {
+      "contract": "V3Oracle",
+      "address": "0x24b58808ca5891d9b58e04db1b03a5e980f648b5",
+      "transaction": "0x849a84e4928cfdd4a6006373e597787199488b7f4e01855bb404517447775829",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x24b58808ca5891d9b58e04db1b03a5e980f648b5#code"
+    },
+    {
+      "contract": "InterestRateModel",
+      "address": "0x12daba2089f8e81c814cf40945e5bdae43393ea2",
+      "transaction": "0x7ad44665df608fcdeceab047b38a6a0d2a4f0c71a374d85db1b13c60ceefb83c",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x12daba2089f8e81c814cf40945e5bdae43393ea2#code"
+    },
+    {
+      "contract": "V3Vault",
+      "address": "0x1c69eb478425199d34d93484c76c1b39554979a1",
+      "transaction": "0x5543318ef450f115918494e0d8cf610351aed9c7c44f7054f0f536829cf6de51",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x1c69eb478425199d34d93484c76c1b39554979a1#code"
+    },
+    {
+      "contract": "V3Utils",
+      "address": "0x1d388dec5c440f572d3103b09f22acd674b707f5",
+      "transaction": "0x5467f7115b1898fb1002336cb40406ba5efb42616d5088d0264b9afbe398bf73",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x1d388dec5c440f572d3103b09f22acd674b707f5#code"
+    },
+    {
+      "contract": "GaugeManager",
+      "address": "0x1ac3a1c018a09146dce000efcc67e2129adc6dbd",
+      "transaction": "0x274075fe1573aa078790b24219364f91f7c1f734c9bc4c37260a765a5c000d87",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x1ac3a1c018a09146dce000efcc67e2129adc6dbd#code"
+    },
+    {
+      "contract": "LeverageTransformer",
+      "address": "0xad3a04af07bbd1daab2e0938359fe4fb4a786690",
+      "transaction": "0x7bd47ba9086950583bb5db8efe750cb1166b28e00d261dae74838016e485268e",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0xad3a04af07bbd1daab2e0938359fe4fb4a786690#code"
+    },
+    {
+      "contract": "AutoRangeAndCompound",
+      "address": "0x1d0b1401afdd36afcac521dac95a7f1906bad642",
+      "transaction": "0xef9f1ab4106477046bd8ef138097ffd3e6909a7bd35a8ddbdba82ead4fc3b055",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x1d0b1401afdd36afcac521dac95a7f1906bad642#code"
+    },
+    {
+      "contract": "AutoExit",
+      "address": "0x5793aed47c74b53a67c864ca080136ba4e8452b8",
+      "transaction": "0xcd61e5475278fef3bbc573537d80d4f0983112eb364d60fe212aa78a9d69fbaf",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0x5793aed47c74b53a67c864ca080136ba4e8452b8#code"
+    },
+    {
+      "contract": "FlashloanLiquidator",
+      "address": "0xd799fe23e2722d5b36b314b9ca657a5c8b4d7df2",
+      "transaction": "0x18d1a2ce08a3e709e46215d58e883db02f7ea36053d1e394e7d59d63b01a8ef8",
+      "sourceVerified": true,
+      "explorer": "https://basescan.org/address/0xd799fe23e2722d5b36b314b9ca657a5c8b4d7df2#code"
+    }
+  ]
+}

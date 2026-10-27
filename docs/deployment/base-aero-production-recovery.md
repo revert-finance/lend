@@ -1,4 +1,4 @@
-# Base Aero partial deployment and recovery
+# Base Aero deployment recovery (completed)
 
 The user broadcast the preparation on 2026-10-27. All nine contracts and VaultLib were deployed. The first 34 transactions succeeded; transaction 35 failed at Base block 53165756:
 
@@ -48,3 +48,18 @@ The generated `safe-accept-ownership.json` is for the Base Safe `0x45B220860A39f
 - These checks did not sign or send recovery transactions to production.
 
 Production evidence is retained locally under `broadcast/aero-recovery-evidence/`; recovery-fork records are isolated under `broadcast/recovery-local-test/` and must not be used as production records. Original source/build artifacts and original deployment receipts remain available for explorer verification.
+
+
+## Production completion — 2026-10-27
+
+The user signed all 13 recovery calls successfully (starting at block **53166247**). The reserve-factor retry used 62,256 gas. The receipt-validation and ownership-only handoff helper then passed against live Base at block **53166282**. The generated batch contains seven Safe ownership acceptances; it has not been submitted. InterestRateModel is already Safe-owned. Borrowing remains disabled.
+
+All nine deployed contracts and VaultLib have verified source on BaseScan. Verification signs no transactions:
+
+```bash
+bash script/deploy-aero-protocol.sh --verify
+```
+
+This uses individual `forge verify-contract` calls, not `forge script --resume --verify`; the latter requires broadcasting in the installed Foundry version and must not be used to replay the original failed sequence.
+
+V3Vault required reconstructing its original 95-file compilation batch from build ID `663187fb3802fbc0`. Its 46 dependency source files match the deployed artifact; unrelated batch inputs came from the earlier compilation context. The reconstructed Solidity standard JSON input produced **byte-for-byte identical creation bytecode** before library linking. Its accepted input is preserved locally at `broadcast/aero-source-verification/V3Vault.standard-json.json`; BaseScan also publishes the verified input. The other contracts were verified independently from their own artifacts. Preserve the original build artifacts and verification input rather than recompiling this historical deployment with a different batch.

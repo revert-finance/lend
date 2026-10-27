@@ -2,16 +2,16 @@
 # Rehearse first; only --broadcast sends transactions. Signing stays in the local Foundry keystore.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-: "${BASE_RPC_URL:?Set BASE_RPC_URL to a Base RPC with historical-state support}"
 export AERO_DEPLOYER=0x83681C14770b44361e21Faf91D8325423365eA5C
 mode="${1:---dry-run}"
 case "$mode" in
   --dry-run) args=() ;;
   --broadcast) args=(--broadcast --slow --account deployer) ;;
   --resume) args=(--resume --broadcast --slow --account deployer) ;;
-  --verify) args=(--resume --verify); : "${ETHERSCAN_API_KEY:?Set ETHERSCAN_API_KEY}" ;;
+  --verify) exec python3 script/verify-aero-deployment.py ;;
   *) echo 'Usage: bash script/deploy-aero-protocol.sh [--dry-run|--broadcast|--resume|--verify]' >&2; exit 2 ;;
 esac
+: "${BASE_RPC_URL:?Set BASE_RPC_URL to a Base RPC with historical-state support}"
 artifact=broadcast/DeployAeroProtocol.s.sol/8453/run-latest.json
 if [[ "$mode" == --broadcast && -f "$artifact" ]]; then
   echo 'Existing deployment record found. Inspect receipts and use --resume for that sequence; do not redeploy blindly.' >&2
