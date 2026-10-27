@@ -91,9 +91,11 @@ python3 script/prepare-aero-safe.py \
   --debt-cap-usdc 1000000 --out broadcast/aero-handoff
 ```
 
-The helper rejects missing/failed receipts, incomplete deployments, wrong chain, wrong ownership/bindings and an already-active debt cap. It writes `addresses.json`, `safe-accept-ownership.json`, and `safe-activate-borrowing.json`. These are local files only; nothing is submitted to Safe. Predicted rehearsal addresses are not production addresses.
+The helper rejects missing/failed receipts, incomplete deployments, wrong chain, wrong ownership/bindings and an already-active debt cap. It also compares the complete expected feed tuples, reference/sequencer settings, all six gauge assignments, all three reward routes, router bindings, interest curve, fees, cooldown and TWAP settings against live state at one block before writing any files. Expected values must be updated alongside a deliberate deployment-config change; successful old receipts do not override a live mismatch. It writes `addresses.json`, `safe-accept-ownership.json`, and `safe-activate-borrowing.json`. These are local files only; nothing is submitted to Safe. Predicted rehearsal addresses are not production addresses.
 
 7. Import and execute **ownership acceptance only** in the Base Safe. Verify all seven owners equal the Safe, pending owners are zero and IRM owner already equals the Safe. The liquidator has no owner.
+After acceptance, rerun the helper immediately before reviewing activation to catch configuration changes since the first run. Already-accepted ownership entries are omitted. A failed validation invalidates any previously generated activation file; do not use that old file. This checks the declared launch entries at the printed block, not all possible additional mapping keys or changes after that block.
+
 8. Use confirmed addresses and deployment blocks to configure indexer, frontend, bots, liquidator and monitoring. No such services are changed by this contract script. Test small real deposits/positions, repay/remove availability, expected gauges and router quotes while borrowing remains disabled. Borrowing tests require the controlled activation stage.
 9. After final checks and audit review, import the **separate activation** file. Reconfirm the cap and all risk parameters immediately before signing. `setLimits` changes all five limit fields, so regenerate/review if governance changed any since preparation. Verify the cap, perform a small borrow/repay/stake/exit smoke test and monitor before wider exposure.
 
@@ -149,3 +151,17 @@ Never use the local rehearsal's receipt/address files for production or resume t
 The contract deployment is ready for review as a concrete configuration, not a declaration of production launch readiness. Before the next scan, include these scripts and bindings in the reviewed repository revision. Production launch still requires audit review, the final configuration decision, source verification and the service wiring described above. No new Cantina scan has been started by this preparation.
 
 The clean source-only and full-build size guards passed (24,320-byte project guard; 24,576-byte EIP-170 limit). Actual deployed runtime sizes are recorded in `aero-local-rehearsal-results.json`; the largest is AutoRangeAndCompound at 24,064 bytes, leaving 512 bytes under EIP-170. The full-build guard ran concurrently with the final deployment-only preflight adjustment; the protocol sources were unchanged throughout, and the final script was independently deployed with all runtime sizes measured on the local node.
+
+
+## PR #80 handoff-validation regression
+
+Codex identified missing live oracle/gauge/reward-route checks in the original Safe helper. The helper now rejects drift in those settings and the remaining declared economics/routing settings before producing files. No Solidity source or deployment transaction changes were required.
+
+Run the integration regression against the local Anvil deployment described above (never production):
+
+```bash
+python3 test/deployment/aero_safe_handoff.py --rpc-url http://127.0.0.1:28543 \
+  --broadcast broadcast/local-rehearsal/DeployAeroProtocol.s.sol/8453/run-latest.json
+```
+
+Validation: **31 scenarios passed** on an isolated fork at block 53136369, using the real 47-transaction deployment. Valid handoffs pass before, during and after Safe ownership acceptance. Changed feeds/ages/modes/reference pools/deviations, sequencer/admin settings, reward routes, gauge mappings, interest rate, fees, cooldown and automation TWAP are rejected without creating output files. Every mutation is reverted after its case. Gauge-mapping tests use explicit storage fault injection because `setGauge` itself rejects arbitrary mismatched upstream gauges; they demonstrate the handoff check, not a bypass of the setter's validation.
