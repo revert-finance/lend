@@ -1,6 +1,6 @@
 # Fresh Base Aero deployment rehearsal
 
-Prepared 2026-10-27. Baseline contract source: `aero` commit `44932953b7ba4f380203845d7778a1e8da4da223` (PR #79). The deployment preparation adds scripts, tests and documentation. Following the confirmed launch fee decision, it also changes only the initial Advanced fee and GaugeManager fallback from 2% to 5%; fee calculations, decrease-only setters and the 10% Simple fee are unchanged. The final scan must include these two initializer changes. **No production deployment has been performed by this preparation.** Rehearsal configuration remains subject to final launch approval.
+Prepared 2026-10-27. Baseline contract source: `aero` commit `44932953b7ba4f380203845d7778a1e8da4da223` (PR #79). The deployment preparation adds scripts, tests and documentation. Following the confirmed launch fee decision, it also changes only the initial Advanced fee and GaugeManager fallback from 2% to 5%; fee calculations, decrease-only setters and the 10% Simple fee are unchanged. The final scan must include these two initializer changes. **Production deployment was started by the user on 2026-10-27 and stopped at an out-of-gas reserve-factor configuration call. All nine contracts exist; configuration is incomplete. Follow [the recovery instructions](base-aero-production-recovery.md) for this deployment, rather than starting a fresh broadcast.** Launch remains separate from deployment.
 
 ## Scope and decisions
 

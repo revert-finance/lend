@@ -23,6 +23,7 @@ def calldata(signature, *args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('broadcast', type=Path)
+    parser.add_argument('--recovery-broadcast', type=Path, help='Completed configuration-only recovery for the known reserve-factor gas failure')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--ownership-only', action='store_true', help='Generate ownership acceptance only; no borrowing activation file')
     mode.add_argument('--debt-cap-usdc', type=int, help='Explicit whole-USDC activation cap')
@@ -56,6 +57,26 @@ def main():
             raise SystemExit(f'Unexpected {signature} on {address}.')
     data = json.loads(args.broadcast.read_text())
     txs = data['transactions']
+    if args.recovery_broadcast:
+        # Preserve the original failure evidence. Accept only the exact unsatisfied suffix replayed successfully.
+        failed_hash = '0x9293cc9f4a176da7b63894686db1018369f892d688eac52881f96593b4c2995a'
+        if len(txs) != 47 or txs[34].get('hash') != failed_hash or any(t.get('hash') for t in txs[35:]):
+            raise SystemExit('Recovery does not match the known partial deployment.')
+        failed_receipt = rpc('eth_getTransactionReceipt', [failed_hash])
+        if not failed_receipt or int(failed_receipt['status'],16) != 0:
+            raise SystemExit('Expected original failed reserve-factor transaction.')
+        recovered = json.loads(args.recovery_broadcast.read_text())['transactions']
+        if len(recovered) != 13:
+            raise SystemExit('Expected exactly 13 recovery configuration calls.')
+        for expected, actual in zip(txs[34:], recovered):
+            original_call = expected['transaction']
+            replay = actual['transaction']
+            if actual.get('transactionType') != 'CALL' or any(
+                str(original_call.get(key, '')).lower() != str(replay.get(key, '')).lower()
+                for key in ('from','to','input','value','chainId')
+            ):
+                raise SystemExit('Recovery call differs from the original configuration sequence.')
+        txs = txs[:34] + recovered
     # Check every actual receipt, including the configuration/nomination transactions.
     for tx in txs:
         if not tx.get('hash'):

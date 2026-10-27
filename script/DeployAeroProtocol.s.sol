@@ -197,7 +197,8 @@ contract DeployAeroProtocol is Script {
             100_000e6 // daily debt increase min
         );
 
-        vault.setReserveFactor(uint32(10 * Q32 / 100));
+        // A same-timestamp simulation skips interest accrual; real broadcast transactions cross blocks.
+        vault.setReserveFactor{gas: 250_000}(uint32(10 * Q32 / 100));
         vault.setReserveProtectionFactor(uint32(5 * Q32 / 100));
 
         vault.setTokenConfig(USDC, uint32(85 * Q32 / 100), type(uint32).max);
