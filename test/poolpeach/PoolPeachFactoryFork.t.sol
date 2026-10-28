@@ -5,6 +5,16 @@ import "forge-std/Test.sol";
 import "../../src/poolpeach/PoolPeachFactory.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
+// The repository's pinned forge-std predates the emitter field in Foundry's log cheatcode.
+interface PoolPeachLogReader {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+    function getRecordedLogs() external returns (Log[] memory);
+}
+
 contract PoolPeachTestBeneficiary is IERC721Receiver {
     PoolPeachPosition public holder;
     bool public rejectNFT;
@@ -13,11 +23,12 @@ contract PoolPeachTestBeneficiary is IERC721Receiver {
 
     function create(PoolPeachFactory factory, V3Utils.SwapAndMintParams calldata p, AutoExit.PositionConfig calldata c)
         external
+        payable
         returns (uint256 id)
     {
         p.token0.approve(address(factory), p.amount0);
         p.token1.approve(address(factory), p.amount1);
-        (id, holder) = factory.create(p, c, false);
+        (id, holder) = factory.create{value: msg.value}(p, c, false);
     }
 
     function setRejectNFT(bool reject) external {
@@ -482,7 +493,7 @@ contract PoolPeachFactoryForkTest is Test {
         vm.prank(ALICE);
         (uint256 id,) = factory.create{value: p.amount0}(p, c, false);
         assertTrue(factory.activeHolder(id) != address(0));
-        assertEq(p.token0.balanceOf(ALICE), wethBefore);
+        assertGe(p.token0.balanceOf(ALICE), wethBefore, "WETH refund must not consume the user's existing WETH");
         assertEq(address(factory).balance, 0);
     }
 
@@ -573,5 +584,53 @@ contract PoolPeachFactoryForkTest is Test {
         );
         vm.expectRevert(PoolPeachFactory.InvalidBinding.selector);
         new PoolPeachFactory(UTILS, VAULT, RANGE, EXIT);
+    }
+
+    function test_NativeMintRefundWorksForBeneficiaryRejectingEther() public {
+        _checkNativeMintRefund(1 ether, true);
+    }
+
+    function test_NativeMintAlsoReturnsUnusedNonNativeToken() public {
+        _checkNativeMintRefund(0.001 ether, false);
+    }
+
+    function _checkNativeMintRefund(uint256 nativeAmount, bool expectWethExcess) internal {
+        PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
+        V3Utils.SwapAndMintParams memory p = _params();
+        p.amount0 = nativeAmount;
+        deal(address(p.token1), address(receiver), p.amount1);
+        vm.deal(address(this), nativeAmount + 1);
+        // It can accept ETH through create(), but has no payable receive/fallback for an empty-calldata refund.
+        (bool receivesEther,) = address(receiver).call{value: 1}("");
+        assertFalse(receivesEther);
+        vm.recordLogs();
+        uint256 id = receiver.create{value: nativeAmount}(factory, p, _config(true));
+        PoolPeachLogReader.Log[] memory logs = PoolPeachLogReader(address(vm)).getRecordedLogs();
+        bool found;
+        uint256 used0;
+        uint256 used1;
+        for (uint256 i; i < logs.length; ++i) {
+            if (
+                logs[i].emitter == address(UTILS)
+                    && logs[i].topics[0] == keccak256("SwapAndMint(uint256,uint128,uint256,uint256)")
+                    && uint256(logs[i].topics[1]) == id
+            ) {
+                (, used0, used1) = abi.decode(logs[i].data, (uint128, uint256, uint256));
+                found = true;
+            }
+        }
+        assertTrue(found);
+        if (expectWethExcess) assertGt(p.amount0 - used0, 0, "exercise an actual native refund");
+        else assertGt(p.amount1 - used1, 0, "exercise an actual ERC20 refund");
+        assertEq(p.token0.balanceOf(address(receiver)), p.amount0 - used0);
+        assertEq(p.token1.balanceOf(address(receiver)), p.amount1 - used1);
+        PoolPeachPosition holder = receiver.holder();
+        assertEq(factory.activeHolder(id), address(holder));
+        assertEq(address(receiver).balance, 0);
+        assertEq(address(holder).balance, 0);
+        assertEq(p.token0.balanceOf(address(holder)), 0);
+        assertEq(p.token1.balanceOf(address(holder)), 0);
+        assertEq(p.token0.balanceOf(address(factory)), 0);
+        assertEq(p.token1.balanceOf(address(factory)), 0);
     }
 }

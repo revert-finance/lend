@@ -116,6 +116,11 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
         (,, address t0, address t1,,,,,,,,) = npm.positions(id);
         token0 = IERC20(t0);
         token1 = IERC20(t1);
+        // Settle native-funded mint leftovers before staking can deliver separate rewards/fees.
+        // The beneficiary may be a contract that cannot receive native ETH.
+        _claimNative();
+        _claimToken(token0);
+        _claimToken(token1);
         // Configure while this contract directly owns the NFT. No standing ERC721 approval is needed.
         autoExit.configToken(id, exitConfig);
         npm.safeTransferFrom(address(this), address(vault), id, abi.encode(address(this)));

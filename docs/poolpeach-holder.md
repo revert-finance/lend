@@ -29,9 +29,11 @@ Call `PoolPeachFactory.create(mintParams, exitConfig, initiallyStake)`:
 2. Deploy a holder for `msg.sender`. Pull exactly the requested ERC20 amounts and approve only those amounts to
    the immutable V3Utils. Reject transfers that deliver a different amount. ETH may fund all or part of the WETH
    side, reducing the corresponding ERC20 pull.
-3. Call V3Utils to mint into that holder. Force both the beneficiary and leftover-token destination to the caller;
-   callers cannot override the NFT receiver or callback data. Clear factory-to-V3Utils allowances afterward.
-4. Configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
+3. Call V3Utils to mint into that holder. Force the beneficiary to the caller. ERC20-funded leftovers return directly
+   to the caller; native-funded leftovers go through the holder, which wraps ETH and forwards WETH and remaining
+   tokens to the beneficiary within the same transaction. Contract beneficiaries need not accept native ETH refunds.
+   Callers cannot override the NFT receiver or callback data. Clear factory-to-V3Utils allowances afterward.
+4. Settle mint refunds, then configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
    approve only the existing AutoRangeAndCompound transformer, and enable its staking-management consent.
 5. Optionally stake immediately. Publish `PositionCreated(tokenId, holder, beneficiary)` only after setup succeeds.
 
@@ -117,11 +119,13 @@ forge fmt --check src/poolpeach/PoolPeachFactory.sol src/poolpeach/PoolPeachPosi
   test/poolpeach/PoolPeachFactoryFork.t.sol
 ```
 
-36 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
+38 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
 and holders are deployed locally. Coverage includes creation and initial staking, actual keeper staking and consent
 revocation, exit execution, penalty policy, manual withdrawal, registry lifecycle, operator revocation, recipient
 binding, fee limits, rollback on trigger/slippage/recipient failures, callback reentrancy, root/batch claim forwarding,
-cross-holder isolation, residual tokens, native funding and unavailable borrowing/generic-call entrypoints.
+cross-holder isolation, residual tokens, native funding and unavailable borrowing/generic-call entrypoints. Native
+refund regressions use a beneficiary contract without a payable receive/fallback, and check both WETH and non-native
+refund amounts against the mint event. The WETH-refund regression reproduced `EtherSendFailed()` before the fix.
 
 Deferred-liability cases seed GaugeManager accounting/storage and funding on the fork, then call its actual claim
 functions. They test ownership forwarding and isolation; they do not reproduce upstream delayed minting/redemption.

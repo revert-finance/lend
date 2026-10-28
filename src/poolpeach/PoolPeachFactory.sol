@@ -83,7 +83,8 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
         _fund(requested.token0, requested.amount0 - native0);
         _fund(requested.token1, requested.amount1 - native1);
         V3Utils.SwapAndMintParams memory params = requested;
-        params.recipient = msg.sender;
+        // V3Utils unwraps native-funded WETH leftovers. The holder accepts ETH and refunds WETH to any beneficiary.
+        params.recipient = msg.value == 0 ? msg.sender : address(holder);
         params.recipientNFT = address(holder);
         params.returnData = "";
         creatingHolder = address(holder);
