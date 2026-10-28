@@ -23,6 +23,7 @@ contract V3UtilsCooldownRegression is AerodromeTestBase {
         vault.setTransformer(address(autoRange), true);
         vault.setTransformer(address(v3utils), true);
         autoRange.setVault(address(vault));
+        vault.setStakingPolicy(address(autoRange));
         gaugeManager.setCompoundModeSource(address(autoRange));
         v3utils.setVault(address(vault));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
@@ -69,6 +70,27 @@ contract V3UtilsCooldownRegression is AerodromeTestBase {
     }
 
     function testV3UtilsReplacementPreservesOperatorCooldown() public {
+        _assertReplacementPreservesCooldown(false);
+    }
+
+    function testV3UtilsReplacementPreservesCooldownWithoutFeeSource() public {
+        gaugeManager.setCompoundModeSource(address(0));
+        _assertReplacementPreservesCooldown(false);
+    }
+
+    function testV3UtilsReplacementPreservesCooldownAfterDisablingFeeSource() public {
+        _assertReplacementPreservesCooldown(true);
+    }
+
+    function testStakingPolicyCannotBeClearedOrReplaced() public {
+        vm.expectRevert(InvalidConfig.selector);
+        vault.setStakingPolicy(address(0));
+        vm.expectRevert(InvalidConfig.selector);
+        vault.setStakingPolicy(address(v3utils));
+        assertEq(vault.stakingPolicy(), address(autoRange));
+    }
+
+    function _assertReplacementPreservesCooldown(bool disableFeeSourceAfterDecision) internal {
         uint256 tokenId = createPosition(alice, address(usdc), address(dai), 500, -100, 100, 1000e18);
         npm.setTokensOwed(tokenId, 0, 0);
 
@@ -96,6 +118,8 @@ contract V3UtilsCooldownRegression is AerodromeTestBase {
         uint256 firstDecisionBlock = autoRange.lastStakeChangeBlock(tokenId);
         assertEq(autoRange.lastStakeChangeBlock(tokenId), firstDecisionBlock);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+
+        if (disableFeeSourceAfterDecision) gaugeManager.setCompoundModeSource(address(0));
 
         // The owner performs a supported V3Utils replacement after the old penalty window ends.
         vm.roll(gaugeManager.penaltyWindowEnd(tokenId));
@@ -150,5 +174,22 @@ contract V3UtilsCooldownRegression is AerodromeTestBase {
         return AutoRangeAndCompound.AutoCompoundParams({
             tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
         });
+    }
+}
+
+contract StakingPolicyBindingTest is AerodromeTestBase {
+    function testOnlyOwnerCanBindStakingPolicy() public {
+        vm.prank(alice);
+        vm.expectRevert("Ownable: caller is not the owner");
+        vault.setStakingPolicy(address(npm));
+        assertEq(vault.stakingPolicy(), address(0));
+    }
+
+    function testStakingPolicyRejectsZeroAndNonContract() public {
+        vm.expectRevert(InvalidConfig.selector);
+        vault.setStakingPolicy(address(0));
+        vm.expectRevert(InvalidConfig.selector);
+        vault.setStakingPolicy(alice);
+        assertEq(vault.stakingPolicy(), address(0));
     }
 }

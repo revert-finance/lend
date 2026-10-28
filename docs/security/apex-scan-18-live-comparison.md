@@ -47,20 +47,20 @@ Retrieved verified source bundles from BaseScan for the [vault](https://basescan
 
 - Plain AutoRange vault execution checks readiness before any reward swap, and keeps its existing post-compound readiness and slippage checks. The precheck uses the existing linked VaultLib to keep runtime size bounded.
 - Range replacement copies the fee tier and deletes the original tier, expires an intervening owner's staking consent, and retains timing on both reusable NFTs.
-- V3Vault's authenticated replacement-receipt hook asks its GaugeManager's configured `compoundModeSource` to migrate cooldown state. This requires the release's configured AutoRange policy source (as wired by DeployAeroProtocol); alternate policy-source contracts must implement IStakingPolicy. It does not copy unrelated transform approvals or grant fresh consent to V3Utils replacements.
+- V3Vault's authenticated replacement-receipt hook uses its dedicated, owner-configured `stakingPolicy` binding to migrate cooldown state. DeployAeroProtocol binds AutoRange and checks the result. The binding is set once before enabling operator staking and cannot be cleared or changed, independently of the optional GaugeManager `compoundModeSource`. Manager-only deployments must bind the policy on their separately prepared vault. Policy contracts must implement IStakingPolicy. The hook does not copy unrelated transform approvals or grant fresh consent to V3Utils replacements.
 - Root-mode manager preflight executes the reward-delivery validator in a separate helper, created outside broadcast, so Foundry does not evaluate address(this) in the script context.
 - These are source changes. Existing immutable deployments are not patched by editing this branch; no deployment, activation, Apex feedback, or Fix Review has been performed.
 
 ## Validation
 
 - `forge build --root fixtures/upstream-gauge`: pinned upstream fixture build passed (Solc 0.7.6).
-- `forge test --match-path 'test/{unit,integration/aerodrome}/**' -vv`: **284 passed, 0 failed, 0 skipped**, across 30 suites. Includes the new fee-mode, stale-consent, reusable-NFT cooldown, V3Utils replacement, migration-authentication and reward-swap trigger regressions.
+- `forge test --match-path 'test/{unit,integration/aerodrome}/**' -vv`: **289 passed, 0 failed, 0 skipped**, across 31 suites. Includes the new fee-mode, stale-consent, reusable-NFT cooldown, V3Utils replacement, migration-authentication and reward-swap trigger regressions. V3Utils cooldown coverage includes an initially absent fee source and one disabled after the operator's first decision; binding tests cover owner-only setup, invalid addresses and attempts to clear or replace the policy.
 - `forge script test/unit/DeployAeroGaugeManager.t.sol:RootGaugeScriptRegression --sig 'runRoot()' -vv`: passed in actual Forge script context, without broadcast.
 - `bash script/check-sizes.sh`: both clean-build modes passed the existing **24,320-byte** guard (EIP-170 limit 24,576).
 
 | Contract | Source-only runtime | Full-build runtime |
 | --- | ---: | ---: |
 | AutoRangeAndCompound | 24,310 bytes | 24,310 bytes |
-| V3Vault | 22,777 bytes | 22,394 bytes |
+| V3Vault | 22,879 bytes | 22,879 bytes |
 
 AutoRange has 266 bytes of EIP-170 headroom and 10 bytes of project-guard headroom. Preserve the pinned compiler settings and rerun the size guard for future edits. Fork suites were not run; live-chain use here was read-only binding/source verification. No production transactions or Apex lifecycle updates were performed.

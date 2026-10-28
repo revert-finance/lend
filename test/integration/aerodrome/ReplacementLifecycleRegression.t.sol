@@ -40,7 +40,7 @@ contract ReplacementLifecycleRegression is OperatorStakingTest {
     }
 
     function testSameOwnerVaultReplacementCarriesConsentAndCooldown() public {
-        gaugeManager.setCompoundModeSource(address(autoRange));
+        vault.setStakingPolicy(address(autoRange));
         uint256 oldTokenId = _createVaultPosition(address(usdc), address(dai), 1, false);
         npm.setTokensOwed(oldTokenId, 0, 0);
         _optIn(oldTokenId, true);

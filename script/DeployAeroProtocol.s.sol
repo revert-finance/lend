@@ -188,6 +188,7 @@ contract DeployAeroProtocol is Script {
         vault.setTransformer(address(v3Utils), true);
         vault.setTransformer(address(leverageTransformer), true);
         vault.setTransformer(address(autoRange), true);
+        vault.setStakingPolicy(address(autoRange));
 
         vault.setLimits(
             1e6, // minLoanSize = 1 USDC
@@ -221,6 +222,7 @@ contract DeployAeroProtocol is Script {
         require(address(gaugeManager.vault()) == address(vault), "manager binding");
         require(vault.globalDebtLimit() == 0, "borrowing enabled prematurely");
         require(gaugeManager.compoundModeSource() == address(autoRange), "fee source");
+        require(vault.stakingPolicy() == address(autoRange), "staking policy");
 
         console2.log("DEPLOYER", deployer);
         console2.log("BASE_MULTISIG", BASE_MULTISIG);
