@@ -73,12 +73,14 @@ permissions and registry state. The factory must be registered as an AutoExit op
 needs no governance transaction. Revoking that registration prevents automated exits but does not disable the
 beneficiary's direct withdrawal.
 
-### Policy requiring review: early-unstake penalties
+### Agreed policy: wait out early-unstake penalties
 
-The draft blocks automatic exit until `GaugeManager.penaltyWindowEnd(tokenId)`, matching the current automated
-staking policy. **A stop-loss can therefore be delayed during that window.** This is an explicit conservative
-draft choice, not an approved product guarantee. Before release, choose whether stop-loss execution should instead
-take priority over preserving emissions, and whether that choice belongs in each user's exit configuration.
+Both automatic exits and automated staking changes wait until `GaugeManager.penaltyWindowEnd(tokenId)` when
+the position is staked. This policy was confirmed on 2026-10-28. **A stop-loss can therefore be delayed during
+that window.** Once it ends, the exit condition must still hold at execution; the first price crossing is not
+latched or guaranteed. Keepers must retry eligible exits and read the current on-chain window rather than
+hardcoding seven blocks. At Base block 53180616 all six configured collateral pools had a seven-block window
+(approximately 14 seconds) and a 100% penalty on emissions claimed inside it; Aero can change those settings.
 Beneficiary-initiated `withdraw()` has no added penalty-window or price-trigger restriction; upstream withdrawal
 rules still apply, including any reward penalty. The frontend must explain that distinction.
 
@@ -130,7 +132,7 @@ interfaces. These are reproducible regression checks, not an audit or authorizat
 ## Before deployment
 
 - Review the new custody layer independently; existing core audits do not cover it.
-- Settle the early-exit penalty policy and evaluate per-position deployment gas. Clones are deliberately omitted
+- Evaluate per-position deployment gas. Clones are deliberately omitted
   from this first draft to avoid adding initialization/proxy complexity.
 - Review exit configuration editing, wallet funding UX and any desired ongoing compounding as separate scope.
 - Add a reviewed deployment/preflight flow, register the factory once with AutoExit, and validate selected pools.

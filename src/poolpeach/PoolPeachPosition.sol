@@ -155,7 +155,7 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
     /// @dev Registry completes preparation, AutoExit execution and settlement in ONE transaction.
     function prepareAutoExit() external nonReentrant onlyRegistry {
         if (!autoExitEnabled) revert InvalidState();
-        // Conservative draft policy, matching automated stake changes: never forfeit early-unstake rewards.
+        // Agreed policy: automated exits and stake changes both wait out the current penalty window.
         // This may delay a price-triggered exit. The beneficiary's manual withdrawal is not subject to this guard.
         if (manager.tokenIdToGauge(tokenId) != address(0) && block.number < manager.penaltyWindowEnd(tokenId)) {
             revert InsidePenaltyWindow();
