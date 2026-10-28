@@ -855,6 +855,11 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         // through withdrawBalances by the configured withdrawer.
     }
 
+    // Aero's position manager refunds its full ETH balance after increasing liquidity.
+    receive() external payable {
+        if (msg.sender != address(nonfungiblePositionManager)) revert Unauthorized();
+    }
+
     function onERC721Received(address, address from, uint256 tokenId, bytes calldata)
         external
         view
