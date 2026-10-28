@@ -1,0 +1,36 @@
+{
+  "chainId": 8453,
+  "vault": "0x1ef7c181188687e20a9750714f1b9de6f70f17c0",
+  "source": "BaseScan verified source bundles fetched 2026-10-28",
+  "files": {
+    "src/GaugeManager.sol": "3ef46c04681b9232f2bac88132a2b6bcfd8d5d4f0504c7aebbec7464c22db338",
+    "src/InterestRateModel.sol": "a0c8c74083f71b07080ede8a984728b66fe6d804ab22fc461e9ff6e1c909de5c",
+    "src/V3Oracle.sol": "3c7e695e8dc67a1f0e8fa2496b255000530b32dbf4f18ad6e116e2fec207ca11",
+    "src/V3Vault.sol": "aba4a14a1ec3a07d6b9f855756b42cf40aec7bcd7e784279aa70d0db70f10e59",
+    "src/automators/AutoExit.sol": "0540b60ee659d81c7f22468baab83979f9843f179aeeee7ef628293568291caa",
+    "src/automators/Automator.sol": "d31289a081be70c311ef7dcd940cef13279eebc7f0b8aadde004a4c12a5e5878",
+    "src/interfaces/IGaugeManager.sol": "44ecf3347963b76f27cc9c9fcced03a515d2dc146c61f6f12b7a0c369809eb63",
+    "src/interfaces/IInterestRateModel.sol": "3f9c841b9586d53bbb999ea11de19c78ed3c01a5f3fbf43601c6ee3c094a1288",
+    "src/interfaces/IProtocolFeeController.sol": "3bdbd05dbc4ca8ffca690f2962816963160673f8980527fc1ca2f2bba412a42d",
+    "src/interfaces/IV3Oracle.sol": "675b9aec3f1d01fddc6eed10a589e1337a88f1e9de18c690cc2b20cbba4dc9a5",
+    "src/interfaces/IVault.sol": "567d3d0c1556ca7b06fd2ca1f701dc4b81cfd4900bc694e09cc276f1d887b226",
+    "src/interfaces/aerodrome/IAerodromeNonfungiblePositionManager.sol": "bacbcb1663746498a453d549d0fb6a3f283fca150670c109ee3945a45acaa8bb",
+    "src/interfaces/aerodrome/IAerodromeSlipstreamFactory.sol": "b9566bbf1f54734683d604c3a3aa38c020ed42d5e18d7fa6d09b8d2fef5ee66e",
+    "src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol": "b1425c2dcaa7c0a6ab5f54dc8bcc9f5d2abbcc32cfe05206a90f67ebc786098a",
+    "src/interfaces/aerodrome/IGauge.sol": "77b4c5ed01e600e9f6627640ce13db74251a7903adcc9d0613e5f3049dd2e315",
+    "src/transformers/AutoRangeAndCompound.sol": "d9a7e6cf68f186342089d2ab0002aa4325683fc68c0f4821f080e5a25790f61e",
+    "src/transformers/LeverageTransformer.sol": "0f56c45836760076120d3da52d23a551cae860399f145a7d9f3eebb7bb0fda4f",
+    "src/transformers/Transformer.sol": "048b0e8c768aff0e5554e438c707f498afb7f81119644ca6c85220c61140dac3",
+    "src/transformers/V3Utils.sol": "cdfa515ca9d45efe846da7c8b7ac190247ca5b040d02d540c184fdb642c5229c",
+    "src/utils/Constants.sol": "20d339b7b2ee9bda1d73a68927e4cc2a435397f226b2f87ad62c67c8c9a7dd46",
+    "src/utils/Swapper.sol": "f311621f5d0825481d153f4d51985cccd1c6abc57d326dc82b3d7704f176b48c"
+  },
+  "legacyNpmImplementationSha256": "48acbf5fb69a25b3ffd2ca5e0a455b56b9fa3f312f490137e8c6dd9943249b08",
+  "liveReadback": {
+    "observedNearBlock": 53208017,
+    "oracle": "0x82722327e45e86a0f2107746f423f612139b0952",
+    "gaugeManager": "0xc171f8c6ed8253151de50ab839e3a468028113f2",
+    "nonfungiblePositionManager": "0x827922686190790b37229fd06084350e74485b72",
+    "note": "Independent read-only RPC calls on October 28, 2026; observedNearBlock is a nearby head read, not a common pinned block for every call."
+  }
+}

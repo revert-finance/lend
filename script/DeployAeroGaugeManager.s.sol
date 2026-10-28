@@ -18,7 +18,15 @@ interface IAeroVaultSetup {
 
 /// @notice Deploys and wires the leaf-receipt or synchronous root-AERO gauge adapter into a fresh, separately prepared vault.
 /// @dev No launch addresses are assumed. See docs/aero-migration.md for inputs and validation limits.
+contract AeroGaugeManagerPreflight {
+    function validate(address gauge, address rewardToken) external view returns (address) {
+        return AeroRewardDelivery.validate(gauge, rewardToken);
+    }
+}
+
 contract DeployAeroGaugeManager is Script {
+    AeroGaugeManagerPreflight private immutable preflight = new AeroGaugeManagerPreflight();
+
     struct Config {
         uint256 chainId;
         address deployer;
@@ -116,7 +124,7 @@ contract DeployAeroGaugeManager is Script {
             IAeroGauge gauge = IAeroGauge(c.gauges[i]);
             require(IAerodromeSlipstreamPool(c.pools[i]).gauge() == c.gauges[i], "pool gauge mismatch");
             require(gauge.nft() == c.npm && gauge.pool() == c.pools[i], "gauge binding mismatch");
-            address handler = AeroRewardDelivery.validate(c.gauges[i], c.receiptToken);
+            address handler = preflight.validate(c.gauges[i], c.receiptToken);
             if (handler != address(0)) {
                 require(rootHandler == address(0) || rootHandler == handler, "root handler mismatch");
                 rootHandler = handler;

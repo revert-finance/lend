@@ -7,6 +7,7 @@ import "../interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 import "../interfaces/IGaugeManager.sol";
+import "../utils/VaultLib.sol";
 
 /// @title AutoRangeAndCompound
 /// @notice Allows operator of AutoRangeAndCompound contract (Revert controlled bot) to change range for configured positions
@@ -44,7 +45,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     // config changes
     event AutoCompoundRewardsUpdated(address account, uint64 totalRewardX64, uint64 simpleRewardX64);
     event CompoundModeConfigured(uint256 indexed tokenId, CompoundMode mode);
-    event StakingManagementConfigured(uint256 indexed tokenId, address indexed vault, address indexed owner, bool managed);
+    event StakingManagementConfigured(
+        uint256 indexed tokenId, address indexed vault, address indexed owner, bool managed
+    );
     event StakeChangeCooldownUpdated(uint32 cooldownBlocks);
 
     constructor(
@@ -154,6 +157,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      */
     function executeWithVault(ExecuteParams calldata params, address vault) external {
         _prepareTransform(params.tokenId, vault);
+        // Plain transforms can now compound rewards before the callback. Require readiness before those swaps.
+        PositionConfig storage config = positionConfigs[params.tokenId];
+        VaultLib.requireRangeReady(
+            nonfungiblePositionManager, factory, params.tokenId, config.lowerTickLimit, config.upperTickLimit
+        );
         IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)));
     }
 
@@ -175,7 +183,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         }
         IVault(vault)
             .transformWithRewardCompound(
-                params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)), adjustedRewardParams
+                params.tokenId,
+                address(this),
+                abi.encodeCall(AutoRangeAndCompound.execute, (params)),
+                adjustedRewardParams
             );
     }
 
@@ -338,37 +349,24 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             // copy token config for new token
             positionConfigs[state.newTokenId] = config;
             compoundModes[state.newTokenId] = compoundModes[params.tokenId];
-            emit PositionConfigured(
-                state.newTokenId,
-                config.lowerTickLimit,
-                config.upperTickLimit,
-                config.lowerTickDelta,
-                config.upperTickDelta,
-                config.token0SlippageX64,
-                config.token1SlippageX64,
-                config.onlyFees,
-                config.autoCompound,
-                config.maxRewardX64,
-                config.autoCompoundMin0,
-                config.autoCompoundMin1,
-                config.autoCompoundRewardMin
-            );
+            _emitPositionConfigured(state.newTokenId);
 
             // delete config for old position
             delete positionConfigs[params.tokenId];
+            delete compoundModes[params.tokenId];
             emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, false, 0, 0, 0, 0);
 
-            // carry the staking-management opt-in (of the vault running this transform) and cooldown over to the new position
+            // Consent follows the current economic owner only; a previous owner's record must expire.
             if (vaults[msg.sender]) {
                 address consentingOwner = stakingConsent[params.tokenId][msg.sender];
-                if (consentingOwner != address(0)) {
-                    delete stakingConsent[params.tokenId][msg.sender];
+                delete stakingConsent[params.tokenId][msg.sender];
+                if (consentingOwner != address(0) && consentingOwner == state.realOwner) {
                     stakingConsent[state.newTokenId][msg.sender] = consentingOwner;
                     emit StakingManagementConfigured(state.newTokenId, msg.sender, consentingOwner, true);
                 }
             }
+            // The old NFT remains reusable, so both token IDs retain the last operator decision.
             lastStakeChangeBlock[state.newTokenId] = lastStakeChangeBlock[params.tokenId];
-            delete lastStakeChangeBlock[params.tokenId];
 
             emit RangeChanged(params.tokenId, state.newTokenId);
         } else {
@@ -420,7 +418,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      */
     function autoCompoundWithVault(AutoCompoundParams calldata params, address vault) external {
         _prepareTransform(params.tokenId, vault);
-        IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+        IVault(vault)
+            .transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
     }
 
     /**
@@ -629,6 +628,12 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         emit StakeChangeCooldownUpdated(cooldownBlocks);
     }
 
+    /// @notice Called only by a registered vault while it accepts an authenticated replacement NFT.
+    function migrateStakingPolicy(uint256 oldTokenId, uint256 newTokenId) external {
+        if (!vaults[msg.sender] || IVault(msg.sender).transformedTokenId() != oldTokenId) revert Unauthorized();
+        lastStakeChangeBlock[newTokenId] = lastStakeChangeBlock[oldTokenId];
+    }
+
     // owner of the position and the real owner: the vault's owner of the position when a vault holds it
     function _ownerAndRealOwner(uint256 tokenId) internal returns (address owner, address realOwner) {
         owner = nonfungiblePositionManager.ownerOf(tokenId);
@@ -693,9 +698,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     // function to configure a token to be used with this runner
     // it needs to have approvals set for this contract beforehand
-    function configToken(uint256 tokenId, address vault, PositionConfig calldata config, CompoundMode mode)
-        external
-    {
+    function configToken(uint256 tokenId, address vault, PositionConfig calldata config, CompoundMode mode) external {
         _validateOwner(nonfungiblePositionManager, tokenId, vault);
 
         // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
@@ -707,6 +710,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         compoundModes[tokenId] = mode;
 
         emit CompoundModeConfigured(tokenId, mode);
+        _emitPositionConfigured(tokenId);
+    }
+
+    function _emitPositionConfigured(uint256 tokenId) internal {
+        PositionConfig storage config = positionConfigs[tokenId];
         emit PositionConfigured(
             tokenId,
             config.lowerTickLimit,
