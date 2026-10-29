@@ -27,6 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--broadcast', type=Path, required=True)
     parser.add_argument('--rpc-url', default='http://127.0.0.1:28544')
+    parser.add_argument('--recovery-broadcast', type=Path, help='Exercise the historical recovery on the local fork')
     args = parser.parse_args()
     url = urlparse(args.rpc_url)
     assert url.scheme == 'http' and url.hostname == '127.0.0.1', 'LOCAL Anvil only'
@@ -56,7 +57,7 @@ def main():
             time.sleep(0.05)
         raise AssertionError('Local transaction receipt timeout')
 
-    def check(label, mutate=None, expected_error=None, expected_acceptances=7, ownership_only=False):
+    def check(label, mutate=None, expected_error=None, expected_acceptances=7, ownership_only=False, broadcast=None, recovery=None):
         snapshot = rpc('evm_snapshot', [])
         try:
             if mutate:
@@ -64,7 +65,9 @@ def main():
             with tempfile.TemporaryDirectory() as directory:
                 output = Path(directory)/'handoff'
                 mode = ['--ownership-only'] if ownership_only else ['--debt-cap-usdc','1000000']
-                result = subprocess.run(['python3',str(ROOT/'script/prepare-aero-safe.py'),str(args.broadcast.resolve()),*mode,'--out',str(output)],env=dict(os.environ,BASE_RPC_URL=args.rpc_url),text=True,capture_output=True,cwd=ROOT)
+                recovery = recovery or args.recovery_broadcast
+                recovery_args = ['--recovery-broadcast',str(recovery.resolve())] if recovery else []
+                result = subprocess.run(['python3',str(ROOT/'script/prepare-aero-safe.py'),str((broadcast or args.broadcast).resolve()),*recovery_args,*mode,'--out',str(output)],env=dict(os.environ,BASE_RPC_URL=args.rpc_url),text=True,capture_output=True,cwd=ROOT)
                 if expected_error:
                     assert result.returncode != 0 and expected_error in result.stderr, (label,result.stdout,result.stderr)
                     assert not output.exists(), f'{label}: wrote Safe files despite configuration mismatch'
@@ -83,6 +86,29 @@ def main():
 
     check('unchanged deployment accepts all seven nominations')
     check('ownership-only emits seven acceptances and no activation', ownership_only=True)
+    if not args.recovery_broadcast:
+        check('revoked holder factory', lambda:send('AutoExit','setOperator(address,bool)',addresses['PoolPeachFactory'],'false'), 'PoolPeach factory is not authorized')
+        check('fresh deployment cannot opt into legacy checks', recovery=args.broadcast,
+              expected_error='Recovery does not match the known partial deployment')
+        with tempfile.TemporaryDirectory() as directory:
+            missing_factory = dict(records, transactions=[t for t in records['transactions'] if t.get('contractName') != 'PoolPeachFactory'])
+            record = Path(directory)/'missing-factory.json'
+            record.write_text(json.dumps(missing_factory))
+            check('fresh deployment still requires factory', broadcast=record,
+                  expected_error='does not contain all 10 required contracts')
+    else:
+        with tempfile.TemporaryDirectory() as directory:
+            recovered = json.loads(args.recovery_broadcast.read_text())
+            recovered['transactions'].pop()
+            record = Path(directory)/'incomplete-recovery.json'
+            record.write_text(json.dumps(recovered))
+            check('legacy recovery requires complete suffix', recovery=record,
+                  expected_error='Expected exactly 13 recovery configuration calls')
+            recovered = json.loads(args.recovery_broadcast.read_text())
+            recovered['transactions'][0]['transaction']['input'] = '0x'
+            record.write_text(json.dumps(recovered))
+            check('legacy recovery rejects altered calls', recovery=record,
+                  expected_error='Recovery call differs from the original configuration sequence')
     check('partial Safe acceptance', lambda:send('V3Oracle','acceptOwnership()',actor=SAFE), expected_acceptances=6)
     owned = ['V3Oracle','V3Vault','GaugeManager','V3Utils','LeverageTransformer','AutoRangeAndCompound','AutoExit']
     check('configuration recheck after all acceptances', lambda:[send(n,'acceptOwnership()',actor=SAFE) for n in owned], expected_acceptances=0)

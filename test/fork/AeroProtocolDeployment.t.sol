@@ -59,6 +59,68 @@ contract AeroProtocolDeploymentTest is Test {
         d = script.run();
     }
 
+    function testFreshPoolPeachManualWithdrawal() public {
+        (uint256 id, PoolPeachPosition holder) = _createPoolPeach(true);
+        assertEq(d.vault.loans(id), 0);
+        vm.prank(ALICE);
+        holder.withdrawTo(ALICE);
+        assertEq(INonfungiblePositionManager(NPM).ownerOf(id), ALICE);
+        assertEq(d.poolPeachFactory.activeHolder(id), address(0));
+    }
+
+    function testFreshPoolPeachKeeperStakeAndExit() public {
+        (uint256 id, PoolPeachPosition holder) = _createPoolPeach(false);
+        vm.prank(OPERATOR);
+        d.autoRange
+            .autoCompoundWithVaultAndRewardCompound(
+                AutoRangeAndCompound.AutoCompoundParams(id, false, 0, block.timestamp),
+                address(d.vault),
+                IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked)
+            );
+        assertTrue(d.gaugeManager.tokenIdToGauge(id) != address(0));
+        _advance();
+        vm.prank(OPERATOR);
+        d.poolPeachFactory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
+        assertEq(d.poolPeachFactory.activeHolder(id), address(0));
+        assertEq(INonfungiblePositionManager(NPM).ownerOf(id), address(holder));
+        assertEq(d.vault.loans(id), 0);
+        assertGt(IERC20(USDC).balanceOf(ALICE), 0);
+        vm.prank(ALICE);
+        holder.claimNFT(ALICE);
+        assertEq(INonfungiblePositionManager(NPM).ownerOf(id), ALICE);
+    }
+
+    function _createPoolPeach(bool initiallyStake) internal returns (uint256 id, PoolPeachPosition holder) {
+        IAerodromeSlipstreamPool pool = IAerodromeSlipstreamPool(script.collateralPools()[0]);
+        (, int24 tick,,,,) = pool.slot0();
+        int24 spacing = pool.tickSpacing();
+        V3Utils.SwapAndMintParams memory params;
+        params.token0 = IERC20(pool.token0());
+        params.token1 = IERC20(pool.token1());
+        params.fee = uint24(spacing);
+        params.tickLower = tick / spacing * spacing - spacing * 100;
+        params.tickUpper = tick / spacing * spacing + spacing * 100;
+        params.amount0 = 0.01 ether;
+        params.amount1 = 100e6;
+        params.deadline = block.timestamp;
+        AutoExit.PositionConfig memory config;
+        config.isActive = true;
+        config.onlyFees = true;
+        config.token0TriggerTick = tick + 1;
+        config.token1TriggerTick = tick + 100;
+        deal(address(params.token0), ALICE, params.amount0);
+        deal(address(params.token1), ALICE, params.amount1);
+        vm.startPrank(ALICE);
+        params.token0.approve(address(d.poolPeachFactory), params.amount0);
+        params.token1.approve(address(d.poolPeachFactory), params.amount1);
+        (id, holder) = d.poolPeachFactory.create(params, config, initiallyStake);
+        vm.stopPrank();
+        assertEq(d.vault.globalDebtLimit(), 0);
+        assertEq(d.vault.ownerOf(id), address(holder));
+        assertEq(d.poolPeachFactory.activeHolder(id), address(holder));
+        assertEq(d.autoRange.stakingConsent(id, address(d.vault)), address(holder));
+    }
+
     function _owned() internal view returns (address[] memory a) {
         a = new address[](7);
         a[0] = address(d.oracle);
@@ -125,6 +187,14 @@ contract AeroProtocolDeploymentTest is Test {
             assertEq(Ownable2Step(a[i]).pendingOwner(), SAFE);
             assertLe(a[i].code.length, 24_576);
         }
+        assertEq(address(d.poolPeachFactory.utils()), address(d.v3Utils));
+        assertEq(address(d.poolPeachFactory.vault()), address(d.vault));
+        assertEq(address(d.poolPeachFactory.manager()), address(d.gaugeManager));
+        assertEq(address(d.poolPeachFactory.automation()), address(d.autoRange));
+        assertEq(address(d.poolPeachFactory.autoExit()), address(d.autoExit));
+        assertTrue(d.autoExit.operators(address(d.poolPeachFactory)));
+        assertEq(d.vault.stakingPolicy(), address(d.autoRange));
+        assertLe(address(d.poolPeachFactory).code.length, 24_576);
         assertEq(d.irm.owner(), SAFE);
         assertEq(d.vault.globalDebtLimit(), 0);
         assertEq(address(d.vault.oracle()), address(d.oracle));

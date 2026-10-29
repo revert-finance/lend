@@ -11,7 +11,10 @@ case "$mode" in
   --verify) exec python3 script/verify-aero-deployment.py ;;
   *) echo 'Usage: bash script/deploy-aero-protocol.sh [--dry-run|--broadcast|--resume|--verify]' >&2; exit 2 ;;
 esac
-: "${BASE_RPC_URL:?Set BASE_RPC_URL to a Base RPC with historical-state support}"
+if [[ -z "${BASE_RPC_URL:-}" && -n "${ALCHEMY_API_KEY:-}" ]]; then
+  export BASE_RPC_URL="https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+fi
+: "${BASE_RPC_URL:?Set BASE_RPC_URL or ALCHEMY_API_KEY for Base historical-state access}"
 artifact=broadcast/DeployAeroProtocol.s.sol/8453/run-latest.json
 if [[ "$mode" == --broadcast && -f "$artifact" ]]; then
   echo 'Existing deployment record found. Inspect receipts and use --resume for that sequence; do not redeploy blindly.' >&2

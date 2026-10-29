@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Script.sol";
 
 import "../src/InterestRateModel.sol";
+import "../src/poolpeach/PoolPeachFactory.sol";
 import "../src/utils/FlashloanLiquidator.sol";
 import "../src/V3Oracle.sol";
 import "../src/V3Vault.sol";
@@ -73,6 +74,7 @@ contract DeployAeroProtocol is Script {
         AutoRangeAndCompound autoRange;
         AutoExit autoExit;
         FlashloanLiquidator liquidator;
+        PoolPeachFactory poolPeachFactory;
     }
 
     function collateralPools() public pure returns (address[] memory pools) {
@@ -206,6 +208,9 @@ contract DeployAeroProtocol is Script {
         vault.setTokenConfig(WETH, uint32(775 * Q32 / 1000), type(uint32).max);
         vault.setTokenConfig(CBBTC, uint32(775 * Q32 / 1000), type(uint32).max);
 
+        PoolPeachFactory poolPeachFactory = new PoolPeachFactory(v3Utils, vault, autoRange, autoExit);
+        autoExit.setOperator(address(poolPeachFactory), true);
+
         oracle.transferOwnership(BASE_MULTISIG);
         irm.transferOwnership(BASE_MULTISIG);
         vault.transferOwnership(BASE_MULTISIG);
@@ -216,8 +221,18 @@ contract DeployAeroProtocol is Script {
         autoExit.transferOwnership(BASE_MULTISIG);
 
         vm.stopBroadcast();
-        deployed =
-            Deployment(oracle, irm, vault, v3Utils, gaugeManager, leverageTransformer, autoRange, autoExit, liquidator);
+        deployed = Deployment(
+            oracle,
+            irm,
+            vault,
+            v3Utils,
+            gaugeManager,
+            leverageTransformer,
+            autoRange,
+            autoExit,
+            liquidator,
+            poolPeachFactory
+        );
         require(vault.gaugeManager() == address(gaugeManager), "vault binding");
         require(address(gaugeManager.vault()) == address(vault), "manager binding");
         require(vault.globalDebtLimit() == 0, "borrowing enabled prematurely");
@@ -241,6 +256,8 @@ contract DeployAeroProtocol is Script {
         console2.log("AUTO_RANGE", address(autoRange));
         console2.log("AUTO_EXIT", address(autoExit));
         console2.log("FLASHLOAN_LIQUIDATOR", address(liquidator));
+        console2.log("POOLPEACH_FACTORY", address(poolPeachFactory));
+        require(autoExit.operators(address(poolPeachFactory)), "holder exit operator");
     }
 
     function validateDeploymentConfig() public {

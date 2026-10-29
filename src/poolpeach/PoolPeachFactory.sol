@@ -36,7 +36,7 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
         autoExit = _autoExit;
         INonfungiblePositionManager n = _utils.nonfungiblePositionManager();
         npm = n;
-        GaugeManager m = GaugeManager(_vault.gaugeManager());
+        GaugeManager m = GaugeManager(payable(_vault.gaugeManager()));
         manager = m;
         if (
             address(_vault.nonfungiblePositionManager()) != address(n)

@@ -77,6 +77,8 @@ def main():
             ):
                 raise SystemExit('Recovery call differs from the original configuration sequence.')
         txs = txs[:34] + recovered
+    # Only the validated historical recovery predates the holder factory and staking policy.
+    required = REQUIRED + ([] if args.recovery_broadcast else ['PoolPeachFactory'])
     # Check every actual receipt, including the configuration/nomination transactions.
     for tx in txs:
         if not tx.get('hash'):
@@ -87,7 +89,7 @@ def main():
     addresses = {}
     deployment_blocks = {}
     for tx in txs:
-        if tx.get('transactionType') in ('CREATE','CREATE2') and tx.get('contractName') in REQUIRED:
+        if tx.get('transactionType') in ('CREATE','CREATE2') and tx.get('contractName') in required:
             name = tx['contractName']
             if name in addresses:
                 raise SystemExit(f'Ambiguous deployment: more than one {name}.')
@@ -99,8 +101,8 @@ def main():
             deployment_blocks[name] = int(receipt['blockNumber'],16)
             if deployment_blocks[name] > int(block,16):
                 raise SystemExit('Deployment is newer than the validation snapshot; rerun the helper.')
-    if set(addresses) != set(REQUIRED):
-        raise SystemExit('Broadcast does not contain all nine required contracts.')
+    if set(addresses) != set(required):
+        raise SystemExit(f'Broadcast does not contain all {len(required)} required contracts.')
     for name,address in addresses.items():
         if rpc('eth_getCode',[address,block]) == '0x':
             raise SystemExit(f'Missing deployed code: {name}.')
@@ -109,9 +111,18 @@ def main():
     require_address(addresses['V3Vault'],'oracle()',addresses['V3Oracle'])
     require_address(addresses['V3Vault'],'interestRateModel()',addresses['InterestRateModel'])
     require_address(addresses['GaugeManager'],'compoundModeSource()',addresses['AutoRangeAndCompound'])
+    holder_factory = addresses.get('PoolPeachFactory')
+    if holder_factory:
+        require_address(addresses['V3Vault'],'stakingPolicy()',addresses['AutoRangeAndCompound'])
+        for signature, name in [('utils()', 'V3Utils'), ('vault()', 'V3Vault'), ('manager()', 'GaugeManager'),
+                                ('automation()', 'AutoRangeAndCompound'), ('autoExit()', 'AutoExit')]:
+            require_address(holder_factory, signature, addresses[name])
+        require_address(holder_factory, 'npm()', NPM)
+        if int(read(addresses['AutoExit'], 'operators(address)', holder_factory),16) != 1:
+            raise SystemExit('PoolPeach factory is not authorized on AutoExit.')
     require_address(addresses['InterestRateModel'],'owner()',SAFE)
-    for name in REQUIRED:
-        if name != 'InterestRateModel': require_address(addresses[name],'nonfungiblePositionManager()',NPM)
+    for name in required:
+        if name not in ['InterestRateModel', 'PoolPeachFactory']: require_address(addresses[name],'nonfungiblePositionManager()',NPM)
     withdrawer = '0x5663ba1B0B1d9b8559CFE049b33fe3B194852e82'
     operator = '0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF'
     for name in ['GaugeManager','AutoRangeAndCompound','AutoExit']:
@@ -142,8 +153,8 @@ def main():
     oracle = addresses['V3Oracle']
     manager = addresses['GaugeManager']
     require_address(addresses['V3Vault'],'asset()',usdc)
-    for name in REQUIRED:
-        if name != 'InterestRateModel': require_address(addresses[name],'factory()',factory)
+    for name in required:
+        if name not in ['InterestRateModel', 'PoolPeachFactory']: require_address(addresses[name],'factory()',factory)
     require_address(oracle,'referenceToken()',weth)
     require_address(oracle,'chainlinkReferenceToken()',zero)
     require_address(oracle,'sequencerUptimeFeed()','0xBCF85224fc0756B9Fa45aA7892530B47e10b6433')
@@ -239,7 +250,7 @@ def main():
         ('GaugeManager','GaugeSet(address,address)',set(gauges),'poolToGauge(address)'),
         ('GaugeManager','RewardBasePoolSet(address,address)',set(routes),'rewardBasePools(address)'),
     ]
-    rules += [(name,'OperatorChanged(address,bool)',{operator},'operators(address)')
+    rules += [(name,'OperatorChanged(address,bool)',{operator, holder_factory} if name == 'AutoExit' and holder_factory else {operator},'operators(address)')
               for name in ['AutoRangeAndCompound','AutoExit']]
     rules += [(name,'VaultSet(address)',{addresses['V3Vault']},None)
               for name in ['V3Utils','LeverageTransformer','AutoRangeAndCompound']]
