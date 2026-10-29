@@ -1162,13 +1162,17 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         if (liquidity != 0) {
             nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, amount0Min, amount1Min, deadline)
+                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, 0, 0, deadline)
             );
         }
 
         (amount0, amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(tokenId, recipient, fees0, fees1)
         );
+
+        if (amount0 < amount0Min || amount1 < amount1Min) {
+            revert SlippageError();
+        }
     }
 
     // cleans up loan when it is closed because of replacement, repayment or liquidation
