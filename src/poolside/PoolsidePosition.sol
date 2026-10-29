@@ -125,8 +125,14 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         autoExit.configToken(id, exitConfig);
         npm.safeTransferFrom(address(this), address(vault), id, abi.encode(address(this)));
         vault.approveTransform(id, address(automation), true);
-        // Poolside uses Simple fees; keep range/standalone-compound permissions at their existing defaults.
+        // Poolside uses Simple fees and reinvests into the SAME NFT/range.
+        // Equal range deltas keep automatic range changes disabled.
         AutoRangeAndCompound.PositionConfig memory config;
+        config.autoCompound = true;
+        config.onlyFees = true;
+        // Match the app's 0.5% execution tolerance; zero would prohibit fee-paying swaps.
+        config.token0SlippageX64 = uint64((uint256(1) << 64) / 200);
+        config.token1SlippageX64 = config.token0SlippageX64;
         automation.configToken(id, address(vault), config, AutoRangeAndCompound.CompoundMode.Simple);
         automation.configStakingManagement(id, address(vault), true);
         if (initiallyStake) vault.stakePosition(id);

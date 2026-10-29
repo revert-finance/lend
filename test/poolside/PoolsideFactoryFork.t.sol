@@ -176,8 +176,8 @@ contract PoolsideFactoryForkTest is Test {
             (,, int32 lowerDelta, int32 upperDelta,,, bool onlyFees, bool autoCompound,,,,) = RANGE.positionConfigs(id);
             assertEq(int256(lowerDelta), 0);
             assertEq(int256(upperDelta), 0);
-            assertFalse(onlyFees);
-            assertFalse(autoCompound);
+            assertTrue(onlyFees);
+            assertTrue(autoCompound);
             vm.startPrank(ALICE);
             holder.setStakingManagement(false);
             holder.setStakingManagement(true);
@@ -487,6 +487,22 @@ contract PoolsideFactoryForkTest is Test {
         assertEq(npm.ownerOf(id), MANAGER.tokenIdToGauge(id));
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(VAULT.loans(id), 0);
+        assertEq(RANGE.compoundRewardX64(id), RANGE.simpleRewardX64());
+    }
+
+    function test_RecurringCompoundKeepsRangeAndSimpleMode() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
+        (,,,,, int24 lowerBefore, int24 upperBefore,,,,,) = npm.positions(id);
+        // Exercise the ordinary compound entrypoint without a custody change.
+        AutoRangeAndCompound.AutoCompoundParams memory p;
+        p.tokenId = id;
+        p.deadline = block.timestamp;
+        vm.prank(OPERATOR);
+        RANGE.autoCompoundWithVault(p, address(VAULT));
+        (,,,,, int24 lowerAfter, int24 upperAfter,,,,,) = npm.positions(id);
+        assertEq(int256(lowerAfter), int256(lowerBefore));
+        assertEq(int256(upperAfter), int256(upperBefore));
+        assertEq(factory.activeHolder(id), address(holder));
         assertEq(RANGE.compoundRewardX64(id), RANGE.simpleRewardX64());
     }
 
