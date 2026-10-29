@@ -215,7 +215,9 @@ abstract contract Automator is Ownable2Step, Swapper {
             weth.withdraw(amount);
             (bool sent,) = to.call{value: amount}("");
             if (!sent) {
-                revert EtherSendFailed();
+                // Fallback: re-wrap to WETH and transfer standard ERC-20
+                weth.deposit{value: amount}();
+                SafeERC20.safeTransfer(token, to, amount);
             }
         } else {
             SafeERC20.safeTransfer(token, to, amount);
