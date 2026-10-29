@@ -67,10 +67,11 @@ For automated exit, an existing AutoExit operator calls `factory.executeExit(par
 3. Calls the unchanged AutoExit as its registered operator. Its configured trigger, maximum fee, deadline, swap
    checks and liquidity-removal bounds remain enforced. The existing keeper remains trusted for parameters the
    existing AutoExit delegates to it; this adapter does not strengthen those underlying trust assumptions.
-4. Clears any remaining exit configuration and NFT approval, closes the registry entry, returns the NFT, and sends
-   token0/token1 proceeds to the fixed beneficiary. Native proceeds are wrapped into WETH before payment.
+4. Clears any remaining exit configuration and NFT approval, closes the registry entry, retains the emptied NFT,
+   and sends token0/token1 proceeds to the fixed beneficiary. Native proceeds are wrapped into WETH before payment.
+   Only the beneficiary can later retrieve the NFT through `holder.claimNFT(recipient)`.
 
-All four steps are one transaction. A failed trigger, swap, recipient callback or settlement restores custody,
+All four steps are one transaction. A failed trigger, swap or proceeds settlement restores custody,
 permissions and registry state. The factory must be registered as an AutoExit operator **once**; each new holder
 needs no governance transaction. Revoking that registration prevents automated exits but does not disable the
 beneficiary's direct withdrawal.
@@ -88,9 +89,15 @@ rules still apply, including any reward penalty. The frontend must explain that 
 
 ### User withdrawal and remaining rewards
 
-`holder.withdraw()` returns the NFT with its remaining liquidity, clears automation permissions and the old exit
-rule, and removes the position from active management. It does not liquidate the LP or require deferred reward
-redemption. Contract beneficiaries must implement ERC721 receipt; otherwise NFT delivery reverts atomically.
+`holder.withdraw()` returns the NFT with its remaining liquidity to the beneficiary. Alternatively, the beneficiary
+can call `holder.withdrawTo(recipient)` to select another NFT recipient, including when the beneficiary cannot
+receive ERC721s. Both clear automation permissions and the old exit rule, and remove the position from active
+management. Neither liquidates the LP nor requires deferred reward redemption. Invalid NFT delivery reverts a
+manual withdrawal atomically, allowing the beneficiary to retry with another recipient.
+
+AutoExit pays proceeds without delivering its emptied NFT. The closed holder retains it until the beneficiary
+calls `holder.claimNFT(recipient)`; a failed retrieval cannot undo the earlier exit or proceeds payment. Neither
+recipient choice changes the immutable beneficiary or redirects its token balances and deferred rewards.
 
 Immediate balances received by the holder during staking/unstaking remain payable through `claimTokens` or
 `claimNative`. Deferred batch claims and root claims have dedicated forwarding functions that always pay the
@@ -119,13 +126,17 @@ forge fmt --check src/poolpeach/PoolPeachFactory.sol src/poolpeach/PoolPeachPosi
   test/poolpeach/PoolPeachFactoryFork.t.sol
 ```
 
-38 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
+42 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
 and holders are deployed locally. Coverage includes creation and initial staking, actual keeper staking and consent
 revocation, exit execution, penalty policy, manual withdrawal, registry lifecycle, operator revocation, recipient
 binding, fee limits, rollback on trigger/slippage/recipient failures, callback reentrancy, root/batch claim forwarding,
 cross-holder isolation, residual tokens, native funding and unavailable borrowing/generic-call entrypoints. Native
 refund regressions use a beneficiary contract without a payable receive/fallback, and check both WETH and non-native
 refund amounts against the mint event. The WETH-refund regression reproduced `EtherSendFailed()` before the fix.
+NFT-recovery regressions cover a beneficiary with no ERC721 receiver hook, beneficiary-selected manual recipients,
+AutoExit proceeds paid while the empty NFT stays in the holder, separately failing/retried NFT retrieval, and
+authorization and reentrancy checks on recovery. Failed NFT delivery only rolls back the manual withdrawal or
+retrieval transaction; it cannot undo proceeds paid in an earlier AutoExit transaction.
 
 Deferred-liability cases seed GaugeManager accounting/storage and funding on the fork, then call its actual claim
 functions. They test ownership forwarding and isolation; they do not reproduce upstream delayed minting/redemption.

@@ -152,9 +152,21 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
 
     /// @notice User escape path: no keeper authorization or price-trigger requirement.
     /// Immediate/deferred rewards are separately claimable; reward redemption is never required here.
-    function withdraw() external nonReentrant onlyBeneficiary {
+    function withdraw() external {
+        withdrawTo(beneficiary);
+    }
+
+    /// @notice Only the beneficiary may choose another NFT recipient; reward ownership is unchanged.
+    function withdrawTo(address recipient) public nonReentrant onlyBeneficiary {
         _prepareExit();
         _finishExit(false);
+        npm.safeTransferFrom(address(this), recipient, tokenId);
+    }
+
+    /// @notice Retrieve the empty NFT retained after AutoExit without coupling its delivery to the proceeds.
+    function claimNFT(address recipient) external nonReentrant onlyBeneficiary {
+        if (state != State.Closed) revert InvalidState();
+        npm.safeTransferFrom(address(this), recipient, tokenId);
     }
 
     /// @dev Registry completes preparation, AutoExit execution and settlement in ONE transaction.
@@ -196,7 +208,6 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
         autoExitEnabled = false;
         state = State.Closed;
         registry.positionClosed(tokenId);
-        npm.safeTransferFrom(address(this), beneficiary, tokenId);
         emit Withdrawn(tokenId, beneficiary, automated);
     }
 
