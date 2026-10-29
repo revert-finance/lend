@@ -158,10 +158,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     function executeWithVault(ExecuteParams calldata params, address vault) external {
         _prepareTransform(params.tokenId, vault);
         // Plain transforms can now compound rewards before the callback. Require readiness before those swaps.
-        PositionConfig storage config = positionConfigs[params.tokenId];
-        VaultLib.requireRangeReady(
-            nonfungiblePositionManager, factory, params.tokenId, config.lowerTickLimit, config.upperTickLimit
-        );
+        _requireRangeReady(params.tokenId);
         IVault(vault).transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.execute, (params)));
     }
 
@@ -177,6 +174,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         IVault.RewardCompoundParams calldata rewardParams
     ) external {
         bool changes = _prepareStakeChange(params.tokenId, vault, rewardParams.stakeTarget);
+        _requireRangeReady(params.tokenId);
         IVault.RewardCompoundParams memory adjustedRewardParams = rewardParams;
         if (changes) {
             adjustedRewardParams.minAeroReward = 0;
@@ -638,6 +636,13 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     function _ownerAndRealOwner(uint256 tokenId) internal returns (address owner, address realOwner) {
         owner = nonfungiblePositionManager.ownerOf(tokenId);
         realOwner = vaults[owner] ? IVault(owner).ownerOf(tokenId) : owner;
+    }
+
+    function _requireRangeReady(uint256 tokenId) internal view {
+        PositionConfig storage config = positionConfigs[tokenId];
+        VaultLib.requireRangeReady(
+            nonfungiblePositionManager, factory, tokenId, config.lowerTickLimit, config.upperTickLimit
+        );
     }
 
     // operator/vault auth for the plain transform wrappers; they keep the current custody, so the only staking rule

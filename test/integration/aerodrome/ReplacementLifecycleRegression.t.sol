@@ -4,6 +4,43 @@ pragma solidity ^0.8.0;
 import "./OperatorStaking.t.sol";
 
 contract ReplacementLifecycleRegression is OperatorStakingTest {
+    function testRewardCompoundRangeChecksReadinessBeforeItsRewardSwap() public {
+        (uint256 tokenId, uint256 windowEnd) = _stakedInsidePenaltyWindow();
+        vm.roll(windowEnd);
+        vm.prank(alice);
+        autoRange.configToken(tokenId, address(vault), _rangeChangeConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
+        assertEq(autoRange.stakingConsent(tokenId, address(vault)), address(0));
+        MockPool(usdcDaiPool).setTick(99);
+        gaugeManager.setRewardBasePool(address(dai), address(0));
+        MockPool(usdcDaiPool).setTickAfterSwap(101);
+
+        IVault.RewardCompoundParams memory rewardParams = _rewardParams(IVault.StakeTarget.Keep);
+        rewardParams.aeroSplitBps = 5000;
+
+        // Keep custody is callable without staking-management consent, but must not bypass the range trigger.
+        vm.prank(admin);
+        vm.expectRevert(NotReady.selector);
+        autoRange.executeWithVaultAndRewardCompound(
+            _executeParams(tokenId), address(vault), rewardParams
+        );
+        assertEq(vault.ownerOf(tokenId), alice);
+        assertEq(usdcDaiGauge.rewards(tokenId), 7e18);
+        assertEq(MockPool(usdcDaiPool).tick(), 99);
+        assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
+
+        // Once the position is already ready, the same operation compounds and replaces it successfully.
+        MockPool(usdcDaiPool).setTick(101);
+        vm.prank(admin);
+        autoRange.executeWithVaultAndRewardCompound(
+            _executeParams(tokenId), address(vault), rewardParams
+        );
+        uint256 newTokenId = npm.lastMintedTokenId();
+        assertTrue(newTokenId != tokenId);
+        assertEq(vault.ownerOf(newTokenId), alice);
+        assertEq(usdcDaiGauge.rewards(tokenId), 0);
+        assertEq(gaugeManager.tokenIdToGauge(newTokenId), address(usdcDaiGauge));
+    }
+
     function testWalletReplacementClearsModeAndPreservesBothCooldowns() public {
         uint256 oldTokenId = _createVaultPosition(address(usdc), address(dai), 1, false);
         npm.setTokensOwed(oldTokenId, 0, 0);
