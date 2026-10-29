@@ -593,6 +593,8 @@ contract OperatorStakingTest is AerodromeTestBase {
         autoRange.autoCompoundWithVaultAndRewardCompound(
             _params(tokenId), address(vault), _rewardParams(IVault.StakeTarget.Keep)
         );
+        // Pass the range-readiness guard so this call still exercises the gauge's penalty-window rejection.
+        MockPool(usdcDaiPool).setTick(200);
         vm.prank(admin);
         vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
         autoRange.executeWithVaultAndRewardCompound(
@@ -600,6 +602,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         );
         _assertUntouchedInGauge(tokenId, windowEnd);
 
+        MockPool(usdcDaiPool).setTick(0);
         vm.roll(windowEnd);
         _flip(tokenId, IVault.StakeTarget.Keep);
         assertEq(usdcDaiGauge.rewards(tokenId), 0, "rewards compounded");
