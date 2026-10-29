@@ -27,6 +27,13 @@ interface IAeroRehearsalMint {
     function mint(MintParams calldata) external payable returns (uint256, uint128, uint256, uint256);
 }
 
+/// @dev Forces ETH into the NPM without calling its restricted receiver.
+contract ForceNpmRefundETH {
+    constructor(address payable target) payable {
+        selfdestruct(target);
+    }
+}
+
 /// @notice Exercises the actual deployment script and live Base dependencies. Requires BASE_RPC_URL.
 /// @dev Synthetic actor balances only; production feeds, pools, NPM, gauges and root delivery run on the fork.
 contract AeroProtocolDeploymentTest is Test {
@@ -179,6 +186,14 @@ contract AeroProtocolDeploymentTest is Test {
     }
 
     function testRewardsCompoundThroughAllThreeLiveRoutes() public {
+        _compoundThroughAllThreeLiveRoutes(false);
+    }
+
+    function testRewardsCompoundWithForcedNpmEthThroughAllThreeLiveRoutes() public {
+        _compoundThroughAllThreeLiveRoutes(true);
+    }
+
+    function _compoundThroughAllThreeLiveRoutes(bool forcedRefund) internal {
         _activate();
         mintScale = 1000; // enough rewards to produce both token units, including 8-decimal cbBTC
         address[] memory pools = script.collateralPools();
@@ -191,6 +206,7 @@ contract AeroProtocolDeploymentTest is Test {
             uint256 end = d.gaugeManager.penaltyWindowEnd(id);
             if (end > IAeroForkClock(address(vm)).getBlockNumber()) vm.roll(end); // isolate block-based penalty from feed freshness
             (,,,,,,, uint128 beforeLiquidity,,,,) = INonfungiblePositionManager(NPM).positions(id);
+            if (forcedRefund) _forceNpmEth();
             vm.prank(ALICE);
             (uint256 reward, uint256 added0, uint256 added1) =
                 d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp);
@@ -199,6 +215,18 @@ contract AeroProtocolDeploymentTest is Test {
             (,,,,,,, uint128 afterLiquidity,,,,) = INonfungiblePositionManager(NPM).positions(id);
             assertGt(afterLiquidity, beforeLiquidity);
             assertEq(INonfungiblePositionManager(NPM).ownerOf(id), IAerodromeSlipstreamPool(pools[i]).gauge());
+            if (forcedRefund) {
+                assertEq(NPM.balance, 0);
+                assertEq(address(d.gaugeManager).balance, 1);
+                vm.prank(ALICE);
+                vm.expectRevert(Constants.Unauthorized.selector);
+                d.gaugeManager.withdrawETH(ALICE);
+                uint256 beforeEth = ALICE.balance;
+                vm.prank(WITHDRAWER);
+                d.gaugeManager.withdrawETH(ALICE);
+                assertEq(ALICE.balance, beforeEth + 1);
+                assertEq(address(d.gaugeManager).balance, 0);
+            }
         }
     }
 
@@ -255,6 +283,14 @@ contract AeroProtocolDeploymentTest is Test {
     }
 
     function testLeverageUsingUniversalRouterAndNewNPM() public {
+        _leverageUsingUniversalRouter(false);
+    }
+
+    function testLeverageWithForcedNpmEth() public {
+        _leverageUsingUniversalRouter(true);
+    }
+
+    function _leverageUsingUniversalRouter(bool forcedRefund) internal {
         _activate();
         uint256 id = _mint(script.collateralPools()[0]);
         (,,,,,,, uint128 beforeLiquidity,,,,) = INonfungiblePositionManager(NPM).positions(id);
@@ -266,12 +302,38 @@ contract AeroProtocolDeploymentTest is Test {
         params.swapData0 = _swapData(address(d.leverageTransformer), USDC, WETH, 5e6);
         params.recipient = ALICE;
         params.deadline = block.timestamp;
+        if (forcedRefund) _forceNpmEth();
         vm.prank(ALICE);
         d.vault.transform(id, address(d.leverageTransformer), abi.encodeCall(LeverageTransformer.leverageUp, (params)));
         (uint256 debt,,,,) = d.vault.loanInfo(id);
         assertEq(debt, 10e6);
         (,,,,,,, uint128 afterLiquidity,,,,) = INonfungiblePositionManager(NPM).positions(id);
         assertGt(afterLiquidity, beforeLiquidity);
+        if (forcedRefund) {
+            assertEq(NPM.balance, 0);
+            assertEq(address(d.leverageTransformer).balance, 1);
+        }
+    }
+
+    function testRefundReceiversRejectOtherSenders() public {
+        address[2] memory receivers = [address(d.leverageTransformer), address(d.gaugeManager)];
+        address[3] memory senders = [ALICE, DEPLOYER, WETH];
+        for (uint256 i; i < receivers.length; ++i) {
+            for (uint256 j; j < senders.length; ++j) {
+                vm.deal(senders[j], 1);
+                vm.prank(senders[j]);
+                (bool accepted, bytes memory reason) = receivers[i].call{value: 1}("");
+                assertFalse(accepted);
+                assertEq(reason, abi.encodeWithSelector(Constants.Unauthorized.selector));
+            }
+            assertEq(receivers[i].balance, 0);
+        }
+    }
+
+    function _forceNpmEth() internal {
+        vm.deal(address(this), 1);
+        new ForceNpmRefundETH{value: 1}(payable(NPM));
+        assertEq(NPM.balance, 1);
     }
 
     function testOperatorManagedStakeUnstakeAndSimpleRewardFees() public {

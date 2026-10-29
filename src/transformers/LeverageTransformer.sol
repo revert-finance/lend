@@ -11,6 +11,11 @@ import "../transformers/Transformer.sol";
 /// @title LeverageTransformer
 /// @notice Functionality to leverage / deleverage positions direcly in one tx
 contract LeverageTransformer is Transformer, Swapper {
+    // Aero's position manager refunds its full ETH balance after increasing liquidity.
+    receive() external payable {
+        if (msg.sender != address(nonfungiblePositionManager)) revert Unauthorized();
+    }
+
     constructor(
         INonfungiblePositionManager _nonfungiblePositionManager,
         address _universalRouter,
