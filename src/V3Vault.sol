@@ -780,7 +780,9 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         debtSharesTotal = debtSharesTotal - debtShares;
 
-        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + state.debt;
+        uint256 maxDailyDebt = _getMaxDailyDebtIncreaseLimit(state.newLendExchangeRateX96);
+        uint256 newDebtLimit = dailyDebtIncreaseLimitLeft + state.debt;
+        dailyDebtIncreaseLimitLeft = newDebtLimit > maxDailyDebt ? maxDailyDebt : newDebtLimit;
 
         // send promised collateral tokens to liquidator
         (amount0, amount1) = _sendPositionValue(
@@ -1030,8 +1032,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         _burn(owner, shares);
         SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
 
-        // when amounts are withdrawn - they may be deposited again
-        dailyLendIncreaseLimitLeft = dailyLendIncreaseLimitLeft + assets;
+        // when amounts are withdrawn - they may be deposited again (clamped to daily limit)
+        uint256 maxDailyLend = _getMaxDailyLendIncreaseLimit(newLendExchangeRateX96);
+        uint256 newLendLimit = dailyLendIncreaseLimitLeft + assets;
+        dailyLendIncreaseLimitLeft = newLendLimit > maxDailyLend ? maxDailyLend : newLendLimit;
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
@@ -1087,8 +1091,10 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         loan.debtShares = loanDebtShares;
         debtSharesTotal = debtSharesTotal - shares;
 
-        // when amounts are repayed - they maybe borrowed again
-        dailyDebtIncreaseLimitLeft = dailyDebtIncreaseLimitLeft + assets;
+        // when amounts are repayed - they maybe borrowed again (clamped to daily limit)
+        uint256 maxDailyDebt = _getMaxDailyDebtIncreaseLimit(newLendExchangeRateX96);
+        uint256 newDebtLimit = dailyDebtIncreaseLimitLeft + assets;
+        dailyDebtIncreaseLimitLeft = newDebtLimit > maxDailyDebt ? maxDailyDebt : newDebtLimit;
 
         _updateAndCheckCollateral(
             tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares
@@ -1338,14 +1344,23 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         }
     }
 
+    function _getMaxDailyLendIncreaseLimit(uint256 newLendExchangeRateX96) internal view returns (uint256) {
+        uint256 lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+            * MAX_DAILY_LEND_INCREASE_X32 / Q32;
+        return dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
+    }
+
+    function _getMaxDailyDebtIncreaseLimit(uint256 newLendExchangeRateX96) internal view returns (uint256) {
+        uint256 debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+            * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
+        return dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
+    }
+
     function _resetDailyLendIncreaseLimit(uint256 newLendExchangeRateX96, bool force) internal {
         // daily lend limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyLendIncreaseLimitLastReset) {
-            uint256 lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-                * MAX_DAILY_LEND_INCREASE_X32 / Q32;
-            dailyLendIncreaseLimitLeft =
-                dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
+            dailyLendIncreaseLimitLeft = _getMaxDailyLendIncreaseLimit(newLendExchangeRateX96);
             dailyLendIncreaseLimitLastReset = time;
         }
     }
@@ -1354,10 +1369,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // daily debt limit reset handling
         uint32 time = uint32(block.timestamp / 1 days);
         if (force || time > dailyDebtIncreaseLimitLastReset) {
-            uint256 debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
-                * MAX_DAILY_DEBT_INCREASE_X32 / Q32;
-            dailyDebtIncreaseLimitLeft =
-                dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
+            dailyDebtIncreaseLimitLeft = _getMaxDailyDebtIncreaseLimit(newLendExchangeRateX96);
             dailyDebtIncreaseLimitLastReset = time;
         }
     }
