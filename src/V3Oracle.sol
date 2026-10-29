@@ -313,13 +313,13 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
                 : cachedChainlinkReferencePriceX96;
 
             if (referenceTokenDecimals > feedConfig.tokenDecimals) {
-                chainlinkPriceX96 = (10 ** (referenceTokenDecimals - feedConfig.tokenDecimals)) * chainlinkPriceX96
-                    * Q96 / chainlinkReferencePriceX96;
+                uint256 decimalFactor = 10 ** (referenceTokenDecimals - feedConfig.tokenDecimals);
+                chainlinkPriceX96 = FullMath.mulDiv(chainlinkPriceX96 * decimalFactor, Q96, chainlinkReferencePriceX96);
             } else if (referenceTokenDecimals < feedConfig.tokenDecimals) {
-                chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96
-                    / (10 ** (feedConfig.tokenDecimals - referenceTokenDecimals));
+                uint256 decimalDivisor = 10 ** (feedConfig.tokenDecimals - referenceTokenDecimals);
+                chainlinkPriceX96 = FullMath.mulDiv(chainlinkPriceX96, Q96, chainlinkReferencePriceX96 * decimalDivisor);
             } else {
-                chainlinkPriceX96 = chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96;
+                chainlinkPriceX96 = FullMath.mulDiv(chainlinkPriceX96, Q96, chainlinkReferencePriceX96);
             }
 
             if (mode == Mode.TWAP_CHAINLINK_VERIFY) {
@@ -376,12 +376,12 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
         TokenConfig memory feedConfig = feedConfigs[token];
 
         // if stale data - revert
-        (, int256 answer,, uint256 updatedAt,) = feedConfig.feed.latestRoundData();
-        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer <= 0) {
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) = feedConfig.feed.latestRoundData();
+        if (updatedAt == 0 || updatedAt + feedConfig.maxFeedAge < block.timestamp || answer <= 0 || answeredInRound < roundId) {
             revert ChainlinkPriceError();
         }
 
-        return uint256(answer) * Q96 / (10 ** feedConfig.feedDecimals);
+        return FullMath.mulDiv(uint256(answer), Q96, 10 ** feedConfig.feedDecimals);
     }
 
     // calculates TWAP price given feedConfig
