@@ -83,6 +83,7 @@ def main():
 
     check('unchanged deployment accepts all seven nominations')
     check('ownership-only emits seven acceptances and no activation', ownership_only=True)
+    check('revoked holder factory', lambda:send('AutoExit','setOperator(address,bool)',addresses['PoolPeachFactory'],'false'), 'PoolPeach factory is not authorized')
     check('partial Safe acceptance', lambda:send('V3Oracle','acceptOwnership()',actor=SAFE), expected_acceptances=6)
     owned = ['V3Oracle','V3Vault','GaugeManager','V3Utils','LeverageTransformer','AutoRangeAndCompound','AutoExit']
     check('configuration recheck after all acceptances', lambda:[send(n,'acceptOwnership()',actor=SAFE) for n in owned], expected_acceptances=0)

@@ -12,8 +12,8 @@ def main():
         raise SystemExit('Set ETHERSCAN_API_KEY before verification.')
     record = json.loads((ROOT/'broadcast/DeployAeroProtocol.s.sol/8453/run-latest.json').read_text())
     creations = [t for t in record['transactions'] if t.get('transactionType') in ('CREATE','CREATE2')]
-    if len(creations) != 10:
-        raise SystemExit('Expected nine contracts and VaultLib in the production deployment record.')
+    if len(creations) != 11:
+        raise SystemExit('Expected ten contracts and VaultLib in the production deployment record.')
     secrets = [os.environ.get(k) for k in ('ETHERSCAN_API_KEY','ALCHEMY_API_KEY','BASE_RPC_URL') if os.environ.get(k)]
     failures = []
     for tx in creations:
@@ -45,7 +45,7 @@ def main():
             failures.append(name)
     if failures:
         raise SystemExit('Verification remains incomplete for: '+', '.join(failures))
-    print('Verified all nine contracts and VaultLib.',flush=True)
+    print('Verified all ten contracts and VaultLib.',flush=True)
 
 if __name__ == '__main__':
     main()

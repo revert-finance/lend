@@ -84,7 +84,7 @@ contract PoolPeachFactoryForkTest is Test {
     using stdStorage for StdStorage;
     V3Utils constant UTILS = V3Utils(payable(0x1D388deC5C440f572D3103B09f22aCd674b707f5));
     V3Vault constant VAULT = V3Vault(0x1c69eb478425199D34D93484c76c1B39554979a1);
-    GaugeManager constant MANAGER = GaugeManager(0x1AC3a1C018a09146dcE000eFcC67e2129aDc6DBD);
+    GaugeManager constant MANAGER = GaugeManager(payable(0x1AC3a1C018a09146dcE000eFcC67e2129aDc6DBD));
     AutoRangeAndCompound constant RANGE = AutoRangeAndCompound(payable(0x1d0B1401AFdd36aFCAc521DaC95a7F1906BAD642));
     AutoExit constant EXIT = AutoExit(payable(0x5793aed47c74b53a67c864ca080136Ba4E8452b8));
     IAerodromeSlipstreamPool constant POOL = IAerodromeSlipstreamPool(0x4A7af46bC8aBc00048c6c7920a1488DAF568366c);
