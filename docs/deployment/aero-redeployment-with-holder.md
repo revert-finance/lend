@@ -1,4 +1,6 @@
-# Aero redeployment with PoolPeach
+# Aero redeployment with PoolPeach (historical)
+
+For the current product name and factory-only replacement, use [Poolside deployment](../POOLSIDE_SIMPLE_DEPLOYMENT.md). The source revision and rehearsal results below describe the earlier PoolPeach-named deployment.
 
 Prepared from Aero commit `22d22378ad19f4d9643ca19735d587e8e6effdb7`, which includes PRs #81 and #82. The only additional protocol-source change is the explicit `payable` cast in the PoolPeach factory constructor required by GaugeManager's newly added ETH receiver. Its fork test needs the same cast. This is not a change to permissions or execution behavior.
 

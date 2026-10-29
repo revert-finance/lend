@@ -10,7 +10,7 @@ import "../transformers/V3Utils.sol";
 import "../transformers/AutoRangeAndCompound.sol";
 import "../automators/AutoExit.sol";
 
-interface IPoolPeachRegistry {
+interface IPoolsideRegistry {
     function creatingHolder() external view returns (address);
     function positionClosed(uint256 tokenId) external;
 }
@@ -18,7 +18,7 @@ interface IPoolPeachRegistry {
 /// @notice DRAFT: one non-transferable beneficiary, one freshly minted NFT, no borrowing.
 /// @dev The vault and GaugeManager see this address as owner. A separate address per position also isolates
 /// rewards that GaugeManager aggregates by owner rather than tokenId. Closed holders remain usable for claims.
-contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
+contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     enum State {
@@ -37,7 +37,7 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
         AutoExit autoExit;
     }
 
-    IPoolPeachRegistry public immutable registry;
+    IPoolsideRegistry public immutable registry;
     address public immutable beneficiary;
     INonfungiblePositionManager public immutable npm;
     V3Utils public immutable utils;
@@ -65,7 +65,7 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
 
     constructor(address _beneficiary, Bindings memory bindings) {
         require(_beneficiary != address(0), "zero beneficiary");
-        registry = IPoolPeachRegistry(msg.sender);
+        registry = IPoolsideRegistry(msg.sender);
         beneficiary = _beneficiary;
         utils = bindings.utils;
         vault = bindings.vault;
@@ -125,6 +125,9 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
         autoExit.configToken(id, exitConfig);
         npm.safeTransferFrom(address(this), address(vault), id, abi.encode(address(this)));
         vault.approveTransform(id, address(automation), true);
+        // Poolside uses Simple fees; keep range/standalone-compound permissions at their existing defaults.
+        AutoRangeAndCompound.PositionConfig memory config;
+        automation.configToken(id, address(vault), config, AutoRangeAndCompound.CompoundMode.Simple);
         automation.configStakingManagement(id, address(vault), true);
         if (initiallyStake) vault.stakePosition(id);
         autoExitEnabled = true;
