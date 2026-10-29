@@ -40,11 +40,41 @@ contract PoolPeachTestBeneficiary is IERC721Receiver {
         holder.withdraw();
     }
 
+    function withdrawTo(address recipient) external {
+        holder.withdrawTo(recipient);
+    }
+
+    function claimNFT(address recipient) external {
+        holder.claimNFT(recipient);
+    }
+
     function onERC721Received(address, address, uint256, bytes calldata) external returns (bytes4) {
         require(!rejectNFT, "reject NFT");
         reentryAttempted = true;
         (reentrySucceeded,) = address(holder).call(abi.encodeCall(PoolPeachPosition.withdraw, ()));
         return IERC721Receiver.onERC721Received.selector;
+    }
+}
+
+// Deliberately has no ERC721 receiver hook and no upgrade path.
+contract PoolPeachNonReceiverBeneficiary {
+    PoolPeachPosition public holder;
+
+    function create(PoolPeachFactory factory, V3Utils.SwapAndMintParams calldata p, AutoExit.PositionConfig calldata c)
+        external
+        returns (uint256 id)
+    {
+        p.token0.approve(address(factory), p.amount0);
+        p.token1.approve(address(factory), p.amount1);
+        (id, holder) = factory.create(p, c, false);
+    }
+
+    function withdrawTo(address recipient) external {
+        holder.withdrawTo(recipient);
+    }
+
+    function claimNFT(address recipient) external {
+        holder.claimNFT(recipient);
     }
 }
 
@@ -229,7 +259,7 @@ contract PoolPeachFactoryForkTest is Test {
         uint256 before1 = IERC20(POOL.token1()).balanceOf(ALICE);
         _execute(id);
         assertEq(factory.activeHolder(id), address(0));
-        assertEq(npm.ownerOf(id), ALICE);
+        assertEq(npm.ownerOf(id), address(holder));
         assertEq(uint256(holder.state()), uint256(PoolPeachPosition.State.Closed));
         assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before0);
         assertGt(IERC20(POOL.token1()).balanceOf(ALICE), before1);
@@ -237,10 +267,10 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_AutoExitFromGaugeAfterPenaltyWindow() public {
-        (uint256 id,) = _create(ALICE, true, true);
+        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, true);
         vm.roll(MANAGER.penaltyWindowEnd(id));
         _execute(id);
-        assertEq(npm.ownerOf(id), ALICE);
+        assertEq(npm.ownerOf(id), address(holder));
         assertEq(factory.activeHolder(id), address(0));
         assertEq(MANAGER.tokenIdToGauge(id), address(0));
     }
@@ -283,6 +313,10 @@ contract PoolPeachFactoryForkTest is Test {
         vm.startPrank(BOB);
         vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
         holder.withdraw();
+        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        holder.withdrawTo(BOB);
+        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        holder.claimNFT(BOB);
         vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
         holder.setStakingManagement(false);
         vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
@@ -614,7 +648,79 @@ contract PoolPeachFactoryForkTest is Test {
         assertEq(factory.activeHolder(id), address(0));
     }
 
-    function test_ReceiverFailureRollsBackAutoExitAndRegistryRemoval() public {
+    function test_RejectingNFTDoesNotBlockAutoExitProceeds() public {
+        PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
+        V3Utils.SwapAndMintParams memory p = _params();
+        deal(address(p.token0), address(receiver), p.amount0);
+        deal(address(p.token1), address(receiver), p.amount1);
+        uint256 id = receiver.create(factory, p, _config(true));
+        receiver.setRejectNFT(true);
+        uint256 before0 = p.token0.balanceOf(address(receiver));
+        uint256 before1 = p.token1.balanceOf(address(receiver));
+        _execute(id);
+        assertEq(factory.activeHolder(id), address(0));
+        assertEq(npm.ownerOf(id), address(receiver.holder()));
+        assertGt(p.token0.balanceOf(address(receiver)), before0);
+        assertGt(p.token1.balanceOf(address(receiver)), before1);
+        vm.expectRevert(bytes("reject NFT"));
+        receiver.claimNFT(address(receiver));
+        assertEq(factory.activeHolder(id), address(0));
+        assertEq(npm.ownerOf(id), address(receiver.holder()));
+        receiver.setRejectNFT(false);
+        receiver.claimNFT(address(receiver));
+        assertEq(npm.ownerOf(id), address(receiver));
+        assertTrue(receiver.reentryAttempted());
+        assertFalse(receiver.reentrySucceeded());
+    }
+
+    function test_NonReceiverCanWithdrawPrincipalToAnotherRecipient() public {
+        PoolPeachNonReceiverBeneficiary user = new PoolPeachNonReceiverBeneficiary();
+        V3Utils.SwapAndMintParams memory p = _params();
+        deal(address(p.token0), address(user), p.amount0);
+        deal(address(p.token1), address(user), p.amount1);
+        uint256 id = user.create(factory, p, _config(true));
+        (,,,,,,, uint128 liquidityBefore,,,,) = npm.positions(id);
+        assertGt(liquidityBefore, 0);
+        user.withdrawTo(ALICE);
+        assertEq(npm.ownerOf(id), ALICE);
+        assertEq(factory.activeHolder(id), address(0));
+        assertEq(user.holder().beneficiary(), address(user));
+        (,,,,,,, uint128 liquidityAfter,,,,) = npm.positions(id);
+        assertEq(uint256(liquidityAfter), uint256(liquidityBefore));
+    }
+
+    function test_NonReceiverGetsAutoExitProceedsAndCanRetrieveEmptyNFT() public {
+        PoolPeachNonReceiverBeneficiary user = new PoolPeachNonReceiverBeneficiary();
+        V3Utils.SwapAndMintParams memory p = _params();
+        deal(address(p.token0), address(user), p.amount0);
+        deal(address(p.token1), address(user), p.amount1);
+        uint256 id = user.create(factory, p, _config(true));
+        PoolPeachPosition holder = user.holder();
+        uint256 before0 = p.token0.balanceOf(address(user));
+        uint256 before1 = p.token1.balanceOf(address(user));
+        _execute(id);
+        assertEq(npm.ownerOf(id), address(holder));
+        assertEq(factory.activeHolder(id), address(0));
+        assertEq(uint256(holder.state()), uint256(PoolPeachPosition.State.Closed));
+        (,,,,,,, uint128 liquidity,,,,) = npm.positions(id);
+        assertEq(uint256(liquidity), 0);
+        assertGt(p.token0.balanceOf(address(user)), before0);
+        assertGt(p.token1.balanceOf(address(user)), before1);
+        assertEq(npm.getApproved(id), address(0));
+        (bool active,,,,,,,,) = EXIT.positionConfigs(id);
+        assertFalse(active);
+        vm.prank(OPERATOR);
+        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        holder.claimNFT(OPERATOR);
+        user.claimNFT(ALICE);
+        assertEq(npm.ownerOf(id), ALICE);
+        assertEq(holder.beneficiary(), address(user));
+        vm.expectRevert();
+        user.claimNFT(BOB);
+        assertEq(npm.ownerOf(id), ALICE);
+    }
+
+    function test_ManualRecipientFailureRollsBackAndBeneficiaryCanChooseAnother() public {
         PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         deal(address(p.token0), address(receiver), p.amount0);
@@ -622,12 +728,21 @@ contract PoolPeachFactoryForkTest is Test {
         uint256 id = receiver.create(factory, p, _config(true));
         receiver.setRejectNFT(true);
         vm.expectRevert(bytes("reject NFT"));
-        _execute(id);
+        receiver.withdraw();
         assertEq(factory.activeHolder(id), address(receiver.holder()));
         assertEq(npm.ownerOf(id), address(VAULT));
-        receiver.setRejectNFT(false);
-        _execute(id);
+        receiver.withdrawTo(ALICE);
+        assertEq(npm.ownerOf(id), ALICE);
         assertEq(factory.activeHolder(id), address(0));
+    }
+
+    function test_CannotClaimNFTWhileActive() public {
+        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        vm.prank(ALICE);
+        vm.expectRevert(PoolPeachPosition.InvalidState.selector);
+        holder.claimNFT(ALICE);
+        assertEq(npm.ownerOf(id), address(VAULT));
+        assertEq(factory.activeHolder(id), address(holder));
     }
 
     function test_ConstructorRejectsDifferentNpmBinding() public {
