@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.24;
 
-import "./PoolPeachPosition.sol";
+import "./PoolsidePosition.sol";
 import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 
 /// @notice DRAFT: create a fresh position and configure staking + AutoExit in one transaction.
 /// @dev No administrator, upgrades, arbitrary calls or shared user-reward balances. One-time prerequisite:
 /// AutoExit's owner must register THIS factory as an operator. Existing operators then call executeExit.
-contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
+contract PoolsideFactory is ReentrancyGuard, IPoolsideRegistry {
     using SafeERC20 for IERC20;
 
     V3Utils public immutable utils;
@@ -19,7 +19,7 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
     address public override creatingHolder;
 
     // History is retained for reward recovery. activeHolder() is the active-management source of truth.
-    mapping(uint256 => PoolPeachPosition) public positions;
+    mapping(uint256 => PoolsidePosition) public positions;
 
     error InvalidBinding();
     error InvalidMint();
@@ -55,7 +55,7 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
         V3Utils.SwapAndMintParams calldata requested,
         AutoExit.PositionConfig calldata exitConfig,
         bool initiallyStake
-    ) external payable nonReentrant returns (uint256 tokenId, PoolPeachPosition holder) {
+    ) external payable nonReentrant returns (uint256 tokenId, PoolsidePosition holder) {
         if (!autoExit.operators(address(this))) revert InvalidBinding();
         if (
             !exitConfig.isActive || requested.token0 == requested.token1
@@ -79,7 +79,7 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
             else revert InvalidMint();
         }
         holder =
-            new PoolPeachPosition(msg.sender, PoolPeachPosition.Bindings(utils, vault, manager, automation, autoExit));
+            new PoolsidePosition(msg.sender, PoolsidePosition.Bindings(utils, vault, manager, automation, autoExit));
         _fund(requested.token0, requested.amount0 - native0);
         _fund(requested.token1, requested.amount1 - native1);
         V3Utils.SwapAndMintParams memory params = requested;
@@ -115,7 +115,7 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
     /// @dev No recipient override. A failed trigger, swap or payout restores the original position and registry.
     function executeExit(AutoExit.ExecuteParams calldata params) external nonReentrant {
         if (!autoExit.operators(msg.sender)) revert Unauthorized();
-        PoolPeachPosition holder = positions[params.tokenId];
+        PoolsidePosition holder = positions[params.tokenId];
         if (address(holder) == address(0) || !holder.active()) revert InvalidMint();
         holder.prepareAutoExit();
         autoExit.execute(params);
@@ -123,15 +123,15 @@ contract PoolPeachFactory is ReentrancyGuard, IPoolPeachRegistry {
     }
 
     function activeHolder(uint256 tokenId) external view returns (address) {
-        PoolPeachPosition holder = positions[tokenId];
+        PoolsidePosition holder = positions[tokenId];
         return address(holder) != address(0) && holder.active() ? address(holder) : address(0);
     }
 
     function positionClosed(uint256 tokenId) external override {
-        PoolPeachPosition holder = positions[tokenId];
+        PoolsidePosition holder = positions[tokenId];
         if (
             address(holder) == address(0) || msg.sender != address(holder)
-                || holder.state() != PoolPeachPosition.State.Closed
+                || holder.state() != PoolsidePosition.State.Closed
         ) revert Unauthorized();
         emit PositionRemoved(tokenId, address(holder), holder.beneficiary());
     }

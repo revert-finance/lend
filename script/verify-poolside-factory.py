@@ -28,9 +28,9 @@ def main():
     key = os.environ.get('ETHERSCAN_API_KEY')
     if not key:
         raise SystemExit('Set ETHERSCAN_API_KEY before verification.')
-    record = json.loads((ROOT / 'broadcast/DeployPoolPeachFactory.s.sol/8453/run-latest.json').read_text())
+    record = json.loads((ROOT / 'broadcast/DeployPoolsideFactory.s.sol/8453/run-latest.json').read_text())
     creations = [t for t in record['transactions'] if t.get('transactionType') in ('CREATE', 'CREATE2')]
-    if len(creations) != 1 or creations[0]['contractName'] != 'PoolPeachFactory':
+    if len(creations) != 1 or creations[0]['contractName'] != 'PoolsideFactory':
         raise SystemExit('Expected exactly one factory deployment.')
     tx = creations[0]
     if not tx.get('hash') or int(tx['transaction']['chainId'], 16) != 8453:
@@ -38,7 +38,7 @@ def main():
     receipt = next((r for r in record['receipts'] if r['transactionHash'] == tx['hash']), None)
     if receipt is None or int(receipt['status'], 16) != 1:
         raise SystemExit('Factory deployment receipt is missing or unsuccessful.')
-    artifact = json.loads((ROOT / 'out/PoolPeachFactory.sol/PoolPeachFactory.json').read_text())
+    artifact = json.loads((ROOT / 'out/PoolsideFactory.sol/PoolsideFactory.json').read_text())
     args = subprocess.check_output([
         'cast', 'abi-encode', 'constructor(address,address,address,address)', *tx['arguments']
     ], text=True).strip()[2:]
@@ -50,7 +50,7 @@ def main():
         'apikey': key, 'module': 'contract', 'action': 'verifysourcecode',
         'contractaddress': address, 'sourceCode': json.dumps(compiler_input(artifact)),
         'codeformat': 'solidity-standard-json-input',
-        'contractname': 'src/poolpeach/PoolPeachFactory.sol:PoolPeachFactory',
+        'contractname': 'src/poolside/PoolsideFactory.sol:PoolsideFactory',
         'compilerversion': 'v' + artifact['metadata']['compiler']['version'],
         'constructorArguements': args,
     }
@@ -63,7 +63,7 @@ def main():
             raise SystemExit(result['result'])
     else:
         subprocess.run(['forge', 'verify-check', result['result'], '--chain', '8453'], cwd=ROOT, check=True)
-    print('Verified PoolPeachFactory:', 'https://basescan.org/address/' + address + '#code')
+    print('Verified PoolsideFactory:', 'https://basescan.org/address/' + address + '#code')
 
 
 if __name__ == '__main__':

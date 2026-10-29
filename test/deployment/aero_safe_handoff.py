@@ -46,6 +46,8 @@ def main():
     records = json.loads(args.broadcast.read_text())
     addresses = {t['contractName']:t['contractAddress'] for t in records['transactions'] if t.get('transactionType') == 'CREATE'}
 
+    factory_name = 'PoolsideFactory' if 'PoolsideFactory' in addresses else 'PoolPeachFactory'
+
     def send(name, signature, *values, actor=DEPLOYER):
         data = subprocess.check_output(['cast','calldata',signature,*map(str,values)],text=True).strip()
         tx = rpc('eth_sendTransaction', [{'from':actor,'to':addresses[name],'data':data,'gas':'0x100000'}])
@@ -87,11 +89,11 @@ def main():
     check('unchanged deployment accepts all seven nominations')
     check('ownership-only emits seven acceptances and no activation', ownership_only=True)
     if not args.recovery_broadcast:
-        check('revoked holder factory', lambda:send('AutoExit','setOperator(address,bool)',addresses['PoolPeachFactory'],'false'), 'PoolPeach factory is not authorized')
+        check('revoked holder factory', lambda:send('AutoExit','setOperator(address,bool)',addresses[factory_name],'false'), 'Holder factory is not authorized')
         check('fresh deployment cannot opt into legacy checks', recovery=args.broadcast,
               expected_error='Recovery does not match the known partial deployment')
         with tempfile.TemporaryDirectory() as directory:
-            missing_factory = dict(records, transactions=[t for t in records['transactions'] if t.get('contractName') != 'PoolPeachFactory'])
+            missing_factory = dict(records, transactions=[t for t in records['transactions'] if t.get('contractName') != factory_name])
             record = Path(directory)/'missing-factory.json'
             record.write_text(json.dumps(missing_factory))
             check('fresh deployment still requires factory', broadcast=record,

@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../../src/poolpeach/PoolPeachFactory.sol";
+import "../../src/poolside/PoolsideFactory.sol";
 import "../../src/V3Oracle.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 // The repository's pinned forge-std predates the emitter field in Foundry's log cheatcode.
-interface PoolPeachLogReader {
+interface PoolsideLogReader {
     struct Log {
         bytes32[] topics;
         bytes data;
@@ -16,13 +16,13 @@ interface PoolPeachLogReader {
     function getRecordedLogs() external returns (Log[] memory);
 }
 
-contract PoolPeachTestBeneficiary is IERC721Receiver {
-    PoolPeachPosition public holder;
+contract PoolsideTestBeneficiary is IERC721Receiver {
+    PoolsidePosition public holder;
     bool public rejectNFT;
     bool public reentrySucceeded;
     bool public reentryAttempted;
 
-    function create(PoolPeachFactory factory, V3Utils.SwapAndMintParams calldata p, AutoExit.PositionConfig calldata c)
+    function create(PoolsideFactory factory, V3Utils.SwapAndMintParams calldata p, AutoExit.PositionConfig calldata c)
         external
         payable
         returns (uint256 id)
@@ -51,16 +51,16 @@ contract PoolPeachTestBeneficiary is IERC721Receiver {
     function onERC721Received(address, address, uint256, bytes calldata) external returns (bytes4) {
         require(!rejectNFT, "reject NFT");
         reentryAttempted = true;
-        (reentrySucceeded,) = address(holder).call(abi.encodeCall(PoolPeachPosition.withdraw, ()));
+        (reentrySucceeded,) = address(holder).call(abi.encodeCall(PoolsidePosition.withdraw, ()));
         return IERC721Receiver.onERC721Received.selector;
     }
 }
 
 // Deliberately has no ERC721 receiver hook and no upgrade path.
-contract PoolPeachNonReceiverBeneficiary {
-    PoolPeachPosition public holder;
+contract PoolsideNonReceiverBeneficiary {
+    PoolsidePosition public holder;
 
-    function create(PoolPeachFactory factory, V3Utils.SwapAndMintParams calldata p, AutoExit.PositionConfig calldata c)
+    function create(PoolsideFactory factory, V3Utils.SwapAndMintParams calldata p, AutoExit.PositionConfig calldata c)
         external
         returns (uint256 id)
     {
@@ -80,7 +80,7 @@ contract PoolPeachNonReceiverBeneficiary {
 
 /// @dev Actual deployed Aero dependencies; only the proposed factory/holders are new.
 /// BASE_RPC_URL must support historical state. No broadcast or signing occurs.
-contract PoolPeachFactoryForkTest is Test {
+contract PoolsideFactoryForkTest is Test {
     using stdStorage for StdStorage;
     V3Utils constant UTILS = V3Utils(payable(0xF3B5c0689df879Db47Fd23590700910e7a99A068));
     V3Vault constant VAULT = V3Vault(0x39125A0476D44C9EEC1F4206E9e8B1e88b4Aa730);
@@ -92,12 +92,12 @@ contract PoolPeachFactoryForkTest is Test {
     address constant ALICE = address(0xA11CE);
     address constant BOB = address(0xB0B);
     INonfungiblePositionManager npm;
-    PoolPeachFactory factory;
+    PoolsideFactory factory;
     int24 tick;
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53255803);
-        factory = new PoolPeachFactory(UTILS, VAULT, RANGE, EXIT);
+        factory = new PoolsideFactory(UTILS, VAULT, RANGE, EXIT);
         npm = UTILS.nonfungiblePositionManager();
         (, tick,,,,) = POOL.slot0();
         _operator(address(factory), true);
@@ -137,7 +137,7 @@ contract PoolPeachFactoryForkTest is Test {
         c.token1TriggerTick = tick + 100;
     }
 
-    function _create(address user, bool stake, bool triggered) internal returns (uint256 id, PoolPeachPosition holder) {
+    function _create(address user, bool stake, bool triggered) internal returns (uint256 id, PoolsidePosition holder) {
         V3Utils.SwapAndMintParams memory p = _params();
         AutoExit.PositionConfig memory c = _config(triggered);
         vm.prank(user);
@@ -150,7 +150,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_CreateRegistersOnlyActualMintAndSetsBothAutomations() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(holder.beneficiary(), ALICE);
         assertEq(npm.ownerOf(id), address(VAULT));
@@ -169,7 +169,7 @@ contract PoolPeachFactoryForkTest is Test {
 
     function test_SimpleFeeSelectedForStakedAndUnstakedCreation() public {
         for (uint256 i; i < 2; ++i) {
-            (uint256 id, PoolPeachPosition holder) = _create(ALICE, i == 1, false);
+            (uint256 id, PoolsidePosition holder) = _create(ALICE, i == 1, false);
             assertEq(uint256(RANGE.compoundModes(id)), uint256(AutoRangeAndCompound.CompoundMode.Simple));
             assertEq(RANGE.compoundRewardX64(id), uint64((uint256(1) << 64) / 10));
             assertEq(MANAGER.compoundModeSource(), address(RANGE));
@@ -241,7 +241,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_OracleUnavailableAfterCreationDoesNotBlockManualWithdrawal() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, true);
         _clearPoolTokenOracleConfig();
         vm.prank(ALICE);
         holder.withdraw();
@@ -250,7 +250,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_CreateCanStakeInSameTransaction() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, true);
         assertEq(npm.ownerOf(id), MANAGER.tokenIdToGauge(id));
         assertEq(factory.activeHolder(id), address(holder));
     }
@@ -263,14 +263,14 @@ contract PoolPeachFactoryForkTest is Test {
         AutoExit.PositionConfig memory c = _config(true);
         uint256 bob0 = p.token0.balanceOf(BOB);
         vm.prank(ALICE);
-        (uint256 id, PoolPeachPosition holder) = factory.create(p, c, false);
+        (uint256 id, PoolsidePosition holder) = factory.create(p, c, false);
         assertEq(holder.beneficiary(), ALICE);
         assertEq(VAULT.ownerOf(id), address(holder));
         assertEq(p.token0.balanceOf(BOB), bob0);
     }
 
     function test_ManualWithdrawalClearsRegistryConsentApprovalAndExitRule() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, false);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, false);
         vm.prank(ALICE);
         holder.withdraw();
         assertEq(factory.activeHolder(id), address(0));
@@ -285,20 +285,20 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_AutoExitPaysOnlyBeneficiaryAndClosesRegistry() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         uint256 before0 = IERC20(POOL.token0()).balanceOf(ALICE);
         uint256 before1 = IERC20(POOL.token1()).balanceOf(ALICE);
         _execute(id);
         assertEq(factory.activeHolder(id), address(0));
         assertEq(npm.ownerOf(id), address(holder));
-        assertEq(uint256(holder.state()), uint256(PoolPeachPosition.State.Closed));
+        assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Closed));
         assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before0);
         assertGt(IERC20(POOL.token1()).balanceOf(ALICE), before1);
         assertEq(address(holder).balance, 0);
     }
 
     function test_AutoExitFromGaugeAfterPenaltyWindow() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, true);
         vm.roll(MANAGER.penaltyWindowEnd(id));
         _execute(id);
         assertEq(npm.ownerOf(id), address(holder));
@@ -307,9 +307,9 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_AutoExitRespectsPenaltyWindowButManualWithdrawalRemainsPossible() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, true);
         assertGt(MANAGER.penaltyWindowEnd(id), block.number);
-        vm.expectRevert(PoolPeachPosition.InsidePenaltyWindow.selector);
+        vm.expectRevert(PoolsidePosition.InsidePenaltyWindow.selector);
         _execute(id);
         assertEq(factory.activeHolder(id), address(holder));
         vm.prank(ALICE);
@@ -318,7 +318,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_UnmetTriggerRollsBackUnstakingAndAllPermissions() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, false);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, false);
         vm.roll(MANAGER.penaltyWindowEnd(id));
         address gauge = npm.ownerOf(id);
         vm.expectRevert(Constants.NotReady.selector);
@@ -331,7 +331,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_SlippageFailureRollsBackExit() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(OPERATOR);
         vm.expectRevert();
         factory.executeExit(AutoExit.ExecuteParams(id, "", type(uint256).max, type(uint256).max, block.timestamp, 0));
@@ -340,46 +340,46 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_UnknownUserCannotWithdrawOrChangeConsentOrClaim() public {
-        (, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(BOB);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.withdraw();
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.withdrawTo(BOB);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.claimNFT(BOB);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.setStakingManagement(false);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.claimRootDeferredRewards();
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.claimNative();
         vm.stopPrank();
     }
 
     function test_OnlyFactoryCanPrepareOrFinishExit() public {
-        (, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(OPERATOR);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.prepareAutoExit();
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.finishAutoExit();
         vm.stopPrank();
     }
 
     function test_UnprivilegedCallerCannotTriggerExitOrForgeRegistryRemoval() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(BOB);
-        vm.expectRevert(PoolPeachFactory.Unauthorized.selector);
+        vm.expectRevert(PoolsideFactory.Unauthorized.selector);
         factory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
         vm.prank(BOB);
-        vm.expectRevert(PoolPeachFactory.Unauthorized.selector);
+        vm.expectRevert(PoolsideFactory.Unauthorized.selector);
         factory.positionClosed(id);
         assertEq(factory.activeHolder(id), address(holder));
     }
 
     function test_RevokedFactoryOperatorCannotExecuteAndDoesNotBlockManualWithdrawal() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         _operator(address(factory), false);
         vm.expectRevert(Constants.Unauthorized.selector);
         _execute(id);
@@ -395,7 +395,7 @@ contract PoolPeachFactoryForkTest is Test {
         V3Utils.SwapAndMintParams memory p = _params();
         AutoExit.PositionConfig memory c = _config(true);
         vm.prank(ALICE);
-        vm.expectRevert(PoolPeachFactory.InvalidBinding.selector);
+        vm.expectRevert(PoolsideFactory.InvalidBinding.selector);
         factory.create(p, c, false);
         assertEq(IERC20(POOL.token0()).balanceOf(ALICE), balance);
     }
@@ -405,7 +405,7 @@ contract PoolPeachFactoryForkTest is Test {
         p.swapSourceToken = IERC20(address(0x1234));
         AutoExit.PositionConfig memory c = _config(true);
         vm.prank(ALICE);
-        vm.expectRevert(PoolPeachFactory.InvalidMint.selector);
+        vm.expectRevert(PoolsideFactory.InvalidMint.selector);
         factory.create(p, c, false);
     }
 
@@ -413,7 +413,7 @@ contract PoolPeachFactoryForkTest is Test {
         V3Utils.SwapAndMintParams memory p = _params();
         AutoExit.PositionConfig memory c;
         vm.prank(ALICE);
-        vm.expectRevert(PoolPeachFactory.InvalidMint.selector);
+        vm.expectRevert(PoolsideFactory.InvalidMint.selector);
         factory.create(p, c, false);
     }
 
@@ -436,37 +436,37 @@ contract PoolPeachFactoryForkTest is Test {
         AutoExit.PositionConfig memory c = _config(true);
         vm.mockCall(address(p.token0), abi.encodeWithSelector(IERC20.transferFrom.selector), abi.encode(true));
         vm.prank(ALICE);
-        vm.expectRevert(PoolPeachFactory.UnsupportedToken.selector);
+        vm.expectRevert(PoolsideFactory.UnsupportedToken.selector);
         factory.create(p, c, false);
     }
 
     function test_ArbitraryNFTReceiptAndRepeatInitializationRejected() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
-        vm.expectRevert(PoolPeachPosition.InvalidNFT.selector);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        vm.expectRevert(PoolsidePosition.InvalidNFT.selector);
         holder.onERC721Received(address(UTILS), address(UTILS), id + 1, "");
         AutoExit.PositionConfig memory c = _config(true);
         vm.prank(address(factory));
-        vm.expectRevert(PoolPeachPosition.InvalidState.selector);
+        vm.expectRevert(PoolsidePosition.InvalidState.selector);
         holder.initialize(id, c, false);
     }
 
     function test_ClosedPositionCannotBeReactivatedOrRedeposited() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(ALICE);
         holder.withdraw();
         vm.startPrank(ALICE);
-        vm.expectRevert(PoolPeachPosition.InvalidState.selector);
+        vm.expectRevert(PoolsidePosition.InvalidState.selector);
         holder.setStakingManagement(true);
-        vm.expectRevert(PoolPeachPosition.InvalidState.selector);
+        vm.expectRevert(PoolsidePosition.InvalidState.selector);
         holder.withdraw();
-        vm.expectRevert(PoolPeachPosition.InvalidNFT.selector);
+        vm.expectRevert(PoolsidePosition.InvalidNFT.selector);
         npm.safeTransferFrom(ALICE, address(holder), id);
         vm.stopPrank();
         assertEq(factory.activeHolder(id), address(0));
     }
 
     function test_OwnerCanDisableAndReenableStaking() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(ALICE);
         holder.setStakingManagement(false);
         assertEq(RANGE.stakingConsent(id, address(VAULT)), address(0));
@@ -476,7 +476,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_ActualKeeperCanStakeWithGrantedConsent() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         AutoRangeAndCompound.AutoCompoundParams memory p;
         p.tokenId = id;
         p.deadline = block.timestamp;
@@ -491,7 +491,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_DisabledConsentBlocksActualKeeperStaking() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(ALICE);
         holder.setStakingManagement(false);
         AutoRangeAndCompound.AutoCompoundParams memory p;
@@ -505,7 +505,7 @@ contract PoolPeachFactoryForkTest is Test {
         assertEq(npm.ownerOf(id), address(VAULT));
     }
 
-    function _rootLiability(PoolPeachPosition holder, uint256 amount, bool funded) internal {
+    function _rootLiability(PoolsidePosition holder, uint256 amount, bool funded) internal {
         stdstore.target(address(MANAGER))
             .sig("rootDeferredRewards(address)")
             .with_key(address(holder))
@@ -516,8 +516,8 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_RootRewardsRemainClaimableAfterWithdrawalAndAreIsolated() public {
-        (, PoolPeachPosition aliceHolder) = _create(ALICE, false, true);
-        (, PoolPeachPosition bobHolder) = _create(BOB, false, true);
+        (, PoolsidePosition aliceHolder) = _create(ALICE, false, true);
+        (, PoolsidePosition bobHolder) = _create(BOB, false, true);
         _rootLiability(aliceHolder, 7e18, true);
         _rootLiability(bobHolder, 11e18, true);
         vm.prank(ALICE);
@@ -532,7 +532,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_UnfundedRewardDoesNotBlockPrincipalWithdrawal() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         _rootLiability(holder, 9e18, false);
         vm.prank(ALICE);
         vm.expectRevert(GaugeManager.DeferredAccountingMismatch.selector);
@@ -544,7 +544,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_BatchDeferredRewardsRemainClaimableAfterWithdrawal() public {
-        (, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
         address gauge = POOL.gauge();
         uint256 batch = MANAGER.currentDeferredBatch(gauge);
         stdstore.target(address(MANAGER)).sig("currentDeferredBatch(address)").with_key(gauge).checked_write(batch + 1);
@@ -566,15 +566,15 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_ResidualTokensCannotCrossBetweenHoldersAndSurviveClosure() public {
-        (, PoolPeachPosition aliceHolder) = _create(ALICE, false, true);
-        (, PoolPeachPosition bobHolder) = _create(BOB, false, true);
+        (, PoolsidePosition aliceHolder) = _create(ALICE, false, true);
+        (, PoolsidePosition bobHolder) = _create(BOB, false, true);
         IERC20 asset = IERC20(POOL.token1());
         deal(address(asset), address(aliceHolder), 123e6);
         deal(address(asset), address(bobHolder), 456e6);
         IERC20[] memory tokens = new IERC20[](1);
         tokens[0] = asset;
         vm.prank(BOB);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         aliceHolder.claimTokens(tokens);
         vm.prank(ALICE);
         aliceHolder.withdraw();
@@ -586,7 +586,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_NoBorrowOrGenericCallEntrypoint() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(ALICE);
         (bool ok,) = address(holder).call(abi.encodeWithSignature("borrow(uint256,uint256)", id, 1e6));
         assertFalse(ok);
@@ -628,7 +628,7 @@ contract PoolPeachFactoryForkTest is Test {
         vm.stopPrank();
         vm.deal(ALICE, p.amount0);
         vm.prank(ALICE);
-        (uint256 id, PoolPeachPosition holder) = factory.create{value: p.amount0}(p, c, false);
+        (uint256 id, PoolsidePosition holder) = factory.create{value: p.amount0}(p, c, false);
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(RANGE.stakingConsent(id, address(VAULT)), address(holder));
         assertTrue(holder.autoExitEnabled());
@@ -639,18 +639,18 @@ contract PoolPeachFactoryForkTest is Test {
         AutoExit.PositionConfig memory c = _config(true);
         vm.deal(ALICE, p.amount0 + 1);
         vm.prank(ALICE);
-        vm.expectRevert(PoolPeachFactory.InvalidMint.selector);
+        vm.expectRevert(PoolsideFactory.InvalidMint.selector);
         factory.create{value: p.amount0 + 1}(p, c, false);
     }
 
     function test_UserCanPauseExitWithoutRemovingPosition() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(BOB);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.setAutoExitEnabled(false);
         vm.prank(ALICE);
         holder.setAutoExitEnabled(false);
-        vm.expectRevert(PoolPeachPosition.InvalidState.selector);
+        vm.expectRevert(PoolsidePosition.InvalidState.selector);
         _execute(id);
         assertEq(factory.activeHolder(id), address(holder));
         vm.prank(ALICE);
@@ -660,7 +660,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_OperatorCannotExceedSelectedFee() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(OPERATOR);
         vm.expectRevert(Constants.ExceedsMaxReward.selector);
         factory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 1));
@@ -668,7 +668,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_WithdrawCallbackCannotReenterHolder() public {
-        PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
+        PoolsideTestBeneficiary receiver = new PoolsideTestBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         deal(address(p.token0), address(receiver), p.amount0);
         deal(address(p.token1), address(receiver), p.amount1);
@@ -681,7 +681,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_RejectingNFTDoesNotBlockAutoExitProceeds() public {
-        PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
+        PoolsideTestBeneficiary receiver = new PoolsideTestBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         deal(address(p.token0), address(receiver), p.amount0);
         deal(address(p.token1), address(receiver), p.amount1);
@@ -706,7 +706,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_NonReceiverCanWithdrawPrincipalToAnotherRecipient() public {
-        PoolPeachNonReceiverBeneficiary user = new PoolPeachNonReceiverBeneficiary();
+        PoolsideNonReceiverBeneficiary user = new PoolsideNonReceiverBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         deal(address(p.token0), address(user), p.amount0);
         deal(address(p.token1), address(user), p.amount1);
@@ -722,18 +722,18 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_NonReceiverGetsAutoExitProceedsAndCanRetrieveEmptyNFT() public {
-        PoolPeachNonReceiverBeneficiary user = new PoolPeachNonReceiverBeneficiary();
+        PoolsideNonReceiverBeneficiary user = new PoolsideNonReceiverBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         deal(address(p.token0), address(user), p.amount0);
         deal(address(p.token1), address(user), p.amount1);
         uint256 id = user.create(factory, p, _config(true));
-        PoolPeachPosition holder = user.holder();
+        PoolsidePosition holder = user.holder();
         uint256 before0 = p.token0.balanceOf(address(user));
         uint256 before1 = p.token1.balanceOf(address(user));
         _execute(id);
         assertEq(npm.ownerOf(id), address(holder));
         assertEq(factory.activeHolder(id), address(0));
-        assertEq(uint256(holder.state()), uint256(PoolPeachPosition.State.Closed));
+        assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Closed));
         (,,,,,,, uint128 liquidity,,,,) = npm.positions(id);
         assertEq(uint256(liquidity), 0);
         assertGt(p.token0.balanceOf(address(user)), before0);
@@ -742,7 +742,7 @@ contract PoolPeachFactoryForkTest is Test {
         (bool active,,,,,,,,) = EXIT.positionConfigs(id);
         assertFalse(active);
         vm.prank(OPERATOR);
-        vm.expectRevert(PoolPeachPosition.Unauthorized.selector);
+        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         holder.claimNFT(OPERATOR);
         user.claimNFT(ALICE);
         assertEq(npm.ownerOf(id), ALICE);
@@ -753,7 +753,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_ManualRecipientFailureRollsBackAndBeneficiaryCanChooseAnother() public {
-        PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
+        PoolsideTestBeneficiary receiver = new PoolsideTestBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         deal(address(p.token0), address(receiver), p.amount0);
         deal(address(p.token1), address(receiver), p.amount1);
@@ -769,9 +769,9 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function test_CannotClaimNFTWhileActive() public {
-        (uint256 id, PoolPeachPosition holder) = _create(ALICE, false, true);
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(ALICE);
-        vm.expectRevert(PoolPeachPosition.InvalidState.selector);
+        vm.expectRevert(PoolsidePosition.InvalidState.selector);
         holder.claimNFT(ALICE);
         assertEq(npm.ownerOf(id), address(VAULT));
         assertEq(factory.activeHolder(id), address(holder));
@@ -781,8 +781,8 @@ contract PoolPeachFactoryForkTest is Test {
         vm.mockCall(
             address(VAULT), abi.encodeWithSignature("nonfungiblePositionManager()"), abi.encode(address(0x1234))
         );
-        vm.expectRevert(PoolPeachFactory.InvalidBinding.selector);
-        new PoolPeachFactory(UTILS, VAULT, RANGE, EXIT);
+        vm.expectRevert(PoolsideFactory.InvalidBinding.selector);
+        new PoolsideFactory(UTILS, VAULT, RANGE, EXIT);
     }
 
     function test_NativeMintRefundWorksForBeneficiaryRejectingEther() public {
@@ -794,7 +794,7 @@ contract PoolPeachFactoryForkTest is Test {
     }
 
     function _checkNativeMintRefund(uint256 nativeAmount, bool expectWethExcess) internal {
-        PoolPeachTestBeneficiary receiver = new PoolPeachTestBeneficiary();
+        PoolsideTestBeneficiary receiver = new PoolsideTestBeneficiary();
         V3Utils.SwapAndMintParams memory p = _params();
         p.amount0 = nativeAmount;
         deal(address(p.token1), address(receiver), p.amount1);
@@ -804,7 +804,7 @@ contract PoolPeachFactoryForkTest is Test {
         assertFalse(receivesEther);
         vm.recordLogs();
         uint256 id = receiver.create{value: nativeAmount}(factory, p, _config(true));
-        PoolPeachLogReader.Log[] memory logs = PoolPeachLogReader(address(vm)).getRecordedLogs();
+        PoolsideLogReader.Log[] memory logs = PoolsideLogReader(address(vm)).getRecordedLogs();
         bool found;
         uint256 used0;
         uint256 used1;
@@ -823,7 +823,7 @@ contract PoolPeachFactoryForkTest is Test {
         else assertGt(p.amount1 - used1, 0, "exercise an actual ERC20 refund");
         assertEq(p.token0.balanceOf(address(receiver)), p.amount0 - used0);
         assertEq(p.token1.balanceOf(address(receiver)), p.amount1 - used1);
-        PoolPeachPosition holder = receiver.holder();
+        PoolsidePosition holder = receiver.holder();
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(address(receiver).balance, 0);
         assertEq(address(holder).balance, 0);

@@ -1,17 +1,18 @@
-# PoolPeach position holder — draft for review
+# Poolside position holder
 
-This is a proposed custody adapter, **not deployed or audited code**. It adds two contracts without changing
+Poolside is the new product name; earlier deployments retain the PoolPeach contract names.
+This custody adapter adds two contracts without changing
 V3Vault, GaugeManager, V3Utils, AutoRangeAndCompound or AutoExit. It is not included in the existing Cantina scan
 pinned to `b16c84df570fe5956e5749e94b8572e3195fa5e9`.
 
 ## Purpose and scope
 
 A user creates a fresh Aero position, enables managed staking and selects an AutoExit rule in one transaction.
-Each position gets its own `PoolPeachPosition`, with the caller recorded as its immutable beneficiary.
+Each position gets its own `PoolsidePosition`, with the caller recorded as its immutable beneficiary.
 The holder is the owner recorded in the existing vault. These positions do not borrow; there is no borrowing,
 arbitrary execution, beneficiary-transfer, auto-range configuration or generic transformer entrypoint.
 
-`PoolPeachFactory` records the newly minted NFT and deploys the holder in the same call. The real token ID is
+`PoolsideFactory` records the newly minted NFT and deploys the holder in the same call. The real token ID is
 returned by V3Utils and cross-checked against the authenticated ERC721 callback; IDs are never predicted.
 The holder cannot import or re-enroll existing NFTs. Anyone may call the factory, so registration proves
 creation through this factory, not which website someone used.
@@ -22,7 +23,7 @@ Here, every reward owed to a holder belongs to its one beneficiary, even after t
 
 ## Creation and funding
 
-Call `PoolPeachFactory.create(mintParams, exitConfig, initiallyStake)`:
+Call `PoolsideFactory.create(mintParams, exitConfig, initiallyStake)`:
 
 1. Check that AutoExit authorizes this factory, that the pool has a configured gauge, and that inputs fit the
    supported two-token funding path.
@@ -34,7 +35,8 @@ Call `PoolPeachFactory.create(mintParams, exitConfig, initiallyStake)`:
    tokens to the beneficiary within the same transaction. Contract beneficiaries need not accept native ETH refunds.
    Callers cannot override the NFT receiver or callback data. Clear factory-to-V3Utils allowances afterward.
 4. Settle mint refunds, then configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
-   approve only the existing AutoRangeAndCompound transformer, and enable its staking-management consent.
+   approve only the existing AutoRangeAndCompound transformer, select Simple compounding fees (currently 10%)
+   with default range/standalone-compound permissions, and enable its staking-management consent.
 5. Optionally stake immediately. Value the initialized position through the vault's oracle, using the final custody
    state's fee handling, before publishing `PositionCreated(tokenId, holder, beneficiary)`.
 
@@ -119,7 +121,7 @@ Pin the chain, canonical factory and its immutable NPM. Use `PositionCreated` an
 managed. Staking does not remove registration when physical NFT custody changes to a gauge.
 
 `factory.positions(tokenId)` retains the historical holder address solely for claims/recovery and provenance.
-Do not interpret that mapping as active membership. After removal, PoolPeach must stop automation and exclude the
+Do not interpret that mapping as active membership. After removal, Poolside must stop automation and exclude the
 position from its active list, while still offering a separate way to recover any rewards owed to the old holder.
 `holder.beneficiary()` resolves the end user; the vault's `ownerOf` resolves the holder, not the end user.
 
@@ -127,9 +129,9 @@ position from its active list, while still offering a separate way to recover an
 
 ```bash
 # BASE_RPC_URL must be a Base RPC with historical state support; no signing keys are needed.
-forge test --match-path 'test/poolpeach/*' -vv
-forge fmt --check src/poolpeach/PoolPeachFactory.sol src/poolpeach/PoolPeachPosition.sol \
-  test/poolpeach/PoolPeachFactoryFork.t.sol
+forge test --match-path 'test/poolside/*' -vv
+forge fmt --check src/poolside/PoolsideFactory.sol src/poolside/PoolsidePosition.sol \
+  test/poolside/PoolsideFactoryFork.t.sol
 ```
 
 45 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
@@ -162,4 +164,4 @@ interfaces. These are reproducible regression checks, not an audit or authorizat
 - Review exit configuration editing, wallet funding UX and any desired ongoing compounding as separate scope.
 - Add a reviewed deployment/preflight flow, register the factory once with AutoExit, and validate selected pools.
 - Wire beneficiary resolution, active registry indexing, post-closure reward recovery and the factory exit route
-  into PoolPeach and its keeper. No frontend, keeper or production configuration is changed by this PR.
+  into Poolside and its keeper. No frontend, keeper or production configuration is changed by this PR.

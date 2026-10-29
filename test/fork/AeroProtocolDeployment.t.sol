@@ -59,17 +59,17 @@ contract AeroProtocolDeploymentTest is Test {
         d = script.run();
     }
 
-    function testFreshPoolPeachManualWithdrawal() public {
-        (uint256 id, PoolPeachPosition holder) = _createPoolPeach(true);
+    function testFreshPoolsideManualWithdrawal() public {
+        (uint256 id, PoolsidePosition holder) = _createPoolside(true);
         assertEq(d.vault.loans(id), 0);
         vm.prank(ALICE);
         holder.withdrawTo(ALICE);
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), ALICE);
-        assertEq(d.poolPeachFactory.activeHolder(id), address(0));
+        assertEq(d.poolsideFactory.activeHolder(id), address(0));
     }
 
-    function testFreshPoolPeachKeeperStakeAndExit() public {
-        (uint256 id, PoolPeachPosition holder) = _createPoolPeach(false);
+    function testFreshPoolsideKeeperStakeAndExit() public {
+        (uint256 id, PoolsidePosition holder) = _createPoolside(false);
         vm.prank(OPERATOR);
         d.autoRange
             .autoCompoundWithVaultAndRewardCompound(
@@ -80,8 +80,8 @@ contract AeroProtocolDeploymentTest is Test {
         assertTrue(d.gaugeManager.tokenIdToGauge(id) != address(0));
         _advance();
         vm.prank(OPERATOR);
-        d.poolPeachFactory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
-        assertEq(d.poolPeachFactory.activeHolder(id), address(0));
+        d.poolsideFactory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
+        assertEq(d.poolsideFactory.activeHolder(id), address(0));
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), address(holder));
         assertEq(d.vault.loans(id), 0);
         assertGt(IERC20(USDC).balanceOf(ALICE), 0);
@@ -90,7 +90,7 @@ contract AeroProtocolDeploymentTest is Test {
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), ALICE);
     }
 
-    function _createPoolPeach(bool initiallyStake) internal returns (uint256 id, PoolPeachPosition holder) {
+    function _createPoolside(bool initiallyStake) internal returns (uint256 id, PoolsidePosition holder) {
         IAerodromeSlipstreamPool pool = IAerodromeSlipstreamPool(script.collateralPools()[0]);
         (, int24 tick,,,,) = pool.slot0();
         int24 spacing = pool.tickSpacing();
@@ -111,13 +111,13 @@ contract AeroProtocolDeploymentTest is Test {
         deal(address(params.token0), ALICE, params.amount0);
         deal(address(params.token1), ALICE, params.amount1);
         vm.startPrank(ALICE);
-        params.token0.approve(address(d.poolPeachFactory), params.amount0);
-        params.token1.approve(address(d.poolPeachFactory), params.amount1);
-        (id, holder) = d.poolPeachFactory.create(params, config, initiallyStake);
+        params.token0.approve(address(d.poolsideFactory), params.amount0);
+        params.token1.approve(address(d.poolsideFactory), params.amount1);
+        (id, holder) = d.poolsideFactory.create(params, config, initiallyStake);
         vm.stopPrank();
         assertEq(d.vault.globalDebtLimit(), 0);
         assertEq(d.vault.ownerOf(id), address(holder));
-        assertEq(d.poolPeachFactory.activeHolder(id), address(holder));
+        assertEq(d.poolsideFactory.activeHolder(id), address(holder));
         assertEq(d.autoRange.stakingConsent(id, address(d.vault)), address(holder));
     }
 
@@ -187,14 +187,14 @@ contract AeroProtocolDeploymentTest is Test {
             assertEq(Ownable2Step(a[i]).pendingOwner(), SAFE);
             assertLe(a[i].code.length, 24_576);
         }
-        assertEq(address(d.poolPeachFactory.utils()), address(d.v3Utils));
-        assertEq(address(d.poolPeachFactory.vault()), address(d.vault));
-        assertEq(address(d.poolPeachFactory.manager()), address(d.gaugeManager));
-        assertEq(address(d.poolPeachFactory.automation()), address(d.autoRange));
-        assertEq(address(d.poolPeachFactory.autoExit()), address(d.autoExit));
-        assertTrue(d.autoExit.operators(address(d.poolPeachFactory)));
+        assertEq(address(d.poolsideFactory.utils()), address(d.v3Utils));
+        assertEq(address(d.poolsideFactory.vault()), address(d.vault));
+        assertEq(address(d.poolsideFactory.manager()), address(d.gaugeManager));
+        assertEq(address(d.poolsideFactory.automation()), address(d.autoRange));
+        assertEq(address(d.poolsideFactory.autoExit()), address(d.autoExit));
+        assertTrue(d.autoExit.operators(address(d.poolsideFactory)));
         assertEq(d.vault.stakingPolicy(), address(d.autoRange));
-        assertLe(address(d.poolPeachFactory).code.length, 24_576);
+        assertLe(address(d.poolsideFactory).code.length, 24_576);
         assertEq(d.irm.owner(), SAFE);
         assertEq(d.vault.globalDebtLimit(), 0);
         assertEq(address(d.vault.oracle()), address(d.oracle));
