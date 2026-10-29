@@ -780,7 +780,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         debtSharesTotal = debtSharesTotal - debtShares;
 
-        uint256 maxDailyDebt = _getMaxDailyDebtIncreaseLimit(state.newLendExchangeRateX96);
+        uint256 maxDailyDebt = _getMaxDailyDebtIncreaseLimit(lastLendExchangeRateX96);
         uint256 newDebtLimit = dailyDebtIncreaseLimitLeft + state.debt;
         dailyDebtIncreaseLimitLeft = newDebtLimit > maxDailyDebt ? maxDailyDebt : newDebtLimit;
 
