@@ -390,6 +390,9 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 uint32 tSecs = TWAPSeconds;
                 if (tSecs != 0) {
                     if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
+                        if (params.amountOutMin != 0) {
+                            revert TWAPCheckFailed();
+                        }
                         // if there is no valid TWAP - disable swap
                         amountIn = 0;
                     }
