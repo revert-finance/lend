@@ -48,3 +48,19 @@ The two targeted fork suites passed all **61 tests**: 45 holder regressions agai
 The separate localhost rehearsal executed **50 transactions**, all with successful receipts (37,191,951 gas used). All **59 Safe-handoff scenarios passed**, including rejection after revoking the factory's AutoExit permission. Local receipts are stored separately under `broadcast/local-rehearsal/` and must never be used as production receipts.
 
 PoolPeach remains outside Cantina scan #18's reviewed revision. Fork tests and a successful rehearsal establish tested behavior, not audit approval or production activation.
+
+## Historical recovery compatibility
+
+`prepare-aero-safe.py --recovery-broadcast` remains limited to the original reserve-factor failure and its exact 13-call recovery suffix. After that sequence is validated, the checker expects the historical nine-contract suite and omits the factory and `stakingPolicy()` checks, which that deployment cannot satisfy. Fresh deployments still require all ten contracts, the staking policy, factory bindings and its AutoExit authorization. Simply supplying the recovery flag cannot downgrade checks for a fresh deployment.
+
+To run the historical regressions, fork Base at block 53168029 on localhost and pass the retained original and completion broadcast files:
+
+```bash
+python3 test/deployment/aero_safe_handoff.py --rpc-url http://127.0.0.1:28549 \
+  --broadcast ../lend-aero-launch/broadcast/DeployAeroProtocol.s.sol/8453/run-latest.json \
+  --recovery-broadcast ../lend-aero-launch/broadcast/CompleteAeroProtocolDeployment.s.sol/8453/run-latest.json
+```
+
+The test changes only localhost state and restores each case. For a newly deployed localhost suite, run it without `--recovery-broadcast` and pass that suite's local broadcast record. These changes affect only handoff validation and tests; contract bytecode and deployment transactions are unchanged.
+
+Recovery-fix validation: reproduced the original failure before the change; all **60 historical-recovery scenarios** and **61 fresh-deployment scenarios** passed after it on separate localhost forks. The fresh suite again completed all 50 deployment transactions successfully on localhost.
