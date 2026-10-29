@@ -125,6 +125,9 @@ contract PoolPeachPosition is IERC721Receiver, ReentrancyGuard {
         autoExit.configToken(id, exitConfig);
         npm.safeTransferFrom(address(this), address(vault), id, abi.encode(address(this)));
         vault.approveTransform(id, address(automation), true);
+        // PoolPeach uses Simple fees; keep range/standalone-compound permissions at their existing defaults.
+        AutoRangeAndCompound.PositionConfig memory config;
+        automation.configToken(id, address(vault), config, AutoRangeAndCompound.CompoundMode.Simple);
         automation.configStakingManagement(id, address(vault), true);
         if (initiallyStake) vault.stakePosition(id);
         autoExitEnabled = true;

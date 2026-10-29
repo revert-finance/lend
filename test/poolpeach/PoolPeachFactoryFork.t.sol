@@ -82,11 +82,11 @@ contract PoolPeachNonReceiverBeneficiary {
 /// BASE_RPC_URL must support historical state. No broadcast or signing occurs.
 contract PoolPeachFactoryForkTest is Test {
     using stdStorage for StdStorage;
-    V3Utils constant UTILS = V3Utils(payable(0x1D388deC5C440f572D3103B09f22aCd674b707f5));
-    V3Vault constant VAULT = V3Vault(0x1c69eb478425199D34D93484c76c1B39554979a1);
-    GaugeManager constant MANAGER = GaugeManager(payable(0x1AC3a1C018a09146dcE000eFcC67e2129aDc6DBD));
-    AutoRangeAndCompound constant RANGE = AutoRangeAndCompound(payable(0x1d0B1401AFdd36aFCAc521DaC95a7F1906BAD642));
-    AutoExit constant EXIT = AutoExit(payable(0x5793aed47c74b53a67c864ca080136Ba4E8452b8));
+    V3Utils constant UTILS = V3Utils(payable(0xF3B5c0689df879Db47Fd23590700910e7a99A068));
+    V3Vault constant VAULT = V3Vault(0x39125A0476D44C9EEC1F4206E9e8B1e88b4Aa730);
+    GaugeManager constant MANAGER = GaugeManager(payable(0x36F20A7859E25fC9102F761aCBfbD9AfE78924e6));
+    AutoRangeAndCompound constant RANGE = AutoRangeAndCompound(payable(0x5c94a69fFDC3Fcb2c3d6e08Ce033297Fb92aE800));
+    AutoExit constant EXIT = AutoExit(payable(0x9b23ba84C0B33c608db6a1c34Fc37BaA1F1A2C65));
     IAerodromeSlipstreamPool constant POOL = IAerodromeSlipstreamPool(0x4A7af46bC8aBc00048c6c7920a1488DAF568366c);
     address constant OPERATOR = 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF;
     address constant ALICE = address(0xA11CE);
@@ -96,7 +96,7 @@ contract PoolPeachFactoryForkTest is Test {
     int24 tick;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53168029);
+        vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53255803);
         factory = new PoolPeachFactory(UTILS, VAULT, RANGE, EXIT);
         npm = UTILS.nonfungiblePositionManager();
         (, tick,,,,) = POOL.slot0();
@@ -165,6 +165,37 @@ contract PoolPeachFactoryForkTest is Test {
         assertEq(IERC20(POOL.token1()).allowance(address(factory), address(UTILS)), 0);
         assertEq(IERC20(POOL.token0()).balanceOf(address(factory)), 0);
         assertEq(IERC20(POOL.token1()).balanceOf(address(factory)), 0);
+    }
+
+    function test_SimpleFeeSelectedForStakedAndUnstakedCreation() public {
+        for (uint256 i; i < 2; ++i) {
+            (uint256 id, PoolPeachPosition holder) = _create(ALICE, i == 1, false);
+            assertEq(uint256(RANGE.compoundModes(id)), uint256(AutoRangeAndCompound.CompoundMode.Simple));
+            assertEq(RANGE.compoundRewardX64(id), uint64((uint256(1) << 64) / 10));
+            assertEq(MANAGER.compoundModeSource(), address(RANGE));
+            (,, int32 lowerDelta, int32 upperDelta,,, bool onlyFees, bool autoCompound,,,,) = RANGE.positionConfigs(id);
+            assertEq(int256(lowerDelta), 0);
+            assertEq(int256(upperDelta), 0);
+            assertFalse(onlyFees);
+            assertFalse(autoCompound);
+            vm.startPrank(ALICE);
+            holder.setStakingManagement(false);
+            holder.setStakingManagement(true);
+            vm.stopPrank();
+            assertEq(RANGE.compoundRewardX64(id), RANGE.simpleRewardX64());
+        }
+    }
+
+    function test_BeneficiaryAndOperatorCannotDowngradeHolderFee() public {
+        (uint256 id,) = _create(ALICE, false, false);
+        AutoRangeAndCompound.PositionConfig memory config;
+        vm.prank(ALICE);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        RANGE.configToken(id, address(VAULT), config, AutoRangeAndCompound.CompoundMode.Advanced);
+        vm.prank(OPERATOR);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        RANGE.configToken(id, address(VAULT), config, AutoRangeAndCompound.CompoundMode.Advanced);
+        assertEq(RANGE.compoundRewardX64(id), RANGE.simpleRewardX64());
     }
 
     function _clearPoolTokenOracleConfig() internal {
@@ -456,6 +487,7 @@ contract PoolPeachFactoryForkTest is Test {
         assertEq(npm.ownerOf(id), MANAGER.tokenIdToGauge(id));
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(VAULT.loans(id), 0);
+        assertEq(RANGE.compoundRewardX64(id), RANGE.simpleRewardX64());
     }
 
     function test_DisabledConsentBlocksActualKeeperStaking() public {
