@@ -305,6 +305,12 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
         bool swap0To1;
         // swap amount - calculated off-chain - if this is set to 0 no swap happens
         uint256 amountIn;
+        // min swap output to prevent sandwich
+        uint256 amountOutMin;
+        // min token0 added to liquidity
+        uint256 amountAddMin0;
+        // min token1 added to liquidity
+        uint256 amountAddMin1;
         // for uniswap operations
         uint256 deadline;
     }
@@ -390,10 +396,9 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
                 }
                 // if still needed - do swap
                 if (amountIn != 0) {
-                    // no slippage check done - because protected by TWAP check
                     (state.amountInDelta, state.amountOutDelta) = _poolSwap(
                         Swapper.PoolSwapParams(
-                            pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn, 0
+                            pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn, params.amountOutMin
                         )
                     );
                     state.amount0 =
@@ -417,7 +422,7 @@ contract AutoRange is Transformer, Automator, ReentrancyGuard {
 
                 (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams(
-                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, params.deadline
+                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, params.amountAddMin0, params.amountAddMin1, params.deadline
                     )
                 );
 
