@@ -89,6 +89,8 @@ contract InterestRateModel is Ownable, IInterestRateModel, Constants {
         if (
             baseRatePerYearX64 > MAX_BASE_RATE_X64 || multiplierPerYearX64 > MAX_MULTIPLIER_X64
                 || jumpMultiplierPerYearX64 > MAX_MULTIPLIER_X64
+                || _kinkX64 == 0 || _kinkX64 > Q64
+                || jumpMultiplierPerYearX64 < multiplierPerYearX64
         ) {
             revert InvalidConfig();
         }

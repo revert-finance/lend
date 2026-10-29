@@ -40,4 +40,22 @@ contract InterestRateModelIntegrationTest is Test {
         assertEq(borrowRateX64 * YEAR_SECS, 4759259970973464000); // 25.8% per year for 100% utilization
         assertEq(lendRateX64 * YEAR_SECS, 4759259970973464000); // 25.8% per year for 100% utilization
     }
+
+    // ==================== Issue #99: parameter validation ====================
+
+    function testInvalidKinkReverts() external {
+        // _kinkX64 == 0 must revert
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        interestRateModel.setValues(0, Q64 * 5 / 100, Q64 * 109 / 100, 0);
+
+        // _kinkX64 > Q64 must revert
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        interestRateModel.setValues(0, Q64 * 5 / 100, Q64 * 109 / 100, Q64 + 1);
+    }
+
+    function testJumpMultiplierBelowMultiplierReverts() external {
+        // jumpMultiplier < multiplier must revert
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        interestRateModel.setValues(0, Q64 * 50 / 100, Q64 * 10 / 100, Q64 * 80 / 100);
+    }
 }
