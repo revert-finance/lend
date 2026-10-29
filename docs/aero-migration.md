@@ -221,6 +221,16 @@ the mode is the frontend's pricing, not an on-chain guarantee.
 
 ## Operator-managed staking (compound-only)
 
+Before enabling operator staking, the vault owner must call
+`V3Vault.setStakingPolicy(autoRange)` after registering the vault with AutoRange.
+This contract binding is permanent: it cannot be cleared or switched, which would
+abandon cooldown history. The complete `DeployAeroProtocol` script sets and checks
+it; users of the manager-only deployment script must configure it on their
+separately prepared vault. Replacement callbacks use this binding independently
+of `GaugeManager.compoundModeSource`, including when that optional fee source is
+unset or subsequently disabled. A replacement created by V3Utils therefore keeps
+the original operator cooldown even after its owner renews consent and approval.
+
 Whether a vault position is staked is the depositor's choice, but an owner can
 hand that choice to the `AutoRangeAndCompound` operator per position with
 `configStakingManagement(tokenId, vault, true)`. The operator then moves the

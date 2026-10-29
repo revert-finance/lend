@@ -20,6 +20,13 @@ contract MockPool is IAerodromeSlipstreamPool {
     uint16 public observationCardinalityNext;
     bool public unlocked = true;
     uint16 public outputBps = 10_000;
+    int24 public tickAfterSwap;
+    bool public changesTickOnSwap;
+
+    function setTickAfterSwap(int24 value) external {
+        tickAfterSwap = value;
+        changesTickOnSwap = true;
+    }
     
     uint256 public override feeGrowthGlobal0X128;
     uint256 public override feeGrowthGlobal1X128;
@@ -81,6 +88,7 @@ contract MockPool is IAerodromeSlipstreamPool {
         external
         returns (int256 amount0, int256 amount1)
     {
+        if (changesTickOnSwap) tick = tickAfterSwap;
         uint256 amountIn = uint256(amountSpecified);
         uint256 amountOut = amountIn * outputBps / 10_000;
 

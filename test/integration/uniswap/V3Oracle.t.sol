@@ -275,6 +275,14 @@ contract V3OracleIntegrationTest is Test {
         vm.expectRevert(Constants.SequencerDown.selector);
         oracle.getValue(TEST_NFT, address(WETH), false);
 
+        sequencerFeed.setStatus(-1, block.timestamp - 1000);
+        vm.expectRevert(Constants.SequencerDown.selector);
+        oracle.getValue(TEST_NFT, address(WETH), false);
+
+        sequencerFeed.setStatus(2, block.timestamp - 1000);
+        vm.expectRevert(Constants.SequencerDown.selector);
+        oracle.getValue(TEST_NFT, address(WETH), false);
+
         sequencerFeed.setStatus(0, 0);
         vm.expectRevert(Constants.SequencerUptimeFeedInvalid.selector);
         oracle.getValue(TEST_NFT, address(WETH), false);

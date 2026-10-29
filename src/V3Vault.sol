@@ -22,6 +22,7 @@ import "./interfaces/IVault.sol";
 import "./interfaces/IV3Oracle.sol";
 import "./interfaces/IInterestRateModel.sol";
 import "./interfaces/IGaugeManager.sol";
+import "./interfaces/IStakingPolicy.sol";
 import "./utils/Constants.sol";
 import "./utils/VaultLib.sol";
 
@@ -102,6 +103,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
     event SetEmergencyAdmin(address emergencyAdmin);
     event SetGaugeManager(address indexed gaugeManager);
+    event SetStakingPolicy(address indexed stakingPolicy);
 
     // configured tokens (struct lives in VaultLib so its collateral accounting can run there)
     mapping(address => VaultLib.TokenConfig) public tokenConfigs;
@@ -168,6 +170,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     // address which can call special emergency actions without timelock
     address public emergencyAdmin;
     address public gaugeManager;
+    address public stakingPolicy;
 
     // Transient slot tracking net shares minted earlier in the current transaction (deposits minus withdrawals).
     // Borrow-side lender-base limits discount this value so temporary self-lending cannot relax risk caps.
@@ -455,12 +458,13 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
                 }
                 // Replacement migrations are only safe for freshly introduced tokenIds. Reusing a token that already
                 // has vault ownership or debt state would overwrite its live loan accounting.
-                if (
-                    tokenId != expectedTokenId || tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0
-                ) {
+                if (tokenId != expectedTokenId || tokenOwner[tokenId] != address(0) || loans[tokenId].debtShares != 0) {
                     revert Unauthorized();
                 }
 
+                // Migrate only after authenticating the actual replacement NFT, never merely its announcement.
+                address policy = stakingPolicy;
+                if (policy != address(0)) IStakingPolicy(policy).migrateStakingPolicy(oldTokenId, tokenId);
                 address owner = tokenOwner[oldTokenId];
 
                 // set transformed token to new one
@@ -576,9 +580,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // Compound-only policy: staked rewards are compounded before the unstake, strictly with the caller's params or
         // best-effort with the manager's defaults (a failure then falls back to the payout the unstake performs).
         bool wasStaked = gaugeManager != address(0)
-            && IGaugeManager(gaugeManager).unstakeIfStakedCompounding(
-                tokenId, compoundRewardsFirst, minAeroReward, aeroSplitBps, deadline
-            );
+            && IGaugeManager(gaugeManager)
+                .unstakeIfStakedCompounding(tokenId, compoundRewardsFirst, minAeroReward, aeroSplitBps, deadline);
 
         // give access to transformer (and let only this transformer announce a replacement position)
         assembly ("memory-safe") {
@@ -1346,6 +1349,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
         gaugeManager = _gaugeManager;
         emit SetGaugeManager(_gaugeManager);
+    }
+
+    /// @notice Binds the staking policy once, independently of optional compound-fee configuration.
+    /// @dev Configure before enabling operator staking. The binding cannot be cleared or switched, which would
+    ///      abandon cooldown history. The policy must accept authenticated replacement callbacks from this vault.
+    function setStakingPolicy(address policy) external onlyOwner {
+        if (stakingPolicy != address(0) || policy.code.length == 0) revert InvalidConfig();
+        stakingPolicy = policy;
+        emit SetStakingPolicy(policy);
     }
 
     function stakePosition(uint256 tokenId) external override {

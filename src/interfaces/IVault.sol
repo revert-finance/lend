@@ -69,6 +69,8 @@ interface IVault is IERC4626 {
 
     function gaugeManager() external view returns (address);
     function setGaugeManager(address _gaugeManager) external;
+    function stakingPolicy() external view returns (address);
+    function setStakingPolicy(address policy) external;
     function stakePosition(uint256 tokenId) external;
     function unstakePosition(uint256 tokenId) external;
 

@@ -396,7 +396,7 @@ contract V3Oracle is IV3Oracle, Ownable2Step, Constants {
 
             // Answer == 0: Sequencer is up
             // Answer == 1: Sequencer is down
-            if (sequencerAnswer == 1) {
+            if (sequencerAnswer != 0) {
                 revert SequencerDown();
             }
 

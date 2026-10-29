@@ -8,12 +8,36 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "../interfaces/IV3Oracle.sol";
 import "../interfaces/IVault.sol";
 import "../interfaces/IGaugeManager.sol";
+import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
+import "v3-core/interfaces/IUniswapV3Factory.sol";
 
-/// @notice V3Vault logic kept out of the vault's runtime bytecode to stay below the EIP-170 limit: liquidation math,
-/// the liquidated share transfer, reserve socialization and per-token collateral accounting. The external functions
-/// run via DELEGATECALL in the vault's context, so the position manager and oracle are called by the vault itself and
-/// storage references point into the vault.
+/// @notice Shared vault and automation helpers kept out of contract runtime bytecode to stay below EIP-170.
+/// External functions run via DELEGATECALL in the calling contract's context; storage references point into
+/// that contract. Includes liquidation math, reserve socialization, collateral accounting and range readiness.
 library VaultLib {
+    /// @notice Check the entry tick before a plain AutoRange vault transform can swap gauge rewards.
+    function requireRangeReady(
+        INonfungiblePositionManager npm,
+        address factory,
+        uint256 tokenId,
+        int32 lowerLimit,
+        int32 upperLimit
+    ) external view {
+        (,, address token0, address token1, uint24 fee, int24 lower, int24 upper,,,,,) = npm.positions(tokenId);
+        (bool success, bytes memory data) = factory.staticcall(
+            abi.encodeWithSelector(IAerodromeSlipstreamFactory.getPool.selector, token0, token1, int24(fee))
+        );
+        address pool = success && data.length >= 32 ? abi.decode(data, (address)) : address(0);
+        if (pool == address(0)) pool = IUniswapV3Factory(factory).getPool(token0, token1, fee);
+        (success, data) = pool.staticcall(abi.encodeWithSelector(bytes4(keccak256("slot0()"))));
+        if (!success || data.length < 64) revert InvalidRangePool();
+        (, int24 tick) = abi.decode(data, (uint160, int24));
+        if (tick >= lower - lowerLimit && tick < upper + upperLimit) revert NotReady();
+    }
+
+    error NotReady();
+    error InvalidRangePool();
+
     uint256 internal constant Q32 = 2 ** 32;
     uint256 internal constant Q96 = 2 ** 96;
 
@@ -121,8 +145,9 @@ library VaultLib {
             );
             if (input.resetToday && postHaircutDailyDebtCap < preHaircutDailyDebtCap) {
                 uint256 capReduction = preHaircutDailyDebtCap - postHaircutDailyDebtCap;
-                newDailyDebtIncreaseLimitLeft =
-                    capReduction >= input.dailyDebtIncreaseLimitLeft ? 0 : input.dailyDebtIncreaseLimitLeft - capReduction;
+                newDailyDebtIncreaseLimitLeft = capReduction >= input.dailyDebtIncreaseLimitLeft
+                    ? 0
+                    : input.dailyDebtIncreaseLimitLeft - capReduction;
             }
         }
     }
@@ -134,8 +159,8 @@ library VaultLib {
         uint256 minLimit,
         uint256 limitFactorX32
     ) private pure returns (uint256) {
-        uint256 limit =
-            Math.mulDiv(effectiveTotalSupply, lendExchangeRateX96, Q96, Math.Rounding.Up) * limitFactorX32 / Q32;
+        uint256 limit = Math.mulDiv(effectiveTotalSupply, lendExchangeRateX96, Q96, Math.Rounding.Up) * limitFactorX32
+            / Q32;
         return minLimit > limit ? minLimit : limit;
     }
 
@@ -146,11 +171,12 @@ library VaultLib {
         IVault.DecreaseLiquidityAndCollectParams calldata params
     ) external returns (uint256 amount0, uint256 amount1) {
         if (params.liquidity != 0) {
-            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams(
-                    params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
-                )
-            );
+            (amount0, amount1) =
+                nonfungiblePositionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams(
+                        params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
+                    )
+                );
         }
 
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(

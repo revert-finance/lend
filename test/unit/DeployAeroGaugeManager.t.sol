@@ -127,3 +127,16 @@ contract DeployAeroGaugeManagerTest is Test {
         script.validateConfig(c);
     }
 }
+
+/// @dev Execute with forge script --sig runRoot() to exercise Foundry's script-context restrictions.
+contract RootGaugeScriptRegression is DeployAeroGaugeManagerLocal {
+    function runRoot() external returns (GaugeManager manager) {
+        Config memory c = _loadConfig();
+        RootSettlementFixture handler = new RootSettlementFixture(MockERC20Token(c.receiptToken));
+        RootTopologyFixture topology = new RootTopologyFixture(address(handler), c.receiptToken);
+        handler.setVoter(address(topology));
+        AeroGaugeFixture(c.gauges[0]).setVoter(address(topology));
+        manager = run();
+        require(manager.rootEmissionsHandler() == address(handler), "wrong root handler");
+    }
+}
