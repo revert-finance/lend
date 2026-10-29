@@ -35,7 +35,13 @@ Call `PoolPeachFactory.create(mintParams, exitConfig, initiallyStake)`:
    Callers cannot override the NFT receiver or callback data. Clear factory-to-V3Utils allowances afterward.
 4. Settle mint refunds, then configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
    approve only the existing AutoRangeAndCompound transformer, and enable its staking-management consent.
-5. Optionally stake immediately. Publish `PositionCreated(tokenId, holder, beneficiary)` only after setup succeeds.
+5. Optionally stake immediately. Value the initialized position through the vault's oracle, using the final custody
+   state's fee handling, before publishing `PositionCreated(tokenId, holder, beneficiary)`.
+
+Keeper staking transitions use the vault's valuation checks even with zero debt. A registered gauge alone is not
+sufficient: creation must also pass oracle valuation in the vault asset. Missing configuration, stale feeds or
+price divergence therefore revert creation atomically. This admission check does not enable borrowing or guarantee
+future oracle availability; later oracle failures can still stop automation while manual withdrawal remains available.
 
 Failure at any stage reverts funding, deployment, minting, configuration and registration together. The factory
 retains no intended user balances. Accidental transfers to the factory are not recoverable in this draft;
@@ -126,7 +132,7 @@ forge fmt --check src/poolpeach/PoolPeachFactory.sol src/poolpeach/PoolPeachPosi
   test/poolpeach/PoolPeachFactoryFork.t.sol
 ```
 
-42 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
+45 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
 and holders are deployed locally. Coverage includes creation and initial staking, actual keeper staking and consent
 revocation, exit execution, penalty policy, manual withdrawal, registry lifecycle, operator revocation, recipient
 binding, fee limits, rollback on trigger/slippage/recipient failures, callback reentrancy, root/batch claim forwarding,
@@ -137,6 +143,10 @@ NFT-recovery regressions cover a beneficiary with no ERC721 receiver hook, benef
 AutoExit proceeds paid while the empty NFT stays in the holder, separately failing/retried NFT retrieval, and
 authorization and reentrancy checks on recovery. Failed NFT delivery only rolls back the manual withdrawal or
 retrieval transaction; it cannot undo proceeds paid in an earlier AutoExit transaction.
+
+Oracle-admission regressions clear a pool token's configuration on the fork while retaining its registered gauge.
+Both initial custody modes reject creation and roll back funding/minting; a later missing configuration does not
+block manual withdrawal of an already-created position. Both creation regressions fail without the admission check.
 
 Deferred-liability cases seed GaugeManager accounting/storage and funding on the fork, then call its actual claim
 functions. They test ownership forwarding and isolation; they do not reproduce upstream delayed minting/redemption.

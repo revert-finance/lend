@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../../src/poolpeach/PoolPeachFactory.sol";
+import "../../src/V3Oracle.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
 // The repository's pinned forge-std predates the emitter field in Foundry's log cheatcode.
@@ -164,6 +165,57 @@ contract PoolPeachFactoryForkTest is Test {
         assertEq(IERC20(POOL.token1()).allowance(address(factory), address(UTILS)), 0);
         assertEq(IERC20(POOL.token0()).balanceOf(address(factory)), 0);
         assertEq(IERC20(POOL.token1()).balanceOf(address(factory)), 0);
+    }
+
+    function _clearPoolTokenOracleConfig() internal {
+        V3Oracle oracle = V3Oracle(address(VAULT.oracle()));
+        address token = POOL.token1();
+        assertTrue(oracle.isTokenConfigured(token));
+        // Model a registered gauge whose token has not been configured, without assuming storage slots.
+        vm.record();
+        oracle.feedConfigs(token);
+        (bytes32[] memory slots,) = vm.accesses(address(oracle));
+        assertGt(slots.length, 0);
+        for (uint256 i; i < slots.length; ++i) {
+            vm.store(address(oracle), slots[i], bytes32(0));
+        }
+        assertFalse(oracle.isTokenConfigured(token));
+        assertTrue(MANAGER.poolToGauge(address(POOL)) != address(0));
+    }
+
+    function _assertMissingOracleRejectsCreation(bool initiallyStake) internal {
+        _clearPoolTokenOracleConfig();
+        V3Utils.SwapAndMintParams memory p = _params();
+        AutoExit.PositionConfig memory c = _config(true);
+        uint256 before0 = p.token0.balanceOf(ALICE);
+        uint256 before1 = p.token1.balanceOf(ALICE);
+        uint256 supplyBefore = npm.totalSupply();
+        vm.prank(ALICE);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        factory.create(p, c, initiallyStake);
+        assertEq(p.token0.balanceOf(ALICE), before0);
+        assertEq(p.token1.balanceOf(ALICE), before1);
+        assertEq(npm.totalSupply(), supplyBefore);
+        assertEq(factory.creatingHolder(), address(0));
+        assertEq(p.token0.allowance(address(factory), address(UTILS)), 0);
+        assertEq(p.token1.allowance(address(factory), address(UTILS)), 0);
+    }
+
+    function test_CreateRejectsMissingOracleForUnstakedPosition() public {
+        _assertMissingOracleRejectsCreation(false);
+    }
+
+    function test_CreateRejectsMissingOracleForStakedPosition() public {
+        _assertMissingOracleRejectsCreation(true);
+    }
+
+    function test_OracleUnavailableAfterCreationDoesNotBlockManualWithdrawal() public {
+        (uint256 id, PoolPeachPosition holder) = _create(ALICE, true, true);
+        _clearPoolTokenOracleConfig();
+        vm.prank(ALICE);
+        holder.withdraw();
+        assertEq(npm.ownerOf(id), ALICE);
+        assertEq(factory.activeHolder(id), address(0));
     }
 
     function test_CreateCanStakeInSameTransaction() public {
