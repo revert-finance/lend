@@ -131,8 +131,8 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         AutoRangeAndCompound.PositionConfig memory config;
         config.autoCompound = true;
         config.onlyFees = true;
-        // Match the app's 0.5% execution tolerance; zero would prohibit fee-paying swaps.
-        config.token0SlippageX64 = uint64((uint256(1) << 64) / 200);
+        // Allow up to 1% execution slippage for automatic fee compounding in either direction.
+        config.token0SlippageX64 = uint64((uint256(1) << 64) / 100);
         config.token1SlippageX64 = config.token0SlippageX64;
         automation.configToken(id, address(vault), config, AutoRangeAndCompound.CompoundMode.Simple);
         automation.configStakingManagement(id, address(vault), true);

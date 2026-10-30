@@ -177,9 +177,19 @@ contract PoolsideFactoryForkTest is Test {
             assertEq(uint256(RANGE.compoundModes(id)), uint256(AutoRangeAndCompound.CompoundMode.Simple));
             assertEq(RANGE.compoundRewardX64(id), uint64((uint256(1) << 64) / 10));
             assertEq(MANAGER.compoundModeSource(), address(RANGE));
-            (,, int32 lowerDelta, int32 upperDelta,,, bool onlyFees, bool autoCompound,,,,) = RANGE.positionConfigs(id);
+            (
+                ,,
+                int32 lowerDelta,
+                int32 upperDelta,
+                uint64 slippage0,
+                uint64 slippage1,
+                bool onlyFees,
+                bool autoCompound,,,,
+            ) = RANGE.positionConfigs(id);
             assertEq(int256(lowerDelta), 0);
             assertEq(int256(upperDelta), 0);
+            assertEq(slippage0, uint64((uint256(1) << 64) / 100));
+            assertEq(slippage1, slippage0);
             assertTrue(onlyFees);
             assertTrue(autoCompound);
             vm.startPrank(ALICE);

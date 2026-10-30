@@ -36,7 +36,7 @@ Call `PoolsideFactory.create(mintParams, exitConfig, initiallyStake)`:
    Callers cannot override the NFT receiver or callback data. Clear factory-to-V3Utils allowances afterward.
 4. Settle mint refunds, then configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
    approve only the existing AutoRangeAndCompound transformer, select Simple compounding fees (currently 10%)
-   with recurring compounding enabled and 0.5% per-token swap tolerance, keep range changes disabled, and enable staking management.
+   with recurring compounding enabled and 1% per-token swap tolerance, keep range changes disabled, and enable staking management.
 5. Optionally stake immediately. Value the initialized position through the vault's oracle, using the final custody
    state's fee handling, before publishing `PositionCreated(tokenId, holder, beneficiary)`.
 
