@@ -8,7 +8,7 @@ Prepared from Aero commit `22d22378ad19f4d9643ca19735d587e8e6effdb7`, which incl
 
 Deploy a fresh Oracle, IRM, vault, V3Utils, GaugeManager, LeverageTransformer, AutoRangeAndCompound, AutoExit, liquidator and PoolPeach factory, plus the linked VaultLib. The factory deploys individual holders when users create positions; there is no individual holder to deploy now. The previous suite remains untouched. This does not migrate balances or positions.
 
-The existing script retains the approved USDC/WETH/cbBTC collateral, oracle settings, six gauges, reward routes, 5% Advanced/fallback and 10% Simple fees, operator, withdrawer and Safe. Global debt limit remains zero. It binds the vault staking policy, deploys the factory after all its dependencies are configured, and authorizes the factory on AutoExit before nominating the Safe. The factory has no owner; seven two-step ownership acceptances remain, and IRM ownership transfers immediately.
+The existing script retains the approved USDC/WETH/cbBTC collateral, oracle settings, the six required lending-pool gauges plus all other compatible activated Aero gauges, reward routes, 5% Advanced/fallback and 10% Simple fees, operator, withdrawer and Safe. Global debt limit remains zero. It binds the vault staking policy, deploys the factory after all its dependencies are configured, and authorizes the factory on AutoExit before nominating the Safe. The factory has no owner; seven two-step ownership acceptances remain, and IRM ownership transfers immediately.
 
 ## Commands
 
@@ -66,3 +66,5 @@ python3 test/deployment/aero_safe_handoff.py --rpc-url http://127.0.0.1:28549 \
 The test changes only localhost state and restores each case. For a newly deployed localhost suite, run it without `--recovery-broadcast` and pass that suite's local broadcast record. These changes affect only handoff validation and tests; contract bytecode and deployment transactions are unchanged.
 
 Recovery-fix validation: reproduced the original failure before the change; all **60 historical-recovery scenarios** and **61 fresh-deployment scenarios** passed after it on separate localhost forks. The fresh suite again completed all 50 deployment transactions successfully on localhost.
+
+For full-factory registration and periodic new/replacement gauge updates, use [Aero gauge synchronization](aero-gauge-sync.md).

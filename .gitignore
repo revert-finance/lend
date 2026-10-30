@@ -9,3 +9,5 @@ out/
 
 .env
 test.txt
+# Locally generated gauge configuration batches
+gauge-sync/

@@ -1,0 +1,106 @@
+{
+  "baseline_commit": "efc74c0ca193a21868a94ca021ed1a6778d02cde",
+  "chain_id": 8453,
+  "rehearsal_block": 53296669,
+  "production_transactions_sent": false,
+  "factory_pools": 525,
+  "compatible_activated_gauges": 258,
+  "no_gauge": 267,
+  "inactive": 0,
+  "incompatible": 0,
+  "full_deployment": {
+    "result": "passed",
+    "transactions": 302,
+    "creations": 11,
+    "setGauge_calls": 258,
+    "estimated_gas_including_forge_padding": 93542491
+  },
+  "maintenance": {
+    "target": "0x36F20A7859E25fC9102F761aCBfbD9AfE78924e6",
+    "unchanged": 6,
+    "updates": 252,
+    "safe_batches": 11,
+    "max_calls_per_batch": 25,
+    "safe_payload_validation": "All calls unique; expected target, selector, encoded length and zero ETH value",
+    "eoa_dry_run": "passed"
+  },
+  "tests": [
+    {
+      "suite": "AeroGaugeSyncTest",
+      "block": 53296669,
+      "passed": 10
+    },
+    {
+      "suite": "AeroProtocolDeploymentTest",
+      "block": 53136369,
+      "passed": 17
+    },
+    {
+      "suite": "AeroRootSettlementForkTest",
+      "passed": 3
+    }
+  ],
+  "artifact_runtime_comparison": [
+    {
+      "contract": "VaultLib",
+      "runtime_bytes": 5384,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "V3Oracle",
+      "runtime_bytes": 13188,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "InterestRateModel",
+      "runtime_bytes": 1691,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "V3Vault",
+      "runtime_bytes": 22514,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "V3Utils",
+      "runtime_bytes": 16351,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "GaugeManager",
+      "runtime_bytes": 23195,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "LeverageTransformer",
+      "runtime_bytes": 8617,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "AutoRangeAndCompound",
+      "runtime_bytes": 24223,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "AutoExit",
+      "runtime_bytes": 12153,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "FlashloanLiquidator",
+      "runtime_bytes": 7831,
+      "identical_to_baseline_artifact": true
+    },
+    {
+      "contract": "PoolsideFactory",
+      "runtime_bytes": 21345,
+      "identical_to_baseline_artifact": true
+    }
+  ],
+  "limitations": [
+    "Live factory/gauge state can change; rerun discovery before execution.",
+    "Gauge registration is not product admission or collateral eligibility.",
+    "No cron/service installed and no unattended Safe signing.",
+    "Runtime comparison is compiled artifact equality to the prior merged-source build; not a claim of live deployed-bytecode equivalence."
+  ]
+}

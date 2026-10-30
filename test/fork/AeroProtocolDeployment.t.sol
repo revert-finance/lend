@@ -59,6 +59,17 @@ contract AeroProtocolDeploymentTest is Test {
         d = script.run();
     }
 
+    function testFullDeploymentRegistersAllCompatibleGauges() public {
+        AeroGaugeDiscovery discovery = new AeroGaugeDiscovery();
+        AeroGaugeDiscovery.Plan memory plan = discovery.scan(address(d.gaugeManager));
+        assertEq(plan.updates.length, 0);
+        assertEq(plan.incompatible, 0);
+        assertGt(plan.unchanged, 6);
+        // Broad gauge registration does not add stock collateral or valuation feeds.
+        assertEq(d.vault.globalDebtLimit(), 0);
+        assertFalse(d.oracle.isTokenConfigured(0xb200000000000000000000d9192b6B456483C2E8));
+    }
+
     function testFreshPoolsideManualWithdrawal() public {
         (uint256 id, PoolsidePosition holder) = _createPoolside(true);
         assertEq(d.vault.loans(id), 0);
