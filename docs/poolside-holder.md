@@ -36,7 +36,7 @@ Call `PoolsideFactory.create(mintParams, exitConfig, initiallyStake)`:
    Callers cannot override the NFT receiver or callback data. Clear factory-to-V3Utils allowances afterward.
 4. Settle mint refunds, then configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
    approve only the existing AutoRangeAndCompound transformer, select Simple compounding fees (currently 10%)
-   with default range/standalone-compound permissions, and enable its staking-management consent.
+   with recurring compounding enabled and 0.5% per-token swap tolerance, keep range changes disabled, and enable staking management.
 5. Optionally stake immediately. Value the initialized position through the vault's oracle, using the final custody
    state's fee handling, before publishing `PositionCreated(tokenId, holder, beneficiary)`.
 
@@ -64,13 +64,13 @@ preserves that original rule. No holder or factory admin can change the benefici
 The existing protocol dependency owners retain their existing configuration powers.
 
 Staking uses the existing keeper's `autoCompoundWithVaultAndRewardCompound` path, including its consent, cooldown,
-fee and penalty-window checks. This draft does not configure ongoing auto-compounding without a custody change,
-or auto-range/replacement NFTs. Those are separate features, not implicitly enabled by staking consent.
+fee and penalty-window checks. Creation also enables recurring fee/reward compounding without a custody change. Equal range deltas keep
+auto-range/replacement NFTs disabled. Every exit clears both recurring compounding and staking consent.
 
 For automated exit, an existing AutoExit operator calls `factory.executeExit(params)`. The factory:
 
 1. Checks its caller against AutoExit's current operator mapping and locates an active holder.
-2. Asks the holder to revoke staking consent and transformer approval, withdraw from the vault (unstaking if needed),
+2. Asks the holder to clear recurring compounding, revoke staking consent and transformer approval, withdraw from the vault (unstaking if needed),
    and grant a temporary per-token approval to AutoExit.
 3. Calls the unchanged AutoExit as its registered operator. Its configured trigger, maximum fee, deadline, swap
    checks and liquidity-removal bounds remain enforced. The existing keeper remains trusted for parameters the
@@ -92,7 +92,7 @@ that window.** Once it ends, the exit condition must still hold at execution; th
 latched or guaranteed. Keepers must retry eligible exits and read the current on-chain window rather than
 hardcoding seven blocks. At Base block 53180616 all six configured collateral pools had a seven-block window
 (approximately 14 seconds) and a 100% penalty on emissions claimed inside it; Aero can change those settings.
-Beneficiary-initiated `withdraw()` has no added penalty-window or price-trigger restriction; upstream withdrawal
+Beneficiary-initiated NFT or asset withdrawals have no added penalty-window or price-trigger restriction; upstream withdrawal
 rules still apply, including any reward penalty. The frontend must explain that distinction.
 
 ### User withdrawal and remaining rewards
@@ -102,6 +102,27 @@ can call `holder.withdrawTo(recipient)` to select another NFT recipient, includi
 receive ERC721s. Both clear automation permissions and the old exit rule, and remove the position from active
 management. Neither liquidates the LP nor requires deferred reward redemption. Invalid NFT delivery reverts a
 manual withdrawal atomically, allowing the beneficiary to retry with another recipient.
+
+`holder.withdrawToAsset(instructions, minAssets)` closes the full LP through the existing V3Utils and pays
+USDC (the immutable vault's asset) to the beneficiary in one transaction. The holder forces the action to
+`WITHDRAW_AND_COLLECT_AND_SWAP`, all remaining liquidity and fees, the output asset, and its own address as
+V3Utils recipient. The beneficiary supplies the existing V3Utils swap quote bytes, removal/swap minima and
+deadline. `minAssets` bounds the newly received USDC from that operation; pre-existing balances and any
+withdrawal-time reward delivery cannot pad that minimum. Failure restores custody, permissions and accounting.
+
+The exit also forwards all available USDC, token0/token1 leftovers, WETH (including wrapped native ETH) and
+delivered GaugeManager reward tokens to the beneficiary. Leftovers/rewards are paid in kind, not necessarily
+converted to USDC. Deferred rewards not delivered yet and unrelated accidentally transferred tokens remain
+recoverable through the existing claim functions. The emptied NFT remains separately recoverable using
+`claimNFT(recipient)`; beneficiaries without an ERC721 receiver can still receive their USDC.
+
+**Poolside quote integration:** reuse the Revert SPA V3Utils withdrawal quote encoding. The swap taker is the
+configured V3Utils address, not the holder or factory. Request zero application swap fees, omitting
+`swapFeeBps`, `swapFeeRecipient`, `swapFeeToken` and `tradeSurplusRecipient`. Neither this holder exit nor V3Utils
+charges an exit fee; underlying DEX fees still apply. The holder cannot remove fees embedded in opaque router
+calldata. The existing backend Poolside waiver is restricted by venue, taker and token pair, so integration must
+verify the waiver covers each supported exit rather than assuming a client label alone makes quotes fee-free.
+This protocol change does not modify the frontend or quote service.
 
 AutoExit pays proceeds without delivering its emptied NFT. The closed holder retains it until the beneficiary
 calls `holder.claimNFT(recipient)`; a failed retrieval cannot undo the earlier exit or proceeds payment. Neither
@@ -134,7 +155,7 @@ forge fmt --check src/poolside/PoolsideFactory.sol src/poolside/PoolsidePosition
   test/poolside/PoolsideFactoryFork.t.sol
 ```
 
-45 tests pass against the actual deployed Aero dependencies at Base block **53168029**. Only the proposed factory
+56 tests pass against the actual deployed Aero dependencies at Base block **53255803**. Only the proposed factory
 and holders are deployed locally. Coverage includes creation and initial staking, actual keeper staking and consent
 revocation, exit execution, penalty policy, manual withdrawal, registry lifecycle, operator revocation, recipient
 binding, fee limits, rollback on trigger/slippage/recipient failures, callback reentrancy, root/batch claim forwarding,
@@ -152,7 +173,10 @@ block manual withdrawal of an already-created position. Both creation regression
 
 Deferred-liability cases seed GaugeManager accounting/storage and funding on the fork, then call its actual claim
 functions. They test ownership forwarding and isolation; they do not reproduce upstream delayed minting/redemption.
-The suite does not test successful live router swaps, wallet prompts, production keeper scheduling, frontend/indexer
+Asset-exit tests execute real Universal Router WETH-to-USDC swaps on the fork from both custody states,
+check aggregate minimum output, reject unauthorized callers and invalid/expired swaps, return existing balances
+and leftovers, preserve deferred claims, and clear automation even when the recipient globally approves it.
+The suite does not exercise externally fetched 0x quotes, wallet prompts, production keeper scheduling, frontend/indexer
 integration or every malicious dependency behavior. Existing protocol dependencies are trusted within their declared
 interfaces. These are reproducible regression checks, not an audit or authorization to deploy.
 
@@ -161,7 +185,7 @@ interfaces. These are reproducible regression checks, not an audit or authorizat
 - Review the new custody layer independently; existing core audits do not cover it.
 - Evaluate per-position deployment gas. Clones are deliberately omitted
   from this first draft to avoid adding initialization/proxy complexity.
-- Review exit configuration editing, wallet funding UX and any desired ongoing compounding as separate scope.
+- Review exit configuration editing and wallet funding UX as separate scope.
 - Add a reviewed deployment/preflight flow, register the factory once with AutoExit, and validate selected pools.
 - Wire beneficiary resolution, active registry indexing, post-closure reward recovery and the factory exit route
   into Poolside and its keeper. No frontend, keeper or production configuration is changed by this PR.
