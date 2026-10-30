@@ -272,6 +272,93 @@ contract PoolsideFactoryForkTest is Test {
         }
     }
 
+    function _partialExitSwap(bool refund, address swapRecipient) internal view returns (bytes memory) {
+        bytes[] memory inputs = new bytes[](refund ? 2 : 1);
+        inputs[0] = abi.encode(
+            swapRecipient, uint256(1e12), uint256(1), abi.encodePacked(POOL.token0(), uint24(500), VAULT.asset()), false
+        );
+        if (refund) inputs[1] = abi.encode(POOL.token0(), address(UTILS), uint256(0));
+        return abi.encode(
+            UTILS.universalRouter(),
+            abi.encode(Swapper.UniversalRouterData(refund ? bytes(hex"0004") : bytes(hex"00"), inputs, block.timestamp))
+        );
+    }
+
+    function _assertRouterExitRejected(bool stake, bytes memory swapData) internal {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, stake, false);
+        V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
+        instructions.swapData0 = swapData;
+        address ownerBefore = npm.ownerOf(id);
+        (,,,,,,, uint128 liquidityBefore,,,,) = npm.positions(id);
+        IERC20 t0 = IERC20(POOL.token0());
+        IERC20 t1 = IERC20(POOL.token1());
+        uint256 router0 = t0.balanceOf(UTILS.universalRouter());
+        uint256 router1 = t1.balanceOf(UTILS.universalRouter());
+        uint256 aliceUsdc = t1.balanceOf(ALICE);
+        vm.prank(ALICE);
+        vm.expectRevert(PoolsidePosition.UnspentRouterInput.selector);
+        holder.withdrawToAsset(instructions, 1e6);
+        assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Active));
+        assertEq(factory.activeHolder(id), address(holder));
+        assertEq(npm.ownerOf(id), ownerBefore);
+        (,,,,,,, uint128 liquidityAfter,,,,) = npm.positions(id);
+        assertEq(uint256(liquidityAfter), uint256(liquidityBefore));
+        assertEq(RANGE.stakingConsent(id, address(VAULT)), address(holder));
+        assertTrue(VAULT.transformApprovals(address(holder), id, address(RANGE)));
+        (,,,,,,, bool autoCompound,,,,) = RANGE.positionConfigs(id);
+        assertTrue(autoCompound);
+        (bool exitActive,,,,,,,,) = EXIT.positionConfigs(id);
+        assertTrue(exitActive);
+        assertEq(t0.balanceOf(UTILS.universalRouter()), router0);
+        assertEq(t1.balanceOf(UTILS.universalRouter()), router1);
+        assertEq(t1.balanceOf(ALICE), aliceUsdc);
+    }
+
+    function test_WithdrawToAssetRejectsEmptyRouterCommandsFromEitherCustody() public {
+        bytes[] memory inputs = new bytes[](0);
+        bytes memory data = abi.encode(
+            UTILS.universalRouter(), abi.encode(Swapper.UniversalRouterData(hex"", inputs, block.timestamp))
+        );
+        _assertRouterExitRejected(false, data);
+        _assertRouterExitRejected(true, data);
+    }
+
+    function test_WithdrawToAssetRejectsPartialSwapWithoutRefund() public {
+        _assertRouterExitRejected(true, _partialExitSwap(false, address(UTILS)));
+    }
+
+    function test_WithdrawToAssetRejectsOtherPositionTokenLeftInRouter() public {
+        // Refund WETH correctly, but leave the swapped USDC in the router instead of paying V3Utils.
+        _assertRouterExitRejected(false, _partialExitSwap(true, UTILS.universalRouter()));
+    }
+
+    function test_WithdrawToAssetRefundsPartialSwapWithAndWithoutExistingRouterBalances() public {
+        for (uint256 i; i < 2; ++i) {
+            IERC20 t0 = IERC20(POOL.token0());
+            IERC20 t1 = IERC20(POOL.token1());
+            if (i == 1) {
+                deal(address(t0), UTILS.universalRouter(), 7);
+                deal(address(t1), UTILS.universalRouter(), 123e6);
+            }
+            uint256 routerUsdc = t1.balanceOf(UTILS.universalRouter());
+            (uint256 id, PoolsidePosition holder) = _create(ALICE, i == 1, false);
+            V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
+            instructions.swapData0 = _partialExitSwap(true, address(UTILS));
+            uint256 beforeWeth = t0.balanceOf(ALICE);
+            uint256 beforeUsdc = t1.balanceOf(ALICE);
+            vm.prank(ALICE);
+            uint256 received = holder.withdrawToAsset(instructions, 1e6);
+            assertGt(received, 1e6);
+            assertEq(t1.balanceOf(ALICE) - beforeUsdc, received);
+            assertGt(t0.balanceOf(ALICE), beforeWeth);
+            assertEq(t0.balanceOf(address(holder)), 0);
+            assertEq(t1.balanceOf(address(holder)), 0);
+            assertEq(t0.balanceOf(UTILS.universalRouter()), 0);
+            assertEq(t1.balanceOf(UTILS.universalRouter()), routerUsdc);
+            _assertClosedAndDisabled(id, holder);
+        }
+    }
+
     function test_WithdrawToAssetFailureRestoresStakedPosition() public {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, true, false);
         V3Utils.Instructions memory instructions = _usdcExitInstructions(id);

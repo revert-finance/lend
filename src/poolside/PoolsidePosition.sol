@@ -58,6 +58,7 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     error InvalidNFT();
     error InsidePenaltyWindow();
     error InsufficientAssets();
+    error UnspentRouterInput();
 
     event StakingManagementChanged(bool enabled);
     event AutoExitChanged(bool enabled);
@@ -193,7 +194,14 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         instructions.recipient = address(this);
         instructions.unwrap = false;
         npm.approve(address(utils), tokenId);
+        address router = utils.universalRouter();
+        uint256 routerBalance0 = token0.balanceOf(router);
+        uint256 routerBalance1 = token1.balanceOf(router);
         utils.execute(tokenId, instructions);
+        // V3Utils prepays Universal Router: quotes must consume or refund the supplied input.
+        if (token0.balanceOf(router) > routerBalance0 || token1.balanceOf(router) > routerBalance1) {
+            revert UnspentRouterInput();
+        }
         assets = asset.balanceOf(address(this));
         if (assets - beforeBalance < minAssets) revert InsufficientAssets();
         _finishExit(false);

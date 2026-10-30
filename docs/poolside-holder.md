@@ -122,6 +122,13 @@ configured V3Utils address, not the holder or factory. Request zero application 
 charges an exit fee; underlying DEX fees still apply. The holder cannot remove fees embedded in opaque router
 calldata. The existing backend Poolside waiver is restricted by venue, taker and token pair, so integration must
 verify the waiver covers each supported exit rather than assuming a client label alone makes quotes fee-free.
+Universal Router remains supported. Its commands must consume or refund unused input to V3Utils (for example,
+a final input-token `SWEEP` to V3Utils), so V3Utils can forward leftovers to the holder. The holder snapshots
+both position-token balances at Universal Router immediately before execution and reverts with
+`UnspentRouterInput` if either balance increases. Pre-existing router balances do not by themselves block an
+exit. The aggregate USDC minimum remains enforced separately. This is a net-balance guard for the two position
+tokens, not validation of arbitrary router commands, recipients, intermediate tokens or native ETH; quote
+construction and appropriate output minima remain required.
 This protocol change does not modify the frontend or quote service.
 
 AutoExit pays proceeds without delivering its emptied NFT. The closed holder retains it until the beneficiary
@@ -155,7 +162,7 @@ forge fmt --check src/poolside/PoolsideFactory.sol src/poolside/PoolsidePosition
   test/poolside/PoolsideFactoryFork.t.sol
 ```
 
-56 tests pass against the actual deployed Aero dependencies at Base block **53255803**. Only the proposed factory
+60 tests pass against the actual deployed Aero dependencies at Base block **53255803**. Only the proposed factory
 and holders are deployed locally. Coverage includes creation and initial staking, actual keeper staking and consent
 revocation, exit execution, penalty policy, manual withdrawal, registry lifecycle, operator revocation, recipient
 binding, fee limits, rollback on trigger/slippage/recipient failures, callback reentrancy, root/batch claim forwarding,
@@ -176,6 +183,9 @@ functions. They test ownership forwarding and isolation; they do not reproduce u
 Asset-exit tests execute real Universal Router WETH-to-USDC swaps on the fork from both custody states,
 check aggregate minimum output, reject unauthorized callers and invalid/expired swaps, return existing balances
 and leftovers, preserve deferred claims, and clear automation even when the recipient globally approves it.
+Router-refund regressions reject empty commands, partial swaps without refunds and output left in the router;
+partial swaps with input refunds succeed with and without pre-existing router balances. Rejected exits restore
+NFT liquidity/custody, staking consent, automation configuration, registry state and token balances.
 The suite does not exercise externally fetched 0x quotes, wallet prompts, production keeper scheduling, frontend/indexer
 integration or every malicious dependency behavior. Existing protocol dependencies are trusted within their declared
 interfaces. These are reproducible regression checks, not an audit or authorization to deploy.
