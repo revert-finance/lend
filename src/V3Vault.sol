@@ -1278,6 +1278,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     }
 
     function _requireLoanIsHealthy(uint256 tokenId, uint256 debt, bool withBuffer) internal view {
+        // Debt-free positions need no collateral valuation; callers pass the final debt after any transform.
+        if (debt == 0) return;
         (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt, withBuffer);
         if (!isHealthy) {
             revert CollateralFail();

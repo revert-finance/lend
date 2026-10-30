@@ -1,5 +1,12 @@
 # Poolside Simple fee replacement
 
+> This factory-only runbook describes replacements on the previously deployed vault.
+> The zero-debt oracle exception additionally requires a new V3Vault and a GaugeManager
+> bound to it. Running the commands below against the pinned old vault does not enable
+> automation for tokens without valuation configuration. Use the fresh-stack path in
+> `deploy-aero-protocol.sh`, or prepare a reviewed replacement-stack deployment, then
+> deploy/configure the factory with those new bindings. See [poolside-holder.md](poolside-holder.md).
+
 New deployments use `PoolsideFactory` and `PoolsidePosition`. Previously deployed
 `PoolPeachFactory`/`PoolPeachPosition` contracts retain their original verified names.
 The name change adds no new permissions or behavior.

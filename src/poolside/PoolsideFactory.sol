@@ -98,8 +98,6 @@ contract PoolsideFactory is ReentrancyGuard, IPoolsideRegistry {
         }
         positions[tokenId] = holder;
         holder.initialize(tokenId, exitConfig, initiallyStake);
-        // Keeper transforms require oracle valuation even for these debt-free positions.
-        vault.oracle().getValue(tokenId, vault.asset(), initiallyStake);
         emit PositionCreated(tokenId, address(holder), msg.sender);
     }
 

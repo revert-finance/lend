@@ -1,9 +1,10 @@
 # Poolside position holder
 
 Poolside is the new product name; earlier deployments retain the PoolPeach contract names.
-This custody adapter adds two contracts without changing
-V3Vault, GaugeManager, V3Utils, AutoRangeAndCompound or AutoExit. It is not included in the existing Cantina scan
-pinned to `b16c84df570fe5956e5749e94b8572e3195fa5e9`.
+This custody adapter adds a factory and per-position holders. Debt-free automation requires the
+V3Vault version that skips collateral-health valuation when final debt is zero; earlier deployed vaults
+do not have that exception. GaugeManager, V3Utils, AutoRangeAndCompound and AutoExit logic is unchanged.
+This version is not included in the existing Cantina scan pinned to `b16c84df570fe5956e5749e94b8572e3195fa5e9`.
 
 ## Purpose and scope
 
@@ -37,13 +38,31 @@ Call `PoolsideFactory.create(mintParams, exitConfig, initiallyStake)`:
 4. Settle mint refunds, then configure AutoExit while the holder directly owns the NFT. Deposit into the vault under the holder's ownership,
    approve only the existing AutoRangeAndCompound transformer, select Simple compounding fees (currently 10%)
    with recurring compounding enabled and 1% per-token swap tolerance, keep range changes disabled, and enable staking management.
-5. Optionally stake immediately. Value the initialized position through the vault's oracle, using the final custody
-   state's fee handling, before publishing `PositionCreated(tokenId, holder, beneficiary)`.
+5. Optionally stake immediately, then publish `PositionCreated(tokenId, holder, beneficiary)`.
 
-Keeper staking transitions use the vault's valuation checks even with zero debt. A registered gauge alone is not
-sufficient: creation must also pass oracle valuation in the vault asset. Missing configuration, stale feeds or
-price divergence therefore revert creation atomically. This admission check does not enable borrowing or guarantee
-future oracle availability; later oracle failures can still stop automation while manual withdrawal remains available.
+Debt-free creation and vault health checks do not require per-token valuation-oracle configuration.
+The vault's health assertion skips valuation only when the final debt is zero, including after a transform.
+Borrowing directly or inside a transform still requires the normal oracle and collateral checks. This does
+not change swap slippage/TWAP checks, authorized custody transitions, consent, cooldowns, or gauge validation.
+Each pool still needs `GaugeManager.setGauge(pool, gauge)` before creation, including unstaked creation.
+
+Valuation APIs such as `loanInfo()` retain their meaning and may revert when a token has no usable oracle.
+Clients must not infer debt or display a zero valuation from that failure. Poolside debt-free position
+checks can read `loans(tokenId)` (debt shares), `ownerOf`, and the holder registry instead. The current
+Poolside frontend inspected at monorepo commit `1eb9c6052` and the on-chain automation do not call `loanInfo()`; Revert lending views and MCP planners
+still use it and retain their fail-closed behavior. Verify the running keeper implementation before enabling
+new pools, especially any off-chain eligibility filter that assumes every vault NFT has a valuation.
+
+This is a new-deployment feature. Deploy a new vault and a GaugeManager constructed with that vault,
+register supported gauges/reward routes, bind the manager and staking policy, allowlist the transformer,
+and register the new vault with AutoRangeAndCompound. Deploy this factory against that stack and authorize
+it in AutoExit. Compatible existing automation, oracle, IRM and V3Utils contracts can be reused with their
+required owner-controlled configuration; no patch is applied to old immutable deployments. A factory-only
+replacement against the old vault is insufficient. Do not run the existing factory-only deployment script
+against its pinned old vault for this feature; the full `deploy-aero-protocol.sh` path deploys a coherent fresh
+stack, or prepare a dedicated replacement-stack script with reviewed addresses. Keep lending disabled and stock collateral factors zero
+unless separately approved; these settings are independent of Poolside support. Existing holders do not
+switch stacks automatically, and this factory does not import existing NFTs.
 
 Failure at any stage reverts funding, deployment, minting, configuration and registration together. The factory
 retains no intended user balances. Accidental transfers to the factory are not recoverable in this draft;
@@ -162,8 +181,9 @@ forge fmt --check src/poolside/PoolsideFactory.sol src/poolside/PoolsidePosition
   test/poolside/PoolsideFactoryFork.t.sol
 ```
 
-60 tests pass against the actual deployed Aero dependencies at Base block **53255803**. Only the proposed factory
-and holders are deployed locally. Coverage includes creation and initial staking, actual keeper staking and consent
+The fork suite uses actual Aero dependencies at Base block **53255803**, with a freshly deployed vault,
+GaugeManager, factory and holders. AutoRangeAndCompound is authorized for the new vault by its owner on the fork;
+production contracts and state are not modified. Coverage includes creation and initial staking, actual keeper staking and consent
 revocation, exit execution, penalty policy, manual withdrawal, registry lifecycle, operator revocation, recipient
 binding, fee limits, rollback on trigger/slippage/recipient failures, callback reentrancy, root/batch claim forwarding,
 cross-holder isolation, residual tokens, native funding and unavailable borrowing/generic-call entrypoints. Native
@@ -174,9 +194,11 @@ AutoExit proceeds paid while the empty NFT stays in the holder, separately faili
 authorization and reentrancy checks on recovery. Failed NFT delivery only rolls back the manual withdrawal or
 retrieval transaction; it cannot undo proceeds paid in an earlier AutoExit transaction.
 
-Oracle-admission regressions clear a pool token's configuration on the fork while retaining its registered gauge.
-Both initial custody modes reject creation and roll back funding/minting; a later missing configuration does not
-block manual withdrawal of an already-created position. Both creation regressions fail without the admission check.
+Zero-debt regressions clear a pool token's configuration on the fork while retaining its registered gauge.
+Both initial custody modes allow creation and manual withdrawal. Keeper compounding, staking, unstaking and
+AutoExit also execute without that valuation configuration. Local vault regressions check missing-oracle
+rejection for direct borrowing (including one base unit), borrowing during a previously debt-free transform,
+and transforms of existing debt. `loanInfo()` still rejects unavailable valuation instead of fabricating zeros.
 
 Deferred-liability cases seed GaugeManager accounting/storage and funding on the fork, then call its actual claim
 functions. They test ownership forwarding and isolation; they do not reproduce upstream delayed minting/redemption.

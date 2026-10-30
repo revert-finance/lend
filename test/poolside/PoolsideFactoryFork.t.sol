@@ -82,13 +82,13 @@ contract PoolsideNonReceiverBeneficiary {
     }
 }
 
-/// @dev Actual deployed Aero dependencies; only the proposed factory/holders are new.
+/// @dev Live Aero dependencies with a fresh vault, manager, factory and holders from the reviewed source.
 /// BASE_RPC_URL must support historical state. No broadcast or signing occurs.
 contract PoolsideFactoryForkTest is Test {
     using stdStorage for StdStorage;
     V3Utils constant UTILS = V3Utils(payable(0xF3B5c0689df879Db47Fd23590700910e7a99A068));
-    V3Vault constant VAULT = V3Vault(0x39125A0476D44C9EEC1F4206E9e8B1e88b4Aa730);
-    GaugeManager constant MANAGER = GaugeManager(payable(0x36F20A7859E25fC9102F761aCBfbD9AfE78924e6));
+    V3Vault VAULT;
+    GaugeManager MANAGER;
     AutoRangeAndCompound constant RANGE = AutoRangeAndCompound(payable(0x5c94a69fFDC3Fcb2c3d6e08Ce033297Fb92aE800));
     AutoExit constant EXIT = AutoExit(payable(0x9b23ba84C0B33c608db6a1c34Fc37BaA1F1A2C65));
     IAerodromeSlipstreamPool constant POOL = IAerodromeSlipstreamPool(0x4A7af46bC8aBc00048c6c7920a1488DAF568366c);
@@ -101,8 +101,28 @@ contract PoolsideFactoryForkTest is Test {
 
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53255803);
-        factory = new PoolsideFactory(UTILS, VAULT, RANGE, EXIT);
         npm = UTILS.nonfungiblePositionManager();
+        V3Vault previous = V3Vault(0x39125A0476D44C9EEC1F4206E9e8B1e88b4Aa730);
+        VAULT = new V3Vault(
+            "Poolside test vault", "psTest", previous.asset(), npm, previous.interestRateModel(), previous.oracle()
+        );
+        MANAGER = new GaugeManager(
+            npm,
+            IERC20(0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee),
+            IVault(address(VAULT)),
+            UTILS.universalRouter(),
+            UTILS.zeroxAllowanceHolder()
+        );
+        VAULT.setGaugeManager(address(MANAGER));
+        VAULT.setTransformer(address(RANGE), true);
+        VAULT.setStakingPolicy(address(RANGE));
+        MANAGER.setCompoundModeSource(address(RANGE));
+        MANAGER.setGauge(address(POOL), POOL.gauge());
+        MANAGER.setRewardBasePool(POOL.token0(), 0xc85D5CB72d1aaD6f152A8decAd228AE4A59Ac9B3);
+        MANAGER.setRewardBasePool(POOL.token1(), 0xD0Acf293547457Fb4fE9eE32CA93e89497626816);
+        vm.prank(RANGE.owner());
+        RANGE.setVault(address(VAULT));
+        factory = new PoolsideFactory(UTILS, VAULT, RANGE, EXIT);
         (, tick,,,,) = POOL.slot0();
         _operator(address(factory), true);
         for (uint256 i; i < 2; ++i) {
@@ -496,30 +516,51 @@ contract PoolsideFactoryForkTest is Test {
         assertTrue(MANAGER.poolToGauge(address(POOL)) != address(0));
     }
 
-    function _assertMissingOracleRejectsCreation(bool initiallyStake) internal {
+    function _assertMissingOracleAllowsCreation(bool initiallyStake) internal {
         _clearPoolTokenOracleConfig();
-        V3Utils.SwapAndMintParams memory p = _params();
-        AutoExit.PositionConfig memory c = _config(true);
-        uint256 before0 = p.token0.balanceOf(ALICE);
-        uint256 before1 = p.token1.balanceOf(ALICE);
-        uint256 supplyBefore = npm.totalSupply();
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, initiallyStake, true);
+        assertEq(factory.activeHolder(id), address(holder));
+        assertEq(VAULT.ownerOf(id), address(holder));
+        assertEq(VAULT.loans(id), 0);
+        assertEq(npm.ownerOf(id), initiallyStake ? POOL.gauge() : address(VAULT));
+        assertEq(RANGE.stakingConsent(id, address(VAULT)), address(holder));
         vm.prank(ALICE);
-        vm.expectRevert(Constants.NotConfigured.selector);
-        factory.create(p, c, initiallyStake);
-        assertEq(p.token0.balanceOf(ALICE), before0);
-        assertEq(p.token1.balanceOf(ALICE), before1);
-        assertEq(npm.totalSupply(), supplyBefore);
-        assertEq(factory.creatingHolder(), address(0));
-        assertEq(p.token0.allowance(address(factory), address(UTILS)), 0);
-        assertEq(p.token1.allowance(address(factory), address(UTILS)), 0);
+        holder.withdraw();
+        assertEq(npm.ownerOf(id), ALICE);
     }
 
-    function test_CreateRejectsMissingOracleForUnstakedPosition() public {
-        _assertMissingOracleRejectsCreation(false);
+    function test_CreateWithoutOracleForUnstakedPosition() public {
+        _assertMissingOracleAllowsCreation(false);
     }
 
-    function test_CreateRejectsMissingOracleForStakedPosition() public {
-        _assertMissingOracleRejectsCreation(true);
+    function test_CreateWithoutOracleForStakedPosition() public {
+        _assertMissingOracleAllowsCreation(true);
+    }
+
+    function test_CompoundAndSwitchCustodyWithoutValuationOracle() public {
+        _clearPoolTokenOracleConfig();
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        AutoRangeAndCompound.AutoCompoundParams memory p;
+        p.tokenId = id;
+        p.deadline = block.timestamp;
+        vm.prank(OPERATOR);
+        RANGE.autoCompoundWithVault(p, address(VAULT));
+        IVault.RewardCompoundParams memory r =
+            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked);
+        vm.prank(OPERATOR);
+        RANGE.autoCompoundWithVaultAndRewardCompound(p, address(VAULT), r);
+        assertEq(npm.ownerOf(id), POOL.gauge());
+        uint256 ready = MANAGER.penaltyWindowEnd(id);
+        uint256 cooldown = RANGE.lastStakeChangeBlock(id) + RANGE.stakeChangeCooldownBlocks();
+        vm.roll((ready > cooldown ? ready : cooldown) + 1);
+        r.stakeTarget = IVault.StakeTarget.Unstaked;
+        vm.prank(OPERATOR);
+        RANGE.autoCompoundWithVaultAndRewardCompound(p, address(VAULT), r);
+        assertEq(npm.ownerOf(id), address(VAULT));
+        assertEq(VAULT.loans(id), 0);
+        assertEq(factory.activeHolder(id), address(holder));
+        _execute(id);
+        assertEq(factory.activeHolder(id), address(0));
     }
 
     function test_OracleUnavailableAfterCreationDoesNotBlockManualWithdrawal() public {
