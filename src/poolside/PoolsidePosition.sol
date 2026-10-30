@@ -57,6 +57,8 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     error InvalidState();
     error InvalidNFT();
     error InsidePenaltyWindow();
+    error InsufficientAssets();
+    error UnspentRouterInput();
 
     event StakingManagementChanged(bool enabled);
     event AutoExitChanged(bool enabled);
@@ -125,8 +127,14 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         autoExit.configToken(id, exitConfig);
         npm.safeTransferFrom(address(this), address(vault), id, abi.encode(address(this)));
         vault.approveTransform(id, address(automation), true);
-        // Poolside uses Simple fees; keep range/standalone-compound permissions at their existing defaults.
+        // Poolside uses Simple fees and reinvests into the SAME NFT/range.
+        // Equal range deltas keep automatic range changes disabled.
         AutoRangeAndCompound.PositionConfig memory config;
+        config.autoCompound = true;
+        config.onlyFees = true;
+        // Allow up to 1% execution slippage for automatic fee compounding in either direction.
+        config.token0SlippageX64 = uint64((uint256(1) << 64) / 100);
+        config.token1SlippageX64 = config.token0SlippageX64;
         automation.configToken(id, address(vault), config, AutoRangeAndCompound.CompoundMode.Simple);
         automation.configStakingManagement(id, address(vault), true);
         if (initiallyStake) vault.stakePosition(id);
@@ -166,7 +174,45 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         npm.safeTransferFrom(address(this), recipient, tokenId);
     }
 
-    /// @notice Retrieve the empty NFT retained after AutoExit without coupling its delivery to the proceeds.
+    /// @notice Close the entire position into the vault asset (USDC on Base), paid only to the beneficiary.
+    /// @dev Caller supplies swap quotes/minima/deadline; action, asset, liquidity and recipient are fixed here.
+    /// Available balances are returned too; deferred rewards and the empty NFT remain separately claimable.
+    function withdrawToAsset(V3Utils.Instructions memory instructions, uint256 minAssets)
+        external
+        nonReentrant
+        onlyBeneficiary
+        returns (uint256 assets)
+    {
+        _prepareExit();
+        IERC20 asset = IERC20(vault.asset());
+        uint256 beforeBalance = asset.balanceOf(address(this));
+        instructions.whatToDo = V3Utils.WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP;
+        instructions.targetToken = address(asset);
+        (,,,,,,, instructions.liquidity,,,,) = npm.positions(tokenId);
+        instructions.feeAmount0 = type(uint128).max;
+        instructions.feeAmount1 = type(uint128).max;
+        instructions.recipient = address(this);
+        instructions.unwrap = false;
+        npm.approve(address(utils), tokenId);
+        address router = utils.universalRouter();
+        uint256 routerBalance0 = token0.balanceOf(router);
+        uint256 routerBalance1 = token1.balanceOf(router);
+        utils.execute(tokenId, instructions);
+        // V3Utils prepays Universal Router: quotes must consume or refund the supplied input.
+        if (token0.balanceOf(router) > routerBalance0 || token1.balanceOf(router) > routerBalance1) {
+            revert UnspentRouterInput();
+        }
+        assets = asset.balanceOf(address(this));
+        if (assets - beforeBalance < minAssets) revert InsufficientAssets();
+        _finishExit(false);
+        _claimToken(asset);
+        _claimToken(token0);
+        _claimToken(token1);
+        _claimNative();
+        _claimToken(manager.aeroToken());
+    }
+
+    /// @notice Retrieve the empty NFT retained after an asset exit or AutoExit independently of proceeds delivery.
     function claimNFT(address recipient) external nonReentrant onlyBeneficiary {
         if (state != State.Closed) revert InvalidState();
         npm.safeTransferFrom(address(this), recipient, tokenId);
@@ -198,6 +244,8 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         if (state != State.Active) revert InvalidState();
         state = State.Exiting;
         automation.configStakingManagement(tokenId, address(vault), false);
+        AutoRangeAndCompound.PositionConfig memory disabled;
+        automation.configToken(tokenId, address(vault), disabled, AutoRangeAndCompound.CompoundMode.Simple);
         vault.approveTransform(tokenId, address(automation), false);
         // The holder exposes no borrow or generic transform function. Vault.remove independently checks no debt.
         vault.remove(tokenId, address(this), "");

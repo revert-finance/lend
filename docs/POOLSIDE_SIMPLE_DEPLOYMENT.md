@@ -7,9 +7,11 @@ The name change adds no new permissions or behavior.
 Poolside holder creation must explicitly select `CompoundMode.Simple`. The previous
 factory at `0xBD60864C0CD391667860f51D2a965BA28EA04519` creates holders that never select a
 mode, so they use the Advanced rate (5%). The replacement sets Simple (currently 10%)
-while retaining the previous zeroed range/standalone-compound configuration. The
-staking-management path still compounds on custody changes. This is a fee-policy
-correction, not a change to custody, withdrawal, rewards recovery or AutoExit rules.
+with recurring compounding enabled and range changes disabled. The current holder also
+supports beneficiary-initiated USDC exits through V3Utils and clears recurring compounding
+on every exit. See `poolside-holder.md` for the exit API and fee-free quote requirements.
+The already deployed Simple factory at `0xBFC380025093728BC1eE23f83A616c763D32757b`
+does not include these newer features; they require another factory deployment.
 
 Only the factory is deployed; it embeds the updated holder creation code. Existing
 holders are immutable and are not upgraded. The old factory's AutoExit authorization
@@ -51,12 +53,10 @@ GaugeManager, automation redeployment, borrowing activation or ownership transfe
 part of this script. Source verification includes the holder source embedded in the
 factory; individual holders are created later by users.
 
-Validation: 63 fork tests passed: 47 holder tests at Base block 53255803 against
-these existing contracts and 16 fresh protocol-deployment tests. Coverage includes
-staked/unstaked creation selecting the 10% Simple rate, fee-mode authorization,
-keeper staking, exit and deferred-reward regressions. The Safe handoff helper also
-passed read-only checks with historical and renamed factory labels. The deployment
+Validation for the current holder: 60 fork tests at Base block 53255803, including
+real V3Utils/Universal Router USDC exits, minimum-output rollback, beneficiary-only
+payouts, leftover/reward forwarding, router-refund guards and automation cleanup. The 16
+fresh protocol-deployment tests passed on the preceding USDC-exit revision. The replacement deployment
 script dry-run passed against current Base state with exactly one CREATE and one
-`setOperator` call. Factory runtime is 19,094 bytes and holder runtime is 10,038 bytes
-(limit: 24,576). The verification helper's compiler input reproduced factory creation
-bytecode exactly. No production transaction has been sent for this replacement.
+`setOperator` call. Factory runtime is 21,763 bytes and holder runtime is 12,728 bytes
+(limit: 24,576). No production transaction was sent for this USDC-exit replacement.
