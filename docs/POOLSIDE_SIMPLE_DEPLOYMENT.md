@@ -53,10 +53,10 @@ GaugeManager, automation redeployment, borrowing activation or ownership transfe
 part of this script. Source verification includes the holder source embedded in the
 factory; individual holders are created later by users.
 
-Validation for the current holder: 56 fork tests at Base block 53255803, including
+Validation for the current holder: 60 fork tests at Base block 53255803, including
 real V3Utils/Universal Router USDC exits, minimum-output rollback, beneficiary-only
-payouts, leftover/reward forwarding and automation cleanup. All 16 fresh protocol-deployment
-tests also passed (72 tests total). The replacement deployment
+payouts, leftover/reward forwarding, router-refund guards and automation cleanup. The 16
+fresh protocol-deployment tests passed on the preceding USDC-exit revision. The replacement deployment
 script dry-run passed against current Base state with exactly one CREATE and one
-`setOperator` call. Factory runtime is 21,102 bytes and holder runtime is 12,074 bytes
+`setOperator` call. Factory runtime is 21,763 bytes and holder runtime is 12,728 bytes
 (limit: 24,576). No production transaction was sent for this USDC-exit replacement.
