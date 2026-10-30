@@ -135,6 +135,74 @@ contract V3VaultTransformBorrowBufferTest is AerodromeTestBase {
         vm.stopPrank();
     }
 
+    function _oracleTestPosition() internal returns (uint256 tokenId) {
+        tokenId = createPositionProper(alice, address(usdc), address(dai), 1, -100, 100,
+            1e18, 50000e6, 50000e18);
+        vm.startPrank(alice);
+        npm.approve(address(vault), tokenId);
+        vault.create(tokenId, alice);
+        vm.stopPrank();
+    }
+
+    function _unavailableOracle() internal {
+        vm.record();
+        oracle.feedConfigs(address(dai));
+        (bytes32[] memory slots,) = vm.accesses(address(oracle));
+        assertGt(slots.length, 0);
+        for (uint256 i; i < slots.length; ++i) vm.store(address(oracle), slots[i], bytes32(0));
+        assertFalse(oracle.isTokenConfigured(address(dai)));
+    }
+
+    function testDebtFreeTransformDoesNotRequireOracleButLoanInfoStillDoes() external {
+        uint256 tokenId = _oracleTestPosition();
+        _unavailableOracle();
+        vm.prank(alice);
+        vault.transform(tokenId, address(noopTransformer), abi.encodeCall(NoopTransformBorrowBufferTransformer.execute, ()));
+        assertEq(npm.ownerOf(tokenId), address(vault));
+        assertEq(vault.loans(tokenId), 0);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        vault.loanInfo(tokenId);
+    }
+
+    function testFuzzDirectBorrowStillRequiresOracle(uint256 amount) external {
+        amount = bound(amount, 1, 100e6);
+        uint256 tokenId = _oracleTestPosition();
+        _unavailableOracle();
+        uint256 beforeBalance = usdc.balanceOf(alice);
+        vm.prank(alice);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        vault.borrow(tokenId, amount);
+        assertEq(vault.loans(tokenId), 0);
+        assertEq(usdc.balanceOf(alice), beforeBalance);
+    }
+
+    function testFuzzBorrowDuringDebtFreeTransformStillRequiresOracle(uint256 amount) external {
+        amount = bound(amount, 1, 100e6);
+        uint256 tokenId = _oracleTestPosition();
+        _unavailableOracle();
+        uint256 beforeBalance = usdc.balanceOf(address(transformer));
+        vm.prank(alice);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        vault.transform(tokenId, address(transformer),
+            abi.encodeCall(BorrowDuringTransformTransformer.execute, (address(vault), tokenId, amount)));
+        assertEq(vault.loans(tokenId), 0);
+        assertEq(usdc.balanceOf(address(transformer)), beforeBalance);
+        assertEq(vault.transformedTokenId(), 0);
+    }
+
+    function testExistingDebtTransformStillRequiresOracle() external {
+        uint256 tokenId = _oracleTestPosition();
+        vm.prank(alice);
+        vault.borrow(tokenId, 1e6);
+        uint256 shares = vault.loans(tokenId);
+        assertGt(shares, 0);
+        _unavailableOracle();
+        vm.prank(alice);
+        vm.expectRevert(Constants.NotConfigured.selector);
+        vault.transform(tokenId, address(noopTransformer), abi.encodeCall(NoopTransformBorrowBufferTransformer.execute, ()));
+        assertEq(vault.loans(tokenId), shares);
+    }
+
     function testTransformBorrowCanExceedBorrowSafetyBufferWhenStillHealthy() external {
         uint256 tokenId = createPositionProper(
             alice,
