@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
+import "./utils/AeroGaugeDiscovery.sol";
 
 import "../src/InterestRateModel.sol";
 import "../src/poolside/PoolsideFactory.sol";
@@ -89,6 +90,8 @@ contract DeployAeroProtocol is Script {
 
     function run() external returns (Deployment memory deployed) {
         validateDeploymentConfig();
+        AeroGaugeDiscovery discovery = new AeroGaugeDiscovery();
+        AeroGaugeDiscovery.Plan memory gauges = discovery.scan(address(0));
 
         address deployer = vm.envAddress("AERO_DEPLOYER");
         require(deployer == 0x83681C14770b44361e21Faf91D8325423365eA5C, "unexpected deployer");
@@ -112,9 +115,9 @@ contract DeployAeroProtocol is Script {
 
         GaugeManager gaugeManager =
             new GaugeManager(npm, IERC20(AERO), IVault(address(vault)), UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
-        address[] memory pools = collateralPools();
-        for (uint256 i; i < pools.length; ++i) {
-            gaugeManager.setGauge(pools[i], IAerodromeSlipstreamPool(pools[i]).gauge());
+        // Broad staking support is independent of the collateral/oracle allowlist.
+        for (uint256 i; i < gauges.updates.length; ++i) {
+            gaugeManager.setGauge(gauges.updates[i].pool, gauges.updates[i].gauge);
         }
         gaugeManager.setRewardBasePool(USDC, AERO_USDC_POOL);
         gaugeManager.setRewardBasePool(WETH, AERO_WETH_POOL);
@@ -282,6 +285,8 @@ contract DeployAeroProtocol is Script {
             _validatePool(pools[i], pool.token0(), pool.token1());
             address gauge = pool.gauge();
             require(IAeroGauge(gauge).nft() == AERODROME_NPM && IAeroGauge(gauge).pool() == pools[i], "gauge bindings");
+            require(IAeroGauge(gauge).gaugeFactory() == AERODROME_GAUGE_FACTORY, "gauge factory mismatch");
+            require(IAeroGaugeActivation(IAeroGauge(gauge).voter()).isActivated(gauge), "required gauge inactive");
             require(preflight.validate(gauge, AERO) == 0x8C37F30F3c8fd48bEddb14086fa5148291D422C3, "root handler");
         }
         _validateFeed(CHAINLINK_ETH_USD, 3600);
