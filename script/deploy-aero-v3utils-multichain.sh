@@ -7,6 +7,7 @@ mode="${2:---dry-run}"
 case "$network" in
   mainnet)
     export AERO_CHAIN_ID=1
+    export AERO_V3UTILS_OWNER=0xaac25e85e752425dd1a92674ceeaf603758d3124
     rpc="${MAINNET_RPC_URL:-}"
     if [[ -z "$rpc" && -n "${ALCHEMY_API_KEY:-}" ]]; then
       rpc="https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
@@ -14,6 +15,7 @@ case "$network" in
     ;;
   robinhood)
     export AERO_CHAIN_ID=4663
+    export AERO_V3UTILS_OWNER=0x8cadb20a4811f363dadb863a190708bed26245f8
     rpc="${ROBINHOOD_RPC_URL:-}"
     if [[ -z "$rpc" && -n "${ALCHEMY_API_KEY:-}" ]]; then
       rpc="https://robinhood-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
@@ -36,7 +38,6 @@ case "$mode" in
   --verify) exec python3 script/verify-aero-v3utils-multichain.py ;;
   *) echo 'Unknown mode' >&2; exit 2 ;;
 esac
-: "${AERO_V3UTILS_OWNER:?Set AERO_V3UTILS_OWNER to the approved final owner for this network}"
 if [[ -n "${AERO_FORK_BLOCK:-}" ]]; then
   [[ "$mode" == --dry-run ]] || { echo 'Unset AERO_FORK_BLOCK before broadcast/resume.' >&2; exit 2; }
   args+=(--fork-block-number "$AERO_FORK_BLOCK")

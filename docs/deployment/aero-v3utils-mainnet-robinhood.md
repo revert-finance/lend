@@ -14,13 +14,13 @@ factory is deployed; no vault is allowlisted. Each chain gets its own utility.
 | Ethereum | Wrapped ETH | `0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2` |
 | Ethereum | Universal Router | `0x66a9893cc07d91d95644aedd05d03f95e1dba8af` |
 | Ethereum | 0x AllowanceHolder | `0x0000000000001ff3684f28c67538d4d072c22734` |
-| Ethereum | Existing V3Utils owner (awaiting confirmation) | `0xaac25e85e752425dd1a92674ceeaf603758d3124` |
+| Ethereum | Approved final owner | `0xaac25e85e752425dd1a92674ceeaf603758d3124` |
 | Robinhood | Aero NPM | `0x4857DB576eE0e45F10525eC59527BfD10beeC60b` |
 | Robinhood | Aero factory | `0xc63d7338c178e805c544b8f897066bd3bbcbe136` |
 | Robinhood | Wrapped ETH | `0x0bd7d308f8e1639fab988df18a8011f41eacad73` |
 | Robinhood | Universal Router | `0x8876789976decbfcbbbe364623c63652db8c0904` |
 | Robinhood | 0x AllowanceHolder | `0x0000000000001ff3684f28c67538d4d072c22734` |
-| Robinhood | Existing V3Utils owner (awaiting confirmation) | `0x8cadb20a4811f363dadb863a190708bed26245f8` |
+| Robinhood | Approved final owner | `0x8cadb20a4811f363dadb863a190708bed26245f8` |
 
 Aero documents the shared NPM in its [official security page](https://app.aero.xyz/docs/security/).
 Factories and wrapped ETH were independently read from that NPM on each chain.
@@ -43,15 +43,14 @@ Passwords are entered interactively; never put them in these scripts or docs.
 From the repository checkout containing this script:
 
 ```sh
-# Required: explicitly choose the approved owner for the selected chain.
-export AERO_V3UTILS_OWNER=<approved-owner-address>
+# The wrapper selects the approved owner for each chain automatically.
 # Set MAINNET_RPC_URL / ROBINHOOD_RPC_URL, or use the existing ALCHEMY_API_KEY.
 # Robinhood also defaults to https://rpc.mainnet.chain.robinhood.com.
 bash script/deploy-aero-v3utils-multichain.sh mainnet --dry-run
 bash script/deploy-aero-v3utils-multichain.sh mainnet --broadcast
 bash script/deploy-aero-v3utils-multichain.sh mainnet --verify
 
-# Set AERO_V3UTILS_OWNER separately for Robinhood, then:
+# Robinhood uses its own approved owner automatically:
 bash script/deploy-aero-v3utils-multichain.sh robinhood --dry-run
 bash script/deploy-aero-v3utils-multichain.sh robinhood --broadcast
 bash script/deploy-aero-v3utils-multichain.sh robinhood --verify
@@ -75,10 +74,10 @@ not deployed addresses. Saved records live under
 ## Validation and limits
 
 Deployment dry-runs passed at Ethereum block 26351200 and Robinhood block 107040000,
-using the existing chain owners as provisional simulation inputs. Estimated costs:
+using the existing chain owners, now confirmed by the user. Estimated costs:
 Ethereum 0.0023474 ETH; Robinhood 0.00021986 ETH (prices change). Runtime bytecode:
-16,351 bytes, below the 24,576-byte EVM limit. Final ownership choices are not yet
-confirmed, and no production transaction has been signed by this preparation.
+16,351 bytes, below the 24,576-byte EVM limit. The wrapper pins the confirmed owners per chain, overriding any stale owner
+environment variable. No production transaction has been signed by this preparation.
 
 Four fork tests passed on each chain (eight total).
 Fork tests exercise wrong-chain and mismatched-factory rejection before deployment,

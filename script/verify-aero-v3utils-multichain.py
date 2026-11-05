@@ -25,7 +25,7 @@ artifact = json.loads(Path('out/V3Utils.sol/V3Utils.json').read_text())
 encoded = subprocess.check_output(['cast', 'abi-encode', 'constructor(address,address,address)', *tx['arguments']], text=True).strip()
 command = ['forge', 'verify-contract', tx['contractAddress'], 'src/transformers/V3Utils.sol:V3Utils', '--chain', str(chain), '--compiler-version', artifact['metadata']['compiler']['version'], '--constructor-args', encoded, '--watch']
 if chain == 4663:
-    command += ['--verifier', 'blockscout', '--verifier-url', 'https://robinhoodchain.blockscout.com/api/']
+    command += ['--verifier', 'blockscout', '--verifier-url', 'https://robinhoodchain.blockscout.com/api?']
 elif not os.environ.get('ETHERSCAN_API_KEY'):
     raise SystemExit('Set ETHERSCAN_API_KEY')
 secrets = [os.environ.get(k) for k in ['ALCHEMY_API_KEY', 'ETHERSCAN_API_KEY', 'AERO_RPC_URL'] if os.environ.get(k)]
