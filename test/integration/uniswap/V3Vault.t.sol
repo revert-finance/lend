@@ -52,7 +52,7 @@ contract MockNoopGaugeManager {
         return 0;
     }
 
-    function compoundRewards(uint256, uint256, uint256, uint256)
+    function compoundRewards(uint256, uint256, uint256, uint256, bool)
         external
         pure
         returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
@@ -550,7 +550,7 @@ contract V3VaultIntegrationTest is Test {
         // test compounding when not in vault
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.NotConfigured.selector);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), true);
 
         vm.prank(TEST_NFT_ACCOUNT);
         NPM.approve(address(autoRange), TEST_NFT);
@@ -558,7 +558,7 @@ contract V3VaultIntegrationTest is Test {
         autoRange.configToken(TEST_NFT, address(0), AutoRangeAndCompound.PositionConfig(0, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0), AutoRangeAndCompound.CompoundMode.Advanced);
 
         vm.prank(WHALE_ACCOUNT);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), true);
     }
 
     function testTransformAutoCompoundInsideVault() external {
@@ -569,7 +569,7 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), true);
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
@@ -579,13 +579,14 @@ contract V3VaultIntegrationTest is Test {
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), true);
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.autoCompoundWithVault(
-            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault)
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault),
+            true
         );
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -597,7 +598,8 @@ contract V3VaultIntegrationTest is Test {
         // autocompound with swap
         vm.prank(WHALE_ACCOUNT);
         autoRange.autoCompoundWithVault(
-            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault),
+            true
         );
     }
 
@@ -609,7 +611,7 @@ contract V3VaultIntegrationTest is Test {
         _setupBasicLoan(true);
 
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), true);
 
         vm.prank(TEST_NFT_ACCOUNT);
         autoRange.configToken(
@@ -619,13 +621,14 @@ contract V3VaultIntegrationTest is Test {
         // direct auto-compound when in vault fails
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), true);
 
         // user hasnt approved automator
         vm.prank(WHALE_ACCOUNT);
         vm.expectRevert(Constants.Unauthorized.selector);
         autoRange.autoCompoundWithVault(
-            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault)
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 0, block.timestamp), address(vault),
+            true
         );
 
         vm.prank(TEST_NFT_ACCOUNT);
@@ -637,7 +640,8 @@ contract V3VaultIntegrationTest is Test {
         // autocompound with swap
         vm.prank(WHALE_ACCOUNT);
         autoRange.autoCompoundWithVault(
-            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault)
+            AutoRangeAndCompound.AutoCompoundParams(TEST_NFT, false, 12345, block.timestamp), address(vault),
+            true
         );
     }
 
@@ -681,7 +685,7 @@ contract V3VaultIntegrationTest is Test {
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp,
-                stakeTarget: IVault.StakeTarget.Keep
+                stakeTarget: IVault.StakeTarget.Keep, force: true
             })
         );
 
@@ -1604,7 +1608,7 @@ contract V3VaultIntegrationTest is Test {
         // but transforms Alice position
         vm.expectRevert(Constants.TransformFailed.selector);
         vm.prank(EXPLOITER_ACCOUNT);
-        vault.transform(EXPLOITER_NFT, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+        vault.transform(EXPLOITER_NFT, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true)));
     }
 
     function testTransformBorrowIncreaseRequiresBorrowBuffer() external {

@@ -528,7 +528,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         override
         returns (uint256 newTokenId)
     {
-        return _transform(tokenId, transformer, data, false, 0, 0, 0, StakeTarget.Keep);
+        return _transform(tokenId, transformer, data, false, 0, 0, 0, StakeTarget.Keep, false);
     }
 
     function transformWithRewardCompound(
@@ -545,7 +545,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
             rewardParams.minAeroReward,
             rewardParams.aeroSplitBps,
             rewardParams.deadline,
-            rewardParams.stakeTarget
+            rewardParams.stakeTarget,
+            rewardParams.force
         );
     }
 
@@ -557,7 +558,8 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         uint256 minAeroReward,
         uint256 aeroSplitBps,
         uint256 deadline,
-        StakeTarget target
+        StakeTarget target,
+        bool force
     ) internal returns (uint256 newTokenId) {
         if (tokenId == 0 || !transformerAllowList[transformer]) {
             revert TransformNotAllowed();
@@ -581,7 +583,7 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
         // best-effort with the manager's defaults (a failure then falls back to the payout the unstake performs).
         bool wasStaked = gaugeManager != address(0)
             && IGaugeManager(gaugeManager)
-                .unstakeIfStakedCompounding(tokenId, compoundRewardsFirst, minAeroReward, aeroSplitBps, deadline);
+                .unstakeIfStakedCompounding(tokenId, compoundRewardsFirst, minAeroReward, aeroSplitBps, deadline, force);
 
         // give access to transformer (and let only this transformer announce a replacement position)
         assembly ("memory-safe") {

@@ -128,3 +128,7 @@ If docs conflict, verify ABI in:
 - `test/integration/aerodrome/GaugeManagerVulnerability.t.sol`
 - `test/integration/aerodrome/GaugeManagerAutoCompound.t.sol`
 - `test/atlas/AtlasTransitions.t.sol`
+
+## Compound leftover limit (alternative to carry-forward)
+
+The compound APIs now accept an explicit `force` override. Use `false` by default: each checked token permits at most 0.5% leftover or one smallest unit after fees. Requested swaps revert on TWAP failure even when forced. See [the design and ABI migration note](../aero-compound-outcome-limit.md) for exact entrypoints, best-effort transform exceptions, deployment requirements, and the comparison with #114.

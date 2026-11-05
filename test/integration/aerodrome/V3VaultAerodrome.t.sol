@@ -218,7 +218,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
             address(transformer),
             abi.encodeCall(NoopAerodromeTransformer.execute, ()),
             IVault.RewardCompoundParams({
-                minAeroReward: 0, aeroSplitBps: 5000, deadline: block.timestamp, stakeTarget: IVault.StakeTarget.Keep
+                minAeroReward: 0, aeroSplitBps: 5000, deadline: block.timestamp, stakeTarget: IVault.StakeTarget.Keep, force: true
             })
         );
 
@@ -442,10 +442,10 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
 
         // Test 1: Try to compound with invalid split (> 10000 bps)
         vm.expectRevert(Constants.InvalidConfig.selector);
-        gaugeManager.compoundRewards(tokenId, 0, 10001, block.timestamp + 1000);
+        gaugeManager.compoundRewards(tokenId, 0, 10001, block.timestamp + 1000, true);
 
         // Test 2: Valid split compounds through the configured AERO -> USDC base route.
-        gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000);
+        gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000, true);
 
         // Test 3: Compounding reverts when the required AERO base pool is missing.
         usdcDaiGauge.setReward(tokenId, 10e18);
@@ -453,7 +453,7 @@ contract V3VaultAerodromeTest is AerodromeTestBase {
         gaugeManager.setRewardBasePool(address(usdc), address(0));
         vm.startPrank(alice);
         vm.expectRevert(Constants.NotConfigured.selector);
-        gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000);
+        gaugeManager.compoundRewards(tokenId, 0, 5000, block.timestamp + 1000, true);
 
         vm.stopPrank();
     }

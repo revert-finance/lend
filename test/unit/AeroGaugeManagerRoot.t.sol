@@ -133,7 +133,7 @@ contract AeroGaugeManagerRootTest is AeroGaugeManagerTest {
         _withdraw(1);
         gauge.setReward(2, 10 ether);
         vm.prank(BOB);
-        (uint256 reward,,) = manager.compoundRewards(2, 0, 5000, block.timestamp);
+        (uint256 reward,,) = manager.compoundRewards(2, 0, 5000, block.timestamp, true);
         assertEq(reward, 10 ether);
         assertEq(manager.reservedRewards(), DUST);
         assertEq(token.balanceOf(address(manager)) >= DUST, true);
@@ -253,7 +253,7 @@ contract AeroGaugeManagerRootTest is AeroGaugeManagerTest {
         gauge.setReward(1, DUST);
         vm.prank(ALICE);
         vm.expectRevert(bytes4(keccak256("NotEnoughReward()")));
-        manager.compoundRewards(1, 1, 5000, block.timestamp);
+        manager.compoundRewards(1, 1, 5000, block.timestamp, true);
         assertEq(rootHandler.pendingRedeems(address(manager)), 0);
         assertEq(manager.rootDeferredRewards(ALICE), 0);
         assertEq(manager.reservedRewards(), 0);

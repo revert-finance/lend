@@ -104,7 +104,7 @@ contract GaugeManagerAutoCompoundTest is AerodromeTestBase {
 
         // 4. Call through Vault/GM as AutoRangeAndCompound operator
         vm.prank(admin);
-        bytes memory transformData = abi.encodeCall(AutoRangeAndCompound.autoCompound, (params));
+        bytes memory transformData = abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true));
 
         // Execute transform - this will FAIL with "Transform failed" if encoding is wrong
         uint256 newTokenId = vault.transform(tokenId, address(autoRange), transformData);
