@@ -15,6 +15,47 @@ import "v3-core/interfaces/IUniswapV3Factory.sol";
 /// External functions run via DELEGATECALL in the calling contract's context; storage references point into
 /// that contract. Includes liquidation math, reserve socialization, collateral accounting and range readiness.
 library VaultLib {
+    error Unauthorized();
+
+    function prepareTransform(
+        mapping(address => bool) storage operators,
+        mapping(address => bool) storage vaults,
+        uint256 tokenId,
+        address vault
+    ) external view {
+        if (!operators[msg.sender] || !vaults[vault]) revert Unauthorized();
+        address manager = IVault(vault).gaugeManager();
+        if (
+            manager != address(0) && IGaugeManager(manager).tokenIdToGauge(tokenId) != address(0)
+                && block.number < IGaugeManager(manager).penaltyWindowEnd(tokenId)
+        ) revert NotReady();
+    }
+
+    /// @dev Extracted unchanged from AutoRangeAndCompound to leave room for carry-forward entrypoints.
+    function prepareStakeChange(
+        mapping(address => bool) storage operators,
+        mapping(address => bool) storage vaults,
+        mapping(uint256 => mapping(address => address)) storage consent,
+        mapping(uint256 => uint256) storage lastChangeBlock,
+        uint32 cooldownBlocks,
+        uint256 tokenId,
+        address vault,
+        IVault.StakeTarget target
+    ) external returns (bool changes) {
+        if (!operators[msg.sender] || !vaults[vault]) revert Unauthorized();
+        if (target == IVault.StakeTarget.Keep) return false;
+        address manager = IVault(vault).gaugeManager();
+        bool staked = manager != address(0) && IGaugeManager(manager).tokenIdToGauge(tokenId) != address(0);
+        changes = staked != (target == IVault.StakeTarget.Staked);
+        if (!changes) return false;
+        address consentingOwner = consent[tokenId][vault];
+        if (consentingOwner == address(0) || consentingOwner != IVault(vault).ownerOf(tokenId)) revert Unauthorized();
+        uint256 lastChange = lastChangeBlock[tokenId];
+        if (lastChange != 0 && block.number < lastChange + cooldownBlocks) revert NotReady();
+        if (staked && block.number < IGaugeManager(manager).penaltyWindowEnd(tokenId)) revert NotReady();
+        lastChangeBlock[tokenId] = block.number;
+    }
+
     /// @notice Check the entry tick before a plain AutoRange vault transform can swap gauge rewards.
     function requireRangeReady(
         INonfungiblePositionManager npm,

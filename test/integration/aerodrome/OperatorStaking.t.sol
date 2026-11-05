@@ -17,6 +17,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         );
         vault.setTransformer(address(autoRange), true);
         autoRange.setVault(address(vault));
+        gaugeManager.setCompoundBalanceSource(address(autoRange));
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         // lend-side limits and liquidity so positions can borrow in the health tests
@@ -49,7 +50,9 @@ contract OperatorStakingTest is AerodromeTestBase {
         }
         vault.approveTransform(tokenId, admin, true);
         vault.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(tokenId, address(vault), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
+        autoRange.configToken(
+            tokenId, address(vault), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced
+        );
         vm.stopPrank();
     }
 
@@ -194,7 +197,11 @@ contract OperatorStakingTest is AerodromeTestBase {
         // second vault with its own gauge manager, both allowlisted on the transformer
         V3Vault vaultB = new V3Vault("B", "B", address(usdc), npm, irm, oracle);
         GaugeManager managerB = new GaugeManager(
-            IAerodromeNonfungiblePositionManager(address(npm)), IERC20(address(aero)), IVault(address(vaultB)), address(0), address(0)
+            IAerodromeNonfungiblePositionManager(address(npm)),
+            IERC20(address(aero)),
+            IVault(address(vaultB)),
+            address(0),
+            address(0)
         );
         managerB.setGauge(usdcDaiPool, address(usdcDaiGauge));
         vaultB.setGaugeManager(address(managerB));
@@ -214,7 +221,9 @@ contract OperatorStakingTest is AerodromeTestBase {
         vaultB.create(tokenId, alice);
         vaultB.approveTransform(tokenId, admin, true);
         vaultB.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(tokenId, address(vaultB), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
+        autoRange.configToken(
+            tokenId, address(vaultB), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced
+        );
         vm.stopPrank();
 
         vm.prank(admin);
@@ -321,7 +330,8 @@ contract OperatorStakingTest is AerodromeTestBase {
                 autoCompoundMin0: type(uint128).max,
                 autoCompoundMin1: type(uint128).max,
                 autoCompoundRewardMin: type(uint128).max
-            }), AutoRangeAndCompound.CompoundMode.Advanced
+            }),
+            AutoRangeAndCompound.CompoundMode.Advanced
         );
         _fundCollectedFees(tokenId);
         _optIn(tokenId, true);
@@ -337,7 +347,11 @@ contract OperatorStakingTest is AerodromeTestBase {
         uint256 aliceAeroBefore = aero.balanceOf(alice);
         _optIn(tokenId, true);
 
-        _flip(tokenId, IVault.StakeTarget.Unstaked);
+        // An in-range position needs both tokens to increase real liquidity.
+        IVault.RewardCompoundParams memory rewards = _rewardParams(IVault.StakeTarget.Unstaked);
+        rewards.aeroSplitBps = 5000;
+        vm.prank(admin);
+        autoRange.autoCompoundWithVaultAndRewardCompound(_params(tokenId), address(vault), rewards);
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0), "ends unstaked");
         assertEq(npm.ownerOf(tokenId), address(vault));
@@ -432,7 +446,9 @@ contract OperatorStakingTest is AerodromeTestBase {
         bareVault.create(tokenId, alice);
         bareVault.approveTransform(tokenId, admin, true);
         bareVault.approveTransform(tokenId, address(autoRange), true);
-        autoRange.configToken(tokenId, address(bareVault), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
+        autoRange.configToken(
+            tokenId, address(bareVault), _autoCompoundConfig(), AutoRangeAndCompound.CompoundMode.Advanced
+        );
         vm.stopPrank();
     }
 

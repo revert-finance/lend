@@ -14,11 +14,13 @@ import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IGaugeManager.sol";
 import "./interfaces/ICompoundRewardSource.sol";
+import "./interfaces/ICompoundBalanceSource.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aero/IAeroGauge.sol";
 import "./utils/Swapper.sol";
 import "./utils/AeroRewardDelivery.sol";
+import "./utils/CompoundBalanceLib.sol";
 
 /// @notice Vault-only Aero staking adapter. Deferred rewards belong to the economic owner at withdrawal.
 /// @dev A batch comprises one gauge's deferrals since its previous successful recovery. Recovery reserves
@@ -43,6 +45,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     // Answers the per-position reward rate (Simple / Advanced compound mode, see AutoRangeAndCompound); zero = every
     // compound pays totalRewardX64.
     address public override compoundModeSource;
+    /// @notice Optional, one-time carry-forward binding for a freshly deployed suite.
+    address public compoundBalanceSource;
+    event CompoundBalanceSourceSet(address source);
 
     mapping(address => address) public override poolToGauge;
     mapping(uint256 => address) public override tokenIdToGauge;
@@ -89,11 +94,10 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         address token1;
         IUniswapV3Pool positionPool;
         uint256 aeroAmount;
+        uint256 freshAeroAmount;
         uint256 spentAero;
         uint256 amount0Out;
         uint256 amount1Out;
-        uint256 maxAddAmount0;
-        uint256 maxAddAmount1;
         uint256 amountAdded0;
         uint256 amountAdded1;
         uint256 rewardAmount0;
@@ -143,7 +147,9 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
         address handler = AeroRewardDelivery.validate(gauge, address(aeroToken));
         if (handler != address(0)) {
-            if (rootEmissionsHandler != address(0) && rootEmissionsHandler != handler) revert UnsupportedRewardDelivery();
+            if (rootEmissionsHandler != address(0) && rootEmissionsHandler != handler) {
+                revert UnsupportedRewardDelivery();
+            }
             rootEmissionsHandler = handler;
         }
         // Keep previous gauges registered: their deferred claims survive a pool's gauge replacement.
@@ -167,8 +173,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         IAerodromeSlipstreamPool slipstreamPool = IAerodromeSlipstreamPool(pool);
         address token0 = slipstreamPool.token0();
         address token1 = slipstreamPool.token1();
-        if (!(token0 == address(aeroToken) && token1 == baseToken || token0 == baseToken && token1 == address(aeroToken)))
-        {
+        if (!(token0 == address(aeroToken) && token1 == baseToken || token0 == baseToken
+                    && token1 == address(aeroToken))) {
             revert InvalidPool();
         }
 
@@ -204,7 +210,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
             balance = IERC20(token).balanceOf(address(this));
             if (token == address(aeroToken)) {
                 // Root liabilities may not yet be in our balance. Never sweep funds backing them on later delivery.
-                balance = rootEmissionsHandler != address(0) && balance < reservedRewards ? 0 : balance - reservedRewards;
+                balance =
+                    rootEmissionsHandler != address(0) && balance < reservedRewards ? 0 : balance - reservedRewards;
             }
             if (balance != 0) {
                 IERC20(token).safeTransfer(to, balance);
@@ -314,12 +321,12 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         emit RewardsClaimed(tokenId, owner, aeroAmount);
     }
 
-    function compoundRewards(
-        uint256 tokenId,
-        uint256 minAeroReward,
-        uint256 aeroSplitBps,
-        uint256 deadline
-    ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
+    function compoundRewards(uint256 tokenId, uint256 minAeroReward, uint256 aeroSplitBps, uint256 deadline)
+        external
+        override
+        nonReentrant
+        returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1)
+    {
         return _compoundRewards(tokenId, _requireVaultOrOwner(tokenId), minAeroReward, aeroSplitBps, deadline);
     }
 
@@ -374,15 +381,20 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         state.owner = owner;
 
         state.aeroAmount = _claimRewardsToSelf(state.gauge, tokenId, owner);
+        state.freshAeroAmount = state.aeroAmount;
         if (state.aeroAmount < minAeroReward) {
             revert NotEnoughReward();
         }
-        if (state.aeroAmount == 0) {
+        uint256[3] memory saved = CompoundBalanceLib.takeRewards(compoundBalanceSource, tokenId);
+        state.aeroAmount += saved[2];
+        if (state.aeroAmount == 0 && saved[0] == 0 && saved[1] == 0) {
             return (0, 0, 0);
         }
 
         _withdrawFromGauge(state.gauge, tokenId, state.owner);
         state = _swapAeroForPosition(state, aeroSplitBps);
+        state.amount0Out += saved[0];
+        state.amount1Out += saved[1];
         state = _addLiquidity(state, tokenId, deadline);
         uint256 token0BeforeDeposit = IERC20(state.token0).balanceOf(address(this));
         uint256 token1BeforeDeposit = IERC20(state.token1).balanceOf(address(this));
@@ -391,10 +403,16 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         // Aerodrome deposit can realize NFT fees to msg.sender; forward those user-owned proceeds before
         // accounting for compounding leftovers so they do not become protocol-withdrawable dust.
         _sendDepositDeltas(state.token0, state.token1, state.owner, token0BeforeDeposit, token1BeforeDeposit);
-        _sendLeftoversAndRewards(state);
+        _sendLeftoversAndRewards(state, tokenId);
 
-        emit RewardsCompounded(tokenId, state.owner, state.aeroAmount, state.amountAdded0, state.amountAdded1);
-        return (state.aeroAmount, state.amountAdded0, state.amountAdded1);
+        emit RewardsCompounded(tokenId, state.owner, state.freshAeroAmount, state.amountAdded0, state.amountAdded1);
+        return (state.freshAeroAmount, state.amountAdded0, state.amountAdded1);
+    }
+
+    function setCompoundBalanceSource(address source) external onlyOwner {
+        if (source.code.length == 0 || compoundBalanceSource != address(0)) revert InvalidConfig();
+        compoundBalanceSource = source;
+        emit CompoundBalanceSourceSet(source);
     }
 
     function setCompoundReward(uint64 _totalRewardX64) external override onlyOwner {
@@ -473,7 +491,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
 
     /// @dev Previously pending receipts pay one-for-one on local root redemption. They never belong to a new claim.
     function _recordRootDelivery(uint256 pendingBefore, address owner, uint256 tokenId)
-        internal returns (uint256 previouslyPendingPaid)
+        internal
+        returns (uint256 previouslyPendingPaid)
     {
         uint256 pendingAfter = _rootPending();
         if (pendingAfter > pendingBefore) {
@@ -628,10 +647,10 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         }
     }
 
-    function _swapAeroForPosition(
-        CompoundState memory state,
-        uint256 aeroSplitBps
-    ) internal returns (CompoundState memory) {
+    function _swapAeroForPosition(CompoundState memory state, uint256 aeroSplitBps)
+        internal
+        returns (CompoundState memory)
+    {
         uint256 requestedAero0 = state.aeroAmount * aeroSplitBps / 10_000;
         uint256 requestedAero1 = state.aeroAmount - requestedAero0;
 
@@ -806,53 +825,30 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         internal
         returns (CompoundState memory)
     {
-        uint256 rewardX64 = _rewardRateX64(tokenId);
-        state.maxAddAmount0 = state.amount0Out * Q64 / (rewardX64 + Q64);
-        state.maxAddAmount1 = state.amount1Out * Q64 / (rewardX64 + Q64);
-
-        if (state.maxAddAmount0 != 0) {
-            IERC20(state.token0).safeIncreaseAllowance(address(nonfungiblePositionManager), state.maxAddAmount0);
-        }
-        if (state.maxAddAmount1 != 0) {
-            IERC20(state.token1).safeIncreaseAllowance(address(nonfungiblePositionManager), state.maxAddAmount1);
-        }
-
-        if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
-            (, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.increaseLiquidity(
-                INonfungiblePositionManager.IncreaseLiquidityParams(
-                    tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, deadline
-                )
+        (state.amountAdded0, state.amountAdded1, state.rewardAmount0, state.rewardAmount1) =
+            CompoundBalanceLib.addLiquidity(
+                nonfungiblePositionManager,
+                tokenId,
+                state.token0,
+                state.token1,
+                state.amount0Out,
+                state.amount1Out,
+                _rewardRateX64(tokenId),
+                deadline
             );
-            state.rewardAmount0 = state.amountAdded0 * rewardX64 / Q64;
-            state.rewardAmount1 = state.amountAdded1 * rewardX64 / Q64;
-        }
-
-        if (state.maxAddAmount0 != 0) {
-            IERC20(state.token0).safeApprove(address(nonfungiblePositionManager), 0);
-        }
-        if (state.maxAddAmount1 != 0) {
-            IERC20(state.token1).safeApprove(address(nonfungiblePositionManager), 0);
-        }
 
         return state;
     }
 
-    function _sendLeftoversAndRewards(CompoundState memory state) internal {
-        uint256 leftoverAero = state.aeroAmount - state.spentAero;
-        if (leftoverAero != 0) {
-            aeroToken.safeTransfer(state.owner, leftoverAero);
-        }
-
-        uint256 leftover0 = state.amount0Out - state.amountAdded0 - state.rewardAmount0;
-        uint256 leftover1 = state.amount1Out - state.amountAdded1 - state.rewardAmount1;
-        if (leftover0 != 0) {
-            IERC20(state.token0).safeTransfer(state.owner, leftover0);
-        }
-        if (leftover1 != 0) {
-            IERC20(state.token1).safeTransfer(state.owner, leftover1);
-        }
-        // protocol rewards (rewardAmount0/rewardAmount1) remain in this contract and can be collected
-        // through withdrawBalances by the configured withdrawer.
+    function _sendLeftoversAndRewards(CompoundState memory state, uint256 tokenId) internal {
+        uint256[3] memory amounts = [
+            state.amount0Out - state.amountAdded0 - state.rewardAmount0,
+            state.amount1Out - state.amountAdded1 - state.rewardAmount1,
+            state.aeroAmount - state.spentAero
+        ];
+        address[3] memory tokens = [state.token0, state.token1, address(aeroToken)];
+        CompoundBalanceLib.settleRewards(compoundBalanceSource, state.owner, tokenId, tokens, amounts);
+        // Only protocol fees remain here; user leftovers are reserved in the shared ledger.
     }
 
     // Aero's position manager refunds its full ETH balance after increasing liquidity.

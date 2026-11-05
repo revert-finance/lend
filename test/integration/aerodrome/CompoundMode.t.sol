@@ -27,8 +27,7 @@ contract CompoundModeTest is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
         gaugeManager.setCompoundModeSource(address(autoRange));
 
-        (token0, token1) =
-            address(usdc) < address(dai) ? (address(usdc), address(dai)) : (address(dai), address(usdc));
+        (token0, token1) = address(usdc) < address(dai) ? (address(usdc), address(dai)) : (address(dai), address(usdc));
         aero.mint(address(usdcDaiGauge), 100e18);
     }
 
@@ -91,8 +90,8 @@ contract CompoundModeTest is AerodromeTestBase {
         _feeCompound(tokenId);
 
         uint256 fee = _expectedFee(FEES, Q64 / 10);
-        assertEq(IERC20(token0).balanceOf(address(autoRange)), fee, "10% of the compounded token0");
-        assertEq(IERC20(token1).balanceOf(address(autoRange)), fee, "10% of the compounded token1");
+        assertEq(autoRange.positionBalances(0, token0), fee, "10% of the compounded token0");
+        assertEq(autoRange.positionBalances(0, token1), fee, "10% of the compounded token1");
         assertApproxEqRel(fee * 11, FEES, 1e12, "reward is a tenth of what went into the position");
     }
 
@@ -103,8 +102,10 @@ contract CompoundModeTest is AerodromeTestBase {
         _feeCompound(tokenId);
 
         uint256 fee = _expectedFee(FEES, Q64 / 20);
-        assertEq(IERC20(token0).balanceOf(address(autoRange)), fee, "5% of the compounded token0");
-        assertEq(IERC20(token1).balanceOf(address(autoRange)), fee, "5% of the compounded token1");
+        assertEq(autoRange.positionBalances(0, token0), fee, "5% of the compounded token0");
+        assertEq(autoRange.positionBalances(0, token1), fee, "5% of the compounded token1");
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), fee + autoRange.positionBalances(tokenId, token0));
+        assertEq(IERC20(token1).balanceOf(address(autoRange)), fee + autoRange.positionBalances(tokenId, token1));
     }
 
     /// An unconfigured position is Advanced: the default of the enum keeps the initial 5%.
@@ -135,11 +136,9 @@ contract CompoundModeTest is AerodromeTestBase {
             address(autoRange),
             abi.encodeCall(
                 AutoRangeAndCompound.autoCompound,
-                (
-                    AutoRangeAndCompound.AutoCompoundParams({
+                (AutoRangeAndCompound.AutoCompoundParams({
                         tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
-                    })
-                )
+                    }))
             )
         );
     }

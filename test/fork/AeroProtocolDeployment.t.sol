@@ -216,6 +216,7 @@ contract AeroProtocolDeploymentTest is Test {
         assertEq(d.autoRange.totalRewardX64(), 922_337_203_685_477_580);
         assertEq(d.autoRange.simpleRewardX64(), uint64(uint256(2 ** 64) / 10));
         assertEq(d.gaugeManager.compoundModeSource(), address(d.autoRange));
+        assertEq(d.gaugeManager.compoundBalanceSource(), address(d.autoRange));
         assertTrue(d.vault.transformerAllowList(address(d.v3Utils)));
         assertTrue(d.vault.transformerAllowList(address(d.leverageTransformer)));
         assertTrue(d.vault.transformerAllowList(address(d.autoRange)));
@@ -487,7 +488,7 @@ contract AeroProtocolDeploymentTest is Test {
         assertEq(d.gaugeManager.tokenIdToGauge(id), address(0));
     }
 
-    function testTinyCbBtcCompoundRevertsAtomicallyAndPrincipalCanExit() public {
+    function testTinyCbBtcCompoundRetainsDustAndPrincipalCanExit() public {
         _activate();
         uint256 id = _mint(script.collateralPools()[2]);
         vm.prank(ALICE);
@@ -497,15 +498,25 @@ contract AeroProtocolDeploymentTest is Test {
         assertGt(rewards, 0);
         address gauge = d.gaugeManager.tokenIdToGauge(id);
         vm.prank(ALICE);
-        vm.expectRevert();
-        d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp);
-        assertEq(d.gaugeManager.positionRewards(id), rewards);
+        (uint256 claimed, uint256 added0, uint256 added1) = d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp);
+        assertEq(claimed, rewards);
+        assertEq(added0 + added1, 0);
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), gauge);
-        uint256 beforeReward = IERC20(AERO).balanceOf(ALICE);
-        vm.prank(ALICE);
+        (,, address token0, address token1,,,,,,,,) = INonfungiblePositionManager(NPM).positions(id);
+        uint256 saved0 = d.autoRange.positionBalances(id, token0);
+        uint256 saved1 = d.autoRange.positionBalances(id, token1);
+        assertGt(saved0 + saved1, 0);
+        assertEq(d.autoRange.positionBalances(0, token0) + d.autoRange.positionBalances(0, token1), 0);
+        uint256 before0 = IERC20(token0).balanceOf(ALICE);
+        uint256 before1 = IERC20(token1).balanceOf(ALICE);
+        vm.startPrank(ALICE);
         d.vault.remove(id, ALICE, "");
+        d.autoRange.withdrawLeftoverBalances(id, ALICE);
+        vm.stopPrank();
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), ALICE);
-        assertGt(IERC20(AERO).balanceOf(ALICE), beforeReward);
+        assertGe(IERC20(token0).balanceOf(ALICE) - before0, saved0);
+        assertGe(IERC20(token1).balanceOf(ALICE) - before1, saved1);
+        assertEq(d.autoRange.positionBalances(id, token0) + d.autoRange.positionBalances(id, token1), 0);
     }
 
     function testAutoRangeReplacesStakedCollateralAndPreservesLoan() public {

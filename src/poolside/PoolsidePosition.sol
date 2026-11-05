@@ -162,7 +162,7 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     }
 
     /// @notice User escape path: no keeper authorization or price-trigger requirement.
-    /// Immediate/deferred rewards are separately claimable; reward redemption is never required here.
+    /// Available saved balances are paid in kind; deferred reward redemption is never required here.
     function withdraw() external {
         withdrawTo(beneficiary);
     }
@@ -171,6 +171,10 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     function withdrawTo(address recipient) public nonReentrant onlyBeneficiary {
         _prepareExit();
         _finishExit(false);
+        _claimNative();
+        _claimToken(token0);
+        _claimToken(token1);
+        _claimToken(manager.aeroToken());
         npm.safeTransferFrom(address(this), recipient, tokenId);
     }
 
@@ -234,10 +238,11 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         if (state != State.Exiting) revert InvalidState();
         _finishExit(true);
         // AutoExit unwraps WETH. Return wrapped native currency to avoid requiring a payable beneficiary.
-        // Rewards in other tokens stay independently claimable, including after registry removal.
+        // Pay available receipt rewards too; later deferred deliveries remain independently claimable.
         _claimNative();
         _claimToken(token0);
         if (token1 != token0) _claimToken(token1);
+        _claimToken(manager.aeroToken());
     }
 
     function _prepareExit() private {
@@ -249,6 +254,7 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         vault.approveTransform(tokenId, address(automation), false);
         // The holder exposes no borrow or generic transform function. Vault.remove independently checks no debt.
         vault.remove(tokenId, address(this), "");
+        automation.withdrawLeftoverBalances(tokenId, address(this));
     }
 
     function _finishExit(bool automated) private {
