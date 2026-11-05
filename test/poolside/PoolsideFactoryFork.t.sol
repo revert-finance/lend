@@ -370,7 +370,7 @@ contract PoolsideFactoryForkTest is Test {
             uint256 received = holder.withdrawToAsset(instructions, 1e6);
             assertGt(received, 1e6);
             assertEq(t1.balanceOf(ALICE) - beforeUsdc, received);
-            assertGt(t0.balanceOf(ALICE), beforeWeth);
+            assertEq(t0.balanceOf(ALICE), beforeWeth);
             assertEq(t0.balanceOf(address(holder)), 0);
             assertEq(t1.balanceOf(address(holder)), 0);
             assertEq(t0.balanceOf(UTILS.universalRouter()), 0);
@@ -408,10 +408,10 @@ contract PoolsideFactoryForkTest is Test {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
         V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
         vm.prank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.withdrawToAsset(instructions, 1);
         vm.prank(OPERATOR);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.withdrawToAsset(instructions, 1);
         vm.startPrank(ALICE);
         holder.withdrawToAsset(instructions, 1);
@@ -478,14 +478,14 @@ contract PoolsideFactoryForkTest is Test {
         uint256 beforeToken = input.balanceOf(ALICE);
         uint256 beforeReward = reward.balanceOf(ALICE);
         V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
-        // Unspent quote input is returned in kind, alongside pre-existing balances and delivered rewards.
+        // Unspent quote input, native refunds and available rewards are converted before payment.
         instructions.swapData0 = "";
         vm.prank(ALICE);
         uint256 received = holder.withdrawToAsset(instructions, 1);
         assertEq(asset.balanceOf(ALICE) - beforeAsset, received);
         assertGt(received, 123e6);
-        assertGt(input.balanceOf(ALICE) - beforeToken, 1 ether);
-        assertEq(reward.balanceOf(ALICE) - beforeReward, 3e18);
+        assertEq(input.balanceOf(ALICE), beforeToken);
+        assertEq(reward.balanceOf(ALICE), beforeReward);
         assertEq(asset.balanceOf(address(holder)), 0);
         assertEq(input.balanceOf(address(holder)), 0);
         assertEq(reward.balanceOf(address(holder)), 0);
@@ -498,6 +498,143 @@ contract PoolsideFactoryForkTest is Test {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         _execute(id);
         _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_ExitSettlementCannotBeCalledOrFundedThroughForgedCallback() public {
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 t0 = IERC20(POOL.token0());
+        deal(address(t0), address(holder), 1 ether);
+        vm.prank(BOB);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.settleTokenToAsset(t0);
+        vm.prank(ALICE);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.settleTokenToAsset(t0);
+        // Even the real pool cannot debit the holder outside its own in-flight settlement swap.
+        vm.prank(address(POOL));
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.uniswapV3SwapCallback(1 ether, -1, "");
+        assertEq(t0.balanceOf(address(holder)), 1 ether);
+    }
+
+    function test_AutoExitSettlesLeftoversNativeAndRewardsWithoutClaimingDeferred() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, true);
+        vm.roll(MANAGER.penaltyWindowEnd(id));
+        IERC20 t0 = IERC20(POOL.token0());
+        IERC20 asset = IERC20(VAULT.asset());
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(t0), address(holder), 1e14);
+        deal(address(asset), address(holder), 12e6);
+        deal(address(reward), address(holder), 1e16);
+        vm.deal(address(holder), 1e14);
+        _rootLiability(holder, 7e18, false);
+        uint256 before0 = t0.balanceOf(ALICE);
+        uint256 beforeAsset = asset.balanceOf(ALICE);
+        uint256 beforeReward = reward.balanceOf(ALICE);
+        _execute(id);
+        assertEq(t0.balanceOf(ALICE), before0);
+        assertEq(reward.balanceOf(ALICE), beforeReward);
+        assertGt(asset.balanceOf(ALICE), beforeAsset + 12e6);
+        assertEq(t0.balanceOf(address(holder)), 0);
+        assertEq(asset.balanceOf(address(holder)), 0);
+        assertEq(reward.balanceOf(address(holder)), 0);
+        assertEq(address(holder).balance, 0);
+        assertEq(MANAGER.rootDeferredRewards(address(holder)), 7e18);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_MissingRewardRouteReturnsRewardInKindAndStillSettlesPrincipal() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(reward), address(holder), 1e18);
+        MANAGER.setRewardBasePool(VAULT.asset(), address(0));
+        uint256 before = reward.balanceOf(ALICE);
+        uint256 usdcBefore = IERC20(VAULT.asset()).balanceOf(ALICE);
+        _execute(id);
+        assertEq(reward.balanceOf(ALICE) - before, 1e18);
+        assertGt(IERC20(VAULT.asset()).balanceOf(ALICE), usdcBefore);
+        assertEq(reward.balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_TwapFailureReturnsProceedsInKindWithoutBlockingExit() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        // An absent observation must not allow a zero-minimum swap or trap the NFT/proceeds.
+        vm.mockCall(address(POOL), abi.encodeWithSelector(POOL.observe.selector), bytes(""));
+        uint256 before = IERC20(POOL.token0()).balanceOf(ALICE);
+        _execute(id);
+        assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before);
+        assertEq(IERC20(POOL.token0()).balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_SubUnitDustReturnsInKindOnUsdcWithdrawal() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
+        deal(POOL.token0(), address(holder), 1);
+        uint256 before = IERC20(POOL.token0()).balanceOf(ALICE);
+        V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
+        vm.prank(ALICE);
+        holder.withdrawToAsset(instructions, 1e6);
+        assertEq(IERC20(POOL.token0()).balanceOf(ALICE) - before, 1);
+        assertEq(IERC20(POOL.token0()).balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_PartialSettlementRevertsConversionAndReturnsFullInput() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        // A pool claiming output without full input consumption/delivery must not make settlement succeed.
+        vm.mockCall(
+            address(POOL),
+            abi.encodeWithSelector(bytes4(keccak256("swap(address,bool,int256,uint160,bytes)"))),
+            abi.encode(int256(1), -int256(1))
+        );
+        uint256 before = IERC20(POOL.token0()).balanceOf(ALICE);
+        _execute(id);
+        assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before);
+        assertEq(IERC20(POOL.token0()).balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_HolderAndCreationLibraryRemainDeployable() public {
+        (, PoolsidePosition holder) = _create(ALICE, false, false);
+        assertLe(address(holder).code.length, 24576);
+        assertLe(address(factory).code.length, 24576);
+        assertLe(address(PoolsidePositionDeployer).code.length, 24576);
+        assertLe(type(PoolsideFactory).creationCode.length, 49152);
+    }
+
+    function test_TwoHopSettlementUsesOnlyNewIntermediateRewards() public {
+        // Isolate the conversion helper without a position pair, exercising the configured base-token route.
+        PoolsidePosition holder =
+            new PoolsidePosition(ALICE, PoolsidePosition.Bindings(UTILS, VAULT, MANAGER, RANGE, EXIT));
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(input), address(holder), 1e14);
+        deal(address(reward), address(holder), 3e18);
+        vm.prank(address(holder));
+        holder.settleTokenToAsset(input);
+        assertEq(input.balanceOf(address(holder)), 0);
+        assertEq(reward.balanceOf(address(holder)), 3e18);
+        assertGt(IERC20(VAULT.asset()).balanceOf(address(holder)), 0);
+    }
+
+    function test_TwoHopFailureRollsBackFirstHopAndPreservesOtherBalances() public {
+        PoolsidePosition holder =
+            new PoolsidePosition(ALICE, PoolsidePosition.Bindings(UTILS, VAULT, MANAGER, RANGE, EXIT));
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(input), address(holder), 1e14);
+        deal(address(reward), address(holder), 3e18);
+        MANAGER.setRewardBasePool(VAULT.asset(), address(0));
+        vm.prank(address(holder));
+        vm.expectRevert(Constants.InvalidPool.selector);
+        holder.settleTokenToAsset(input);
+        assertEq(input.balanceOf(address(holder)), 1e14);
+        assertEq(reward.balanceOf(address(holder)), 3e18);
+        assertEq(IERC20(VAULT.asset()).balanceOf(address(holder)), 0);
+        vm.prank(address(POOL));
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.uniswapV3SwapCallback(1, -1, "");
     }
 
     function _clearPoolTokenOracleConfig() internal {
@@ -615,7 +752,7 @@ contract PoolsideFactoryForkTest is Test {
         assertEq(factory.activeHolder(id), address(0));
         assertEq(npm.ownerOf(id), address(holder));
         assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Closed));
-        assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before0);
+        assertEq(IERC20(POOL.token0()).balanceOf(ALICE), before0);
         assertGt(IERC20(POOL.token1()).balanceOf(ALICE), before1);
         assertEq(address(holder).balance, 0);
     }
@@ -665,17 +802,17 @@ contract PoolsideFactoryForkTest is Test {
     function test_UnknownUserCannotWithdrawOrChangeConsentOrClaim() public {
         (, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.withdraw();
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.withdrawTo(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimNFT(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.setStakingManagement(false);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimRootDeferredRewards();
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimNative();
         vm.stopPrank();
     }
@@ -683,9 +820,9 @@ contract PoolsideFactoryForkTest is Test {
     function test_OnlyFactoryCanPrepareOrFinishExit() public {
         (, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(OPERATOR);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.prepareAutoExit();
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.finishAutoExit();
         vm.stopPrank();
     }
@@ -913,7 +1050,7 @@ contract PoolsideFactoryForkTest is Test {
         IERC20[] memory tokens = new IERC20[](1);
         tokens[0] = asset;
         vm.prank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         aliceHolder.claimTokens(tokens);
         vm.prank(ALICE);
         aliceHolder.withdraw();
@@ -985,7 +1122,7 @@ contract PoolsideFactoryForkTest is Test {
     function test_UserCanPauseExitWithoutRemovingPosition() public {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.setAutoExitEnabled(false);
         vm.prank(ALICE);
         holder.setAutoExitEnabled(false);
@@ -1031,7 +1168,7 @@ contract PoolsideFactoryForkTest is Test {
         _execute(id);
         assertEq(factory.activeHolder(id), address(0));
         assertEq(npm.ownerOf(id), address(receiver.holder()));
-        assertGt(p.token0.balanceOf(address(receiver)), before0);
+        assertEq(p.token0.balanceOf(address(receiver)), before0);
         assertGt(p.token1.balanceOf(address(receiver)), before1);
         vm.expectRevert(bytes("reject NFT"));
         receiver.claimNFT(address(receiver));
@@ -1075,13 +1212,13 @@ contract PoolsideFactoryForkTest is Test {
         assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Closed));
         (,,,,,,, uint128 liquidity,,,,) = npm.positions(id);
         assertEq(uint256(liquidity), 0);
-        assertGt(p.token0.balanceOf(address(user)), before0);
+        assertEq(p.token0.balanceOf(address(user)), before0);
         assertGt(p.token1.balanceOf(address(user)), before1);
         assertEq(npm.getApproved(id), address(0));
         (bool active,,,,,,,,) = EXIT.positionConfigs(id);
         assertFalse(active);
         vm.prank(OPERATOR);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimNFT(OPERATOR);
         user.claimNFT(ALICE);
         assertEq(npm.ownerOf(id), ALICE);

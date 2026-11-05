@@ -6,6 +6,38 @@ V3Vault version that skips collateral-health valuation when final debt is zero; 
 do not have that exception. GaugeManager, V3Utils, AutoRangeAndCompound and AutoExit logic is unchanged.
 This version is not included in the existing Cantina scan pinned to `b16c84df570fe5956e5749e94b8572e3195fa5e9`.
 
+## Exit settlement update (2026-11-05)
+
+This version adds **exit-time conversion only**. Compounding, fee charging, NFT/range management,
+keeper permissions and deferred-reward claims are unchanged. Leftovers remain in the holder until exit;
+there is no new reinvestment function or automatic late-reward settlement. Existing positions are tests;
+this release does not migrate them. Before broadcasting, prepare the factory deployment against the current
+verified suite: the existing standalone factory script is still pinned to the older 2026-10-29 stack and
+must not be reused unchanged for this release.
+
+Both manual USDC withdrawal and AutoExit now attempt to convert available token0, token1, WETH/native
+refunds and delivered reward tokens to the vault asset before paying the fixed beneficiary. Each token's
+conversion is atomic and best-effort: if a route is unavailable, TWAP/history is invalid, output rounds to
+zero, the swap only partially fills, or execution exceeds its price limit, the complete conversion for
+that token rolls back and the original token is returned in kind. This fallback is not necessarily tiny
+dust: **USDC-only payout is not guaranteed when conversion is unsafe or unavailable.** Principal is not
+held waiting for a quote, and the existing beneficiary NFT withdrawal escape remains available.
+
+Routes cannot be supplied by a keeper: a position token trades directly through its NFT's pool when the
+other token is the asset; otherwise the configured GaugeManager reward-base pools provide a path through
+the reward token. Each hop authenticates the factory/pair, uses AutoExit's current TWAP duration and maximum
+tick deviation, and caps execution loss at 1% of the pre-swap spot quote, including pool fees. A two-hop
+route has a per-hop limit, not a 1% end-to-end limit. Full input consumption and actual output balances are
+checked. The callback only pays an authenticated in-flight pool once, up to the specified input. No new
+application swap/reinvestment fee is charged; existing AutoExit fees and underlying DEX fees still apply.
+
+`PoolsidePositionDeployer` is a linked Solidity library containing holder creation code, required to keep
+both factory and creation library below Base's 24,576-byte runtime limit. Its delegatecall executes CREATE
+in the factory context, preserving the holder's immutable registry. It has no storage writes or configurable
+target. Deploy and verify this library and the replacement factory; no existing protocol contract needs
+redeployment for this change. `Swapper` only gains a virtual callback annotation so this holder can enforce
+the stricter callback scope; existing inheritors retain the same callback implementation.
+
 ## Purpose and scope
 
 A user creates a fresh Aero position, enables managed staking and selects an AutoExit rule in one transaction.
@@ -95,7 +127,7 @@ For automated exit, an existing AutoExit operator calls `factory.executeExit(par
    checks and liquidity-removal bounds remain enforced. The existing keeper remains trusted for parameters the
    existing AutoExit delegates to it; this adapter does not strengthen those underlying trust assumptions.
 4. Clears any remaining exit configuration and NFT approval, closes the registry entry, retains the emptied NFT,
-   and sends token0/token1 proceeds to the fixed beneficiary. Native proceeds are wrapped into WETH before payment.
+   and settles available balances through the fixed routes above before paying the beneficiary. Native proceeds are wrapped into WETH before conversion.
    Only the beneficiary can later retrieve the NFT through `holder.claimNFT(recipient)`.
 
 All four steps are one transaction. A failed trigger, swap or proceeds settlement restores custody,
@@ -129,9 +161,9 @@ V3Utils recipient. The beneficiary supplies the existing V3Utils swap quote byte
 deadline. `minAssets` bounds the newly received USDC from that operation; pre-existing balances and any
 withdrawal-time reward delivery cannot pad that minimum. Failure restores custody, permissions and accounting.
 
-The exit also forwards all available USDC, token0/token1 leftovers, WETH (including wrapped native ETH) and
-delivered GaugeManager reward tokens to the beneficiary. Leftovers/rewards are paid in kind, not necessarily
-converted to USDC. Deferred rewards not delivered yet and unrelated accidentally transferred tokens remain
+The exit also attempts conversion of available token0/token1 leftovers, WETH (including wrapped native ETH)
+and delivered GaugeManager reward tokens, then forwards all USDC to the beneficiary. An unsafe or unavailable
+conversion returns its original input in kind and emits `UnconvertedBalance(token, amount)`. Deferred rewards not delivered yet and unrelated accidentally transferred tokens remain
 recoverable through the existing claim functions. The emptied NFT remains separately recoverable using
 `claimNFT(recipient)`; beneficiaries without an ERC721 receiver can still receive their USDC.
 
@@ -148,7 +180,11 @@ both position-token balances at Universal Router immediately before execution an
 exit. The aggregate USDC minimum remains enforced separately. This is a net-balance guard for the two position
 tokens, not validation of arbitrary router commands, recipients, intermediate tokens or native ETH; quote
 construction and appropriate output minima remain required.
-This protocol change does not modify the frontend or quote service.
+The added balance settlement uses direct pool swaps and accepts no router calldata. The existing beneficiary-supplied
+V3Utils NFT withdrawal quote, router input-refund guards and `minAssets` check remain unchanged; that minimum is
+checked before leftover settlement, so existing balances cannot mask a failed NFT conversion. The returned `assets`
+is the total USDC paid, including existing USDC and successful leftover conversions. This protocol change does not
+modify the frontend or quote service.
 
 AutoExit pays proceeds without delivering its emptied NFT. The closed holder retains it until the beneficiary
 calls `holder.claimNFT(recipient)`; a failed retrieval cannot undo the earlier exit or proceeds payment. Neither
@@ -160,6 +196,22 @@ beneficiary. These functions work after closure. An unfunded or failing deferred
 principal withdrawal. Other users and operators cannot claim a holder's balances or redirect claim proceeds.
 The immutable manager performs the actual deferred-accounting/funding checks; these functions do not manufacture
 liabilities or advance funds.
+
+## Bot and frontend handoff
+
+- Keep the existing `withdrawToAsset(instructions, minAssets)` and `factory.executeExit(params)` ABIs.
+  Settlement runs inside the exit transaction; do not add a recycling call, extra user approval or quote
+  for holder leftovers. Existing NFT/AutoExit quote requirements still apply.
+- Continue tracking holder balances while active, without presenting them as reinvested liquidity.
+- Read `AssetSettled(beneficiary, amount)` for total USDC paid and `UnconvertedBalance(token, amount)` for
+  in-kind fallback balances, alongside the existing `TokensClaimed` events. Do not count these overlapping
+  events twice when recording withdrawals. Show non-USDC payouts explicitly rather than claiming all sold.
+- Rewards unavailable at exit are excluded from settlement. Keep historical holder addresses and existing
+  beneficiary claim paths after closure; do not present deferred rewards as paid. Automatic late recovery
+  and conversion is intentionally deferred, and no new keeper claim permission is granted here.
+- Deploy the linked creation library plus a replacement factory, authorize that factory in AutoExit, and
+  integrate only the verified new factory address. The old holders are immutable. No production migration
+  or on-chain deployment has been performed as part of this PR.
 
 ## Tracking
 
@@ -173,6 +225,18 @@ position from its active list, while still offering a separate way to recover an
 `holder.beneficiary()` resolves the end user; the vault's `ownerOf` resolves the holder, not the end user.
 
 ## Validation
+
+Validation on 2026-11-05: 70 Poolside Base-fork tests, four shared swap-math tests and one slot0
+regression passed. A factory/library deployment rehearsal at historical Base block 53269048 succeeded
+without broadcasting. Mocked verification transport accepted the real dry-run initcode and rejected
+altered initcode; no source was uploaded. Runtime sizes: holder 19,685 bytes, creation library 21,884,
+factory 7,151 (each below 24,576). This rehearsal does not verify current production ownership/configuration.
+
+Exit-settlement regressions cover both starting custody states, pre-existing USDC/position tokens/native
+ETH/delivered rewards, missing routes, unsafe or absent TWAP history, sub-unit dust, partial fills,
+unauthorized helper/callback calls, isolated two-hop accounting/rollback, deferred claims remaining intact,
+non-receiver beneficiaries, and EIP-170/EIP-3860 deployment size limits.
+
 
 ```bash
 # BASE_RPC_URL must be a Base RPC with historical state support; no signing keys are needed.

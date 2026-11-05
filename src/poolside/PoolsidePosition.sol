@@ -18,7 +18,7 @@ interface IPoolsideRegistry {
 /// @notice DRAFT: one non-transferable beneficiary, one freshly minted NFT, no borrowing.
 /// @dev The vault and GaugeManager see this address as owner. A separate address per position also isolates
 /// rewards that GaugeManager aggregates by owner rather than tokenId. Closed holders remain usable for claims.
-contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
+contract PoolsidePosition is IERC721Receiver, ReentrancyGuard, Swapper {
     using SafeERC20 for IERC20;
 
     enum State {
@@ -45,7 +45,11 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     GaugeManager public immutable manager;
     AutoRangeAndCompound public immutable automation;
     AutoExit public immutable autoExit;
-    IWETH9 public immutable weth;
+
+    // Only an in-flight, holder-initiated swap may spend holder funds through a pool callback.
+    address private settlementPool;
+    IERC20 private settlementInput;
+    uint256 private settlementAmount;
 
     State public state;
     uint256 public tokenId;
@@ -53,7 +57,6 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     IERC20 public token1;
     bool public autoExitEnabled;
 
-    error Unauthorized();
     error InvalidState();
     error InvalidNFT();
     error InsidePenaltyWindow();
@@ -64,8 +67,16 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     event AutoExitChanged(bool enabled);
     event Withdrawn(uint256 indexed tokenId, address indexed beneficiary, bool automated);
     event TokensClaimed(address indexed token, uint256 amount);
+    event UnconvertedBalance(address indexed token, uint256 amount);
+    event AssetSettled(address indexed beneficiary, uint256 amount);
 
-    constructor(address _beneficiary, Bindings memory bindings) {
+    constructor(address _beneficiary, Bindings memory bindings)
+        Swapper(
+            bindings.utils.nonfungiblePositionManager(),
+            bindings.utils.universalRouter(),
+            bindings.utils.zeroxAllowanceHolder()
+        )
+    {
         require(_beneficiary != address(0), "zero beneficiary");
         registry = IPoolsideRegistry(msg.sender);
         beneficiary = _beneficiary;
@@ -75,7 +86,6 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         automation = bindings.automation;
         autoExit = bindings.autoExit;
         npm = bindings.utils.nonfungiblePositionManager();
-        weth = bindings.utils.weth();
     }
 
     modifier onlyBeneficiary() {
@@ -205,11 +215,7 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
         assets = asset.balanceOf(address(this));
         if (assets - beforeBalance < minAssets) revert InsufficientAssets();
         _finishExit(false);
-        _claimToken(asset);
-        _claimToken(token0);
-        _claimToken(token1);
-        _claimNative();
-        _claimToken(manager.aeroToken());
+        assets = _settleBalances();
     }
 
     /// @notice Retrieve the empty NFT retained after an asset exit or AutoExit independently of proceeds delivery.
@@ -233,11 +239,107 @@ contract PoolsidePosition is IERC721Receiver, ReentrancyGuard {
     function finishAutoExit() external nonReentrant onlyRegistry {
         if (state != State.Exiting) revert InvalidState();
         _finishExit(true);
-        // AutoExit unwraps WETH. Return wrapped native currency to avoid requiring a payable beneficiary.
-        // Rewards in other tokens stay independently claimable, including after registry removal.
-        _claimNative();
-        _claimToken(token0);
-        if (token1 != token0) _claimToken(token1);
+        _settleBalances();
+    }
+
+    /// @dev Each token's entire conversion is isolated. A missing route, dust, partial fill or unsafe price
+    /// returns that token in kind instead of blocking principal exit. Deferred claims are not attempted here.
+    function _settleBalances() private returns (uint256 assets) {
+        if (address(this).balance != 0) weth.deposit{value: address(this).balance}();
+        IERC20 asset = IERC20(vault.asset());
+        _settleToken(token0, asset);
+        _settleToken(token1, asset);
+        _settleToken(IERC20(address(weth)), asset);
+        _settleToken(manager.aeroToken(), asset);
+        assets = asset.balanceOf(address(this));
+        _claimToken(asset);
+        emit AssetSettled(beneficiary, assets);
+    }
+
+    function _settleToken(IERC20 token, IERC20 asset) private {
+        if (token == asset || token.balanceOf(address(this)) == 0) return;
+        try this.settleTokenToAsset(token) {}
+        catch {
+            emit UnconvertedBalance(address(token), token.balanceOf(address(this)));
+        }
+        _claimToken(token);
+    }
+
+    /// @notice Internal atomic conversion boundary; neither operators nor beneficiaries may call directly.
+    /// No arbitrary routes, calldata, recipients, approvals or per-call price limits are accepted.
+    function settleTokenToAsset(IERC20 token) external {
+        if (msg.sender != address(this)) revert Unauthorized();
+        IERC20 asset = IERC20(vault.asset());
+        if ((token == token0 && asset == token1) || (token == token1 && asset == token0)) {
+            (,,,, uint24 spacing,,,,,,,) = npm.positions(tokenId);
+            _settlementSwap(
+                token,
+                asset,
+                address(_getPool(address(token0), address(token1), spacing)),
+                token.balanceOf(address(this))
+            );
+        } else {
+            IERC20 reward = manager.aeroToken();
+            uint256 amount = token.balanceOf(address(this));
+            if (token != reward) {
+                amount = _settlementSwap(token, reward, manager.rewardBasePools(address(token)), amount);
+            }
+            if (reward != asset) _settlementSwap(reward, asset, manager.rewardBasePools(address(asset)), amount);
+        }
+    }
+
+    function _settlementSwap(IERC20 input, IERC20 output, address poolAddress, uint256 amount)
+        private
+        returns (uint256 received)
+    {
+        if (poolAddress == address(0) || amount == 0 || amount > uint256(type(int256).max)) {
+            revert InvalidPool();
+        }
+        IUniswapV3Pool pool = IUniswapV3Pool(poolAddress);
+        IERC20 t0 = IERC20(pool.token0());
+        IERC20 t1 = IERC20(pool.token1());
+        uint24 spacing = uint24(IAerodromeSlipstreamPool(poolAddress).tickSpacing());
+        if (
+            !((input == t0 && output == t1) || (input == t1 && output == t0))
+                || address(_getPool(address(t0), address(t1), spacing)) != poolAddress
+        ) revert InvalidPool();
+        (uint160 price, int24 tick) = _getPoolSlot0(pool);
+        // Reuse the existing exit TWAP policy; cap execution loss at 1% per hop (including pool fees).
+        uint256 minimum = _validateSwap(
+            input == t0,
+            amount,
+            pool,
+            tick,
+            price,
+            autoExit.TWAPSeconds(),
+            autoExit.maxTWAPTickDifference(),
+            uint64(Q64 / 100)
+        );
+        if (minimum == 0) revert InsufficientAssets();
+        uint256 beforeInput = input.balanceOf(address(this));
+        uint256 beforeOutput = output.balanceOf(address(this));
+        settlementPool = poolAddress;
+        settlementInput = input;
+        settlementAmount = amount;
+        (uint256 spent,) = _poolSwap(PoolSwapParams(pool, t0, t1, spacing, input == t0, amount, minimum));
+        settlementPool = address(0);
+        settlementInput = IERC20(address(0));
+        settlementAmount = 0;
+        received = output.balanceOf(address(this)) - beforeOutput;
+        if (spent != amount || beforeInput - input.balanceOf(address(this)) != amount || received < minimum) {
+            revert SlippageError();
+        }
+    }
+
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata) external override {
+        if (msg.sender != settlementPool || settlementPool == address(0)) revert Unauthorized();
+        bool zeroForOne = address(settlementInput) == IUniswapV3Pool(msg.sender).token0();
+        int256 owed = zeroForOne ? amount0Delta : amount1Delta;
+        if (owed <= 0 || uint256(owed) > settlementAmount || (zeroForOne ? amount1Delta : amount0Delta) > 0) {
+            revert InvalidConfig();
+        }
+        settlementPool = address(0); // A callback may pay once, and only up to the requested input.
+        settlementInput.safeTransfer(msg.sender, uint256(owed));
     }
 
     function _prepareExit() private {
