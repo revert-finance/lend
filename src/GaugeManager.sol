@@ -19,6 +19,7 @@ import "./interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 import "./interfaces/aero/IAeroGauge.sol";
 import "./utils/Swapper.sol";
 import "./utils/AeroRewardDelivery.sol";
+import "./utils/CompoundOutcome.sol";
 
 /// @notice Vault-only Aero staking adapter. Deferred rewards belong to the economic owner at withdrawal.
 /// @dev A batch comprises one gauge's deferrals since its previous successful recovery. Recovery reserves
@@ -318,9 +319,10 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         uint256 tokenId,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
-        uint256 deadline
+        uint256 deadline,
+        bool force
     ) external override nonReentrant returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
-        return _compoundRewards(tokenId, _requireVaultOrOwner(tokenId), minAeroReward, aeroSplitBps, deadline);
+        return _compoundRewards(tokenId, _requireVaultOrOwner(tokenId), minAeroReward, aeroSplitBps, deadline, force);
     }
 
     /// @notice Vault-only transform helper (compound-only policy): compound a staked position's rewards, then unstake.
@@ -332,14 +334,15 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         bool strict,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
-        uint256 deadline
+        uint256 deadline,
+        bool force
     ) external override nonReentrant returns (bool wasStaked) {
         _requireVaultCaller();
         if (tokenIdToGauge[tokenId] == address(0)) {
             return false;
         }
         if (strict) {
-            _compoundRewards(tokenId, vault.ownerOf(tokenId), minAeroReward, aeroSplitBps, deadline);
+            _compoundRewards(tokenId, vault.ownerOf(tokenId), minAeroReward, aeroSplitBps, deadline, force);
         } else {
             try this.compoundForVaultTransform(tokenId) {} catch {}
         }
@@ -350,7 +353,7 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
     /// vault entrypoint holds the lock, and nobody else can call this.
     function compoundForVaultTransform(uint256 tokenId) external {
         if (msg.sender != address(this)) revert OnlySelf();
-        _compoundRewards(tokenId, vault.ownerOf(tokenId), 0, 5000, block.timestamp);
+        _compoundRewards(tokenId, vault.ownerOf(tokenId), 0, 5000, block.timestamp, false);
     }
 
     function _compoundRewards(
@@ -358,7 +361,8 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         address owner,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
-        uint256 deadline
+        uint256 deadline,
+        bool force
     ) internal returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) {
         if (aeroSplitBps > 10_000) {
             revert InvalidConfig();
@@ -384,6 +388,11 @@ contract GaugeManager is Ownable2Step, ReentrancyGuard, IERC721Receiver, Swapper
         _withdrawFromGauge(state.gauge, tokenId, state.owner);
         state = _swapAeroForPosition(state, aeroSplitBps);
         state = _addLiquidity(state, tokenId, deadline);
+        if (!force) {
+            CompoundOutcome.check(state.aeroAmount, state.spentAero);
+            CompoundOutcome.check(state.amount0Out - state.rewardAmount0, state.amountAdded0);
+            CompoundOutcome.check(state.amount1Out - state.rewardAmount1, state.amountAdded1);
+        }
         uint256 token0BeforeDeposit = IERC20(state.token0).balanceOf(address(this));
         uint256 token1BeforeDeposit = IERC20(state.token1).balanceOf(address(this));
         nonfungiblePositionManager.approve(state.gauge, tokenId);

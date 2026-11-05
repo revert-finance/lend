@@ -46,7 +46,10 @@ fees remain. Request zero application fees in quote calldata; the holder cannot 
 both factory and creation library below Base's 24,576-byte runtime limit. Its delegatecall executes CREATE
 in the factory context, preserving the holder's immutable registry. It has no storage writes or configurable
 target. Deploy and verify this library and the replacement factory; no existing protocol contract needs
-redeployment for this change. `Swapper` only gains a virtual callback annotation so this holder can enforce
+redeployment for this change alone. The combined release also includes #115: its new compound ABI
+and outcome guard require the core redeployment described in `aero-compound-outcome-limit.md`.
+The full deployment verification expects ten contracts and three linked libraries (`VaultLib`,
+`AeroRewardDelivery`, and `PoolsidePositionDeployer`). `Swapper` only gains a virtual callback annotation so this holder can enforce
 a blanket rejection of holder pool callbacks; existing inheritors retain the same callback implementation.
 
 ## Purpose and scope
@@ -252,6 +255,12 @@ position from its active list, while still offering a separate way to recover an
 `holder.beneficiary()` resolves the end user; the vault's `ownerOf` resolves the holder, not the end user.
 
 ## Validation
+
+After merging #115 on 2026-11-05, **439 tests passed** across unit, Aero integration, Poolside
+and Base-fork suites (including 81 Poolside tests). The two upstream-fixture suites required
+`forge build --root fixtures/upstream-gauge` before their 15 tests could run; all passed.
+Production-size checks and targeted formatting passed. AutoRange remains 24,543 bytes
+and GaugeManager 23,914 bytes, unchanged from #115.
 
 Quote revision validation on 2026-11-05: **108 Base-fork tests passed** (78 Poolside, 17 fresh protocol
 deployment/binding, 10 gauge synchronization, 3 root settlement), plus **5 shared swap-math/slot0 tests**.

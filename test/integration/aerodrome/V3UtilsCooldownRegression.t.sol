@@ -109,7 +109,7 @@ contract V3UtilsCooldownRegression is AerodromeTestBase {
             minAeroReward: 0,
             aeroSplitBps: 0,
             deadline: block.timestamp + 1 hours,
-            stakeTarget: IVault.StakeTarget.Staked
+            stakeTarget: IVault.StakeTarget.Staked, force: true
         });
 
         // B: the first real operator custody decision records the cooldown timestamp for the old NFT.

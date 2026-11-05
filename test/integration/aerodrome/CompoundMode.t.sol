@@ -65,7 +65,8 @@ contract CompoundModeTest is AerodromeTestBase {
         autoRange.autoCompound(
             AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
-            })
+            }),
+            true
         );
     }
 
@@ -139,7 +140,7 @@ contract CompoundModeTest is AerodromeTestBase {
                     AutoRangeAndCompound.AutoCompoundParams({
                         tokenId: tokenId, swap0To1: true, amountIn: 0, deadline: block.timestamp + 1 hours
                     })
-                )
+                , true)
             )
         );
     }

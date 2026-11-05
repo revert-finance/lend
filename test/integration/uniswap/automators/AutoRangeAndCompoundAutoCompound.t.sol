@@ -27,7 +27,7 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
 
     function testNoAccess() external {
         vm.expectRevert(Constants.Unauthorized.selector);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp), true);
     }
 
     function testNoApprove() external {
@@ -35,7 +35,7 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
 
         vm.prank(OPERATOR_ACCOUNT);
         vm.expectRevert("Not approved");
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp), true);
     }
 
     function testCompoundNoSwap() external {
@@ -44,7 +44,7 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
         (,,,,,,, uint128 liquidityBefore,,,,) = NPM.positions(TEST_NFT_2);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 0, block.timestamp), true);
 
         (,,,,,,, uint128 liquidityAfter,,,,) = NPM.positions(TEST_NFT_2);
         assertGt(liquidityAfter, liquidityBefore);
@@ -56,7 +56,7 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
         (,,,,,,, uint128 liquidityBefore,,,,) = NPM.positions(TEST_NFT_2);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, true, 123456789012345678, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, true, 123456789012345678, block.timestamp), true);
 
         (,,,,,,, uint128 liquidityAfter,,,,) = NPM.positions(TEST_NFT_2);
         assertGt(liquidityAfter, liquidityBefore);
@@ -68,7 +68,7 @@ contract AutoRangeAndCompoundAutoCompoundTest is AutomatorIntegrationTestBase {
         (,,,,,,, uint128 liquidityBefore,,,,) = NPM.positions(TEST_NFT_2);
 
         vm.prank(OPERATOR_ACCOUNT);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 1234567890123456, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(TEST_NFT_2, false, 1234567890123456, block.timestamp), true);
 
         (,,,,,,, uint128 liquidityAfter,,,,) = NPM.positions(TEST_NFT_2);
         assertGt(liquidityAfter, liquidityBefore);

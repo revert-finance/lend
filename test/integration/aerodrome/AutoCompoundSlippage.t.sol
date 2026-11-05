@@ -74,7 +74,8 @@ contract AutoCompoundSlippageTest is AerodromeTestBase {
         autoRange.autoCompound(
             AutoRangeAndCompound.AutoCompoundParams({
                 tokenId: tokenId, swap0To1: true, amountIn: SWAP_IN, deadline: block.timestamp + 1 hours
-            })
+            }),
+            true
         );
     }
 
@@ -108,16 +109,132 @@ contract AutoCompoundSlippageTest is AerodromeTestBase {
         _compound();
     }
 
-    /// Unchanged behaviour: when the spot price deviates from the TWAP beyond the allowed ticks the swap is skipped
-    /// rather than reverted and the fees compound unswapped, so no output bound is evaluated.
-    function testTwapDeviationStillSkipsTheSwap() public {
+    /// A failed TWAP check reverts even with force: force only bypasses the leftover cap.
+    function testTwapDeviationRevertsEvenWithForce() public {
         _configure(uint64(Q64 / 100));
         pool.setOutputBps(9_000);
         pool.setTick(300); // observed TWAP tick stays 0: 300 > 200 allowed
         uint256 poolToken0Before = IERC20(token0).balanceOf(address(pool));
 
+        vm.expectRevert(TWAPCheckFailed.selector);
         _compound();
 
         assertEq(IERC20(token0).balanceOf(address(pool)), poolToken0Before, "no swap happened");
+    }
+
+    function _outcomeCompound(bool force, uint256 amountIn) internal {
+        vm.prank(admin);
+        autoRange.autoCompound(
+            AutoRangeAndCompound.AutoCompoundParams(tokenId, true, amountIn, block.timestamp + 1 hours), force
+        );
+    }
+
+    function testExcessiveLeftoverRevertsAtomically() public {
+        _configure(uint64(Q64 / 100));
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        uint256 ownerBefore = IERC20(token0).balanceOf(alice);
+        (,,,,,,, uint128 liquidityBefore,,,,) = npm.positions(tokenId);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        _outcomeCompound(false, 0);
+        (,,,,,,, uint128 liquidityAfter,,, uint128 owed0, uint128 owed1) = npm.positions(tokenId);
+        assertEq(liquidityAfter, liquidityBefore);
+        assertEq(owed0, FEES0);
+        assertEq(owed1, FEES1);
+        assertEq(IERC20(token0).balanceOf(alice), ownerBefore);
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), FEES0);
+        assertEq(IERC20(token0).allowance(address(autoRange), address(npm)), 0);
+    }
+
+    function testForcePreservesOwnerPayoutAndFeeAccounting() public {
+        _configure(uint64(Q64 / 100));
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        uint256 ownerBefore = IERC20(token0).balanceOf(alice);
+        uint256 fee = uint256(1e18) * autoRange.compoundRewardX64(tokenId) / Q64;
+        _outcomeCompound(true, 0);
+        assertEq(IERC20(token0).balanceOf(alice) - ownerBefore, FEES0 - 1e18 - fee);
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), fee);
+    }
+
+    function testHalfPercentBoundaryPasses() public {
+        _configure(0);
+        autoRange.setAutoCompoundRewards(0, 0);
+        npm.setNextIncreaseLiquidityResult(99.5e18, 99.5e18);
+        _outcomeCompound(false, 0);
+    }
+
+    function testAboveHalfPercentFailsForEitherToken() public {
+        _configure(0);
+        autoRange.setAutoCompoundRewards(0, 0);
+        npm.setNextIncreaseLiquidityResult(99.5e18 - 1, 100e18);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        _outcomeCompound(false, 0);
+        npm.setNextIncreaseLiquidityResult(100e18, 99.5e18 - 1);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        _outcomeCompound(false, 0);
+    }
+
+    function testOneSmallestUnitPassesForTinyCompound() public {
+        _configure(0);
+        autoRange.setAutoCompoundRewards(0, 0);
+        npm.setTokensOwed(tokenId, 100, 100);
+        npm.setNextIncreaseLiquidityResult(99, 99);
+        _outcomeCompound(false, 0);
+    }
+
+    function testTwoSmallestUnitsFailForTinyCompound() public {
+        _configure(0);
+        autoRange.setAutoCompoundRewards(0, 0);
+        npm.setTokensOwed(tokenId, 100, 100);
+        npm.setNextIncreaseLiquidityResult(98, 99);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        _outcomeCompound(false, 0);
+    }
+
+    function testStrictModeAllowsFullUtilizationAfterProtocolFee() public {
+        _configure(0);
+        _outcomeCompound(false, 0);
+        assertGt(IERC20(token0).balanceOf(address(autoRange)), 0, "protocol fee is not user leftover");
+    }
+
+    function testStrictModeRejectsRatioDriftDespiteSwapWithinSlippage() public {
+        _configure(uint64(Q64 / 100));
+        pool.setTick(20); // drift remains inside the TWAP tolerance
+        pool.setOutputBps(9_950); // execution price still clears the swap bound
+        // Model the changed ratio accepted by the NPM after the caller sized its swap.
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        _outcomeCompound(false, SWAP_IN);
+        _outcomeCompound(true, SWAP_IN);
+    }
+
+    function testStrictModeRejectsLeftoverAfterAllowedSwapImpact() public {
+        _configure(uint64(Q64 / 100));
+        pool.setOutputBps(9_950);
+        pool.setTickAfterSwap(20);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        _outcomeCompound(false, SWAP_IN);
+    }
+
+    function testForceDoesNotAuthorizeStranger() public {
+        _configure(0);
+        vm.prank(bob);
+        vm.expectRevert(Unauthorized.selector);
+        autoRange.autoCompound(
+            AutoRangeAndCompound.AutoCompoundParams(tokenId, true, 0, block.timestamp + 1), true
+        );
+    }
+
+    function testStrictModeAlsoRejectsFailedTWAP() public {
+        _configure(uint64(Q64 / 100));
+        pool.setTick(300);
+        vm.expectRevert(TWAPCheckFailed.selector);
+        _outcomeCompound(false, SWAP_IN);
+    }
+
+    function testProductionRuntimeSizes() public {
+        assertLe(address(autoRange).code.length, 24576, "AutoRange exceeds EIP-170");
+        assertLe(address(gaugeManager).code.length, 24576, "GaugeManager exceeds EIP-170");
+        assertLe(address(vault).code.length, 24576, "Vault exceeds EIP-170");
     }
 }

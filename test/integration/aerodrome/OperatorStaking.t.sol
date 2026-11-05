@@ -71,7 +71,7 @@ contract OperatorStakingTest is AerodromeTestBase {
     }
 
     function _payload(uint256 tokenId) internal view returns (bytes memory) {
-        return abi.encodeCall(AutoRangeAndCompound.autoCompound, (_params(tokenId)));
+        return abi.encodeCall(AutoRangeAndCompound.autoCompound, (_params(tokenId), true));
     }
 
     function _optIn(uint256 tokenId, bool managed) internal {
@@ -87,7 +87,7 @@ contract OperatorStakingTest is AerodromeTestBase {
 
     function _rewardParams(IVault.StakeTarget target) internal view returns (IVault.RewardCompoundParams memory) {
         return IVault.RewardCompoundParams({
-            minAeroReward: 0, aeroSplitBps: 0, deadline: block.timestamp + 1 hours, stakeTarget: target
+            minAeroReward: 0, aeroSplitBps: 0, deadline: block.timestamp + 1 hours, stakeTarget: target, force: true
         });
     }
 
@@ -246,7 +246,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         _optIn(tokenId, true);
         vm.prank(admin);
         vm.expectRevert(Unauthorized.selector);
-        autoRange.autoCompoundForStakeChange(_params(tokenId));
+        autoRange.autoCompoundForStakeChange(_params(tokenId), true);
     }
 
     function testStakeTargetEntrypointsAreOperatorOnly() public {
@@ -261,7 +261,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         vault.transformWithRewardCompound(
             tokenId,
             address(autoRange),
-            abi.encodeCall(AutoRangeAndCompound.autoCompound, (_params(tokenId))),
+            abi.encodeCall(AutoRangeAndCompound.autoCompound, (_params(tokenId), true)),
             _rewardParams(IVault.StakeTarget.Staked)
         );
     }
@@ -458,7 +458,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         uint256 aliceAeroBefore = aero.balanceOf(alice);
 
         vm.prank(admin);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault), true);
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(wethUsdcGauge), "restaked");
         assertEq(aero.balanceOf(alice), aliceAeroBefore, "rewards compounded, not paid out");
@@ -473,7 +473,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         usdcDaiGauge.setMintFails(true);
 
         vm.prank(admin);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault), true);
 
         // the unstake deferred the failed mint to the owner and the transform still completed and restaked
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
@@ -540,20 +540,20 @@ contract OperatorStakingTest is AerodromeTestBase {
 
         vm.prank(admin);
         vm.expectRevert(NotReady.selector);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault), true);
         _assertUntouchedInGauge(tokenId, windowEnd);
 
         // still refused on the last block of the window
         vm.roll(windowEnd - 1);
         vm.prank(admin);
         vm.expectRevert(NotReady.selector);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault), true);
         _assertUntouchedInGauge(tokenId, windowEnd);
 
         // from penaltyWindowEnd on the transform runs: rewards are compounded, nothing is paid out, position restaked
         vm.roll(windowEnd);
         vm.prank(admin);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault), true);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "restaked");
         assertEq(usdcDaiGauge.rewards(tokenId), 0, "rewards compounded");
         assertEq(aero.balanceOf(alice), aliceAeroBefore, "nothing paid out");
@@ -617,7 +617,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
 
         vm.prank(admin);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(vault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(vault), true);
         assertEq(npm.ownerOf(tokenId), address(vault), "stays unstaked");
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(0));
     }
@@ -627,7 +627,7 @@ contract OperatorStakingTest is AerodromeTestBase {
         (V3Vault bareVault, uint256 tokenId) = _bareVaultPosition();
 
         vm.prank(admin);
-        autoRange.autoCompoundWithVault(_params(tokenId), address(bareVault));
+        autoRange.autoCompoundWithVault(_params(tokenId), address(bareVault), true);
         assertEq(npm.ownerOf(tokenId), address(bareVault));
     }
 
@@ -644,5 +644,111 @@ contract OperatorStakingTest is AerodromeTestBase {
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge), "restaked");
         assertEq(aero.balanceOf(alice), aliceAeroBefore + 7e18, "rewards paid out, not compounded");
+    }
+
+    function testStrictStakeChangeRollsBackAndForcePaysOwner() public {
+        uint256 id = _createVaultPosition(address(usdc), address(dai), 1, false);
+        npm.setTokensOwed(id, 100e18, 100e18);
+        _fundCollectedFees(id);
+        _optIn(id, true);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        IVault.RewardCompoundParams memory r = _rewardParams(IVault.StakeTarget.Staked);
+        r.force = false;
+        uint128 beforeLiquidity = _liquidity(id);
+        vm.prank(admin);
+        vm.expectRevert(TransformFailed.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(_params(id), address(vault), r);
+        assertEq(npm.ownerOf(id), address(vault));
+        assertEq(gaugeManager.tokenIdToGauge(id), address(0));
+        assertEq(autoRange.lastStakeChangeBlock(id), 0);
+        assertEq(_liquidity(id), beforeLiquidity);
+        r.force = true;
+        uint256 ownerBefore = usdc.balanceOf(alice);
+        vm.prank(admin);
+        autoRange.autoCompoundWithVaultAndRewardCompound(_params(id), address(vault), r);
+        assertEq(npm.ownerOf(id), address(usdcDaiGauge));
+        assertGt(usdc.balanceOf(alice) - ownerBefore, 90e18);
+    }
+
+    function testStrictPlainVaultCompoundEnforcesFeeCap() public {
+        uint256 id = _createVaultPosition(address(usdc), address(dai), 1, false);
+        npm.setTokensOwed(id, 100e18, 100e18);
+        _fundCollectedFees(id);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        vm.prank(admin);
+        vm.expectRevert(TransformFailed.selector);
+        autoRange.autoCompoundWithVault(_params(id), address(vault), false);
+        assertEq(npm.ownerOf(id), address(vault));
+        vm.prank(admin);
+        autoRange.autoCompoundWithVault(_params(id), address(vault), true);
+    }
+
+    function testStrictCombinedKeepEnforcesFeeCap() public {
+        uint256 id = _createVaultPosition(address(usdc), address(dai), 1, false);
+        npm.setTokensOwed(id, 100e18, 100e18);
+        _fundCollectedFees(id);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        IVault.RewardCompoundParams memory r = _rewardParams(IVault.StakeTarget.Keep);
+        r.force = false;
+        vm.prank(admin);
+        vm.expectRevert(TransformFailed.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(_params(id), address(vault), r);
+    }
+
+    function testStrictUnstakeRollsBackRewardClaimUntilForced() public {
+        uint256 id = _createVaultPosition(address(usdc), address(dai), 1, true);
+        npm.setTokensOwed(id, 0, 0);
+        usdcDaiGauge.setReward(id, 100e18);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        _optIn(id, true);
+        IVault.RewardCompoundParams memory r = _rewardParams(IVault.StakeTarget.Unstaked);
+        r.aeroSplitBps = 5000;
+        r.force = false;
+        vm.prank(admin);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(_params(id), address(vault), r);
+        assertEq(npm.ownerOf(id), address(usdcDaiGauge));
+        assertEq(usdcDaiGauge.rewards(id), 100e18);
+        assertEq(autoRange.lastStakeChangeBlock(id), 0);
+        r.force = true;
+        vm.prank(admin);
+        autoRange.autoCompoundWithVaultAndRewardCompound(_params(id), address(vault), r);
+        assertEq(npm.ownerOf(id), address(vault));
+        assertEq(usdcDaiGauge.rewards(id), 0);
+    }
+
+    function testBestEffortRewardCapFailureDoesNotBlockPlainTransform() public {
+        uint256 id = _createVaultPosition(address(usdc), address(dai), 1, true);
+        npm.setTokensOwed(id, 0, 0);
+        usdcDaiGauge.setReward(id, 100e18);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        uint256 beforeAero = aero.balanceOf(alice);
+        vm.prank(admin);
+        autoRange.autoCompoundWithVault(_params(id), address(vault), false);
+        assertEq(aero.balanceOf(alice) - beforeAero, 100e18, "failed best-effort compound pays reward on unstake");
+        assertEq(npm.ownerOf(id), address(usdcDaiGauge), "original custody restored");
+    }
+
+    function testStrictPreRangeRewardFailurePreservesOriginalNFT() public {
+        uint256 id = _createVaultPosition(address(usdc), address(dai), 1, true);
+        npm.setTokensOwed(id, 0, 0);
+        usdcDaiGauge.setReward(id, 100e18);
+        npm.setNextIncreaseLiquidityResult(1e18, 1e18);
+        MockPool(usdcDaiPool).setTick(200);
+        vm.prank(alice);
+        autoRange.configToken(id, address(vault), _rangeChangeConfig(), AutoRangeAndCompound.CompoundMode.Advanced);
+        IVault.RewardCompoundParams memory r = _rewardParams(IVault.StakeTarget.Keep);
+        r.aeroSplitBps = 5000;
+        r.force = false;
+        vm.prank(admin);
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        autoRange.executeWithVaultAndRewardCompound(_executeParams(id), address(vault), r);
+        assertEq(npm.ownerOf(id), address(usdcDaiGauge));
+        assertEq(usdcDaiGauge.rewards(id), 100e18);
+        assertEq(npm.lastMintedTokenId(), 0);
+        r.force = true;
+        vm.prank(admin);
+        autoRange.executeWithVaultAndRewardCompound(_executeParams(id), address(vault), r);
+        assertGt(npm.lastMintedTokenId(), 0);
     }
 }

@@ -222,7 +222,7 @@ contract AeroGaugeManagerUpstreamTest is Test {
     /// @dev Only the prank precedes the compound call, so a preceding expectRevert targets the compound.
     function _compoundAll(uint256 id) private returns (uint256 compounded) {
         vm.prank(ALICE);
-        (compounded,,) = manager.compoundRewards(id, 0, receiptSideSplit, block.timestamp);
+        (compounded,,) = manager.compoundRewards(id, 0, receiptSideSplit, block.timestamp, true);
     }
 
     function testCompoundInsidePenaltyWindowRevertsInsteadOfForfeiting() public {
@@ -274,6 +274,6 @@ contract AeroGaugeManagerUpstreamTest is Test {
         pool.setGrowth(10 * Q128);
         vm.prank(address(vault));
         vm.expectRevert(GaugeManager.InsidePenaltyWindow.selector);
-        manager.compoundRewards(1, 0, 10_000, block.timestamp);
+        manager.compoundRewards(1, 0, 10_000, block.timestamp, true);
     }
 }

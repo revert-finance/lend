@@ -162,7 +162,7 @@ contract PositionManagerRefundETHTest is Test {
         (,,,,,,, uint128 liquidityBefore,,,,) = npm.positions(tokenId);
 
         vm.prank(OPERATOR);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(tokenId, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(tokenId, false, 0, block.timestamp), true);
 
         (,,,,,,, uint128 liquidityAfter,,,,) = npm.positions(tokenId);
         assertGt(liquidityAfter, liquidityBefore, "fees were compounded into the position");
@@ -192,7 +192,7 @@ contract PositionManagerRefundETHTest is Test {
         _accrueFees(1 ether, 1 ether);
         _forceEthIntoManager(1);
         vm.prank(OPERATOR);
-        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(tokenId, false, 0, block.timestamp));
+        autoRange.autoCompound(AutoRangeAndCompound.AutoCompoundParams(tokenId, false, 0, block.timestamp), true);
         assertEq(address(autoRange).balance, 1);
 
         vm.prank(STRANGER);

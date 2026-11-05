@@ -549,7 +549,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1, true);
 
         uint256 rewardX64 = gaugeManager.totalRewardX64();
         uint256 q64 = 2 ** 64;
@@ -585,7 +585,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1, true);
 
         uint256 rewardX64 = gaugeManager.totalRewardX64();
         uint256 q64 = 2 ** 64;
@@ -625,7 +625,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(ALICE);
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(tokenId, 0, 5_000, block.timestamp + 1);
+            gaugeManager.compoundRewards(tokenId, 0, 5_000, block.timestamp + 1, true);
 
         assertEq(aeroAmount, 50 ether);
         assertGt(amountAdded0, 0);
@@ -641,7 +641,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.NotConfigured.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 5_000, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 5_000, block.timestamp + 1, true);
     }
 
     function testCompoundRewardsRevertsWhenRoutePoolFailsTwapCheck() external {
@@ -654,7 +654,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.TWAPCheckFailed.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1, true);
     }
 
     function testCompoundRewardsRevertsWhenRoutePoolOutputFallsBelowValidatedMinimum() external {
@@ -668,7 +668,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.SlippageError.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1, true);
     }
 
     function testCompoundRewardsAllowsTwoHopRouteWithinCombinedSlippage() external {
@@ -682,7 +682,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1, true);
 
         assertEq(aeroAmount, 100 ether);
         assertEq(amountAdded0, 0);
@@ -700,7 +700,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.SlippageError.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1, true);
     }
 
     function testCompoundRewardsReturnsUnconsumedAeroOnPartialFill() external {
@@ -713,7 +713,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1, true);
 
         uint256 rewardAmount0 = amountAdded0 * gaugeManager.totalRewardX64() / 2 ** 64;
 
@@ -744,7 +744,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1, true);
 
         uint256 rewardAmount1 = amountAdded1 * gaugeManager.totalRewardX64() / 2 ** 64;
 
@@ -771,7 +771,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1, true);
 
         uint256 rewardX64 = gaugeManager.totalRewardX64();
         uint256 q64 = 2 ** 64;
@@ -796,7 +796,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.InvalidConfig.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_001, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_001, block.timestamp + 1, true);
     }
 
     function testCompoundRewardsReturnsZeroWhenNoRewards() external {
@@ -804,7 +804,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1) =
-            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+            gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1, true);
 
         assertEq(aeroAmount, 0);
         assertEq(amountAdded0, 0);
@@ -817,7 +817,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.NotEnoughReward.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 1, 0, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 1, 0, block.timestamp + 1, true);
     }
 
     function testSetRewardBasePoolValidatesPair() external {
@@ -832,7 +832,7 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(RECIPIENT);
         vm.expectRevert(Constants.Unauthorized.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 0, block.timestamp + 1, true);
     }
 
     function testWithdrawBalancesOnlyAllowedForWithdrawer() external {
@@ -879,7 +879,7 @@ contract GaugeManagerUnitTest is Test {
         npm.setNextIncreaseLiquidityResult(30 ether, 40 ether);
 
         vm.prank(address(vault));
-        (, amountAdded0, amountAdded1) = gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1);
+        (, amountAdded0, amountAdded1) = gaugeManager.compoundRewards(TOKEN_ID, 0, 4_000, block.timestamp + 1, true);
     }
 
     function testCompoundRewardsChargesTheRateOfTheModeSource() external {
@@ -1007,7 +1007,59 @@ contract GaugeManagerUnitTest is Test {
 
         vm.prank(address(vault));
         vm.expectRevert(Constants.SlippageError.selector);
-        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10_000, block.timestamp + 1, true);
+    }
+    function testStrictRewardCompoundRejectsPoolTokenLeftoversAtomically() public {
+        _stake();
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        npm.setNextIncreaseLiquidityResult(1 ether, 1 ether);
+        vm.prank(address(vault));
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 5000, block.timestamp + 1, false);
+        assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
+        assertEq(aero.balanceOf(address(gauge)), 100 ether);
+        assertEq(usdc.balanceOf(ALICE), 0);
+        assertEq(usdc.balanceOf(address(gaugeManager)), 0);
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 5000, block.timestamp + 1, true);
+        assertGt(usdc.balanceOf(ALICE), 40 ether);
+    }
+
+    function testStrictRewardCompoundRejectsUnspentReceiptTokens() public {
+        _stake();
+        aeroUsdcPool.setMaxAmountIn(99 ether);
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        vm.prank(address(vault));
+        vm.expectRevert(CompoundOutcome.ExcessiveCompoundLeftover.selector);
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10000, block.timestamp + 1, false);
+        assertEq(aero.balanceOf(address(gauge)), 100 ether);
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10000, block.timestamp + 1, true);
+        assertEq(aero.balanceOf(ALICE), 1 ether);
+    }
+
+    function testStrictRewardCompoundAllowsReceiptHalfPercent() public {
+        _stake();
+        aeroUsdcPool.setMaxAmountIn(99.5 ether);
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 10000, block.timestamp + 1, false);
+        assertEq(aero.balanceOf(ALICE), 0.5 ether);
+    }
+
+    function testStrictRewardCompoundAllowsFullUtilizationAfterFees() public {
+        _stake();
+        aero.mint(address(gauge), 100 ether);
+        gauge.setReward(TOKEN_ID, 100 ether);
+        vm.prank(address(vault));
+        gaugeManager.compoundRewards(TOKEN_ID, 0, 5000, block.timestamp + 1, false);
+        assertLe(usdc.balanceOf(ALICE), 1);
+        assertLe(dai.balanceOf(ALICE), 1);
+        assertGt(usdc.balanceOf(address(gaugeManager)), 0);
+        assertEq(npm.ownerOf(TOKEN_ID), address(gauge));
     }
 }
 
@@ -1069,4 +1121,5 @@ contract MockCompoundRewardSource {
         if (shouldRevert) revert("source down");
         return rates[tokenId];
     }
+
 }

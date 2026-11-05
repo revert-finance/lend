@@ -227,7 +227,7 @@ contract AeroGaugeManagerTest is Test {
         gauge.setReward(2, 20 ether);
         gauge.setMintFails(false);
         vm.prank(BOB);
-        (uint256 compounded,,) = manager.compoundRewards(2, 20 ether, 5000, block.timestamp);
+        (uint256 compounded,,) = manager.compoundRewards(2, 20 ether, 5000, block.timestamp, true);
         assertEq(compounded, 20 ether);
         assertGe(token.balanceOf(address(manager)), 100 ether);
         assertEq(manager.reservedRewards(), 100 ether);
@@ -244,7 +244,7 @@ contract AeroGaugeManagerTest is Test {
         gauge.setDepositsDisabled(true);
         vm.prank(BOB);
         vm.expectRevert(bytes("retired"));
-        manager.compoundRewards(2, 20 ether, 5000, block.timestamp);
+        manager.compoundRewards(2, 20 ether, 5000, block.timestamp, true);
         assertEq(gauge.deferredEmissions(address(manager)), 100 ether);
         assertEq(manager.reservedRewards(), 0);
         assertEq(gauge.rewards(2), 20 ether);
