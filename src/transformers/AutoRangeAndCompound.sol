@@ -8,6 +8,7 @@ import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 import "../interfaces/IGaugeManager.sol";
 import "../utils/VaultLib.sol";
+import "../utils/CompoundOutcome.sol";
 
 /// @title AutoRangeAndCompound
 /// @notice Allows operator of AutoRangeAndCompound contract (Revert controlled bot) to change range for configured positions
@@ -414,10 +415,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * Swap needs to be done with max price difference from current pool price - otherwise reverts
      * Keeps the current custody; a staked position is not compounded inside the gauge's early-unstake penalty window
      */
-    function autoCompoundWithVault(AutoCompoundParams calldata params, address vault) external {
+    function autoCompoundWithVault(AutoCompoundParams calldata params, address vault, bool force) external {
         _prepareTransform(params.tokenId, vault);
         IVault(vault)
-            .transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+            .transform(params.tokenId, address(this), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, force)));
     }
 
     /**
@@ -425,7 +426,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * and end in `rewardParams.stakeTarget` custody. Can only be called from configured operator account - vault must
      * be configured as well. A real custody change needs the owner's staking-management opt-in, respects the cooldown
      * and never unstakes inside the gauge's early-unstake penalty window; it compounds fees before a stake and staked
-     * rewards before an unstake (compound-only policy) without the configured minimums, so dust never stalls it.
+     * rewards before an unstake (compound-only policy) without the configured fresh-fee minimums.
+     * rewardParams.force bypasses only the leftover limit in both reward and fee compounding.
      */
     function autoCompoundWithVaultAndRewardCompound(
         AutoCompoundParams calldata params,
@@ -440,8 +442,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 params.tokenId,
                 address(this),
                 changes
-                    ? abi.encodeCall(AutoRangeAndCompound.autoCompoundForStakeChange, (params))
-                    : abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
+                    ? abi.encodeCall(AutoRangeAndCompound.autoCompoundForStakeChange, (params, rewardParams.force))
+                    : abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, rewardParams.force)),
                 adjustedRewardParams
             );
     }
@@ -449,11 +451,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     /**
      * @notice Autocompound position directly (must be in correct state)
      * Can only be called only from configured operator account, or vault via transform
-     * A swap is skipped when the pool price deviates from its TWAP by more than the configured tick difference,
-     * and reverts when its output falls below the position's configured per-token slippage limit
+     * A requested swap reverts when TWAP or per-token slippage checks fail, including when force is true.
+     * force bypasses only the 0.5% post-fee leftover limit (one smallest unit is always allowed).
      */
-    function autoCompound(AutoCompoundParams calldata params) external nonReentrant {
-        _autoCompound(params, true);
+    function autoCompound(AutoCompoundParams calldata params, bool force) external nonReentrant {
+        _autoCompound(params, true, force);
     }
 
     /**
@@ -461,15 +463,15 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
      * autoCompound flag and minimum-fee gate, so a change always compounds whatever fees exist first.
      * Only for positions whose owner opted into operator-managed staking.
      */
-    function autoCompoundForStakeChange(AutoCompoundParams calldata params) external nonReentrant {
+    function autoCompoundForStakeChange(AutoCompoundParams calldata params, bool force) external nonReentrant {
         // only as the payload of a vault transform, for a position whose current owner opted in
         if (!vaults[msg.sender] || !_isStakingManaged(params.tokenId, msg.sender)) {
             revert Unauthorized();
         }
-        _autoCompound(params, false);
+        _autoCompound(params, false, force);
     }
 
-    function _autoCompound(AutoCompoundParams calldata params, bool enforceConfig) internal {
+    function _autoCompound(AutoCompoundParams calldata params, bool enforceConfig, bool force) internal {
         if (!operators[msg.sender]) {
             if (vaults[msg.sender]) {
                 _validateCaller(nonfungiblePositionManager, params.tokenId);
@@ -514,8 +516,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 uint32 tSecs = TWAPSeconds;
                 if (tSecs != 0) {
                     if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
-                        // if there is no valid TWAP - disable swap
-                        amountIn = 0;
+                        revert TWAPCheckFailed();
                     }
                 }
                 // if still needed - do swap
@@ -574,6 +575,11 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 // fees are always calculated based on added amount (to incentivize optimal swap)
                 state.amount0Fees = state.compounded0 * rewardX64 / Q64;
                 state.amount1Fees = state.compounded1 * rewardX64 / Q64;
+            }
+
+            if (!force) {
+                CompoundOutcome.check(state.amount0 - state.amount0Fees, state.compounded0);
+                CompoundOutcome.check(state.amount1 - state.amount1Fees, state.compounded1);
             }
 
             // get the real owner - if owner is vault - for sending leftover tokens

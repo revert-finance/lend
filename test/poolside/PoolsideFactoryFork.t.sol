@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
+import "v3-periphery/libraries/LiquidityAmounts.sol";
 import "../../src/poolside/PoolsideFactory.sol";
 import "../../src/V3Oracle.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
@@ -89,7 +90,7 @@ contract PoolsideFactoryForkTest is Test {
     V3Utils constant UTILS = V3Utils(payable(0xF3B5c0689df879Db47Fd23590700910e7a99A068));
     V3Vault VAULT;
     GaugeManager MANAGER;
-    AutoRangeAndCompound constant RANGE = AutoRangeAndCompound(payable(0x5c94a69fFDC3Fcb2c3d6e08Ce033297Fb92aE800));
+    AutoRangeAndCompound RANGE;
     AutoExit constant EXIT = AutoExit(payable(0x9b23ba84C0B33c608db6a1c34Fc37BaA1F1A2C65));
     IAerodromeSlipstreamPool constant POOL = IAerodromeSlipstreamPool(0x4A7af46bC8aBc00048c6c7920a1488DAF568366c);
     address constant OPERATOR = 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF;
@@ -102,6 +103,10 @@ contract PoolsideFactoryForkTest is Test {
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53255803);
         npm = UTILS.nonfungiblePositionManager();
+        // Exercise the new compound ABI against live Aero dependencies, not the previous deployed automator.
+        RANGE = new AutoRangeAndCompound(
+            npm, OPERATOR, OPERATOR, 60, 200, UTILS.universalRouter(), UTILS.zeroxAllowanceHolder()
+        );
         V3Vault previous = V3Vault(0x39125A0476D44C9EEC1F4206E9e8B1e88b4Aa730);
         VAULT = new V3Vault(
             "Poolside test vault", "psTest", previous.asset(), npm, previous.interestRateModel(), previous.oracle()
@@ -462,7 +467,7 @@ contract PoolsideFactoryForkTest is Test {
         params.deadline = block.timestamp;
         vm.prank(OPERATOR);
         vm.expectRevert(Constants.NotConfigured.selector);
-        RANGE.autoCompound(params);
+        RANGE.autoCompound(params, true);
     }
 
     function test_AssetExitReturnsAvailableBalancesAndPreservesDeferredRewards() public {
@@ -544,9 +549,9 @@ contract PoolsideFactoryForkTest is Test {
         p.tokenId = id;
         p.deadline = block.timestamp;
         vm.prank(OPERATOR);
-        RANGE.autoCompoundWithVault(p, address(VAULT));
+        RANGE.autoCompoundWithVault(p, address(VAULT), true);
         IVault.RewardCompoundParams memory r =
-            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked);
+            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked, true);
         vm.prank(OPERATOR);
         RANGE.autoCompoundWithVaultAndRewardCompound(p, address(VAULT), r);
         assertEq(npm.ownerOf(id), POOL.gauge());
@@ -804,7 +809,7 @@ contract PoolsideFactoryForkTest is Test {
         p.tokenId = id;
         p.deadline = block.timestamp;
         IVault.RewardCompoundParams memory r =
-            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked);
+            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked, true);
         vm.prank(OPERATOR);
         RANGE.autoCompoundWithVaultAndRewardCompound(p, address(VAULT), r);
         assertEq(npm.ownerOf(id), MANAGER.tokenIdToGauge(id));
@@ -821,7 +826,7 @@ contract PoolsideFactoryForkTest is Test {
         p.tokenId = id;
         p.deadline = block.timestamp;
         vm.prank(OPERATOR);
-        RANGE.autoCompoundWithVault(p, address(VAULT));
+        RANGE.autoCompoundWithVault(p, address(VAULT), true);
         (,,,,, int24 lowerAfter, int24 upperAfter,,,,,) = npm.positions(id);
         assertEq(int256(lowerAfter), int256(lowerBefore));
         assertEq(int256(upperAfter), int256(upperBefore));
@@ -837,7 +842,7 @@ contract PoolsideFactoryForkTest is Test {
         p.tokenId = id;
         p.deadline = block.timestamp;
         IVault.RewardCompoundParams memory r =
-            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked);
+            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked, true);
         vm.prank(OPERATOR);
         vm.expectRevert(Constants.Unauthorized.selector);
         RANGE.autoCompoundWithVaultAndRewardCompound(p, address(VAULT), r);
@@ -1170,5 +1175,79 @@ contract PoolsideFactoryForkTest is Test {
         assertEq(p.token1.balanceOf(address(holder)), 0);
         assertEq(p.token0.balanceOf(address(factory)), 0);
         assertEq(p.token1.balanceOf(address(factory)), 0);
+    }
+
+    // Isolate fee collection from pool history while exercising actual WETH/USDC range math and swaps.
+    // No stock-token emulation or valuation oracle is used for the leftover guard.
+    function _balancedCompoundFees(uint256 id) internal returns (uint256 amount0, uint256 amount1) {
+        (uint160 price,,,,,) = POOL.slot0();
+        (,,,,, int24 lower, int24 upper,,,,,) = npm.positions(id);
+        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            price, TickMath.getSqrtRatioAtTick(lower), TickMath.getSqrtRatioAtTick(upper), 1e13
+        );
+        RANGE.setAutoCompoundRewards(0, 0);
+        vm.mockCall(
+            address(npm),
+            abi.encodeWithSelector(INonfungiblePositionManager.collect.selector),
+            abi.encode(amount0, amount1)
+        );
+        deal(POOL.token0(), address(RANGE), amount0);
+        deal(POOL.token1(), address(RANGE), amount1);
+    }
+
+    function _compoundOutcome(uint256 id, bool force, uint256 amountIn) internal {
+        vm.prank(OPERATOR);
+        RANGE.autoCompoundWithVault(
+            AutoRangeAndCompound.AutoCompoundParams(id, true, amountIn, block.timestamp), address(VAULT), force
+        );
+    }
+
+    function uniswapV3SwapCallback(int256 amount0, int256 amount1, bytes calldata) external {
+        require(msg.sender == address(POOL), "test pool only");
+        if (amount0 > 0) IERC20(POOL.token0()).transfer(msg.sender, uint256(amount0));
+        if (amount1 > 0) IERC20(POOL.token1()).transfer(msg.sender, uint256(amount1));
+    }
+
+    function test_OutcomeCapRealNPMBalancedFeesPass() public {
+        (uint256 id,) = _create(ALICE, false, false);
+        _balancedCompoundFees(id);
+        _compoundOutcome(id, false, 0);
+    }
+
+    function test_OutcomeCapRealPoolDriftRevertsAndForcePaysHolder() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
+        _balancedCompoundFees(id); // balanced at planning time
+        // Move the live pool by only 20 ticks after sizing; the NPM now requires a different ratio.
+        deal(POOL.token1(), address(this), 100_000_000e6);
+        IUniswapV3Pool(address(POOL)).swap(
+            address(this), false, int256(100_000_000e6), TickMath.getSqrtRatioAtTick(tick + 20), ""
+        );
+        vm.expectRevert(Constants.TransformFailed.selector);
+        _compoundOutcome(id, false, 0);
+        assertEq(npm.ownerOf(id), address(VAULT));
+        uint256 beforeETH = address(holder).balance;
+        uint256 before0 = IERC20(POOL.token0()).balanceOf(address(holder));
+        uint256 before1 = IERC20(POOL.token1()).balanceOf(address(holder));
+        _compoundOutcome(id, true, 0);
+        assertTrue(
+            address(holder).balance > beforeETH
+                || IERC20(POOL.token0()).balanceOf(address(holder)) > before0
+                || IERC20(POOL.token1()).balanceOf(address(holder)) > before1,
+            "forced leftover paid to economic owner holder"
+        );
+        (,,,,, int24 lower, int24 upper,,,,,) = npm.positions(id);
+        V3Utils.SwapAndMintParams memory original = _params();
+        assertEq(lower, original.tickLower);
+        assertEq(upper, original.tickUpper);
+    }
+
+    function test_OutcomeCapRealPoolSwapLeavesExcessDespiteSlippagePassing() public {
+        (uint256 id,) = _create(ALICE, false, false);
+        (uint256 amount0,) = _balancedCompoundFees(id);
+        // The quote swaps too much of a balanced token; real swap output passes configured 1% slippage,
+        // but real NPM range math cannot reinvest it all. Force proves the other protections still pass.
+        vm.expectRevert(Constants.TransformFailed.selector);
+        _compoundOutcome(id, false, amount0 / 4);
+        _compoundOutcome(id, true, amount0 / 4);
     }
 }

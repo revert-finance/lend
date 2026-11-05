@@ -108,7 +108,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         vm.prank(admin);
-        vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+        vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true)));
 
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
         assertEq(npm.ownerOf(tokenId), address(usdcDaiGauge));
@@ -144,12 +144,12 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         uint256 transformedTokenId = vault.transformWithRewardCompound(
             tokenId,
             address(autoRange),
-            abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
+            abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true)),
             IVault.RewardCompoundParams({
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours,
-                stakeTarget: IVault.StakeTarget.Keep
+                stakeTarget: IVault.StakeTarget.Keep, force: true
             })
         );
 
@@ -182,12 +182,12 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         uint256 transformedTokenId = vault.transformWithRewardCompound(
             tokenId,
             address(autoRange),
-            abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)),
+            abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true)),
             IVault.RewardCompoundParams({
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours,
-                stakeTarget: IVault.StakeTarget.Keep
+                stakeTarget: IVault.StakeTarget.Keep, force: true
             })
         );
 
@@ -217,7 +217,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
 
         vm.prank(admin);
         uint256 transformedTokenId =
-            vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+            vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true)));
 
         assertEq(transformedTokenId, tokenId);
         assertEq(vault.ownerOf(tokenId), alice);
@@ -247,7 +247,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
 
         vm.prank(admin);
         uint256 transformedTokenId =
-            vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params)));
+            vault.transform(tokenId, address(autoRange), abi.encodeCall(AutoRangeAndCompound.autoCompound, (params, true)));
 
         assertEq(transformedTokenId, tokenId);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
@@ -306,7 +306,7 @@ contract V3VaultTransformPlanTests is AerodromeTestBase {
         oracle.setMaxPoolPriceDifference(type(uint16).max);
 
         vm.prank(admin);
-        autoRange.autoCompoundWithVault(params, address(vault));
+        autoRange.autoCompoundWithVault(params, address(vault), true);
 
         assertEq(vault.ownerOf(tokenId), alice);
         assertEq(gaugeManager.tokenIdToGauge(tokenId), address(usdcDaiGauge));
@@ -518,7 +518,7 @@ contract V3VaultAutoRangeAndCompoundDebtZeroTests is MintingNpmVaultTestBase {
                 minAeroReward: 0,
                 aeroSplitBps: 0,
                 deadline: block.timestamp + 1 hours,
-                stakeTarget: IVault.StakeTarget.Unstaked
+                stakeTarget: IVault.StakeTarget.Unstaked, force: true
             })
         );
 

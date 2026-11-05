@@ -8,7 +8,7 @@ library AeroRewardDelivery {
     error UnsupportedRewardDelivery();
 
     /// @return rootHandler Zero for direct leaf receipts; otherwise the synchronous local root handler.
-    function validate(address gauge, address rewardToken) internal view returns (address rootHandler) {
+    function validate(address gauge, address rewardToken) external view returns (address rootHandler) {
         address voter = IAeroGauge(gauge).voter();
         IAeroLeafVoter leaf = IAeroLeafVoter(voter);
         address handler = leaf.EMISSIONS_HANDLER();

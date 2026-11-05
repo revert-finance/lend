@@ -56,6 +56,7 @@ interface IVault is IERC4626 {
         uint256 aeroSplitBps;
         uint256 deadline;
         StakeTarget stakeTarget;
+        bool force; // bypass only the compound-leftover limit, never authorization or swap protections
     }
 
     /// @notice Transform with explicit reward-compound params; staked rewards are compounded with them before the

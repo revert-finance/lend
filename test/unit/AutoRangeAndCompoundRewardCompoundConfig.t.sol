@@ -108,7 +108,7 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
             minAeroReward: 3,
             aeroSplitBps: 4_000,
             deadline: block.timestamp + 1 hours,
-            stakeTarget: IVault.StakeTarget.Keep
+            stakeTarget: IVault.StakeTarget.Keep, force: true
         });
 
         vm.prank(OPERATOR);
@@ -155,7 +155,7 @@ contract AutoRangeAndCompoundRewardCompoundConfigTest is Test {
             minAeroReward: 333,
             aeroSplitBps: 5_000,
             deadline: block.timestamp + 1 hours,
-            stakeTarget: IVault.StakeTarget.Keep
+            stakeTarget: IVault.StakeTarget.Keep, force: true
         });
 
         vm.prank(OPERATOR);

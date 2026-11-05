@@ -151,7 +151,7 @@ contract AtlasTransitionsTest is AerodromeTestBase {
         // No rewards are configured, so the compound path short-circuits (no swaps).
         vm.prank(alice);
         (uint256 aeroAmt, uint256 added0, uint256 added1) =
-            gaugeManager.compoundRewards(tokenId, 0, 0, block.timestamp + 1 hours);
+            gaugeManager.compoundRewards(tokenId, 0, 0, block.timestamp + 1 hours, true);
 
         assertEq(aeroAmt, 0);
         assertEq(added0, 0);

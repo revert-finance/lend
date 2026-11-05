@@ -86,7 +86,7 @@ contract AeroProtocolDeploymentTest is Test {
             .autoCompoundWithVaultAndRewardCompound(
                 AutoRangeAndCompound.AutoCompoundParams(id, false, 0, block.timestamp),
                 address(d.vault),
-                IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked)
+                IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked, true)
             );
         assertTrue(d.gaugeManager.tokenIdToGauge(id) != address(0));
         _advance();
@@ -290,7 +290,7 @@ contract AeroProtocolDeploymentTest is Test {
             if (forcedRefund) _forceNpmEth();
             vm.prank(ALICE);
             (uint256 reward, uint256 added0, uint256 added1) =
-                d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp);
+                d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp, true);
             assertGt(reward, 0);
             assertGt(added0 + added1, 0);
             (,,,,,,, uint128 afterLiquidity,,,,) = INonfungiblePositionManager(NPM).positions(id);
@@ -433,7 +433,7 @@ contract AeroProtocolDeploymentTest is Test {
         AutoRangeAndCompound.AutoCompoundParams memory params =
             AutoRangeAndCompound.AutoCompoundParams(id, false, 0, block.timestamp);
         IVault.RewardCompoundParams memory rewardParams =
-            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked);
+            IVault.RewardCompoundParams(0, 5000, block.timestamp, IVault.StakeTarget.Staked, true);
         vm.prank(OPERATOR);
         d.autoRange.autoCompoundWithVaultAndRewardCompound(params, address(d.vault), rewardParams);
         assertEq(d.gaugeManager.tokenIdToGauge(id), IAerodromeSlipstreamPool(script.collateralPools()[0]).gauge());
@@ -498,7 +498,7 @@ contract AeroProtocolDeploymentTest is Test {
         address gauge = d.gaugeManager.tokenIdToGauge(id);
         vm.prank(ALICE);
         vm.expectRevert();
-        d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp);
+        d.gaugeManager.compoundRewards(id, 1, 5000, block.timestamp, true);
         assertEq(d.gaugeManager.positionRewards(id), rewards);
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), gauge);
         uint256 beforeReward = IERC20(AERO).balanceOf(ALICE);

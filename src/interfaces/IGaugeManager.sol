@@ -30,7 +30,8 @@ interface IGaugeManager is IProtocolFeeController {
         bool strict,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
-        uint256 deadline
+        uint256 deadline,
+        bool force
     ) external returns (bool wasStaked);
 
     function claimRewards(uint256 tokenId, address recipient) external returns (uint256 aeroAmount);
@@ -41,7 +42,8 @@ interface IGaugeManager is IProtocolFeeController {
         uint256 tokenId,
         uint256 minAeroReward,
         uint256 aeroSplitBps,
-        uint256 deadline
+        uint256 deadline,
+        bool force
     ) external returns (uint256 aeroAmount, uint256 amountAdded0, uint256 amountAdded1);
 
     function setCompoundReward(uint64 _totalRewardX64) external;
