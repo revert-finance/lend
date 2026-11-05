@@ -64,6 +64,28 @@ contract AutoCompoundCarryForwardTest is AutoCompoundSlippageTest {
         assertEq(IERC20(token1).balanceOf(address(autoRange)), left1);
     }
 
+    function test_DonationIsNotCreditedAsProtocolFeesOrUserRewards() public {
+        (uint256 left0, uint256 left1) = _saveLeftovers();
+        uint256 fee0 = autoRange.positionBalances(0, token0);
+        uint256 donation = 1 ether;
+        MockERC20(token0).mint(address(autoRange), donation);
+        address[] memory tokens = new address[](1);
+        tokens[0] = token0;
+        uint256 before = IERC20(token0).balanceOf(admin);
+        vm.prank(admin);
+        autoRange.withdrawBalances(tokens, admin);
+        assertEq(IERC20(token0).balanceOf(admin) - before, fee0);
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), left0 + donation);
+        assertEq(autoRange.positionBalances(tokenId, token0), left0);
+        assertEq(autoRange.positionBalances(tokenId, token1), left1);
+        vm.prank(alice);
+        autoRange.withdrawLeftoverBalances(tokenId, alice);
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), donation);
+        vm.prank(admin);
+        autoRange.withdrawBalances(tokens, admin);
+        assertEq(IERC20(token0).balanceOf(address(autoRange)), donation);
+    }
+
     function test_OnlyPositionOwnerCanWithdrawSavedBalances() public {
         (uint256 left0, uint256 left1) = _saveLeftovers();
         vm.prank(bob);

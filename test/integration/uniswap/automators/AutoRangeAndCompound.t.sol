@@ -73,7 +73,10 @@ contract AutoRangeAndCompoundTest is AutomatorIntegrationTestBase {
         uint256 tokenBalanceBefore = DAI.balanceOf(TEST_NFT_ACCOUNT);
         vm.prank(WITHDRAWER_ACCOUNT);
         autoRange.withdrawBalances(tokens, TEST_NFT_ACCOUNT);
-        assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - tokenBalanceBefore, tokenAmount);
+        // Carry-forward adopts AutoCompound's ledger-only fee withdrawals. A direct donation has no
+        // protocol-fee entry and is intentionally not recoverable through the withdrawer.
+        assertEq(DAI.balanceOf(TEST_NFT_ACCOUNT) - tokenBalanceBefore, 0);
+        assertEq(DAI.balanceOf(address(autoRange)), tokenAmount);
 
         vm.deal(address(autoRange), 1 ether);
         uint256 ethBalanceBefore = TEST_NFT_ACCOUNT.balance;

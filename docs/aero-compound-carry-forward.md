@@ -47,6 +47,12 @@ AutoRange's withdrawer can withdraw only ledger account zero, including separate
 protocol fees. GaugeManager retains only its protocol fees after settlement; its existing deferred-reward
 reserve exclusions remain intact. Saved balances are not included in lending collateral valuation.
 
+As in the Uniswap `AutoCompound` reference, arbitrary ERC20 transfers/donations into AutoRange are not
+credited to account zero or any user and cannot be recovered by its withdrawer. Do not send tokens directly
+to the automator. This deliberately replaces the old AutoRange sweep-all behavior; normal compound and
+range-change protocol fees remain withdrawable. General surplus recovery would need aggregate user-liability
+tracking and is outside this minimal port. Native ETH recovery remains unchanged.
+
 ## Ownership and position lifecycle
 
 Saved compound balances follow the NFT's current economic owner, matching the Uniswap ledger model. This is
