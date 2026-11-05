@@ -89,7 +89,7 @@ contract PoolsideFactoryForkTest is Test {
     V3Utils constant UTILS = V3Utils(payable(0xF3B5c0689df879Db47Fd23590700910e7a99A068));
     V3Vault VAULT;
     GaugeManager MANAGER;
-    AutoRangeAndCompound constant RANGE = AutoRangeAndCompound(payable(0x5c94a69fFDC3Fcb2c3d6e08Ce033297Fb92aE800));
+    AutoRangeAndCompound RANGE;
     AutoExit constant EXIT = AutoExit(payable(0x9b23ba84C0B33c608db6a1c34Fc37BaA1F1A2C65));
     IAerodromeSlipstreamPool constant POOL = IAerodromeSlipstreamPool(0x4A7af46bC8aBc00048c6c7920a1488DAF568366c);
     address constant OPERATOR = 0xBb1A1a2773a799D83078ae4d59d9F4B2B6aC50fF;
@@ -102,6 +102,10 @@ contract PoolsideFactoryForkTest is Test {
     function setUp() public {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53255803);
         npm = UTILS.nonfungiblePositionManager();
+        // Prototype the new ledger with fresh automation, preserving the deployed Aero dependencies.
+        RANGE = new AutoRangeAndCompound(
+            npm, OPERATOR, OPERATOR, 60, 200, UTILS.universalRouter(), UTILS.zeroxAllowanceHolder()
+        );
         V3Vault previous = V3Vault(0x39125A0476D44C9EEC1F4206E9e8B1e88b4Aa730);
         VAULT = new V3Vault(
             "Poolside test vault", "psTest", previous.asset(), npm, previous.interestRateModel(), previous.oracle()
@@ -117,6 +121,7 @@ contract PoolsideFactoryForkTest is Test {
         VAULT.setTransformer(address(RANGE), true);
         VAULT.setStakingPolicy(address(RANGE));
         MANAGER.setCompoundModeSource(address(RANGE));
+        MANAGER.setCompoundBalanceSource(address(RANGE));
         MANAGER.setGauge(address(POOL), POOL.gauge());
         MANAGER.setRewardBasePool(POOL.token0(), 0xc85D5CB72d1aaD6f152A8decAd228AE4A59Ac9B3);
         MANAGER.setRewardBasePool(POOL.token1(), 0xD0Acf293547457Fb4fE9eE32CA93e89497626816);
@@ -813,6 +818,60 @@ contract PoolsideFactoryForkTest is Test {
         assertEq(RANGE.compoundRewardX64(id), RANGE.simpleRewardX64());
     }
 
+    function _compoundImbalancedFees(uint256 id) internal {
+        // Ordinary ERC20 pool. Supply real balances and mock only the newly collected fee amounts.
+        deal(POOL.token0(), address(RANGE), IERC20(POOL.token0()).balanceOf(address(RANGE)) + 1e15);
+        deal(POOL.token1(), address(RANGE), IERC20(POOL.token1()).balanceOf(address(RANGE)) + 1e6);
+        vm.mockCall(
+            address(npm),
+            abi.encodeWithSelector(
+                npm.collect.selector,
+                INonfungiblePositionManager.CollectParams(id, address(RANGE), type(uint128).max, type(uint128).max)
+            ),
+            abi.encode(uint256(1e15), uint256(1e6))
+        );
+        vm.prank(OPERATOR);
+        RANGE.autoCompoundWithVault(
+            AutoRangeAndCompound.AutoCompoundParams(id, false, 0, block.timestamp), address(VAULT)
+        );
+        vm.clearMockedCalls();
+        assertGt(RANGE.positionBalances(id, POOL.token0()), 0);
+    }
+
+    function test_CarryForwardHolderRecoversOnNftWithdrawalFromBothCustodies() public {
+        for (uint256 i; i < 2; ++i) {
+            (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
+            _compoundImbalancedFees(id);
+            uint256 left0 = RANGE.positionBalances(id, POOL.token0());
+            if (i == 1) {
+                vm.prank(address(holder));
+                VAULT.stakePosition(id);
+                vm.roll(MANAGER.penaltyWindowEnd(id));
+            }
+            uint256 before = IERC20(POOL.token0()).balanceOf(ALICE);
+            vm.prank(ALICE);
+            holder.withdraw();
+            assertEq(RANGE.positionBalances(id, POOL.token0()), 0);
+            assertEq(RANGE.positionBalances(id, POOL.token1()), 0);
+            assertEq(IERC20(POOL.token0()).balanceOf(address(holder)), 0);
+            assertGe(IERC20(POOL.token0()).balanceOf(ALICE) - before, left0);
+            assertEq(npm.ownerOf(id), ALICE);
+        }
+    }
+
+    function test_CarryForwardHolderCollectsLedgerBeforeAutomaticExit() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        _compoundImbalancedFees(id);
+        uint256 left0 = RANGE.positionBalances(id, POOL.token0());
+        uint256 before = IERC20(POOL.token0()).balanceOf(ALICE);
+        _execute(id);
+        assertEq(RANGE.positionBalances(id, POOL.token0()), 0);
+        assertEq(RANGE.positionBalances(id, POOL.token1()), 0);
+        assertGe(IERC20(POOL.token0()).balanceOf(ALICE) - before, left0);
+        assertEq(IERC20(POOL.token0()).balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
     function test_RecurringCompoundKeepsRangeAndSimpleMode() public {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
         (,,,,, int24 lowerBefore, int24 upperBefore,,,,,) = npm.positions(id);
@@ -915,12 +974,15 @@ contract PoolsideFactoryForkTest is Test {
         vm.prank(BOB);
         vm.expectRevert(PoolsidePosition.Unauthorized.selector);
         aliceHolder.claimTokens(tokens);
-        vm.prank(ALICE);
-        aliceHolder.withdraw();
         uint256 beforeBalance = asset.balanceOf(ALICE);
         vm.prank(ALICE);
-        aliceHolder.claimTokens(tokens);
+        aliceHolder.withdraw();
         assertEq(asset.balanceOf(ALICE), beforeBalance + 123e6);
+        // Rewards arriving later remain claimable after closure.
+        deal(address(asset), address(aliceHolder), 7e6);
+        vm.prank(ALICE);
+        aliceHolder.claimTokens(tokens);
+        assertEq(asset.balanceOf(ALICE), beforeBalance + 130e6);
         assertEq(asset.balanceOf(address(bobHolder)), 456e6);
     }
 

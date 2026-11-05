@@ -147,6 +147,7 @@ contract DeployAeroProtocol is Script {
 
         FlashloanLiquidator liquidator = new FlashloanLiquidator(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
         gaugeManager.setCompoundModeSource(address(autoRange));
+        gaugeManager.setCompoundBalanceSource(address(autoRange));
 
         // Oracle config
         oracle.setMaxPoolPriceDifference(200);

@@ -113,6 +113,7 @@ def main():
     require_address(addresses['V3Vault'],'oracle()',addresses['V3Oracle'])
     require_address(addresses['V3Vault'],'interestRateModel()',addresses['InterestRateModel'])
     require_address(addresses['GaugeManager'],'compoundModeSource()',addresses['AutoRangeAndCompound'])
+    require_address(addresses['GaugeManager'],'compoundBalanceSource()',addresses['AutoRangeAndCompound'])
     holder_factory = addresses.get(factory_name)
     if holder_factory:
         require_address(addresses['V3Vault'],'stakingPolicy()',addresses['AutoRangeAndCompound'])

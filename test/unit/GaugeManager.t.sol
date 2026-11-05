@@ -672,6 +672,8 @@ contract GaugeManagerUnitTest is Test {
     }
 
     function testCompoundRewardsAllowsTwoHopRouteWithinCombinedSlippage() external {
+        // This route supplies only token1: use a range below the current price, as a real NPM requires.
+        npm.setPosition(TOKEN_ID, address(usdc), address(dai), 100, -120, -60, 10);
         _stake();
         gaugeManager.setRewardBasePool(address(dai), address(0));
         aeroUsdcPool.setOutputBps(9_900);

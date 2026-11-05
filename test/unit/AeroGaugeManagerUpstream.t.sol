@@ -126,7 +126,9 @@ contract AeroGaugeManagerUpstreamTest is Test {
     }
 
     function _stake(uint256 id, address owner) private {
-        npm.setPosition(id, address(token), address(usdc), 100, -60, 60, 10);
+        // Rewards are added only on the receipt side; place that side outside the current price.
+        int24 lower = receiptSideSplit == 10_000 ? int24(60) : int24(-120);
+        npm.setPosition(id, address(token), address(usdc), 100, lower, lower + 60, 10);
         npm.mint(address(vault), id);
         vault.setOwner(id, owner);
         vm.startPrank(address(vault));

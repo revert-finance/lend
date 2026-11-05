@@ -8,6 +8,7 @@ import "../automators/Automator.sol";
 import "../transformers/Transformer.sol";
 import "../interfaces/IGaugeManager.sol";
 import "../utils/VaultLib.sol";
+import "../utils/CompoundBalanceLib.sol";
 
 /// @title AutoRangeAndCompound
 /// @notice Allows operator of AutoRangeAndCompound contract (Revert controlled bot) to change range for configured positions
@@ -91,6 +92,12 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     }
 
     // configured tokens
+    // Uniswap AutoCompound carry-forward accounting. Token ID 0 records protocol fees.
+    CompoundBalanceLib.Ledger private compoundLedger;
+    event BalanceAdded(uint256 tokenId, address token, uint256 amount);
+    event BalanceRemoved(uint256 tokenId, address token, uint256 amount);
+    event BalanceWithdrawn(uint256 tokenId, address token, address to, uint256 amount);
+
     mapping(uint256 => PositionConfig) public positionConfigs;
     mapping(uint256 => CompoundMode) public compoundModes; // fee tier per position, see CompoundMode
 
@@ -325,6 +332,12 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 IVault(state.owner).expectReplacement(state.newTokenId);
             }
 
+            // Move once here even if this vault uses another staking policy. Its authenticated callback
+            // becomes a no-op for balances already moved; generic replacements are handled by that callback.
+            CompoundBalanceLib.replacePosition(
+                compoundLedger, nonfungiblePositionManager, params.tokenId, state.newTokenId, state.realOwner
+            );
+
             // send the new nft to the owner / vault
             nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId);
 
@@ -335,6 +348,10 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 state.amount0 -= state.protocolReward0;
                 state.amount1 -= state.protocolReward1;
             }
+
+            CompoundBalanceLib.creditProtocolFees(
+                compoundLedger, state.token0, state.token1, state.protocolReward0, state.protocolReward1
+            );
 
             // send leftover to real owner
             if (state.amount0 - state.amountAdded0 != 0) {
@@ -478,6 +495,8 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             }
         }
 
+        if (vaults[msg.sender]) compoundLedger.positions[params.tokenId].vault = msg.sender;
+
         PositionConfig memory config = positionConfigs[params.tokenId];
         if (enforceConfig && !config.autoCompound) {
             revert NotConfigured();
@@ -485,21 +504,13 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
         AutoCompoundState memory state;
 
-        // collect fees - if the position doesn't have operator set or is called from vault - it won't work
-        (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(
-                params.tokenId, address(this), type(uint128).max, type(uint128).max
-            )
+        (state.amount0, state.amount1, state.token0, state.token1, state.fee) = CompoundBalanceLib.collectFees(
+            compoundLedger,
+            nonfungiblePositionManager,
+            params.tokenId,
+            enforceConfig ? config.autoCompoundMin0 : 0,
+            enforceConfig ? config.autoCompoundMin1 : 0
         );
-
-        // Minimum fee thresholds gate autocompound execution.
-        if (enforceConfig && (state.amount0 < config.autoCompoundMin0 || state.amount1 < config.autoCompoundMin1)) {
-            revert NotEnoughReward();
-        }
-
-        // get position info
-        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
-            nonfungiblePositionManager.positions(params.tokenId);
 
         // only if there are balances to work with - start autocompounding process
         if (state.amount0 != 0 || state.amount1 != 0) {
@@ -546,48 +557,18 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
                 }
             }
 
-            uint256 rewardX64 = compoundRewardX64(params.tokenId);
-
-            state.maxAddAmount0 = state.amount0 * Q64 / (rewardX64 + Q64);
-            state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
-
-            // deposit liquidity into tokenId
-            if (state.maxAddAmount0 != 0 || state.maxAddAmount1 != 0) {
-                // approve npm
-                SafeERC20.safeIncreaseAllowance(
-                    IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0
+            (state.compounded0, state.compounded1, state.amount0Fees, state.amount1Fees) =
+                CompoundBalanceLib.addLiquidityAndSettle(
+                    compoundLedger,
+                    nonfungiblePositionManager,
+                    params.tokenId,
+                    state.token0,
+                    state.token1,
+                    state.amount0,
+                    state.amount1,
+                    compoundRewardX64(params.tokenId),
+                    params.deadline
                 );
-                SafeERC20.safeIncreaseAllowance(
-                    IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1
-                );
-
-                (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
-                    INonfungiblePositionManager.IncreaseLiquidityParams(
-                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, params.deadline
-                    )
-                );
-
-                // remove remaining approval
-                SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
-                SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
-
-                // fees are always calculated based on added amount (to incentivize optimal swap)
-                state.amount0Fees = state.compounded0 * rewardX64 / Q64;
-                state.amount1Fees = state.compounded1 * rewardX64 / Q64;
-            }
-
-            // get the real owner - if owner is vault - for sending leftover tokens
-            (state.owner, state.realOwner) = _ownerAndRealOwner(params.tokenId);
-
-            // return remaining tokens for owner
-            state.amount0 = state.amount0 - state.compounded0 - state.amount0Fees;
-            if (state.amount0 > 0) {
-                _transferToken(state.realOwner, IERC20(state.token0), state.amount0, true);
-            }
-            state.amount1 = state.amount1 - state.compounded1 - state.amount1Fees;
-            if (state.amount1 > 0) {
-                _transferToken(state.realOwner, IERC20(state.token1), state.amount1, true);
-            }
         }
 
         emit AutoCompounded(
@@ -629,13 +610,16 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     /// @notice Called only by a registered vault while it accepts an authenticated replacement NFT.
     function migrateStakingPolicy(uint256 oldTokenId, uint256 newTokenId) external {
         if (!vaults[msg.sender] || IVault(msg.sender).transformedTokenId() != oldTokenId) revert Unauthorized();
+        compoundLedger.positions[oldTokenId].vault = msg.sender;
+        CompoundBalanceLib.replacePosition(
+            compoundLedger, nonfungiblePositionManager, oldTokenId, newTokenId, IVault(msg.sender).ownerOf(oldTokenId)
+        );
         lastStakeChangeBlock[newTokenId] = lastStakeChangeBlock[oldTokenId];
     }
 
     // owner of the position and the real owner: the vault's owner of the position when a vault holds it
     function _ownerAndRealOwner(uint256 tokenId) internal returns (address owner, address realOwner) {
-        owner = nonfungiblePositionManager.ownerOf(tokenId);
-        realOwner = vaults[owner] ? IVault(owner).ownerOf(tokenId) : owner;
+        return CompoundBalanceLib.ownerOf(compoundLedger, nonfungiblePositionManager, vaults, tokenId);
     }
 
     function _requireRangeReady(uint256 tokenId) internal view {
@@ -648,57 +632,16 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
     // operator/vault auth for the plain transform wrappers; they keep the current custody, so the only staking rule
     // that applies to them is the gauge penalty window
     function _prepareTransform(uint256 tokenId, address vault) internal view {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
-        (address gaugeManager, bool staked) = _stakeState(tokenId, vault);
-        if (staked) {
-            _requireOutsidePenaltyWindow(gaugeManager, tokenId);
-        }
+        VaultLib.prepareTransform(operators, vaults, tokenId, vault);
     }
 
-    // operator/vault auth; for a real custody change also owner opt-in, cooldown and gauge penalty window
     function _prepareStakeChange(uint256 tokenId, address vault, IVault.StakeTarget target)
         internal
         returns (bool changes)
     {
-        if (!operators[msg.sender] || !vaults[vault]) {
-            revert Unauthorized();
-        }
-        if (target == IVault.StakeTarget.Keep) {
-            return false;
-        }
-        (address gaugeManager, bool staked) = _stakeState(tokenId, vault);
-        changes = staked != (target == IVault.StakeTarget.Staked);
-        if (!changes) {
-            return false;
-        }
-        if (!_isStakingManaged(tokenId, vault)) {
-            revert Unauthorized();
-        }
-        uint256 lastChange = lastStakeChangeBlock[tokenId];
-        if (lastChange != 0 && block.number < lastChange + stakeChangeCooldownBlocks) {
-            revert NotReady();
-        }
-        if (staked) {
-            _requireOutsidePenaltyWindow(gaugeManager, tokenId);
-        }
-        lastStakeChangeBlock[tokenId] = block.number;
-    }
-
-    // the vault's gauge manager and whether it currently stakes the position (never for a vault without one)
-    function _stakeState(uint256 tokenId, address vault) internal view returns (address gaugeManager, bool staked) {
-        gaugeManager = IVault(vault).gaugeManager();
-        staked = gaugeManager != address(0) && IGaugeManager(gaugeManager).tokenIdToGauge(tokenId) != address(0);
-    }
-
-    // Every vault transform of a staked position unstakes and restakes it. Inside the gauge's early-unstake penalty
-    // window the unstake claims the accrued rewards at the penalized rate and the restake restarts the window, so the
-    // operator never transforms a staked position before penaltyWindowEnd (Cantina LEND-4). Only for staked positions.
-    function _requireOutsidePenaltyWindow(address gaugeManager, uint256 tokenId) internal view {
-        if (block.number < IGaugeManager(gaugeManager).penaltyWindowEnd(tokenId)) {
-            revert NotReady();
-        }
+        return VaultLib.prepareStakeChange(
+            operators, vaults, stakingConsent, lastStakeChangeBlock, stakeChangeCooldownBlocks, tokenId, vault, target
+        );
     }
 
     // function to configure a token to be used with this runner
@@ -711,6 +654,7 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
             revert InvalidConfig();
         }
 
+        if (vault != address(0)) compoundLedger.positions[tokenId].vault = vault;
         positionConfigs[tokenId] = config;
         compoundModes[tokenId] = mode;
 
@@ -757,5 +701,36 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
         totalRewardX64 = _totalRewardX64;
         simpleRewardX64 = _simpleRewardX64;
         emit AutoCompoundRewardsUpdated(msg.sender, _totalRewardX64, _simpleRewardX64);
+    }
+
+    function positionBalances(uint256 tokenId, address token) external view returns (uint256) {
+        return compoundLedger.balances[tokenId][token];
+    }
+
+    function compoundBalances(uint256 tokenId, bool deposit, uint256[3] calldata amounts)
+        external
+        nonReentrant
+        returns (uint256[3] memory taken)
+    {
+        return CompoundBalanceLib.rewardBalances(
+            compoundLedger, nonfungiblePositionManager, vaults, tokenId, deposit, amounts
+        );
+    }
+
+    function withdrawLeftoverBalances(uint256 tokenId, address to) external nonReentrant {
+        CompoundBalanceLib.withdrawPosition(compoundLedger, nonfungiblePositionManager, vaults, tokenId, to);
+    }
+
+    /**
+     * @notice Withdraws token balance (accumulated protocol fee)
+     * @dev The method is overriden, because it differs from standard automator fee handling
+     * @param tokens Addresses of tokens to withdraw
+     * @param to Address to send to
+     */
+    function withdrawBalances(address[] calldata tokens, address to) external override nonReentrant {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+        CompoundBalanceLib.withdrawProtocolFees(compoundLedger, tokens, to);
     }
 }
