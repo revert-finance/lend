@@ -91,7 +91,10 @@ contract AeroProtocolDeploymentTest is Test {
         assertTrue(d.gaugeManager.tokenIdToGauge(id) != address(0));
         _advance();
         vm.prank(OPERATOR);
-        d.poolsideFactory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
+        d.poolsideFactory
+            .executeExit(
+                AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0), new PoolsidePosition.SettlementSwap[](0)
+            );
         assertEq(d.poolsideFactory.activeHolder(id), address(0));
         assertEq(INonfungiblePositionManager(NPM).ownerOf(id), address(holder));
         assertEq(d.vault.loans(id), 0);

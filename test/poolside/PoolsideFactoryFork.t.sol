@@ -7,6 +7,15 @@ import "../../src/poolside/PoolsideFactory.sol";
 import "../../src/V3Oracle.sol";
 import "../../src/interfaces/aerodrome/IAerodromeSlipstreamPool.sol";
 
+/// Test stand-in at the immutable 0x AllowanceHolder address. Exercises real V3Utils approval,
+/// raw calldata dispatch, balance-delta checks and refunds without an expiring external API quote.
+contract SettlementQuoteExecutor {
+    function swap(IERC20 input, IERC20 output, address recipient, uint256 spend, uint256 receiveAmount) external {
+        input.transferFrom(msg.sender, address(this), spend);
+        output.transfer(recipient, receiveAmount);
+    }
+}
+
 // The repository's pinned forge-std predates the emitter field in Foundry's log cheatcode.
 interface PoolsideLogReader {
     struct Log {
@@ -75,7 +84,7 @@ contract PoolsideNonReceiverBeneficiary {
     }
 
     function withdrawToAsset(V3Utils.Instructions calldata instructions, uint256 minAssets) external returns (uint256) {
-        return holder.withdrawToAsset(instructions, minAssets);
+        return holder.withdrawToAsset(instructions, minAssets, new PoolsidePosition.SettlementSwap[](0));
     }
 
     function claimNFT(address recipient) external {
@@ -175,7 +184,9 @@ contract PoolsideFactoryForkTest is Test {
 
     function _execute(uint256 id) internal {
         vm.prank(OPERATOR);
-        factory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
+        factory.executeExit(
+            AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0), new PoolsidePosition.SettlementSwap[](0)
+        );
     }
 
     function test_CreateRegistersOnlyActualMintAndSetsBothAutomations() public {
@@ -285,7 +296,7 @@ contract PoolsideFactoryForkTest is Test {
             uint256 before = asset.balanceOf(ALICE);
             uint256 bobBefore = asset.balanceOf(BOB);
             vm.prank(ALICE);
-            uint256 received = holder.withdrawToAsset(instructions, 1e6);
+            uint256 received = holder.withdrawToAsset(instructions, 1e6, new PoolsidePosition.SettlementSwap[](0));
             assertEq(asset.balanceOf(ALICE) - before, received);
             assertGt(received, 1e6);
             assertEq(asset.balanceOf(BOB), bobBefore);
@@ -322,7 +333,7 @@ contract PoolsideFactoryForkTest is Test {
         uint256 aliceUsdc = t1.balanceOf(ALICE);
         vm.prank(ALICE);
         vm.expectRevert(PoolsidePosition.UnspentRouterInput.selector);
-        holder.withdrawToAsset(instructions, 1e6);
+        holder.withdrawToAsset(instructions, 1e6, new PoolsidePosition.SettlementSwap[](0));
         assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Active));
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(npm.ownerOf(id), ownerBefore);
@@ -372,10 +383,10 @@ contract PoolsideFactoryForkTest is Test {
             uint256 beforeWeth = t0.balanceOf(ALICE);
             uint256 beforeUsdc = t1.balanceOf(ALICE);
             vm.prank(ALICE);
-            uint256 received = holder.withdrawToAsset(instructions, 1e6);
+            uint256 received = holder.withdrawToAsset(instructions, 1e6, new PoolsidePosition.SettlementSwap[](0));
             assertGt(received, 1e6);
             assertEq(t1.balanceOf(ALICE) - beforeUsdc, received);
-            assertGt(t0.balanceOf(ALICE), beforeWeth);
+            assertGt(t0.balanceOf(ALICE), beforeWeth); // no leftover quote: refund is paid in kind
             assertEq(t0.balanceOf(address(holder)), 0);
             assertEq(t1.balanceOf(address(holder)), 0);
             assertEq(t0.balanceOf(UTILS.universalRouter()), 0);
@@ -394,7 +405,7 @@ contract PoolsideFactoryForkTest is Test {
         deal(address(asset), address(holder), 1_000_000e6);
         vm.prank(ALICE);
         vm.expectRevert(PoolsidePosition.InsufficientAssets.selector);
-        holder.withdrawToAsset(instructions, 500_000e6);
+        holder.withdrawToAsset(instructions, 500_000e6, new PoolsidePosition.SettlementSwap[](0));
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(npm.ownerOf(id), gauge);
         assertEq(MANAGER.tokenIdToGauge(id), gauge);
@@ -413,15 +424,15 @@ contract PoolsideFactoryForkTest is Test {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
         V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
         vm.prank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
-        holder.withdrawToAsset(instructions, 1);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.withdrawToAsset(instructions, 1, new PoolsidePosition.SettlementSwap[](0));
         vm.prank(OPERATOR);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
-        holder.withdrawToAsset(instructions, 1);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.withdrawToAsset(instructions, 1, new PoolsidePosition.SettlementSwap[](0));
         vm.startPrank(ALICE);
-        holder.withdrawToAsset(instructions, 1);
+        holder.withdrawToAsset(instructions, 1, new PoolsidePosition.SettlementSwap[](0));
         vm.expectRevert(PoolsidePosition.InvalidState.selector);
-        holder.withdrawToAsset(instructions, 1);
+        holder.withdrawToAsset(instructions, 1, new PoolsidePosition.SettlementSwap[](0));
         vm.stopPrank();
     }
 
@@ -431,11 +442,11 @@ contract PoolsideFactoryForkTest is Test {
         instructions.deadline = block.timestamp - 1;
         vm.startPrank(ALICE);
         vm.expectRevert();
-        holder.withdrawToAsset(instructions, 1);
+        holder.withdrawToAsset(instructions, 1, new PoolsidePosition.SettlementSwap[](0));
         instructions.deadline = block.timestamp;
         instructions.swapData0 = hex"deadbeef";
         vm.expectRevert();
-        holder.withdrawToAsset(instructions, 1);
+        holder.withdrawToAsset(instructions, 1, new PoolsidePosition.SettlementSwap[](0));
         vm.stopPrank();
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(npm.ownerOf(id), address(VAULT));
@@ -470,7 +481,38 @@ contract PoolsideFactoryForkTest is Test {
         RANGE.autoCompound(params, true);
     }
 
-    function test_AssetExitReturnsAvailableBalancesAndPreservesDeferredRewards() public {
+    function _quote(IERC20 token, uint256 amount, uint256 output)
+        internal
+        returns (PoolsidePosition.SettlementSwap memory q)
+    {
+        address executor = UTILS.zeroxAllowanceHolder();
+        vm.etch(executor, address(new SettlementQuoteExecutor()).code);
+        deal(address(token), executor, 0);
+        deal(VAULT.asset(), executor, 1_000_000e6);
+        q = PoolsidePosition.SettlementSwap(
+            token,
+            amount,
+            0,
+            block.timestamp,
+            abi.encodeCall(SettlementQuoteExecutor.swap, (token, IERC20(VAULT.asset()), address(UTILS), amount, output))
+        );
+    }
+
+    function _oneQuote(PoolsidePosition.SettlementSwap memory q)
+        internal
+        pure
+        returns (PoolsidePosition.SettlementSwap[] memory swaps)
+    {
+        swaps = new PoolsidePosition.SettlementSwap[](1);
+        swaps[0] = q;
+    }
+
+    function _exitWithQuotes(uint256 id, PoolsidePosition.SettlementSwap[] memory swaps) internal {
+        vm.prank(OPERATOR);
+        factory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0), swaps);
+    }
+
+    function test_AssetExitQuotesSettleNativeAndRewardBalancesWithoutClaimingDeferred() public {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
         _rootLiability(holder, 7e18, true);
         IERC20 asset = IERC20(VAULT.asset());
@@ -479,30 +521,318 @@ contract PoolsideFactoryForkTest is Test {
         deal(address(asset), address(holder), 123e6);
         deal(address(reward), address(holder), 3e18);
         vm.deal(address(holder), 1 ether);
+        PoolsidePosition.SettlementSwap[] memory swaps = new PoolsidePosition.SettlementSwap[](2);
+        swaps[0] = _quote(input, 1 ether, 10000e6);
+        swaps[1] = _quote(reward, 3e18, 10000e6);
         uint256 beforeAsset = asset.balanceOf(ALICE);
         uint256 beforeToken = input.balanceOf(ALICE);
         uint256 beforeReward = reward.balanceOf(ALICE);
         V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
-        // Unspent quote input is returned in kind, alongside pre-existing balances and delivered rewards.
-        instructions.swapData0 = "";
         vm.prank(ALICE);
-        uint256 received = holder.withdrawToAsset(instructions, 1);
+        uint256 received = holder.withdrawToAsset(instructions, 1e6, swaps);
         assertEq(asset.balanceOf(ALICE) - beforeAsset, received);
-        assertGt(received, 123e6);
-        assertGt(input.balanceOf(ALICE) - beforeToken, 1 ether);
-        assertEq(reward.balanceOf(ALICE) - beforeReward, 3e18);
-        assertEq(asset.balanceOf(address(holder)), 0);
+        assertGt(received, 20123e6);
+        assertEq(input.balanceOf(ALICE), beforeToken);
+        assertEq(reward.balanceOf(ALICE), beforeReward);
         assertEq(input.balanceOf(address(holder)), 0);
         assertEq(reward.balanceOf(address(holder)), 0);
         assertEq(address(holder).balance, 0);
+        assertEq(input.allowance(address(holder), address(UTILS)), 0);
+        assertEq(input.allowance(address(UTILS), UTILS.zeroxAllowanceHolder()), 0);
         vm.prank(ALICE);
         assertEq(holder.claimRootDeferredRewards(), 7e18);
+        _assertClosedAndDisabled(id, holder);
     }
 
     function test_AutoExitAlsoClearsRecurringCompounding() public {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         _execute(id);
         _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_ExitSettlementCannotBeCalledOrFundedThroughForgedCallback() public {
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1 ether);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1 ether, 10000e6);
+        vm.prank(BOB);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.settleTokenToAsset(q);
+        vm.prank(ALICE);
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.settleTokenToAsset(q);
+        vm.prank(address(POOL));
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.uniswapV3SwapCallback(1 ether, -1, "");
+        assertEq(input.balanceOf(address(holder)), 1 ether);
+    }
+
+    function test_AutoExitQuotesSettleKnownAmountsAndReturnNewUnquotedProceeds() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, true, true);
+        vm.roll(MANAGER.penaltyWindowEnd(id));
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 asset = IERC20(VAULT.asset());
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(input), address(holder), 1e14);
+        deal(address(reward), address(holder), 1e16);
+        vm.deal(address(holder), 1e14);
+        _rootLiability(holder, 7e18, false);
+        PoolsidePosition.SettlementSwap[] memory swaps = new PoolsidePosition.SettlementSwap[](2);
+        swaps[0] = _quote(input, 2e14, 10e6);
+        swaps[1] = _quote(reward, 1e16, 10e6);
+        uint256 beforeAsset = asset.balanceOf(ALICE);
+        _exitWithQuotes(id, swaps);
+        assertGe(asset.balanceOf(ALICE) - beforeAsset, 20e6);
+        assertEq(input.balanceOf(address(holder)), 0);
+        assertEq(reward.balanceOf(address(holder)), 0);
+        assertEq(address(holder).balance, 0);
+        assertEq(MANAGER.rootDeferredRewards(address(holder)), 7e18);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_MissingQuoteReturnsRewardInKindAndStillExits() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(reward), address(holder), 1e18);
+        uint256 before = reward.balanceOf(ALICE);
+        _execute(id);
+        assertEq(reward.balanceOf(ALICE) - before, 1e18);
+        assertEq(reward.balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_MissingPriceReferenceRejectsEvenValidOperatorQuote() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(reward), address(holder), 1e18);
+        PoolsidePosition.SettlementSwap memory q = _quote(reward, 1e18, 10000e6);
+        MANAGER.setRewardBasePool(VAULT.asset(), address(0));
+        uint256 before = reward.balanceOf(ALICE);
+        _exitWithQuotes(id, _oneQuote(q));
+        assertEq(reward.balanceOf(ALICE) - before, 1e18);
+        assertEq(reward.balanceOf(UTILS.zeroxAllowanceHolder()), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_TwapFailureReturnsProceedsInKindWithoutExecutingQuote() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1 ether);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1 ether, 10000e6);
+        vm.mockCall(address(POOL), abi.encodeWithSelector(POOL.observe.selector), bytes(""));
+        uint256 before = input.balanceOf(ALICE);
+        _exitWithQuotes(id, _oneQuote(q));
+        assertGe(input.balanceOf(ALICE) - before, 1 ether);
+        assertEq(input.balanceOf(UTILS.zeroxAllowanceHolder()), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_SubUnitDustReturnsInKindOnUsdcWithdrawal() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1, 1);
+        uint256 before = input.balanceOf(ALICE);
+        V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
+        vm.prank(ALICE);
+        holder.withdrawToAsset(instructions, 1e6, _oneQuote(q));
+        assertEq(input.balanceOf(ALICE) - before, 1);
+        assertEq(input.balanceOf(address(holder)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_PartialQuoteRollsBackConversionAndReturnsFullInput() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1 ether);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1 ether, 10000e6);
+        q.swapData = abi.encodeCall(
+            SettlementQuoteExecutor.swap, (input, IERC20(VAULT.asset()), address(UTILS), 0.5 ether, 10000e6)
+        );
+        uint256 before = input.balanceOf(ALICE);
+        _exitWithQuotes(id, _oneQuote(q));
+        assertGe(input.balanceOf(ALICE) - before, 1 ether);
+        assertEq(input.balanceOf(UTILS.zeroxAllowanceHolder()), 0);
+        assertEq(input.allowance(address(holder), address(UTILS)), 0);
+        assertEq(input.allowance(address(UTILS), UTILS.zeroxAllowanceHolder()), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_ZeroCallerMinimumCannotSellUserBalanceBelowPriceFloor() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1 ether);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1 ether, 1);
+        uint256 before = input.balanceOf(ALICE);
+        _exitWithQuotes(id, _oneQuote(q));
+        assertGe(input.balanceOf(ALICE) - before, 1 ether);
+        assertEq(input.balanceOf(UTILS.zeroxAllowanceHolder()), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_RedirectedQuoteOutputCannotConsumeHolderBalance() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 asset = IERC20(VAULT.asset());
+        deal(address(input), address(holder), 1 ether);
+        deal(address(asset), address(holder), 10000e6); // cannot pad a new quote's output minimum
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1 ether, 10000e6);
+        q.swapData = abi.encodeCall(SettlementQuoteExecutor.swap, (input, asset, BOB, 1 ether, 10000e6));
+        uint256 before = input.balanceOf(ALICE);
+        uint256 bobBefore = asset.balanceOf(BOB);
+        _exitWithQuotes(id, _oneQuote(q));
+        assertGe(input.balanceOf(ALICE) - before, 1 ether);
+        assertEq(asset.balanceOf(BOB), bobBefore);
+        assertEq(input.balanceOf(UTILS.zeroxAllowanceHolder()), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_ExpiredOrExcessiveQuotesReturnInputInKind() public {
+        for (uint256 i; i < 2; ++i) {
+            (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+            IERC20 input = IERC20(POOL.token0());
+            deal(address(input), address(holder), 1 ether);
+            PoolsidePosition.SettlementSwap memory q = _quote(input, i == 0 ? 1 ether : 100 ether, 10000e6);
+            if (i == 0) q.deadline = block.timestamp - 1;
+            uint256 before = input.balanceOf(ALICE);
+            _exitWithQuotes(id, _oneQuote(q));
+            assertGe(input.balanceOf(ALICE) - before, 1 ether);
+            _assertClosedAndDisabled(id, holder);
+        }
+    }
+
+    function test_InvalidOrDuplicateQuoteAssetsRevertWholeExit() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        PoolsidePosition.SettlementSwap[] memory swaps = new PoolsidePosition.SettlementSwap[](2);
+        swaps[0] = _quote(IERC20(POOL.token0()), 1, 1);
+        swaps[1] = swaps[0];
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        _exitWithQuotes(id, swaps);
+        swaps[1].tokenIn = IERC20(BOB);
+        vm.expectRevert(Constants.InvalidConfig.selector);
+        _exitWithQuotes(id, swaps);
+        assertTrue(holder.active());
+        assertEq(npm.ownerOf(id), address(VAULT));
+    }
+
+    function test_ActualUniversalRouterQuoteSettlesHolderInputThroughV3Utils() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, false);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1e14);
+        PoolsidePosition.SettlementSwap memory q = PoolsidePosition.SettlementSwap(
+            input, 1e14, 1, block.timestamp, _exitSwapData(address(input), VAULT.asset())
+        );
+        uint256 before = input.balanceOf(ALICE);
+        V3Utils.Instructions memory instructions = _usdcExitInstructions(id);
+        vm.prank(ALICE);
+        holder.withdrawToAsset(instructions, 1e6, _oneQuote(q));
+        assertEq(input.balanceOf(ALICE), before);
+        assertEq(input.balanceOf(address(holder)), 0);
+        assertEq(input.allowance(address(holder), address(UTILS)), 0);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_UniversalRouterQuoteCannotStrandInputOrOutput() public {
+        (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        deal(address(input), address(holder), 1e14);
+        bytes[] memory inputs = new bytes[](0);
+        PoolsidePosition.SettlementSwap memory q = PoolsidePosition.SettlementSwap(
+            input,
+            1e14,
+            0,
+            block.timestamp,
+            abi.encode(UTILS.universalRouter(), abi.encode(Swapper.UniversalRouterData(hex"", inputs, block.timestamp)))
+        );
+        uint256 before = input.balanceOf(ALICE);
+        uint256 routerBefore = input.balanceOf(UTILS.universalRouter());
+        _exitWithQuotes(id, _oneQuote(q));
+        assertGe(input.balanceOf(ALICE) - before, 1e14);
+        assertEq(input.balanceOf(UTILS.universalRouter()), routerBefore);
+        _assertClosedAndDisabled(id, holder);
+    }
+
+    function test_QuoteCannotLeaveOutputInUniversalRouterEvenWhenMinimumIsMet() public {
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 asset = IERC20(VAULT.asset());
+        uint256 amount = 1e14;
+        deal(address(input), address(holder), amount);
+        (uint160 price,,,,,) = POOL.slot0();
+        uint256 minimum = FullMath.mulDiv(amount, uint256(price) * price, uint256(1) << 192);
+        uint256 q64 = uint256(1) << 64;
+        minimum = FullMath.mulDiv(minimum, q64 - q64 / 100, q64);
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(
+            UTILS.universalRouter(),
+            uint256(1) << 255,
+            uint256(1),
+            abi.encodePacked(address(input), uint24(500), address(asset)),
+            false
+        );
+        inputs[1] = abi.encode(address(asset), address(UTILS), minimum);
+        PoolsidePosition.SettlementSwap memory q = PoolsidePosition.SettlementSwap(
+            input,
+            amount,
+            minimum,
+            block.timestamp,
+            abi.encode(
+                UTILS.universalRouter(), abi.encode(Swapper.UniversalRouterData(hex"0005", inputs, block.timestamp))
+            )
+        );
+        uint256 routerBefore = asset.balanceOf(UTILS.universalRouter());
+        vm.prank(address(holder));
+        vm.expectRevert(PoolsidePosition.UnspentRouterInput.selector);
+        holder.settleTokenToAsset(q);
+        assertEq(input.balanceOf(address(holder)), amount);
+        assertEq(asset.balanceOf(UTILS.universalRouter()), routerBefore);
+        assertEq(input.allowance(address(holder), address(UTILS)), 0);
+    }
+
+    function test_QuotePreservesPreexistingUtilityBalancesAndHonorsStricterMinimum() public {
+        (, PoolsidePosition holder) = _create(ALICE, false, true);
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 asset = IERC20(VAULT.asset());
+        deal(address(input), address(holder), 1e14);
+        deal(address(input), address(UTILS), 7e14);
+        deal(address(asset), address(UTILS), 50e6);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1e14, 10e6);
+        q.minAmountOut = 20e6;
+        vm.prank(address(holder));
+        vm.expectRevert(Constants.SlippageError.selector);
+        holder.settleTokenToAsset(q);
+        assertEq(input.balanceOf(address(holder)), 1e14);
+        q.minAmountOut = 10e6;
+        vm.prank(address(holder));
+        holder.settleTokenToAsset(q);
+        assertEq(asset.balanceOf(address(holder)), 10e6);
+        assertEq(input.balanceOf(address(UTILS)), 7e14);
+        assertEq(asset.balanceOf(address(UTILS)), 50e6);
+        assertEq(input.allowance(address(holder), address(UTILS)), 0);
+        assertEq(input.allowance(address(UTILS), UTILS.zeroxAllowanceHolder()), 0);
+    }
+
+    function test_TwoReferenceQuoteDoesNotSpendIntermediateRewardBalance() public {
+        PoolsidePosition holder =
+            new PoolsidePosition(ALICE, PoolsidePosition.Bindings(UTILS, VAULT, MANAGER, RANGE, EXIT));
+        IERC20 input = IERC20(POOL.token0());
+        IERC20 reward = MANAGER.aeroToken();
+        deal(address(input), address(holder), 1e14);
+        deal(address(reward), address(holder), 3e18);
+        PoolsidePosition.SettlementSwap memory q = _quote(input, 1e14, 10e6);
+        vm.prank(address(holder));
+        holder.settleTokenToAsset(q);
+        assertEq(input.balanceOf(address(holder)), 0);
+        assertEq(reward.balanceOf(address(holder)), 3e18);
+        assertEq(IERC20(VAULT.asset()).balanceOf(address(holder)), 10e6);
+    }
+
+    function test_HolderAndCreationLibraryRemainDeployable() public {
+        (, PoolsidePosition holder) = _create(ALICE, false, false);
+        assertLe(address(holder).code.length, 24576);
+        assertLe(address(factory).code.length, 24576);
+        assertLe(address(PoolsidePositionDeployer).code.length, 24576);
+        assertLe(type(PoolsideFactory).creationCode.length, 49152);
     }
 
     function _clearPoolTokenOracleConfig() internal {
@@ -620,7 +950,7 @@ contract PoolsideFactoryForkTest is Test {
         assertEq(factory.activeHolder(id), address(0));
         assertEq(npm.ownerOf(id), address(holder));
         assertEq(uint256(holder.state()), uint256(PoolsidePosition.State.Closed));
-        assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before0);
+        assertGt(IERC20(POOL.token0()).balanceOf(ALICE), before0); // no quote: pay both tokens
         assertGt(IERC20(POOL.token1()).balanceOf(ALICE), before1);
         assertEq(address(holder).balance, 0);
     }
@@ -662,7 +992,10 @@ contract PoolsideFactoryForkTest is Test {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(OPERATOR);
         vm.expectRevert();
-        factory.executeExit(AutoExit.ExecuteParams(id, "", type(uint256).max, type(uint256).max, block.timestamp, 0));
+        factory.executeExit(
+            AutoExit.ExecuteParams(id, "", type(uint256).max, type(uint256).max, block.timestamp, 0),
+            new PoolsidePosition.SettlementSwap[](0)
+        );
         assertEq(factory.activeHolder(id), address(holder));
         assertEq(npm.ownerOf(id), address(VAULT));
     }
@@ -670,17 +1003,17 @@ contract PoolsideFactoryForkTest is Test {
     function test_UnknownUserCannotWithdrawOrChangeConsentOrClaim() public {
         (, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.withdraw();
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.withdrawTo(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimNFT(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.setStakingManagement(false);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimRootDeferredRewards();
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimNative();
         vm.stopPrank();
     }
@@ -688,10 +1021,10 @@ contract PoolsideFactoryForkTest is Test {
     function test_OnlyFactoryCanPrepareOrFinishExit() public {
         (, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.startPrank(OPERATOR);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.prepareAutoExit();
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
-        holder.finishAutoExit();
+        vm.expectRevert(Constants.Unauthorized.selector);
+        holder.finishAutoExit(new PoolsidePosition.SettlementSwap[](0));
         vm.stopPrank();
     }
 
@@ -699,7 +1032,9 @@ contract PoolsideFactoryForkTest is Test {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(BOB);
         vm.expectRevert(PoolsideFactory.Unauthorized.selector);
-        factory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0));
+        factory.executeExit(
+            AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 0), new PoolsidePosition.SettlementSwap[](0)
+        );
         vm.prank(BOB);
         vm.expectRevert(PoolsideFactory.Unauthorized.selector);
         factory.positionClosed(id);
@@ -918,7 +1253,7 @@ contract PoolsideFactoryForkTest is Test {
         IERC20[] memory tokens = new IERC20[](1);
         tokens[0] = asset;
         vm.prank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         aliceHolder.claimTokens(tokens);
         vm.prank(ALICE);
         aliceHolder.withdraw();
@@ -990,7 +1325,7 @@ contract PoolsideFactoryForkTest is Test {
     function test_UserCanPauseExitWithoutRemovingPosition() public {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(BOB);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.setAutoExitEnabled(false);
         vm.prank(ALICE);
         holder.setAutoExitEnabled(false);
@@ -1007,7 +1342,9 @@ contract PoolsideFactoryForkTest is Test {
         (uint256 id, PoolsidePosition holder) = _create(ALICE, false, true);
         vm.prank(OPERATOR);
         vm.expectRevert(Constants.ExceedsMaxReward.selector);
-        factory.executeExit(AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 1));
+        factory.executeExit(
+            AutoExit.ExecuteParams(id, "", 0, 0, block.timestamp, 1), new PoolsidePosition.SettlementSwap[](0)
+        );
         assertEq(factory.activeHolder(id), address(holder));
     }
 
@@ -1086,7 +1423,7 @@ contract PoolsideFactoryForkTest is Test {
         (bool active,,,,,,,,) = EXIT.positionConfigs(id);
         assertFalse(active);
         vm.prank(OPERATOR);
-        vm.expectRevert(PoolsidePosition.Unauthorized.selector);
+        vm.expectRevert(Constants.Unauthorized.selector);
         holder.claimNFT(OPERATOR);
         user.claimNFT(ALICE);
         assertEq(npm.ownerOf(id), ALICE);
@@ -1219,9 +1556,8 @@ contract PoolsideFactoryForkTest is Test {
         _balancedCompoundFees(id); // balanced at planning time
         // Move the live pool by only 20 ticks after sizing; the NPM now requires a different ratio.
         deal(POOL.token1(), address(this), 100_000_000e6);
-        IUniswapV3Pool(address(POOL)).swap(
-            address(this), false, int256(100_000_000e6), TickMath.getSqrtRatioAtTick(tick + 20), ""
-        );
+        IUniswapV3Pool(address(POOL))
+            .swap(address(this), false, int256(100_000_000e6), TickMath.getSqrtRatioAtTick(tick + 20), "");
         vm.expectRevert(Constants.TransformFailed.selector);
         _compoundOutcome(id, false, 0);
         assertEq(npm.ownerOf(id), address(VAULT));
@@ -1230,8 +1566,7 @@ contract PoolsideFactoryForkTest is Test {
         uint256 before1 = IERC20(POOL.token1()).balanceOf(address(holder));
         _compoundOutcome(id, true, 0);
         assertTrue(
-            address(holder).balance > beforeETH
-                || IERC20(POOL.token0()).balanceOf(address(holder)) > before0
+            address(holder).balance > beforeETH || IERC20(POOL.token0()).balanceOf(address(holder)) > before0
                 || IERC20(POOL.token1()).balanceOf(address(holder)) > before1,
             "forced leftover paid to economic owner holder"
         );

@@ -323,7 +323,7 @@ abstract contract Swapper is IUniswapV3SwapCallback, Constants {
     }
 
     // swap callback function where amount for swap is payed
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external virtual override {
         require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
 
         // check if really called from pool

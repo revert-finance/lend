@@ -89,7 +89,8 @@ To keep GaugeManager deployable, the existing `AeroRewardDelivery.validate`
 function is linked as an external library rather than inlined. Its body is
 unchanged. Foundry deploys/links it automatically, just as it already does
 VaultLib. Preserve both library addresses for verification. The verification
-script now expects the ten protocol contracts plus these two libraries.
+script expects the ten protocol contracts plus these two libraries; combined with
+#113, it also includes the linked `PoolsidePositionDeployer` (13 creations total).
 
 Optimized runtime sizes with Solidity 0.8.24, via-IR, optimizer runs 25:
 

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./PoolsidePosition.sol";
+import "./PoolsidePositionDeployer.sol";
 import "../interfaces/aerodrome/IAerodromeSlipstreamFactory.sol";
 
 /// @notice DRAFT: create a fresh position and configure staking + AutoExit in one transaction.
@@ -78,8 +79,9 @@ contract PoolsideFactory is ReentrancyGuard, IPoolsideRegistry {
             else if (address(requested.token1) == wrapped && msg.value <= requested.amount1) native1 = msg.value;
             else revert InvalidMint();
         }
-        holder =
-            new PoolsidePosition(msg.sender, PoolsidePosition.Bindings(utils, vault, manager, automation, autoExit));
+        holder = PoolsidePositionDeployer.deploy(
+            msg.sender, PoolsidePosition.Bindings(utils, vault, manager, automation, autoExit)
+        );
         _fund(requested.token0, requested.amount0 - native0);
         _fund(requested.token1, requested.amount1 - native1);
         V3Utils.SwapAndMintParams memory params = requested;
@@ -111,13 +113,16 @@ contract PoolsideFactory is ReentrancyGuard, IPoolsideRegistry {
 
     /// @notice Executes the user's existing exit rule, with all custody transitions in one atomic transaction.
     /// @dev No recipient override. A failed trigger, swap or payout restores the original position and registry.
-    function executeExit(AutoExit.ExecuteParams calldata params) external nonReentrant {
+    function executeExit(AutoExit.ExecuteParams calldata params, PoolsidePosition.SettlementSwap[] calldata swaps)
+        external
+        nonReentrant
+    {
         if (!autoExit.operators(msg.sender)) revert Unauthorized();
         PoolsidePosition holder = positions[params.tokenId];
         if (address(holder) == address(0) || !holder.active()) revert InvalidMint();
         holder.prepareAutoExit();
         autoExit.execute(params);
-        holder.finishAutoExit();
+        holder.finishAutoExit(swaps);
     }
 
     function activeHolder(uint256 tokenId) external view returns (address) {
