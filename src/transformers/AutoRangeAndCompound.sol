@@ -634,7 +634,9 @@ contract AutoRangeAndCompound is Transformer, Automator, ReentrancyGuard {
 
     /// @notice Called only by a registered vault while it accepts an authenticated replacement NFT.
     function migrateStakingPolicy(uint256 oldTokenId, uint256 newTokenId) external {
-        if (!vaults[msg.sender] || IVault(msg.sender).transformedTokenId() != oldTokenId) revert Unauthorized();
+        if (!vaults[msg.sender] || !IVault(msg.sender).isStakingPolicyMigration(oldTokenId, newTokenId)) {
+            revert Unauthorized();
+        }
         lastStakeChangeBlock[newTokenId] = lastStakeChangeBlock[oldTokenId];
     }
 

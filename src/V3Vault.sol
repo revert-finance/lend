@@ -184,6 +184,11 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     uint256 private constant EXPECTED_REPLACEMENT_SLOT =
         0x19e6a9c46e23b98fb1ff67b58c12224b0d84263b3b2b6ca707e274d98349bfa7;
 
+    // Set only around the policy callback after authenticating the received replacement NFT.
+    // keccak256("revert.lend.V3Vault.stakingPolicyMigration") - 1
+    uint256 private constant STAKING_POLICY_MIGRATION_SLOT =
+        0x56ff42a8bc99f516313a75e13a02777db7046e06e5bc7dd5bea22c68734e726c;
+
     constructor(
         string memory name,
         string memory symbol,
@@ -464,7 +469,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
 
                 // Migrate only after authenticating the actual replacement NFT, never merely its announcement.
                 address policy = stakingPolicy;
-                if (policy != address(0)) IStakingPolicy(policy).migrateStakingPolicy(oldTokenId, tokenId);
+                if (policy != address(0)) {
+                    assembly ("memory-safe") {
+                        tstore(STAKING_POLICY_MIGRATION_SLOT, tokenId)
+                    }
+                    IStakingPolicy(policy).migrateStakingPolicy(oldTokenId, tokenId);
+                    assembly ("memory-safe") {
+                        tstore(STAKING_POLICY_MIGRATION_SLOT, 0)
+                    }
+                }
                 address owner = tokenOwner[oldTokenId];
 
                 // set transformed token to new one
@@ -505,6 +518,15 @@ contract V3Vault is ERC20, Multicall, Ownable2Step, IVault, IERC721Receiver, Con
     /// @dev Approvals only count for the deposit they were given in: removing the token from the vault expires them.
     function transformApprovals(address loanOwner, uint256 tokenId, address target) public view returns (bool) {
         return transformApprovalEpochs[loanOwner][tokenId][target] == tokenEpochs[tokenId] + 1;
+    }
+
+    /// @inheritdoc IVault
+    function isStakingPolicyMigration(uint256 oldTokenId, uint256 newTokenId) external view override returns (bool) {
+        uint256 migrationTokenId;
+        assembly ("memory-safe") {
+            migrationTokenId := tload(STAKING_POLICY_MIGRATION_SLOT)
+        }
+        return newTokenId != 0 && migrationTokenId == newTokenId && transformedTokenId == oldTokenId;
     }
 
     /// @notice Called by the active transformer right before it sends a replacement position for the transformed

@@ -6,6 +6,9 @@ import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 interface IVault is IERC4626 {
     function transformedTokenId() external view returns (uint256 tokenId);
 
+    /// @notice True only while the vault calls its staking policy for this authenticated replacement pair.
+    function isStakingPolicyMigration(uint256 oldTokenId, uint256 newTokenId) external view returns (bool);
+
     function loans(uint256 tokenId) external view returns (uint256 debtShares);
 
     function vaultInfo()

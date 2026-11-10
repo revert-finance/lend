@@ -4,6 +4,42 @@ pragma solidity ^0.8.0;
 import "./OperatorStaking.t.sol";
 
 contract ReplacementLifecycleRegression is OperatorStakingTest {
+    function testDepositorCannotClearAnotherPositionsCooldownThroughTransform() public {
+        vault.setStakingPolicy(address(autoRange));
+        autoRange.setStakeChangeCooldown(50);
+        uint256 victimTokenId = _createVaultPosition(address(usdc), address(dai), 1, false);
+        npm.setTokensOwed(victimTokenId, 0, 0);
+        _optIn(victimTokenId, true);
+        _flip(victimTokenId, IVault.StakeTarget.Staked);
+        uint256 decisionBlock = autoRange.lastStakeChangeBlock(victimTokenId);
+        assertGt(decisionBlock, 0);
+        vm.roll(decisionBlock + 1);
+
+        uint256 attackerTokenId = createPosition(bob, address(usdc), address(dai), 1, -100, 100, 1000e18);
+        npm.setTokensOwed(attackerTokenId, 0, 0);
+        _enrollInVaultAs(bob, attackerTokenId, false);
+        assertEq(autoRange.lastStakeChangeBlock(attackerTokenId), 0);
+
+        // The vault is an authorized caller and is transforming Bob's NFT, but has received no replacement.
+        vm.prank(bob);
+        vm.expectRevert(TransformFailed.selector);
+        vault.transform(
+            attackerTokenId,
+            address(autoRange),
+            abi.encodeCall(autoRange.migrateStakingPolicy, (attackerTokenId, victimTokenId))
+        );
+
+        assertEq(vault.ownerOf(attackerTokenId), bob);
+        assertEq(autoRange.stakingConsent(victimTokenId, address(vault)), alice);
+        assertEq(autoRange.lastStakeChangeBlock(victimTokenId), decisionBlock);
+        vm.prank(admin);
+        vm.expectRevert(NotReady.selector);
+        autoRange.autoCompoundWithVaultAndRewardCompound(
+            _params(victimTokenId), address(vault), _rewardParams(IVault.StakeTarget.Unstaked)
+        );
+        assertEq(gaugeManager.tokenIdToGauge(victimTokenId), address(usdcDaiGauge));
+    }
+
     function testRewardCompoundRangeChecksReadinessBeforeItsRewardSwap() public {
         (uint256 tokenId, uint256 windowEnd) = _stakedInsidePenaltyWindow();
         vm.roll(windowEnd);
@@ -106,6 +142,12 @@ contract ReplacementLifecycleRegression is OperatorStakingTest {
         vm.prank(address(vault));
         vm.expectRevert(Unauthorized.selector);
         autoRange.migrateStakingPolicy(1, 2);
+    }
+
+    function testStakingMigrationRejectsEmptyContext() public {
+        vm.prank(address(vault));
+        vm.expectRevert(Unauthorized.selector);
+        autoRange.migrateStakingPolicy(0, 0);
     }
 
     function testPlainRangeCannotBecomeReadyThroughItsRewardSwap() public {

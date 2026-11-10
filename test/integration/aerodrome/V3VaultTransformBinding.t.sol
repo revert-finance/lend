@@ -22,6 +22,27 @@ contract ForeignReplacementAnnouncer {
     }
 }
 
+/// Observes the vault's authorization during the real NFT receipt callback, including invalid pair queries.
+contract MigrationContextPolicy is Test, IStakingPolicy {
+    uint256 public calls;
+    bool internal immutable rejectMigration;
+
+    constructor(bool _rejectMigration) {
+        rejectMigration = _rejectMigration;
+    }
+
+    function migrateStakingPolicy(uint256 oldTokenId, uint256 newTokenId) external {
+        IVault vault = IVault(msg.sender);
+        assertTrue(vault.isStakingPolicyMigration(oldTokenId, newTokenId));
+        assertFalse(vault.isStakingPolicyMigration(oldTokenId + 1, newTokenId), "wrong source");
+        assertFalse(vault.isStakingPolicyMigration(oldTokenId, newTokenId + 1), "wrong destination");
+        assertFalse(vault.isStakingPolicyMigration(oldTokenId, 0), "zero destination");
+        assertEq(V3Vault(msg.sender).nonfungiblePositionManager().ownerOf(newTokenId), msg.sender);
+        ++calls;
+        require(!rejectMigration, "reject migration");
+    }
+}
+
 /// Test transformer that owns pre-minted positions and delivers them in configurable ways.
 contract ScriptedReplacementTransformer {
     MockAerodromePositionManager internal immutable npm;
@@ -40,12 +61,18 @@ contract ScriptedReplacementTransformer {
 
     // announce + deliver `first`, then deliver `second` (announced again only if `reannounce`)
     function chained(address vault, uint256 first, uint256 second, bool reannounce) external {
+        uint256 oldTokenId = IVault(vault).transformedTokenId();
         IVault(vault).expectReplacement(first);
+        require(!IVault(vault).isStakingPolicyMigration(oldTokenId, first), "announcement is not receipt");
         npm.safeTransferFrom(address(this), vault, first);
+        require(!IVault(vault).isStakingPolicyMigration(oldTokenId, first), "old authorization leaked");
+        require(!IVault(vault).isStakingPolicyMigration(first, first), "migration context not cleared");
         if (reannounce) {
             IVault(vault).expectReplacement(second);
         }
+        require(!IVault(vault).isStakingPolicyMigration(first, second), "next migration not received");
         npm.safeTransferFrom(address(this), vault, second);
+        require(!IVault(vault).isStakingPolicyMigration(second, second), "second migration context not cleared");
     }
 }
 
@@ -191,6 +218,35 @@ contract V3VaultReplacementAnnouncementTest is AerodromeTestBase {
         );
         assertEq(newTokenId, 7_000_005);
         assertEq(vault.ownerOf(7_000_005), alice);
+    }
+
+    function testStakingMigrationContextOnlyAuthorizesReceivedPair() public {
+        MigrationContextPolicy policy = new MigrationContextPolicy(false);
+        vault.setStakingPolicy(address(policy));
+        assertFalse(vault.isStakingPolicyMigration(0, 0));
+        testChainedReplacementsWithFreshAnnouncements();
+        assertEq(policy.calls(), 2, "each authenticated receipt invokes the policy");
+        assertFalse(vault.isStakingPolicyMigration(7_000_004, 7_000_005));
+    }
+
+    function testRevertedMigrationRollsBackContextAndReceipt() public {
+        MigrationContextPolicy policy = new MigrationContextPolicy(true);
+        vault.setStakingPolicy(address(policy));
+        uint256 tokenId = _depositAlicePosition();
+        _mintTo(address(scripted), 7_000_006);
+        vm.prank(alice);
+        vm.expectRevert(TransformFailed.selector);
+        vault.transform(
+            tokenId,
+            address(scripted),
+            abi.encodeCall(ScriptedReplacementTransformer.chained, (address(vault), 7_000_006, 7_000_007, true))
+        );
+        assertFalse(vault.isStakingPolicyMigration(tokenId, 7_000_006));
+        assertFalse(vault.isStakingPolicyMigration(0, 7_000_006));
+        assertEq(vault.transformedTokenId(), 0);
+        assertEq(vault.ownerOf(tokenId), alice);
+        assertEq(npm.ownerOf(7_000_006), address(scripted));
+        assertEq(policy.calls(), 0);
     }
 }
 
