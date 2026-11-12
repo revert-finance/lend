@@ -1,0 +1,17 @@
+{
+  "chainId": 8453,
+  "vault": "0x4a315e98d87c049b92e31a677a4dec63f4ef8f7f",
+  "oracle": "0x860ee1eaac61ad4ac761cb5c0046be22ecbc7c1f",
+  "npm": "0x4857db576ee0e45f10525ec59527bfd10beec60b",
+  "factory": "0x9cb220581b91b0c83223012fe69688b92ad07a76",
+  "safe": "0x45b220860a39f717dc7daff4fc08b69cb89d1cc9",
+  "deployer": "0x83681c14770b44361e21faf91d8325423365ea5c",
+  "collateralFactorBps": 5000,
+  "collateralValueLimitBps": 500,
+  "maxFeedAge": 86400,
+  "assets": [
+    {"symbol": "NVDAc", "token": "0xb20000000000000000000078ee7ce2fe4908108c", "feed": "0x48d9731af6cc55b879fe76a4bd1a6c2c0bdaf944", "feedDescription": "Coinbase NVDA (24/7)"},
+    {"symbol": "TSLAc", "token": "0xb2000000000000000000001e800a7f5189430cd0", "feed": "0xa5ccd0315346b9a8a1d0afecd7cc4e820e405e96", "feedDescription": "Coinbase TSLA (24/7)"},
+    {"symbol": "GOOGLc", "token": "0xb2000000000000000000002d0ba3164cc74f58b7", "feed": "0xdd9b9ec942477aa672a15adf91ac5089bd86cd85", "feedDescription": "Coinbase GOOGL (24/7)"}
+  ]
+}
