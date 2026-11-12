@@ -29,5 +29,8 @@ if [[ -n "${AERO_FORK_BLOCK:-}" ]]; then
   args+=(--fork-block-number "$AERO_FORK_BLOCK")
 fi
 printf '%s\n' 'Base: fresh Aero protocol. Initial debt cap 0; Safe acceptance and activation are separate.'
+if [[ "${AERO_ORACLE_USDC_REFERENCE:-false}" == true ]]; then
+  printf '%s\n' 'Oracle reference: USDC; WETH and cbBTC use direct USDC TWAPs. Stocks require separate configuration.'
+fi
 forge script script/DeployAeroProtocol.s.sol:DeployAeroProtocol \
   --rpc-url "$BASE_RPC_URL" --sender "$AERO_DEPLOYER" "${args[@]}" -vv

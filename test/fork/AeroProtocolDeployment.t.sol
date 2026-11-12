@@ -52,9 +52,14 @@ contract AeroProtocolDeploymentTest is Test {
     DeployAeroProtocol script;
     DeployAeroProtocol.Deployment d;
 
-    function setUp() public {
+    function _usdcReference() internal pure virtual returns (bool) {
+        return false;
+    }
+
+    function setUp() public virtual {
         vm.createSelectFork(vm.envString("BASE_RPC_URL"), 53136369);
         vm.setEnv("AERO_DEPLOYER", vm.toString(DEPLOYER));
+        vm.setEnv("AERO_ORACLE_USDC_REFERENCE", _usdcReference() ? "true" : "false");
         script = new DeployAeroProtocol();
         d = script.run();
     }

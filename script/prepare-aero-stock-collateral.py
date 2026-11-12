@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare/recheck existing-contract stock collateral settings. Read-only unless --broadcast.
 
-No contracts are deployed. The config is deliberately pinned to the existing Base vault.
+No contracts are deployed. Requires confirmed fresh USDC-reference vault/oracle addresses.
 """
 import argparse
 import json
@@ -38,14 +38,19 @@ def string(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--vault', required=True, help='Confirmed fresh USDC-reference V3Vault')
+    parser.add_argument('--oracle', required=True, help='Confirmed fresh V3Oracle bound to that vault')
     parser.add_argument('--broadcast', action='store_true')
+    parser.add_argument('--enable-collateral', action='store_true',
+                        help='Second stage: require installed, passing oracle feeds before preparing collateral activation')
     parser.add_argument('--account', help='Local Foundry keystore; required for EOA broadcast')
     args = parser.parse_args()
     if args.broadcast and not args.account:
         parser.error('--broadcast requires --account; Safe owners use the generated batch')
     config = json.loads((ROOT / 'config/aero-stock-collateral.json').read_text())
+    config.update(vault=args.vault.lower(), oracle=args.oracle.lower())
     addresses = [config[k] for k in ['vault', 'oracle', 'npm', 'factory', 'safe', 'deployer']]
-    addresses += [a[k] for a in config['assets'] for k in ['token', 'feed']]
+    addresses += [a[k] for a in config['assets'] for k in ['token', 'feed', 'pool']]
     if not all(re.fullmatch(r'0x[0-9a-f]{40}', a) for a in addresses):
         raise SystemExit('Malformed address in reviewed configuration.')
     rpc_url = os.environ.get('BASE_RPC_URL')
@@ -84,7 +89,8 @@ def main():
     for target, signature, expected in [
         (vault, 'oracle()', oracle), (vault, 'nonfungiblePositionManager()', config['npm']),
         (oracle, 'nonfungiblePositionManager()', config['npm']), (oracle, 'factory()', config['factory']),
-        (oracle, 'referenceToken()', '0x4200000000000000000000000000000000000006'),
+        (oracle, 'referenceToken()', config['referenceToken']),
+        (vault, 'asset()', config['referenceToken']),
         (oracle, 'chainlinkReferenceToken()', ZERO),
     ]:
         require(address(read(target, signature)) == expected, 'Unexpected deployment binding: ' + signature)
@@ -94,6 +100,8 @@ def main():
     require(0 < config['collateralFactorBps'] <= 5000, 'Review collateral factors above 50% separately.')
     require(0 < config['collateralValueLimitBps'] <= 500, 'Review exposure above 5% per stock separately.')
     require(config['maxFeedAge'] == 86400, 'Review feed-age changes separately.')
+    require(config['referenceToken'] == '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', 'Expected USDC reference.')
+    require(config['twapSeconds'] == 60 and config['maxDifferenceBps'] == 200, 'Review TWAP policy separately.')
     cf = config['collateralFactorBps'] * 2**32 // 10000
     cap = config['collateralValueLimitBps'] * 2**32 // 10000
     oracle_calls, vault_calls = [], []
@@ -110,20 +118,31 @@ def main():
         require(0 < answer < 2**255 and 0 < updated_at <= timestamp, 'Invalid feed round.')
         require(timestamp - updated_at <= config['maxFeedAge'], 'Stale stock feed: ' + asset['symbol'])
         feed_state.append(dict(symbol=asset['symbol'], roundId=str(round_id), answer=str(answer), updatedAt=updated_at))
+        pool = asset['pool']
+        spacing = words(read(pool, 'tickSpacing()'))[0]
+        require(address(read(config['factory'], 'getPool(address,address,int24)', token, config['referenceToken'], spacing))
+                == pool, 'TWAP pool must resolve from Aero factory.')
+        require(words(read(pool, 'liquidity()'))[0] > 0, 'TWAP pool has no active liquidity.')
+        read(pool, 'observe(uint32[])', '[0,60]')  # Fail closed if insufficient history.
+        token0 = address(read(pool, 'token0()'))
         current = words(read(oracle, 'feedConfigs(address)', token))
-        desired = [int(feed, 16), config['maxFeedAge'], 8, 8, 0, 0, 0, 3, 0]
+        desired = [int(feed, 16), config['maxFeedAge'], 8, 8, 60, int(pool, 16), int(token0 == token), 1, 200]
         require(current[7] == 0 or current == desired, 'Existing stock oracle differs; review before overwriting.')
+        if args.enable_collateral:
+            require(current == desired, 'Configure all stock oracle feeds first, then rerun --enable-collateral.')
+            require(words(read(oracle, 'getTokenValue(address,uint256,address)', token, 10**8, config['referenceToken']))[0] > 0,
+                    'Stock TWAP valuation failed.')
         if current != desired:
             oracle_calls.append(dict(to=oracle, value='0', data=encode(
                 'setTokenConfig(address,address,uint32,address,uint32,uint8,uint16)',
-                token, feed, config['maxFeedAge'], ZERO, 0, 3, 0), symbol=asset['symbol'], stage='oracle'))
+                token, feed, config['maxFeedAge'], pool, 60, 1, 200), symbol=asset['symbol'], stage='oracle'))
         old_cf, old_cap, _ = words(read(vault, 'tokenConfigs(address)', token))
         require((old_cf == 0 and old_cap == 0) or (old_cf == cf and old_cap == cap),
                 'Existing stock risk settings differ; review before overwriting.')
-        if (old_cf, old_cap) != (cf, cap):
+        if args.enable_collateral and (old_cf, old_cap) != (cf, cap):
             vault_calls.append(dict(to=vault, value='0', data=encode(
                 'setTokenConfig(address,uint32,uint32)', token, cf, cap), symbol=asset['symbol'], stage='collateral'))
-    calls = oracle_calls + vault_calls  # Every oracle first, collateral activation last.
+    calls = oracle_calls + vault_calls  # Separate stages: install feeds, then verify live valuation before collateral.
     # Execute each actual setter as an eth_call on Base, including native B20 metadata reads.
     for call in calls:
         rpc('eth_call', [{'from': owners[call['to']], 'to': call['to'], 'data': call['data']}, block])

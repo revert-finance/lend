@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../../src/V3Oracle.sol";
+import "../../src/V3Vault.sol";
+import "../../src/InterestRateModel.sol";
 
 interface IStockJsonVm {
     function parseJsonAddress(string calldata, string calldata) external pure returns (address);
@@ -32,14 +34,50 @@ contract AeroStockCollateralTest is Test {
     function setUp() public {
         require(block.chainid == 8453, "Run against Base fork");
         config = vm.readFile("config/aero-stock-collateral.json");
-        oracle = V3Oracle(jsonVm.parseJsonAddress(config, ".oracle"));
-        vault = IStockConfigVault(jsonVm.parseJsonAddress(config, ".vault"));
         npm = jsonVm.parseJsonAddress(config, ".npm");
+        oracle = new V3Oracle(INonfungiblePositionManager(npm), USDC, address(0));
+        InterestRateModel irm =
+            new InterestRateModel(0, uint256(2 ** 64) * 13 / 100, 2 ** 64 * 3, uint256(2 ** 64) * 90 / 100);
+        vault = IStockConfigVault(
+            address(new V3Vault("Test", "TEST", USDC, INonfungiblePositionManager(npm), irm, oracle))
+        );
+        oracle.setMaxPoolPriceDifference(200);
+        oracle.setSequencerUptimeFeed(0xBCF85224fc0756B9Fa45aA7892530B47e10b6433);
+        oracle.setTokenConfig(
+            USDC,
+            AggregatorV3Interface(0x7e860098F58bBFC8648a4311b374B1D669a2bc6B),
+            86400,
+            IUniswapV3Pool(address(0)),
+            0,
+            V3Oracle.Mode.CHAINLINK,
+            0
+        );
+        oracle.setTokenConfig(
+            WETH,
+            AggregatorV3Interface(0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70),
+            3600,
+            IUniswapV3Pool(0x4A7af46bC8aBc00048c6c7920a1488DAF568366c),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
+        oracle.setTokenConfig(
+            CBBTC,
+            AggregatorV3Interface(0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D),
+            86400,
+            IUniswapV3Pool(0x784E539F15Ca2D19449a6311c5dAb6cF37d8f1ba),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
+        vault.setTokenConfig(USDC, uint32(uint256(85) * 2 ** 32 / 100), type(uint32).max);
+        vault.setTokenConfig(WETH, uint32(uint256(775) * 2 ** 32 / 1000), type(uint32).max);
+        vault.setTokenConfig(CBBTC, uint32(uint256(775) * 2 ** 32 / 1000), type(uint32).max);
         factor = uint32(jsonVm.parseJsonUint(config, ".collateralFactorBps") * 2 ** 32 / 10_000);
         cap = uint32(jsonVm.parseJsonUint(config, ".collateralValueLimitBps") * 2 ** 32 / 10_000);
         maxAge = uint32(jsonVm.parseJsonUint(config, ".maxFeedAge"));
         // B20 token metadata is native on Base, unavailable in stock Foundry's EVM.
-        // Only decimals() is shimmed; feeds, owners, oracle, vault and pools are real fork state.
+        // Only decimals() is shimmed; oracle/vault are fresh, feeds and pools are real fork state.
         for (uint256 i; i < 3; ++i) {
             vm.mockCall(token(i), abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
         }
@@ -55,8 +93,11 @@ contract AeroStockCollateralTest is Test {
     }
 
     function configureOracle(uint256 i) internal {
+        address pool = jsonVm.parseJsonAddress(config, string.concat(".assets[", vm.toString(i), "].pool"));
         vm.prank(oracle.owner());
-        oracle.setTokenConfig(token(i), feed(i), maxAge, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.CHAINLINK, 0);
+        oracle.setTokenConfig(
+            token(i), feed(i), maxAge, IUniswapV3Pool(pool), 60, V3Oracle.Mode.CHAINLINK_TWAP_VERIFY, 200
+        );
     }
 
     function configure() internal {
@@ -83,7 +124,7 @@ contract AeroStockCollateralTest is Test {
         return keccak256(data);
     }
 
-    function testConfigureExistingDeploymentAndPreserveExistingCollateral() public {
+    function testConfigureFreshDeploymentAndPreserveBasicCollateral() public {
         bytes32 beforeConfig = existingConfigHash();
         address ownerBefore = oracle.owner();
         assertEq(vault.oracle(), address(oracle));
@@ -100,7 +141,7 @@ contract AeroStockCollateralTest is Test {
             assertEq(age, 86400);
             assertEq(fd, 8);
             assertEq(td, 8);
-            assertEq(uint256(mode), uint256(V3Oracle.Mode.CHAINLINK));
+            assertEq(uint256(mode), uint256(V3Oracle.Mode.CHAINLINK_TWAP_VERIFY));
             (uint32 cf, uint32 limit,) = vault.tokenConfigs(token(i));
             assertEq(cf, factor);
             assertEq(limit, cap);
@@ -129,7 +170,55 @@ contract AeroStockCollateralTest is Test {
         oracle.getTokenValue(token(0), 1e8, USDC);
     }
 
-    function testChainlinkModeRetainsPositionPoolDivergenceGuard() public {
+    function testStockTwapDisagreementRejectsTokenValuation() public {
+        configure();
+        (uint80 id, int256 answer, uint256 start, uint256 updated, uint80 answered) = feed(0).latestRoundData();
+        vm.mockCall(
+            address(feed(0)),
+            abi.encodeWithSignature("latestRoundData()"),
+            abi.encode(id, answer * 110 / 100, start, updated, answered)
+        );
+        vm.expectRevert(bytes4(keccak256("PriceDifferenceExceeded()")));
+        oracle.getTokenValue(token(0), 1e8, USDC);
+    }
+
+    function testAllStockTokenUnitsAndOwedFeesConvertToUsdc() public {
+        configure();
+        (AggregatorV3Interface usdcFeed,,,,,,,,) = oracle.feedConfigs(USDC);
+        (, int256 usdcAnswer,,,) = usdcFeed.latestRoundData();
+        for (uint256 i; i < 3; ++i) {
+            (, int256 stockAnswer,,,) = feed(i).latestRoundData();
+            uint256 expected = FullMath.mulDiv(uint256(stockAnswer), 1e6, uint256(usdcAnswer));
+            assertApproxEqAbs(oracle.getTokenValue(token(i), 1e8, USDC), expected, 1);
+            // No liquidity, only known owed fees: 10 USDC and one whole 8-decimal stock.
+            vm.mockCall(
+                npm,
+                abi.encodeWithSignature("positions(uint256)", 999_999_998),
+                abi.encode(
+                    uint96(0),
+                    address(0),
+                    USDC,
+                    token(i),
+                    uint24(10),
+                    int24(-10000),
+                    int24(10000),
+                    uint128(0),
+                    uint256(0),
+                    uint256(0),
+                    uint128(10e6),
+                    uint128(1e8)
+                )
+            );
+            (uint256 value, uint256 fees,,) = oracle.getValue(999_999_998, USDC, false);
+            assertApproxEqAbs(value, expected + 10e6, 1);
+            assertEq(fees, value);
+            (value, fees,,) = oracle.getValue(999_999_998, USDC, true);
+            assertEq(value, 0);
+            assertEq(fees, 0);
+        }
+    }
+
+    function testTwapModeRetainsPositionPoolDivergenceGuard() public {
         configure();
         address pool = IAerodromeSlipstreamFactory(oracle.factory()).getPool(USDC, token(0), 10);
         assertTrue(pool != address(0));
