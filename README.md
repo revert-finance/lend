@@ -149,3 +149,9 @@ forge test --match-test testFlashloanLiquidationHappyPath
 ## Note About Uniswap v3 PoolAddress Hash
 
 If you run legacy mainnet integration/deployment paths that depend on `PoolAddress.sol`, confirm the expected `POOL_INIT_CODE_HASH` for the target deployment path.
+
+## Optional Aero stock collateral
+
+See the [NVDAc, TSLAc and GOOGLc configuration proposal](docs/deployment/aero-stock-collateral.md)
+for the existing Base vault, proposed risk limits, read-only preparation, owner/Safe execution and fork validation.
+This opt-in configuration does not deploy new contracts or activate collateral when merged.
