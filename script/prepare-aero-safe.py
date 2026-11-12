@@ -28,6 +28,7 @@ def main():
     mode.add_argument('--ownership-only', action='store_true', help='Generate ownership acceptance only; no borrowing activation file')
     mode.add_argument('--debt-cap-usdc', type=int, help='Explicit whole-USDC activation cap')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--usdc-reference', action='store_true', help='Validate the fresh USDC-reference deployment policy')
     args = parser.parse_args()
     if args.debt_cap_usdc is not None and not 0 < args.debt_cap_usdc <= 1_000_000:
         raise SystemExit('Choose an activation cap between 1 and 1,000,000 USDC; review larger caps separately.')
@@ -157,7 +158,9 @@ def main():
     require_address(addresses['V3Vault'],'asset()',usdc)
     for name in required:
         if name not in ['InterestRateModel', factory_name]: require_address(addresses[name],'factory()',factory)
-    require_address(oracle,'referenceToken()',weth)
+    # Explicitly select the policy to validate; never infer permission from a different live reference.
+    reference = usdc if args.usdc_reference else weth
+    require_address(oracle,'referenceToken()',reference)
     require_address(oracle,'chainlinkReferenceToken()',zero)
     require_address(oracle,'sequencerUptimeFeed()','0xBCF85224fc0756B9Fa45aA7892530B47e10b6433')
     require_address(oracle,'emergencyAdmin()',zero)
@@ -170,6 +173,11 @@ def main():
         usdc: ('0x7e860098F58bBFC8648a4311b374B1D669a2bc6B',86400,8,6,60,weth_usdc,0,1,200),
         cbbtc: ('0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D',86400,8,8,60,cbbtc_weth,0,1,200),
     }
+    if args.usdc_reference:
+        feeds[weth] = ('0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70',3600,8,18,60,weth_usdc,1,1,200)
+        feeds[usdc] = ('0x7e860098F58bBFC8648a4311b374B1D669a2bc6B',86400,8,6,0,zero,0,3,0)
+        feeds[cbbtc] = ('0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D',86400,8,8,60,
+                        '0x784e539f15ca2d19449a6311c5dab6cf37d8f1ba',0,1,200)
     for token, expected in feeds.items():
         raw = read(oracle,'feedConfigs(address)',token)[2:]
         actual = [int(raw[i:i+64],16) for i in range(0,len(raw),64)]
@@ -191,7 +199,7 @@ def main():
     for name in ['GaugeManager','V3Utils','LeverageTransformer','AutoRangeAndCompound','AutoExit','FlashloanLiquidator']:
         require_address(addresses[name],'universalRouter()','0x6fF5693b99212Da76ad316178A184AB56D299b43')
         require_address(addresses[name],'zeroxAllowanceHolder()','0x0000000000001fF3684f28c67538d4D072C22734')
-    values = [(oracle,'maxPoolPriceDifference()',200), (oracle,'referenceTokenDecimals()',18),
+    values = [(oracle,'maxPoolPriceDifference()',200), (oracle,'referenceTokenDecimals()',6 if args.usdc_reference else 18),
               (manager,'totalRewardX64()',2**64//20),
               (addresses['AutoRangeAndCompound'],'totalRewardX64()',2**64//20),
               (addresses['AutoRangeAndCompound'],'simpleRewardX64()',2**64//10),
@@ -239,6 +247,26 @@ def main():
             except (KeyError,IndexError,TypeError,ValueError):
                 raise SystemExit('Invalid configuration log. No output generated.') from None
             keys.setdefault((name,event),set()).add(key)
+
+    # Deployment registers compatible gauges across the factory, not only the six lending pools.
+    # Validate extra live mappings rather than rejecting the deployment's own broad registry.
+    expected_voter = address_word(read(next(iter(gauges.values())), 'voter()'))
+    for pool in keys.get(('GaugeManager', 'GaugeSet(address,address)'), set()) - set(gauges):
+        gauge = address_word(read(manager, 'poolToGauge(address)', pool))
+        if int(gauge, 16) == 0:
+            continue
+        token0 = address_word(read(pool, 'token0()'))
+        token1 = address_word(read(pool, 'token1()'))
+        spacing = int(read(pool, 'tickSpacing()'), 16)
+        require_address(factory, 'getPool(address,address,int24)', pool, token0, token1, spacing)
+        require_address(pool, 'gauge()', gauge)
+        require_address(gauge, 'pool()', pool)
+        require_address(gauge, 'nft()', NPM)
+        require_address(gauge, 'gaugeFactory()', '0xf437f62053ACB121665b8fDBfeA8F214FB8E589d')
+        require_address(gauge, 'voter()', expected_voter)
+        if int(read(expected_voter, 'isActivated(address)', gauge), 16) != 1:
+            raise SystemExit('Extra configured gauge is inactive: ' + gauge)
+        gauges[pool] = gauge
 
     # Token/feed and trusted-vault declarations are strict. Revocable roles or
     # routes may have historical entries, but no undeclared entry may stay active.

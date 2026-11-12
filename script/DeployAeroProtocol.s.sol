@@ -26,6 +26,10 @@ contract AeroDeploymentPreflight {
     }
 }
 
+interface IAeroDeploymentEnv {
+    function envOr(string calldata, bool) external returns (bool);
+}
+
 contract DeployAeroProtocol is Script {
     uint256 internal constant BASE_CHAIN_ID = 8453;
     uint256 internal constant Q32 = 2 ** 32;
@@ -58,6 +62,7 @@ contract DeployAeroProtocol is Script {
 
     // Base Slipstream pools
     address internal constant WETH_USDC_POOL = 0x4A7af46bC8aBc00048c6c7920a1488DAF568366c;
+    address internal constant CBBTC_USDC_POOL = 0x784E539F15Ca2D19449a6311c5dAb6cF37d8f1ba;
     address internal constant CBBTC_WETH_POOL = 0xbB5507DaaE822ba89C4dA61BbfDf4b49a1666BAc;
     address internal constant AERO_USDC_POOL = 0xD0Acf293547457Fb4fE9eE32CA93e89497626816;
     address internal constant AERO_WETH_POOL = 0xc85D5CB72d1aaD6f152A8decAd228AE4A59Ac9B3;
@@ -90,6 +95,15 @@ contract DeployAeroProtocol is Script {
 
     function run() external returns (Deployment memory deployed) {
         validateDeploymentConfig();
+        bool usdcReference = IAeroDeploymentEnv(address(vm)).envOr("AERO_ORACLE_USDC_REFERENCE", false);
+        if (usdcReference) {
+            _validatePool(CBBTC_USDC_POOL, CBBTC, USDC);
+            // Probe the exact oracle configuration before recording any deployment transactions.
+            V3Oracle probe = new V3Oracle(INonfungiblePositionManager(AERODROME_NPM), USDC, address(0));
+            _configureOracle(probe, true);
+            require(probe.getTokenValue(WETH, 1 ether, USDC) > 0, "WETH USDC price");
+            require(probe.getTokenValue(CBBTC, 1e8, USDC) > 0, "cbBTC USDC price");
+        }
         AeroGaugeDiscovery discovery = new AeroGaugeDiscovery();
         AeroGaugeDiscovery.Plan memory gauges = discovery.scan(address(0));
 
@@ -100,7 +114,7 @@ contract DeployAeroProtocol is Script {
 
         IAerodromeNonfungiblePositionManager npm = IAerodromeNonfungiblePositionManager(AERODROME_NPM);
 
-        V3Oracle oracle = new V3Oracle(npm, WETH, address(0));
+        V3Oracle oracle = new V3Oracle(npm, usdcReference ? USDC : WETH, address(0));
 
         InterestRateModel irm = new InterestRateModel(
             0, // base rate
@@ -148,39 +162,7 @@ contract DeployAeroProtocol is Script {
         FlashloanLiquidator liquidator = new FlashloanLiquidator(npm, UNIVERSAL_ROUTER, ZEROX_ALLOWANCE_HOLDER);
         gaugeManager.setCompoundModeSource(address(autoRange));
 
-        // Oracle config
-        oracle.setMaxPoolPriceDifference(200);
-        oracle.setSequencerUptimeFeed(CHAINLINK_BASE_SEQUENCER_UPTIME_FEED);
-
-        oracle.setTokenConfig(
-            WETH,
-            AggregatorV3Interface(CHAINLINK_ETH_USD),
-            3600,
-            IUniswapV3Pool(address(0)),
-            0,
-            V3Oracle.Mode.CHAINLINK,
-            0
-        );
-
-        oracle.setTokenConfig(
-            USDC,
-            AggregatorV3Interface(CHAINLINK_USDC_USD),
-            86400,
-            IUniswapV3Pool(WETH_USDC_POOL),
-            60,
-            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            200
-        );
-
-        oracle.setTokenConfig(
-            CBBTC,
-            AggregatorV3Interface(CHAINLINK_CBBTC_USD),
-            86400,
-            IUniswapV3Pool(CBBTC_WETH_POOL),
-            60,
-            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
-            200
-        );
+        _configureOracle(oracle, usdcReference);
 
         // Vault config
         vault.setGaugeManager(address(gaugeManager));
@@ -249,6 +231,7 @@ contract DeployAeroProtocol is Script {
         console2.log("AERODROME_FACTORY", AERODROME_FACTORY);
         console2.log("AERODROME_GAUGE_FACTORY", AERODROME_GAUGE_FACTORY);
         console2.log("ORACLE", address(oracle));
+        console2.log("ORACLE_REFERENCE_TOKEN", oracle.referenceToken());
         console2.log("IRM", address(irm));
         console2.log("VAULT", address(vault));
         console2.log("GAUGE_MANAGER", address(gaugeManager));
@@ -300,6 +283,41 @@ contract DeployAeroProtocol is Script {
         _validatePool(AERO_USDC_POOL, AERO, USDC);
         _validatePool(AERO_WETH_POOL, AERO, WETH);
         _validatePool(AERO_CBBTC_POOL, AERO, CBBTC);
+    }
+
+    function _configureOracle(V3Oracle oracle, bool usdcReference) internal {
+        oracle.setMaxPoolPriceDifference(200);
+        oracle.setSequencerUptimeFeed(CHAINLINK_BASE_SEQUENCER_UPTIME_FEED);
+
+        oracle.setTokenConfig(
+            WETH,
+            AggregatorV3Interface(CHAINLINK_ETH_USD),
+            3600,
+            IUniswapV3Pool(usdcReference ? WETH_USDC_POOL : address(0)),
+            usdcReference ? 60 : 0,
+            usdcReference ? V3Oracle.Mode.CHAINLINK_TWAP_VERIFY : V3Oracle.Mode.CHAINLINK,
+            usdcReference ? 200 : 0
+        );
+
+        oracle.setTokenConfig(
+            USDC,
+            AggregatorV3Interface(CHAINLINK_USDC_USD),
+            86400,
+            IUniswapV3Pool(usdcReference ? address(0) : WETH_USDC_POOL),
+            usdcReference ? 0 : 60,
+            usdcReference ? V3Oracle.Mode.CHAINLINK : V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            usdcReference ? 0 : 200
+        );
+
+        oracle.setTokenConfig(
+            CBBTC,
+            AggregatorV3Interface(CHAINLINK_CBBTC_USD),
+            86400,
+            IUniswapV3Pool(usdcReference ? CBBTC_USDC_POOL : CBBTC_WETH_POOL),
+            60,
+            V3Oracle.Mode.CHAINLINK_TWAP_VERIFY,
+            200
+        );
     }
 
     function _validatePool(address pool, address tokenA, address tokenB) internal view {
