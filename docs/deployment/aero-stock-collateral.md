@@ -171,6 +171,7 @@ This validates chain/deployment bindings, current authority, token/feed identity
 feed answers, freshness, unchanged 2% guard, adapter immutables, a successful TWAP-checked round, and unset or already-matching stock configurations. It performs
 an actual Base `eth_call` of every pending setter as its owner, including native B20 metadata execution.
 It writes `plan.json` with public addresses, a pinned validation block, feeds, owners and unsigned calldata.
+Each run removes the previous `plan.json` and `safe-batch.json` before preflight; a failed run leaves no old calldata proposal to execute.
 It neither unlocks a wallet nor broadcasts. The helper intentionally refuses higher limits without code review.
 
 ## Execute after approval and Chainlink confirmation

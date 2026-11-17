@@ -43,6 +43,10 @@ def main():
     parser.add_argument('--broadcast', action='store_true')
     parser.add_argument('--account', help='Local Foundry keystore; required for EOA broadcast')
     args = parser.parse_args()
+    # Invalidate the previous run before any preflight can fail. Both files contain actionable calldata.
+    safe_path = args.out / 'safe-batch.json'
+    for path in (safe_path, args.out / 'plan.json'):
+        path.unlink(missing_ok=True)
     if args.broadcast and not args.account:
         parser.error('--broadcast requires --account; Safe owners use the generated batch')
     config = json.loads((ROOT / 'config/aero-stock-collateral.json').read_text())
@@ -163,10 +167,6 @@ def main():
     plan = dict(chainId=8453, block=int(block, 16), timestamp=timestamp, config=config, adapters=adapters,
                 owners=owners, feeds=feed_state, transactions=calls)
     (args.out / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
-    safe_path = args.out / 'safe-batch.json'
-    # Do not leave an old actionable batch behind when current ownership no longer matches.
-    if safe_path.exists():
-        safe_path.unlink()
     if all(o == config['safe'] for o in owners.values()):
         batch = dict(version='1.0', chainId='8453', createdAt=int(time.time() * 1000),
                      meta=dict(name='Aero stock collateral', createdFromSafeAddress=config['safe']),
