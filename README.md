@@ -153,5 +153,6 @@ If you run legacy mainnet integration/deployment paths that depend on `PoolAddre
 ## Optional Aero stock collateral
 
 See the [NVDAc, TSLAc and GOOGLc configuration proposal](docs/deployment/aero-stock-collateral.md)
-for the existing Base vault, proposed risk limits, read-only preparation, owner/Safe execution and fork validation.
-This opt-in configuration does not deploy new contracts or activate collateral when merged.
+for the existing Base vault, proposed risk limits, stock/USDC TWAP feed adapters, deployment,
+read-only preparation, owner/Safe execution and fork validation. Only the three adapters need deploying;
+merging or deploying them does not activate collateral.

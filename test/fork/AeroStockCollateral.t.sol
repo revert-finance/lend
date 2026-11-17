@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../../src/V3Oracle.sol";
+import "../../src/oracles/StockTwapFeed.sol";
 
 interface IStockJsonVm {
     function parseJsonAddress(string calldata, string calldata) external pure returns (address);
@@ -28,6 +29,7 @@ contract AeroStockCollateralTest is Test {
     uint32 factor;
     uint32 cap;
     uint32 maxAge;
+    StockTwapFeed[3] adapters;
 
     function setUp() public {
         require(block.chainid == 8453, "Run against Base fork");
@@ -42,6 +44,22 @@ contract AeroStockCollateralTest is Test {
         // Only decimals() is shimmed; feeds, owners, oracle, vault and pools are real fork state.
         for (uint256 i; i < 3; ++i) {
             vm.mockCall(token(i), abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
+            address pool = jsonVm.parseJsonAddress(config, string.concat(".assets[", vm.toString(i), "].pool"));
+            require(
+                IAerodromeSlipstreamFactory(oracle.factory())
+                        .getPool(USDC, token(i), IUniswapV3Pool(pool).tickSpacing()) == pool
+            );
+            adapters[i] = new StockTwapFeed(
+                feed(i),
+                AggregatorV3Interface(jsonVm.parseJsonAddress(config, ".usdcFeed")),
+                IUniswapV3Pool(pool),
+                token(i),
+                USDC,
+                maxAge,
+                uint32(jsonVm.parseJsonUint(config, ".maxUsdcFeedAge")),
+                uint32(jsonVm.parseJsonUint(config, ".twapSeconds")),
+                uint16(jsonVm.parseJsonUint(config, ".maxDifferenceBps"))
+            );
         }
     }
 
@@ -56,7 +74,7 @@ contract AeroStockCollateralTest is Test {
 
     function configureOracle(uint256 i) internal {
         vm.prank(oracle.owner());
-        oracle.setTokenConfig(token(i), feed(i), maxAge, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.CHAINLINK, 0);
+        oracle.setTokenConfig(token(i), adapters[i], maxAge, IUniswapV3Pool(address(0)), 0, V3Oracle.Mode.CHAINLINK, 0);
     }
 
     function configure() internal {
@@ -96,7 +114,7 @@ contract AeroStockCollateralTest is Test {
         for (uint256 i; i < 3; ++i) {
             (AggregatorV3Interface actualFeed, uint32 age, uint8 fd, uint8 td,,,, V3Oracle.Mode mode,) =
                 oracle.feedConfigs(token(i));
-            assertEq(address(actualFeed), address(feed(i)));
+            assertEq(address(actualFeed), address(adapters[i]));
             assertEq(age, 86400);
             assertEq(fd, 8);
             assertEq(td, 8);
@@ -125,7 +143,29 @@ contract AeroStockCollateralTest is Test {
             abi.encodeWithSelector(feed(0).latestRoundData.selector),
             abi.encode(uint80(1), answer, staleAt, staleAt, uint80(1))
         );
-        vm.expectRevert(bytes4(keccak256("ChainlinkPriceError()")));
+        vm.expectRevert(StockTwapFeed.InvalidRound.selector);
+        oracle.getTokenValue(token(0), 1e8, USDC);
+    }
+
+    function testAdapterRoundMatchesUnderlyingOnRealPools() public {
+        for (uint256 i; i < 3; ++i) {
+            (bool a, bytes memory actual) =
+                address(adapters[i]).staticcall(abi.encodeWithSignature("latestRoundData()"));
+            (bool b, bytes memory original) = address(feed(i)).staticcall(abi.encodeWithSignature("latestRoundData()"));
+            assertTrue(a && b);
+            assertEq(actual, original);
+        }
+    }
+
+    function testExistingOracleRejectsStockTwapDisagreement() public {
+        configure();
+        (uint80 round, int256 answer, uint256 start, uint256 updated, uint80 answered) = feed(0).latestRoundData();
+        vm.mockCall(
+            address(feed(0)),
+            abi.encodeWithSignature("latestRoundData()"),
+            abi.encode(round, answer * 110 / 100, start, updated, answered)
+        );
+        vm.expectRevert(StockTwapFeed.PriceDifferenceExceeded.selector);
         oracle.getTokenValue(token(0), 1e8, USDC);
     }
 

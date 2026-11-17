@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare/recheck existing-contract stock collateral settings. Read-only unless --broadcast.
+"""Prepare/recheck stock collateral with deployed TWAP feed adapters. Read-only unless --broadcast.
 
 No contracts are deployed. The config is deliberately pinned to the existing Base vault.
 """
@@ -38,14 +38,25 @@ def string(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--adapters', type=Path, required=True,
+                        help='Reviewed JSON mapping NVDAc/TSLAc/GOOGLc to deployed StockTwapFeed addresses')
     parser.add_argument('--broadcast', action='store_true')
     parser.add_argument('--account', help='Local Foundry keystore; required for EOA broadcast')
     args = parser.parse_args()
     if args.broadcast and not args.account:
         parser.error('--broadcast requires --account; Safe owners use the generated batch')
     config = json.loads((ROOT / 'config/aero-stock-collateral.json').read_text())
+    adapters = json.loads(args.adapters.read_text())
+    if not isinstance(adapters, dict) or set(adapters) != {a['symbol'] for a in config['assets']}:
+        raise SystemExit('Adapters must map exactly the three configured stock symbols to addresses.')
+    if not all(isinstance(a, str) and re.fullmatch(r'0x[0-9a-fA-F]{40}', a) for a in adapters.values()):
+        raise SystemExit('Malformed adapter address.')
+    adapters = {symbol: value.lower() for symbol, value in adapters.items()}
+    if len(set(adapters.values())) != 3 or ZERO in adapters.values():
+        raise SystemExit('Three distinct deployed adapters are required.')
     addresses = [config[k] for k in ['vault', 'oracle', 'npm', 'factory', 'safe', 'deployer']]
-    addresses += [a[k] for a in config['assets'] for k in ['token', 'feed']]
+    addresses += [config['usdc'], config['usdcFeed']]
+    addresses += [a[k] for a in config['assets'] for k in ['token', 'feed', 'pool']]
     if not all(re.fullmatch(r'0x[0-9a-f]{40}', a) for a in addresses):
         raise SystemExit('Malformed address in reviewed configuration.')
     rpc_url = os.environ.get('BASE_RPC_URL')
@@ -94,6 +105,12 @@ def main():
     require(0 < config['collateralFactorBps'] <= 5000, 'Review collateral factors above 50% separately.')
     require(0 < config['collateralValueLimitBps'] <= 500, 'Review exposure above 5% per stock separately.')
     require(config['maxFeedAge'] == 86400, 'Review feed-age changes separately.')
+    require(config['maxUsdcFeedAge'] == 86400 and config['twapSeconds'] == 60
+            and config['maxDifferenceBps'] == 200, 'Review TWAP policy changes separately.')
+    require(words(read(config['usdc'], 'decimals()')) == [6], 'Adapter requires 6-decimal USDC.')
+    usdc_config = words(read(oracle, 'feedConfigs(address)', config['usdc']))
+    require(usdc_config[0] == int(config['usdcFeed'], 16)
+            and usdc_config[1] == config['maxUsdcFeedAge'], 'USDC oracle configuration changed.')
     cf = config['collateralFactorBps'] * 2**32 // 10000
     cap = config['collateralValueLimitBps'] * 2**32 // 10000
     oracle_calls, vault_calls = [], []
@@ -109,14 +126,29 @@ def main():
         round_id, answer, _, updated_at, _ = words(read(feed, 'latestRoundData()'))
         require(0 < answer < 2**255 and 0 < updated_at <= timestamp, 'Invalid feed round.')
         require(timestamp - updated_at <= config['maxFeedAge'], 'Stale stock feed: ' + asset['symbol'])
-        feed_state.append(dict(symbol=asset['symbol'], roundId=str(round_id), answer=str(answer), updatedAt=updated_at))
+        adapter = adapters[asset['symbol']]
+        require(rpc('eth_getCode', [adapter, block]) != '0x', 'Missing adapter code.')
+        for getter, expected in [('stock', token), ('usdc', config['usdc']), ('stockFeed', feed),
+                                 ('usdcFeed', config['usdcFeed']), ('pool', asset['pool'])]:
+            require(address(read(adapter, getter + '()')) == expected, 'Incorrect adapter binding: ' + getter)
+        for getter, expected in [('decimals', 8), ('maxStockAge', config['maxFeedAge']),
+                                 ('maxUsdcAge', config['maxUsdcFeedAge']), ('twapSeconds', config['twapSeconds']),
+                                 ('maxDifferenceBps', config['maxDifferenceBps'])]:
+            require(words(read(adapter, getter + '()')) == [expected], 'Incorrect adapter setting: ' + getter)
+        spacing = words(read(asset['pool'], 'tickSpacing()'))[0]
+        require(address(read(config['factory'], 'getPool(address,address,int24)', token, config['usdc'], spacing))
+                == asset['pool'], 'TWAP pool does not resolve from Aero factory.')
+        require(read(adapter, 'latestRoundData()') == read(feed, 'latestRoundData()'),
+                'Adapter must pass TWAP validation and preserve the underlying stock round.')
+        feed_state.append(dict(symbol=asset['symbol'], adapter=adapter, roundId=str(round_id),
+                               answer=str(answer), updatedAt=updated_at))
         current = words(read(oracle, 'feedConfigs(address)', token))
-        desired = [int(feed, 16), config['maxFeedAge'], 8, 8, 0, 0, 0, 3, 0]
+        desired = [int(adapter, 16), config['maxFeedAge'], 8, 8, 0, 0, 0, 3, 0]
         require(current[7] == 0 or current == desired, 'Existing stock oracle differs; review before overwriting.')
         if current != desired:
             oracle_calls.append(dict(to=oracle, value='0', data=encode(
                 'setTokenConfig(address,address,uint32,address,uint32,uint8,uint16)',
-                token, feed, config['maxFeedAge'], ZERO, 0, 3, 0), symbol=asset['symbol'], stage='oracle'))
+                token, adapter, config['maxFeedAge'], ZERO, 0, 3, 0), symbol=asset['symbol'], stage='oracle'))
         old_cf, old_cap, _ = words(read(vault, 'tokenConfigs(address)', token))
         require((old_cf == 0 and old_cap == 0) or (old_cf == cf and old_cap == cap),
                 'Existing stock risk settings differ; review before overwriting.')
@@ -128,7 +160,7 @@ def main():
     for call in calls:
         rpc('eth_call', [{'from': owners[call['to']], 'to': call['to'], 'data': call['data']}, block])
     args.out.mkdir(parents=True, exist_ok=True)
-    plan = dict(chainId=8453, block=int(block, 16), timestamp=timestamp, config=config,
+    plan = dict(chainId=8453, block=int(block, 16), timestamp=timestamp, config=config, adapters=adapters,
                 owners=owners, feeds=feed_state, transactions=calls)
     (args.out / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
     safe_path = args.out / 'safe-batch.json'
