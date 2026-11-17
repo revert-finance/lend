@@ -35,10 +35,24 @@ def string(raw):
     return data[offset + 32:offset + 32 + size].decode()
 
 
+def exposure_caps(config):
+    reviewed = {'NVDAc': 1000, 'TSLAc': 500, 'GOOGLc': 1000}
+    assets = config['assets']
+    if len(assets) != 3 or {a['symbol'] for a in assets} != set(reviewed):
+        raise SystemExit('Expected exactly NVDAc, TSLAc and GOOGLc.')
+    caps = {}
+    for asset in assets:
+        bps = asset.get('collateralValueLimitBps')
+        if type(bps) is not int or not 0 < bps <= reviewed[asset['symbol']]:
+            raise SystemExit('Review exposure above NVDAc 10%, TSLAc 5%, GOOGLc 10% separately.')
+        caps[asset['symbol']] = bps * 2**32 // 10000
+    return caps
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--adapters', type=Path, required=True,
+    parser.add_argument('--adapters', type=Path, default=ROOT / 'config/aero-stock-adapters.base.json',
                         help='Reviewed JSON mapping NVDAc/TSLAc/GOOGLc to deployed StockTwapFeed addresses')
     parser.add_argument('--broadcast', action='store_true')
     parser.add_argument('--account', help='Local Foundry keystore; required for EOA broadcast')
@@ -107,7 +121,7 @@ def main():
     owners = {target: address(read(target, 'owner()')) for target in [oracle, vault]}
     require(all(o in [config['deployer'], config['safe']] for o in owners.values()), 'Unexpected configuration owner.')
     require(0 < config['collateralFactorBps'] <= 5000, 'Review collateral factors above 50% separately.')
-    require(0 < config['collateralValueLimitBps'] <= 500, 'Review exposure above 5% per stock separately.')
+    caps = exposure_caps(config)
     require(config['maxFeedAge'] == 86400, 'Review feed-age changes separately.')
     require(config['maxUsdcFeedAge'] == 86400 and config['twapSeconds'] == 60
             and config['maxDifferenceBps'] == 200, 'Review TWAP policy changes separately.')
@@ -116,11 +130,11 @@ def main():
     require(usdc_config[0] == int(config['usdcFeed'], 16)
             and usdc_config[1] == config['maxUsdcFeedAge'], 'USDC oracle configuration changed.')
     cf = config['collateralFactorBps'] * 2**32 // 10000
-    cap = config['collateralValueLimitBps'] * 2**32 // 10000
     oracle_calls, vault_calls = [], []
     feed_state = []
     for asset in config['assets']:
         token, feed = asset['token'], asset['feed']
+        cap = caps[asset['symbol']]
         # B20 token metadata is native on Base: code.length is not a valid token-existence check.
         require(string(read(token, 'symbol()')) == asset['symbol'], 'Unexpected stock token symbol.')
         require(words(read(token, 'decimals()')) == [8], 'Unexpected stock decimals.')
@@ -173,7 +187,10 @@ def main():
                      transactions=[{k: c[k] for k in ['to', 'value', 'data']} for c in calls])
         safe_path.write_text(json.dumps(batch, indent=2) + '\n')
     print(f'Base block {int(block, 16)}: {len(calls)} configuration calls; all setter simulations passed.')
-    print(f'Collateral factor {cf}/2^32; exposure cap {cap}/2^32 of lender assets per token.')
+    print(f'Collateral factor {cf}/2^32 (50% maximum).')
+    for asset in config['assets']:
+        print(f"{asset['symbol']}: exposure {asset['collateralValueLimitBps'] / 100:g}% of lender assets "
+              f"({caps[asset['symbol']]}/2^32).")
     print(f'Plan: {args.out / "plan.json"}')
     if not args.broadcast or not calls:
         return
@@ -201,7 +218,15 @@ def main():
         except (ValueError, TypeError, KeyError, AttributeError):
             raise SystemExit('Could not confirm receipt status; inspect chain state before retrying.') from None
         print('Confirmed:', call['stage'], call['symbol'], receipt.get('transactionHash', ''))
-    print('Configuration sent. Run this command again without --broadcast to verify zero remaining calls.')
+    block = rpc('eth_blockNumber', [])
+    for asset in config['assets']:
+        token = asset['token']
+        expected_feed = [int(adapters[asset['symbol']], 16), config['maxFeedAge'], 8, 8, 0, 0, 0, 3, 0]
+        require(words(read(oracle, 'feedConfigs(address)', token)) == expected_feed,
+                'Post-broadcast oracle verification failed: ' + asset['symbol'])
+        require(words(read(vault, 'tokenConfigs(address)', token))[:2] == [cf, caps[asset['symbol']]],
+                'Post-broadcast collateral verification failed: ' + asset['symbol'])
+    print(f'Configuration verified at Base block {int(block, 16)}.')
 
 
 if __name__ == '__main__':

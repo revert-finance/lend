@@ -12,7 +12,7 @@ The reviewed settings are in [`config/aero-stock-collateral.json`](../../config/
 | Setting | Proposed value |
 |---|---|
 | Stock collateral factor | 50% (`2147483648 / 2^32`) |
-| Per-stock debt exposure limit | 5% of total lender assets (`214748364 / 2^32`, rounded down) |
+| Per-stock debt exposure limit | NVDAc / GOOGLc: 10% (`429496729 / 2^32`); TSLAc: 5% (`214748364 / 2^32`), rounded down |
 | Stock oracle mode | `CHAINLINK` (enum 3), with a TWAP-checking adapter as its feed |
 | Stock feed maximum age | 86,400 seconds, matching the published heartbeat |
 | Adapter TWAP reference | Configured new Aero stock/USDC pool, 60 seconds, 200 basis points |
@@ -23,9 +23,10 @@ The reviewed settings are in [`config/aero-stock-collateral.json`](../../config/
 | Global/daily lending and borrowing limits | Preserve current values |
 
 The per-stock limit is **not a fixed USDC cap**. With $1 million of lender assets, it allows
-approximately $50,000 of debt backed by positions containing each stock; with $100,000, about $5,000.
+approximately $100,000 of debt backed by positions containing NVDAc or GOOGLc, and $50,000 for TSLAc.
+With $100,000 of lender assets these become $10,000 / $5,000 / $10,000.
 Every loan's full debt counts toward both tokens' limits, including loans in a stock/USDC pair.
-Across three stocks this permits at most roughly 15% of lender assets at new-debt admission,
+Across three stocks this permits at most roughly 25% of lender assets at new-debt admission,
 with overlap for stock/stock loans. Interest and lender withdrawals can move existing exposures above
 the admission limit; this is not an invariant enforced continuously or an automatic liquidation trigger.
 
@@ -109,7 +110,7 @@ The helper rechecks actual ownership; it does not accept ownership or nominate a
 After deploying and verifying the adapters, six owner calls, in order:
 
 1. Oracle `setTokenConfig` for each stock: its **adapter address**, age 86400, zero outer TWAP pool/window, mode 3, maxDifference 0. The adapter enforces the independent 60-second/2% check.
-2. Vault `setTokenConfig` for each stock: factor `2147483648`, exposure `214748364`.
+2. Vault `setTokenConfig` for each stock: factor `2147483648`; exposure `429496729` for NVDAc/GOOGLc and `214748364` for TSLAc.
 
 All three oracle configurations precede any collateral activation. Configuring the oracle alone does not
 assign the stock a positive collateral factor. EOA calls are separate transactions, not one atomic batch.
@@ -145,18 +146,21 @@ as a fresh deployment. Ownership acceptance is unnecessary: adapters have no pri
 
 Verify each `src/oracles/StockTwapFeed.sol:StockTwapFeed` deployment on BaseScan using the exact
 constructor arguments from `broadcast/DeployStockTwapFeeds.s.sol/8453/run-latest.json` and this
-checkout's compiler settings. Record the **confirmed**, verified addresses in an external JSON file:
+checkout's compiler settings. For a future replacement, supply a reviewed mapping with `--adapters PATH`. The current default is:
 
 ```json
 {
-  "NVDAc": "0x<confirmed NVDAc adapter>",
-  "TSLAc": "0x<confirmed TSLAc adapter>",
-  "GOOGLc": "0x<confirmed GOOGLc adapter>"
+  "NVDAc": "0xc9b3753424cd98fb221d9fdf72eb1dd702ff6a2c",
+  "TSLAc": "0x52495c35e8e070bdbc681a5a511244e9d250964f",
+  "GOOGLc": "0x52b4bfd1d95f6714cee32f36fea253e8cf0b0b29"
 }
 ```
 
-No final addresses are committed because this PR does not deploy. A successful dry-run's predicted
-addresses are not evidence of deployment. The preparation helper checks the supplied addresses'
+The three adapters were deployed and verified on Base on November 17, 2026. Their confirmed
+addresses are recorded in `config/aero-stock-adapters.base.json`, the preparation helper's default.
+They were deployed from source commit `c6903454431678006d7e1165ed6205711e345d22`,
+at Base blocks 58,759,900 (NVDAc), 58,759,912 (TSLAc), and 58,759,923 (GOOGLc).
+A successful dry-run's predicted addresses are not evidence of deployment. The preparation helper checks the supplied addresses'
 bindings and behavior; it is not a substitute for verified bytecode/source provenance.
 
 ## Prepare and simulate (read-only)
@@ -164,7 +168,7 @@ bindings and behavior; it is not a substitute for verified bytecode/source prove
 From the `lend` checkout, with Python 3, Foundry `cast`, and either `BASE_RPC_URL` or `ALCHEMY_API_KEY` in the environment:
 
 ```bash
-python3 script/prepare-aero-stock-collateral.py --adapters /tmp/stock-adapters.json --out /tmp/aero-stock-collateral
+python3 script/prepare-aero-stock-collateral.py --out /tmp/aero-stock-collateral
 ```
 
 This validates chain/deployment bindings, current authority, token/feed identity, decimals, live positive
@@ -172,7 +176,7 @@ feed answers, freshness, unchanged 2% guard, adapter immutables, a successful TW
 an actual Base `eth_call` of every pending setter as its owner, including native B20 metadata execution.
 It writes `plan.json` with public addresses, a pinned validation block, feeds, owners and unsigned calldata.
 Each run removes the previous `plan.json` and `safe-batch.json` before preflight; a failed run leaves no old calldata proposal to execute.
-It neither unlocks a wallet nor broadcasts. The helper intentionally refuses higher limits without code review.
+It neither unlocks a wallet nor broadcasts. The helper refuses limits above the reviewed per-stock maxima (10% / 5% / 10%).
 
 ## Execute after approval and Chainlink confirmation
 
@@ -180,11 +184,12 @@ If the deployer still owns both contracts, keep other Base bots using that accou
 then run the same helper with explicit broadcast and the local keystore:
 
 ```bash
-python3 script/prepare-aero-stock-collateral.py --adapters /tmp/stock-adapters.json --out /tmp/aero-stock-collateral --broadcast --account deployer
+python3 script/prepare-aero-stock-collateral.py --out /tmp/aero-stock-collateral --broadcast --account deployer
 ```
 
 The helper redoes preflight, verifies the keystore's public address, sends only missing calls in order,
-waits for receipts, and stops on failure. No private key or password belongs in configuration files.
+waits for receipts, and stops on failure. After all receipts it reads back all three oracle and vault
+configurations at a new block and requires exact matches. No private key or password belongs in configuration files.
 
 If both owners have become the Safe, preparation additionally writes `safe-batch.json` for Safe Transaction
 Builder. Import and review the ordered six calls before signing/executing through the Safe. Direct EOA
@@ -197,6 +202,16 @@ The three new adapters require source verification; existing contracts do not ne
 
 ## Validation and remaining launch work
 
+Activation preparation on November 17, 2026, with the deployed adapters and 10% / 5% / 10% limits:
+
+- At Base block **58,763,370**, all six native setter `eth_call` simulations passed without broadcasting.
+- Both owners were the configured deployer. All three stock settings were still unset.
+- Decoded calldata matched the recorded adapters, 50% factors and the per-stock limits above.
+- Four preparation regression tests passed, including excessive/malformed limit rejection.
+- All six existing Base-fork tests passed at block 56,276,522 with the updated limits, including
+  preservation of USDC/WETH/cbBTC configuration. The B20 metadata shim limitation below still applies.
+
+
 Adapter validation at Base block **56276522**:
 
 - 13 unit tests passed (including 256 fuzz cases): conversion, token ordering, divergence in both
@@ -208,8 +223,8 @@ Adapter validation at Base block **56276522**:
   was executed natively without shims. The full preparation CLI also passed with those simulated adapters.
 - Runtime size: 4,112 bytes per adapter. No existing contract bytecode changes.
 
-No contracts were deployed or collateral enabled. Repeat the preparation command using confirmed,
-verified adapter addresses after deployment. Simulations do not establish full liquidation execution.
+Those historical tests did not deploy contracts or enable collateral. The adapters are now deployed;
+collateral activation remains separate. Repeat preparation against current Base state before activation. Simulations do not establish full liquidation execution.
 
 Run the focused fork tests with `BASE_RPC_URL` set to an archive-capable Base endpoint:
 

@@ -1,4 +1,5 @@
 """Regression tests for stale actionable output after a failed preparation run."""
+import copy
 import contextlib
 import importlib.util
 import io
@@ -76,6 +77,29 @@ class StaleOutputTest(unittest.TestCase):
                     self.assertFalse(path.exists(), f'Stale {path.name} survived {failure}')
                 self.assertEqual(unrelated.read_text(), 'keep me')
                 self.assertTrue(adapters.exists())
+
+
+class ExposurePolicyTest(unittest.TestCase):
+    def setUp(self):
+        self.config = json.loads((ROOT / 'config/aero-stock-collateral.json').read_text())
+
+    def test_reviewed_per_stock_limits_round_down(self):
+        self.assertEqual(PREPARE.exposure_caps(self.config),
+                         {'NVDAc': 429496729, 'TSLAc': 214748364, 'GOOGLc': 429496729})
+
+    def test_rejects_unreviewed_and_malformed_limits(self):
+        for index, too_high in [(0, 1001), (1, 501), (2, 1001)]:
+            for value in [too_high, 0, -1, True, 500.5, None]:
+                with self.subTest(index=index, value=value):
+                    config = copy.deepcopy(self.config)
+                    config['assets'][index]['collateralValueLimitBps'] = value
+                    with self.assertRaises(SystemExit):
+                        PREPARE.exposure_caps(config)
+
+    def test_rejects_duplicate_or_missing_stock(self):
+        self.config['assets'][2] = self.config['assets'][0]
+        with self.assertRaises(SystemExit):
+            PREPARE.exposure_caps(self.config)
 
 
 if __name__ == '__main__':

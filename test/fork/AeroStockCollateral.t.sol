@@ -27,7 +27,7 @@ contract AeroStockCollateralTest is Test {
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
     uint32 factor;
-    uint32 cap;
+    uint32[3] caps;
     uint32 maxAge;
     StockTwapFeed[3] adapters;
 
@@ -38,11 +38,14 @@ contract AeroStockCollateralTest is Test {
         vault = IStockConfigVault(jsonVm.parseJsonAddress(config, ".vault"));
         npm = jsonVm.parseJsonAddress(config, ".npm");
         factor = uint32(jsonVm.parseJsonUint(config, ".collateralFactorBps") * 2 ** 32 / 10_000);
-        cap = uint32(jsonVm.parseJsonUint(config, ".collateralValueLimitBps") * 2 ** 32 / 10_000);
         maxAge = uint32(jsonVm.parseJsonUint(config, ".maxFeedAge"));
         // B20 token metadata is native on Base, unavailable in stock Foundry's EVM.
         // Only decimals() is shimmed; feeds, owners, oracle, vault and pools are real fork state.
         for (uint256 i; i < 3; ++i) {
+            caps[i] = uint32(
+                jsonVm.parseJsonUint(config, string.concat(".assets[", vm.toString(i), "].collateralValueLimitBps")) * 2
+                    ** 32 / 10_000
+            );
             vm.mockCall(token(i), abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
             address pool = jsonVm.parseJsonAddress(config, string.concat(".assets[", vm.toString(i), "].pool"));
             require(
@@ -83,7 +86,7 @@ contract AeroStockCollateralTest is Test {
         }
         for (uint256 i; i < 3; ++i) {
             vm.prank(vault.owner());
-            vault.setTokenConfig(token(i), factor, cap);
+            vault.setTokenConfig(token(i), factor, caps[i]);
         }
     }
 
@@ -110,7 +113,9 @@ contract AeroStockCollateralTest is Test {
         assertEq(oracle.owner(), ownerBefore);
         assertEq(oracle.maxPoolPriceDifference(), 200);
         assertEq(factor, 2 ** 31);
-        assertEq(cap, uint32(uint256(5) * 2 ** 32 / 100));
+        assertEq(caps[0], 429496729);
+        assertEq(caps[1], 214748364);
+        assertEq(caps[2], 429496729);
         for (uint256 i; i < 3; ++i) {
             (AggregatorV3Interface actualFeed, uint32 age, uint8 fd, uint8 td,,,, V3Oracle.Mode mode,) =
                 oracle.feedConfigs(token(i));
@@ -121,7 +126,7 @@ contract AeroStockCollateralTest is Test {
             assertEq(uint256(mode), uint256(V3Oracle.Mode.CHAINLINK));
             (uint32 cf, uint32 limit,) = vault.tokenConfigs(token(i));
             assertEq(cf, factor);
-            assertEq(limit, cap);
+            assertEq(limit, caps[i]);
             assertGt(oracle.getTokenValue(token(i), 1e8, USDC), 0);
         }
         configure(); // Resuming/reapplying does not change existing asset configuration.
@@ -131,7 +136,7 @@ contract AeroStockCollateralTest is Test {
     function testUnprivilegedCallerCannotEnableCollateral() public {
         vm.prank(address(0xBAD));
         vm.expectRevert();
-        vault.setTokenConfig(token(0), factor, cap);
+        vault.setTokenConfig(token(0), factor, caps[0]);
     }
 
     function testStaleStockFeedRejectsValuation() public {
