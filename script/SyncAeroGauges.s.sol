@@ -3,6 +3,11 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Script.sol";
 import "./utils/AeroGaugeDiscovery.sol";
+import "./utils/AeroGaugeRoles.sol";
+
+interface IAeroRolesEnvironment {
+    function envOr(string calldata name, bool defaultValue) external returns (bool);
+}
 
 // File cheatcodes used by the installed Foundry version; this repo pins an older forge-std interface.
 interface IAeroSyncFiles {
@@ -17,7 +22,7 @@ interface IAeroSyncFiles {
     function writeJson(string calldata json, string calldata path) external;
 }
 
-/// @notice Run periodically in --safe mode; signing remains with the current manager owner.
+/// @notice Default Safe batches, owner signing, or explicitly configured restricted Roles execution.
 contract SyncAeroGauges is Script {
     function run() external {
         address target = vm.envAddress("AERO_GAUGE_MANAGER");
@@ -32,6 +37,10 @@ contract SyncAeroGauges is Script {
             console2.log("POOL", plan.updates[i].pool);
             console2.log("PREVIOUS_GAUGE", plan.updates[i].previousGauge);
             console2.log("NEW_GAUGE", plan.updates[i].gauge);
+        }
+        if (IAeroRolesEnvironment(address(vm)).envOr("AERO_GAUGE_SYNC_ROLES", false)) {
+            _syncWithRoles(target, plan);
+            return;
         }
         if (vm.envBool("AERO_GAUGE_SYNC_SAFE")) {
             IAeroSyncFiles files = IAeroSyncFiles(address(vm));
@@ -68,6 +77,48 @@ contract SyncAeroGauges is Script {
         vm.startBroadcast(sender);
         for (uint256 i; i < plan.updates.length; ++i) {
             manager.setGauge(plan.updates[i].pool, plan.updates[i].gauge);
+        }
+        vm.stopBroadcast();
+    }
+
+    /// @dev Only first registrations are automated. Replacements remain in the ordinary --safe report.
+    function _syncWithRoles(address target, AeroGaugeDiscovery.Plan memory plan) internal {
+        require(target == AeroGaugeRoles.MANAGER, "wrong manager for role");
+        address roles = vm.envAddress("AERO_GAUGE_ROLES");
+        address operator = vm.envAddress("AERO_GAUGE_OPERATOR");
+        AeroGaugeRegistrationCondition condition = AeroGaugeRegistrationCondition(vm.envAddress("AERO_GAUGE_CONDITION"));
+        AeroGaugeRoles.verifyInstance(roles);
+        require(condition.roles() == roles, "condition/roles mismatch");
+        require(
+            operator != address(0) && operator != AeroGaugeRoles.SAFE && operator.code.length == 0,
+            "dedicated EOA required"
+        );
+        require(IGaugeRolesSafe(AeroGaugeRoles.SAFE).isModuleEnabled(roles), "Safe module disabled");
+        for (uint256 i; i < plan.updates.length; ++i) {
+            AeroGaugeDiscovery.Entry memory entry = plan.updates[i];
+            if (entry.previousGauge != address(0)) {
+                console2.log("MANUAL_REPLACEMENT_POOL", entry.pool);
+                continue;
+            }
+            condition.validate(entry.pool, entry.gauge);
+        }
+        vm.startBroadcast(operator);
+        for (uint256 i; i < plan.updates.length; ++i) {
+            AeroGaugeDiscovery.Entry memory entry = plan.updates[i];
+            if (entry.previousGauge != address(0)) continue;
+            require(
+                IZodiacRoles(roles)
+                    .execTransactionWithRole(
+                        target,
+                        0,
+                        abi.encodeCall(GaugeManager.setGauge, (entry.pool, entry.gauge)),
+                        0,
+                        AeroGaugeRoles.ROLE,
+                        true
+                    ),
+                "registration failed"
+            );
+            require(GaugeManager(payable(target)).poolToGauge(entry.pool) == entry.gauge, "registration mismatch");
         }
         vm.stopBroadcast();
     }

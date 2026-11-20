@@ -1,0 +1,37 @@
+{
+  "sourceCommit": "b7988c0e352c8e409145b76d193ba67a6f2e44d1",
+  "chainId": 8453,
+  "contracts": [
+    {
+      "contract": "Roles",
+      "address": "0xF2964CE6161ce0e75964Fe7927cE114cb0B283D5",
+      "baseBlock": 59778757,
+      "runtimeBytes": 24409,
+      "matchesPublishedArtifact": true,
+      "keccak256": "0x471d8b3b419f1eb955230c0326c8812176df49bf3c7b414a563fda5a3c6c10b6"
+    },
+    {
+      "contract": "Integrity",
+      "address": "0x6a6Af4b16458Bc39817e4019fB02BD3b26d41049",
+      "baseBlock": 59778757,
+      "runtimeBytes": 5637,
+      "matchesPublishedArtifact": true,
+      "keccak256": "0xee8ec55ea4ac609a3fc768eccf3f0479631454fe0a802e4a4b8132102d10d495"
+    },
+    {
+      "contract": "Packer",
+      "address": "0x869718C939652084BC491fBC5ce0D3C1d5B309F0",
+      "baseBlock": 59778757,
+      "runtimeBytes": 2138,
+      "matchesPublishedArtifact": true,
+      "keccak256": "0xc28f5fb0c8857669286d01e3df89f310d5ddfbf98205ad46d2f7d28767a76c82"
+    },
+    {
+      "contract": "ModuleProxyFactory 1.2.0",
+      "address": "0x000000000000aDdB49795b0f9bA5BC298cDda236",
+      "baseBlock": 59778757,
+      "matchesPublishedArtifact": true,
+      "keccak256": "0x01623cbcf010a1c326230f1b2d5f48a66b440232ee49096102bc84967dc5f21e"
+    }
+  ]
+}
