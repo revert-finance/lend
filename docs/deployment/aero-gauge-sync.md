@@ -106,6 +106,13 @@ Aerodrome service; use this new Aero command rather than repointing that service
 without adapting its legacy interfaces. Owner transactions remain an explicit
 step after the read-only scheduled scan.
 
+## Restricted automated execution after Safe acceptance
+
+For the current Base manager, [restricted Zodiac gauge registration](aero-gauge-roles.md)
+adds `--roles-dry-run` and `--roles-broadcast`. The Safe remains owner; a separately
+authorized dedicated EOA can add first-time canonical gauges. Replacements still
+require the manual Safe batches above. Activation is a separate Safe transaction.
+
 ## EOA execution before Safe acceptance
 
 ```bash
