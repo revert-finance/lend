@@ -123,7 +123,7 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
 
         Instructions memory instructions = abi.decode(data, (Instructions));
 
-        execute(tokenId, instructions);
+        _execute(tokenId, instructions);
 
         // return token to owner (this line guarantees that token is returned to originating owner)
         nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
@@ -137,7 +137,10 @@ contract V3Utils is Transformer, Swapper, IERC721Receiver {
     /// @return newTokenId Id of position (if a new one was created)
     function execute(uint256 tokenId, Instructions memory instructions) public returns (uint256 newTokenId) {
         _validateCaller(nonfungiblePositionManager, tokenId);
+        return _execute(tokenId, instructions);
+    }
 
+    function _execute(uint256 tokenId, Instructions memory instructions) internal returns (uint256 newTokenId) {
         (,, address token0, address token1,,,, uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
 
         uint256 amount0;
