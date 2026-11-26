@@ -56,7 +56,7 @@ abstract contract Transformer is Ownable2Step, Constants {
             }
         } else {
             address owner = nonfungiblePositionManager.ownerOf(tokenId);
-            if (owner != msg.sender && owner != address(this)) {
+            if (owner != msg.sender) {
                 revert Unauthorized();
             }
         }
